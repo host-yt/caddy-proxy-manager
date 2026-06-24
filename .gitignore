@@ -44,9 +44,6 @@ data/
 caddy_data/
 caddy_config/
 
-# Internal docs (not for public repo)
-docs/
-
 .claude/
 
 # compiled binaries
