@@ -1,0 +1,42 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - gosimple
+    - gofmt
+    - goimports
+    - misspell
+    - revive
+    - bodyclose
+    - rowserrcheck
+    - sqlclosecheck
+    - gosec
+    - prealloc
+    - unconvert
+    - unparam
+
+issues:
+  exclude-rules:
+    - path: _test\.go
+      linters: [gosec, unparam, errcheck]
+    - path: internal/store/db/
+      linters: [unused, revive, gosec]  # sqlc generated
+    - path: .*_templ\.go
+      linters: [unused, revive, gosec]  # templ generated
+
+linters-settings:
+  revive:
+    rules:
+      - name: exported
+      - name: var-naming
+      - name: error-return
+      - name: error-naming
+      - name: unexported-return

@@ -1,0 +1,80 @@
+{{define "layout.html.tmpl"}}<!doctype html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Hostyt Proxy Gateway - Install</title>
+<link rel="stylesheet" href="/static/fonts/inter.css">
+<link rel="stylesheet" href="/static/css/tailwind.css">
+<script nonce="{{.Data.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
+<style>
+  .step-dot { @apply w-2 h-2 rounded-full bg-slate-300 dark:bg-zinc-700 transition-colors; }
+  .step-dot.done { @apply bg-emerald-500; }
+  .step-dot.active { @apply bg-indigo-600 ring-2 ring-indigo-200 dark:ring-indigo-500/30; }
+  /* Global form-control dark-mode safety net: many existing templates
+     omit dark: utilities on individual inputs, which renders light text
+     on the inherited white background. Force readable colours here so
+     new templates inherit the right defaults without touching every
+     <input>. Buttons/checkboxes/radios are excluded so they keep their
+     specialised styling. */
+  input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  select, textarea { color: rgb(15 23 42); }
+  .dark input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  .dark select, .dark textarea {
+    background-color: rgb(39 39 42);
+    border-color: rgb(63 63 70);
+    color: rgb(241 245 249);
+  }
+  .dark input::placeholder, .dark textarea::placeholder { color: rgb(100 116 139); }
+</style>
+</head>
+<body class="h-full bg-gradient-to-b from-slate-50 to-slate-100 dark:from-zinc-950 dark:to-zinc-900 text-slate-900 dark:text-slate-100 flex items-center justify-center p-4">
+<div class="w-full max-w-2xl">
+  <header class="text-center mb-8">
+    <h1 class="text-2xl font-semibold tracking-tight">Hostyt Proxy Gateway</h1>
+    <p class="text-slate-500 dark:text-slate-400 text-sm">Install wizard</p>
+  </header>
+
+  <nav class="flex justify-center gap-2 mb-6">
+    {{range $i, $s := .Data.Steps}}
+      <span class="step-dot {{if eq $s $.Step}}active{{else if $.Data.IsDone $s}}done{{end}}" title="{{$s}}"></span>
+    {{end}}
+  </nav>
+
+  <main class="bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-slate-200 dark:border-zinc-800 p-6">
+    {{if .Data.Error}}
+      <div class="mb-4 p-3 rounded-md bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 text-sm">{{.Data.Error}}</div>
+    {{end}}
+    {{if eq .Step "welcome"}}{{template "welcome" .Data}}{{end}}
+    {{if eq .Step "db"}}{{template "db" .Data}}{{end}}
+    {{if eq .Step "admin"}}{{template "admin" .Data}}{{end}}
+    {{if eq .Step "app"}}{{template "app" .Data}}{{end}}
+    {{if eq .Step "smtp"}}{{template "smtp" .Data}}{{end}}
+    {{if eq .Step "caddy"}}{{template "caddy" .Data}}{{end}}
+    {{if eq .Step "done"}}{{template "done" .Data}}{{end}}
+  </main>
+
+  <footer class="text-center mt-6 flex items-center justify-center gap-3 text-xs text-slate-400 dark:text-slate-500">
+    <button type="button" data-theme-toggle class="hover:text-slate-700 dark:text-slate-200 dark:hover:text-slate-200" title="Toggle theme">
+      <span id="theme-icon">🌙</span>
+    </button>
+    <span>Step <strong>{{.Step}}</strong> · After install completes the wizard self-locks.</span>
+  </footer>
+</div>
+<script nonce="{{.Data.CSPNonce}}">
+function toggleTheme(){
+  var d=document.documentElement;
+  var dark=d.classList.toggle('dark');
+  localStorage.setItem('theme', dark?'dark':'light');
+  document.getElementById('theme-icon').textContent=dark?'☀️':'🌙';
+}
+(function(){var d=document.documentElement.classList.contains('dark');document.getElementById('theme-icon').textContent=d?'☀️':'🌙';})();
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('[data-theme-toggle]').forEach(function(el){
+    el.addEventListener('click', toggleTheme);
+  });
+});
+</script>
+</body>
+</html>
+{{end}}

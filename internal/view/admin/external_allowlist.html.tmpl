@@ -1,0 +1,62 @@
+{{define "external_allowlist"}}
+<div class="space-y-6">
+
+  <section class="hpg-card p-0 overflow-hidden">
+    <div class="p-5">
+      <h2 class="hpg-eyebrow">External upstream allowlist</h2>
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">FQDNs an <strong>External HTTPS upstream</strong> route is permitted to proxy to. This is the open-relay defense: a node never reaches a host that is not on this list. The effective allowlist is the <strong>union</strong> of these DB entries and the <code>EXTERNAL_UPSTREAM_ALLOWLIST</code> env CSV.</p>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <tr class="border-t border-slate-100 dark:border-zinc-800">
+          <th class="px-5 py-2.5">Host</th>
+          <th class="px-5 py-2.5">Note</th>
+          <th class="px-5 py-2.5">Added</th>
+          <th class="px-5 py-2.5 text-right"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Hosts}}
+        <tr>
+          <td class="px-5 py-3 font-medium text-slate-800 dark:text-slate-100"><code>{{.Host}}</code></td>
+          <td class="px-5 py-3 text-slate-600 dark:text-slate-300">{{.Note}}</td>
+          <td class="px-5 py-3 text-xs text-slate-500">{{.Created}}</td>
+          <td class="px-5 py-3 text-right">
+            <form method="POST" action="/admin/settings/external-allowlist/{{.ID}}/delete" class="inline" data-confirm="Remove {{.Host}} from the allowlist?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="4" class="px-5 py-6 text-center text-slate-500 dark:text-slate-400">No DB allowlist hosts. {{if not .EnvHosts}}External routes will be rejected until a host is added here or via env.{{end}}</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+    {{if .EnvHosts}}
+    <div class="px-5 py-3 border-t border-slate-100 dark:border-zinc-800 text-xs text-slate-500 dark:text-slate-400">
+      <span class="font-medium text-slate-600 dark:text-slate-300">From env (read-only):</span>
+      {{range .EnvHosts}}<code class="mx-0.5 px-1.5 py-0.5 rounded-lg bg-slate-100 dark:bg-zinc-800">{{.}}</code>{{end}}
+    </div>
+    {{end}}
+  </section>
+
+  <section class="hpg-card">
+    <h2 class="hpg-eyebrow mb-3">Add host</h2>
+    <form method="POST" action="/admin/settings/external-allowlist" class="space-y-3 text-sm max-w-2xl">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Host (FQDN)</label>
+          <input name="host" required placeholder="adm.tools" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-800 dark:text-slate-100 font-mono text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Note (optional)</label>
+          <input name="note" maxlength="255" placeholder="adm.tools gov API" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-800 dark:text-slate-100 text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+      </div>
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Add host</button>
+    </form>
+  </section>
+</div>
+{{end}}

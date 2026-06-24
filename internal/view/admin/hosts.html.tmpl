@@ -1,0 +1,194 @@
+{{define "hosts"}}
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100">All hosts <span class="text-sm font-normal text-slate-500">({{.Total}})</span></h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400">Every domain mapped on every Caddy node, across every client.</p>
+    </div>
+    <a href="/admin/hosts/new" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700">+ Add host</a>
+  </div>
+
+  <form method="GET" action="/admin/hosts" class="hpg-card flex flex-wrap items-end gap-3 text-sm">
+    <div class="flex-1 min-w-[200px]">
+      <label class="hpg-eyebrow mb-1 block">Search domain / client email</label>
+      <input name="q" value="{{.Q}}" placeholder="example.com or alice@" class="w-full px-3.5 py-2 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none">
+    </div>
+    <div>
+      <label class="hpg-eyebrow mb-1 block">Status</label>
+      <select name="status" class="px-3.5 py-2 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none">
+        <option value="">any</option>
+        <option value="active" {{if eq .Status "active"}}selected{{end}}>active</option>
+        <option value="pending_dns" {{if eq .Status "pending_dns"}}selected{{end}}>pending DNS</option>
+        <option value="dns_ok" {{if eq .Status "dns_ok"}}selected{{end}}>DNS ok</option>
+        <option value="pending_ssl" {{if eq .Status "pending_ssl"}}selected{{end}}>pending SSL</option>
+        <option value="failed" {{if eq .Status "failed"}}selected{{end}}>failed</option>
+        <option value="disabled" {{if eq .Status "disabled"}}selected{{end}}>disabled</option>
+      </select>
+    </div>
+    <div>
+      <label class="hpg-eyebrow mb-1 block">Node</label>
+      <select name="node_id" class="px-3.5 py-2 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none">
+        <option value="">any</option>
+        {{range .NodeOptions}}
+        <option value="{{.ID}}" {{if eq .ID $.NodeIDFilter}}selected{{end}}>{{.Name}}</option>
+        {{end}}
+      </select>
+    </div>
+    <div>
+      <label class="hpg-eyebrow mb-1 block">Tag</label>
+      <input name="tag" value="{{.TagFilter}}" placeholder="saas-customer-1" class="px-3.5 py-2 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none">
+    </div>
+    <div class="flex gap-1.5">
+      <button class="px-4 py-2 rounded-full bg-indigo-600 text-white text-xs font-medium shadow-sm hover:bg-indigo-700">Filter</button>
+      <a href="/admin/hosts" class="px-4 py-2 rounded-full ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800">Reset</a>
+    </div>
+  </form>
+
+  <!-- Bulk action form is HIDDEN - it's submitted via JS so per-row
+       action buttons (retry/toggle/delete) stay independent. HTML5 forbids
+       nested <form> elements; wrapping the table in a bulk form swallowed
+       row-level submits and caused "Select at least one row." on retry. -->
+  <form method="POST" action="/admin/hosts/bulk" id="hosts-bulk-form" class="hidden">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <input type="hidden" name="action" id="hosts-bulk-action">
+    <div id="hosts-bulk-ids"></div>
+  </form>
+
+  <section class="hpg-card !p-0 overflow-hidden">
+    {{if .Hosts}}
+    <div class="px-5 py-3 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+      <span class="hpg-eyebrow">Bulk action</span>
+      <select id="hosts-bulk-select" class="px-3 py-1.5 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs outline-none">
+        <option value="disable">Disable selected</option>
+        <option value="enable">Enable selected</option>
+        <option value="delete">Delete selected</option>
+      </select>
+      <button type="button" id="hosts-bulk-apply" class="px-3 py-1.5 rounded-full bg-slate-800 dark:bg-zinc-700 text-white text-xs hover:bg-slate-900">Apply</button>
+    </div>
+    {{end}}
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="bg-slate-50/60 dark:bg-zinc-800/40 text-left">
+        <tr class="hpg-eyebrow">
+          <th class="pl-5 pr-2 py-3 w-8"><input type="checkbox" data-check-all="ids" class="rounded"></th>
+          <th class="px-4 py-3 min-w-[180px]">Domain</th>
+          <th class="px-4 py-3">Backend</th>
+          <th class="px-4 py-3 w-24">Cert</th>
+          <th class="px-4 py-3 w-28">Health</th>
+          <th class="px-4 py-3">Client</th>
+          <th class="px-4 py-3">Plan</th>
+          <th class="px-4 py-3">Node</th>
+          <th class="pl-2 pr-5 py-3 w-px text-right">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Hosts}}
+        <tr id="host-row-{{.RouteID}}" class="hpg-row hover:bg-slate-50/70 dark:hover:bg-zinc-800/40">
+          <td class="pl-5 pr-2 py-4 align-top"><input type="checkbox" name="ids" value="{{.RouteID}}" class="rounded"></td>
+          <td class="px-4 py-4 align-top">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-mono text-xs font-semibold text-slate-800 dark:text-slate-100">{{.Domain}}{{if .PathPrefix}}<span class="text-slate-400">{{.PathPrefix}}</span>{{end}}</span>
+              {{if eq .Kind "redirect"}}<span class="hpg-pill bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">redirect</span>
+              {{else if .External}}<span class="hpg-pill bg-violet-50 text-violet-600 dark:bg-violet-500/15 dark:text-violet-300">external</span>
+              {{else}}<span class="hpg-pill bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">proxy</span>{{end}}
+            </div>
+            {{if .Tag}}<a href="/admin/hosts?tag={{.Tag}}" class="hpg-pill bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-slate-300 mt-1.5 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-500/15 dark:hover:text-indigo-300">{{.Tag}}</a>{{end}}
+          </td>
+          <td class="px-4 py-4 align-top font-mono text-xs text-slate-500 dark:text-slate-400">{{.BackendDisplay}}</td>
+          <td class="px-4 py-4 align-top text-xs whitespace-nowrap">
+            {{if eq .CertStatus "active"}}<span class="hpg-pill hpg-pill-ok">active</span>
+            {{else if eq .CertStatus "pending"}}<span class="hpg-pill hpg-pill-warn">pending</span>
+            {{else}}<span class="hpg-pill hpg-pill-muted">off</span>{{end}}
+            {{if .IssuedAt}}<div class="mt-1 text-[10px] text-slate-400" title="Certificate issued">{{.IssuedAt}}</div>{{end}}
+          </td>
+          <td class="px-4 py-4 align-top text-xs whitespace-nowrap">
+            {{if eq .Health "active"}}<span class="hpg-pill hpg-pill-ok">active</span>{{end}}
+            {{if eq .Health "pending_dns"}}<span class="hpg-pill hpg-pill-warn">pending DNS</span>{{end}}
+            {{if eq .Health "dns_ok"}}<span class="hpg-pill bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">DNS ok</span>{{end}}
+            {{if eq .Health "pending_ssl"}}<span class="hpg-pill bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">pending SSL</span>{{end}}
+            {{if eq .Health "failed"}}<span class="hpg-pill hpg-pill-err" title="{{.LastError}}">failed</span>{{end}}
+            {{if eq .Health "disabled"}}<span class="hpg-pill hpg-pill-muted">disabled</span>{{end}}
+          </td>
+          <td class="px-4 py-4 align-top text-xs">
+            <a href="/admin/clients" class="text-indigo-600 dark:text-indigo-400 hover:underline">{{.ClientEmail}}</a>
+          </td>
+          <td class="px-4 py-4 align-top text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">
+            {{.PlanName}}
+            {{if eq .PlanKind "npm"}}<span class="hpg-pill bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300 ml-1">NPM</span>{{end}}
+          </td>
+          <td class="px-4 py-4 align-top text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.NodeName}} <span class="text-slate-400">{{.NodeHostname}}</span></td>
+          <td class="pl-2 pr-5 py-4 align-top text-right">
+            <!-- Inline actions: scroll horizontally with the table (reachable) instead of a clipped overflow popup. -->
+            <div class="inline-flex items-center gap-1.5 text-xs whitespace-nowrap">
+              <a href="/admin/hosts/{{.RouteID}}/edit" class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/15">edit</a>
+              <a href="https://{{.Domain}}" target="_blank" rel="noopener" title="Open site" class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800">open ↗</a>
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" class="inline" title="Re-run DNS check + re-push to Caddy (forces cert reissue if ACME has been failing)">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:text-emerald-600">retry</button>
+              </form>
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle" class="inline">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/15">{{if eq .Status "disabled"}}enable{{else}}disable{{end}}</button>
+              </form>
+              <!-- htmx removes the row in place; no-JS falls back to a full POST.
+                   hx-confirm is routed through hpgConfirm by the htmx:confirm hook. -->
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/delete" class="inline"
+                    hx-post="/admin/hosts/{{.RouteID}}/delete"
+                    hx-target="#host-row-{{.RouteID}}" hx-swap="outerHTML swap:150ms"
+                    hx-confirm="Delete {{.Domain}}? This cannot be undone.">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="px-2 py-1 rounded-md ring-1 ring-rose-200/70 dark:ring-rose-500/30 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/15">delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="9" class="px-4 py-10 text-center text-slate-500 dark:text-slate-400">
+          No hosts yet. <a href="/admin/hosts/new" class="text-indigo-600 dark:text-indigo-400 hover:underline">Add the first one →</a>
+        </td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+    {{if .Hosts}}
+    <div class="px-5 py-3.5 border-t border-slate-100 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600 dark:text-slate-400">
+      <span>Showing page {{.Page}} of {{.TotalPages}} <span class="text-slate-400">·</span> {{.Total}} host{{if ne .Total 1}}s{{end}} total</span>
+      <div class="flex items-center gap-1.5">
+        {{if .HasPrev}}<a href="/admin/hosts?page={{.PrevPage}}{{.FilterQS}}" class="px-3 py-1.5 rounded-full ring-1 ring-slate-200/70 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800">‹ Prev</a>
+        {{else}}<span class="px-3 py-1.5 rounded-full ring-1 ring-slate-100 dark:ring-zinc-800 text-slate-300 dark:text-zinc-600">‹ Prev</span>{{end}}
+        {{if .HasNext}}<a href="/admin/hosts?page={{.NextPage}}{{.FilterQS}}" class="px-3 py-1.5 rounded-full ring-1 ring-slate-200/70 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800">Next ›</a>
+        {{else}}<span class="px-3 py-1.5 rounded-full ring-1 ring-slate-100 dark:ring-zinc-800 text-slate-300 dark:text-zinc-600">Next ›</span>{{end}}
+      </div>
+    </div>
+    {{end}}
+  </section>
+
+  <script nonce="{{.CSPNonce}}">
+  (function(){
+    var btn = document.getElementById('hosts-bulk-apply');
+    if (!btn) return;
+    btn.addEventListener('click', function(){
+      var sel = document.getElementById('hosts-bulk-select');
+      var action = sel.value;
+      var ids = Array.from(document.querySelectorAll('tbody input[type="checkbox"][name="ids"]:checked')).map(function(c){ return c.value; });
+      if (ids.length === 0) { window.hpgToast && window.hpgToast('Select at least one row.', 'warn'); return; }
+      var msg = action === 'delete' ? 'Delete '+ids.length+' host(s)? This cannot be undone.' : action+' '+ids.length+' host(s)?';
+      var go = function(){
+        document.getElementById('hosts-bulk-action').value = action;
+        var box = document.getElementById('hosts-bulk-ids');
+        box.innerHTML = '';
+        ids.forEach(function(v){
+          var i = document.createElement('input');
+          i.type = 'hidden'; i.name = 'ids'; i.value = v;
+          box.appendChild(i);
+        });
+        document.getElementById('hosts-bulk-form').submit();
+      };
+      if (window.hpgConfirm) {
+        window.hpgConfirm(msg).then(function(ok){ if (ok) go(); });
+      } else if (confirm(msg)) {
+        go();
+      }
+    });
+  })();
+  </script>
+</div>
+{{end}}

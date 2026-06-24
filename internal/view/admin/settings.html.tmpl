@@ -1,0 +1,888 @@
+{{define "settings"}}
+<div class="space-y-4">
+
+  <div class="hpg-card !p-2 flex flex-wrap gap-1">
+    <button type="button" data-settings-tab="general" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-slate-100 font-medium">General</button>
+    <button type="button" data-settings-tab="branding" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Branding</button>
+    <button type="button" data-settings-tab="email" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Email (SMTP)</button>
+    <button type="button" data-settings-tab="sms" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SMS</button>
+    <button type="button" data-settings-tab="auth" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SSO / OIDC</button>
+    <button type="button" data-settings-tab="captcha" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">CAPTCHA</button>
+    <button type="button" data-settings-tab="cloudflare" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cloudflare</button>
+    <button type="button" data-settings-tab="wireguard" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">WireGuard</button>
+    <button type="button" data-settings-tab="acme" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">ACME / TLS</button>
+    <button type="button" data-settings-tab="customer" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Customer fields</button>
+    <button type="button" data-settings-tab="sso-jump" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SSO Jump</button>
+    <button type="button" data-settings-tab="apidocs" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">API docs</button>
+    <button type="button" data-settings-tab="security" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Security</button>
+  </div>
+
+  <section data-settings-pane="security" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">Admin 2FA enforcement</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">When on, every <strong>admin</strong> / <strong>super_admin</strong> without an enrolled 2FA method is redirected to setup before reaching the panel. Existing admins get a short grace window so flipping it on never instantly locks anyone out.{{if .Require2FAEnvForced}} <strong class="text-amber-600 dark:text-amber-400">Locked on by the REQUIRE_ADMIN_2FA env var.</strong>{{end}}</p>
+    <form method="POST" action="/admin/settings/require-2fa" class="space-y-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+        <input type="checkbox" name="require_admin_2fa" value="1" {{if .Require2FA}}checked{{end}}{{if .Require2FAEnvForced}} disabled{{end}}>
+        Require 2FA for all admin accounts
+      </label>
+      {{if not .Require2FAEnvForced}}
+      <div class="flex justify-end">
+        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save</button>
+      </div>
+      {{end}}
+    </form>
+  </section>
+
+  <section data-settings-pane="apidocs" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">API documentation visibility</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4"><code class="text-xs">/api-docs</code> renders the Scalar API Reference. SSO jump and other internal endpoints are NOT in the spec. Off = anonymous visitors get 404, admins still see it when logged in.</p>
+    <form method="POST" action="/admin/settings/apidocs" class="space-y-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+        <input type="checkbox" name="public_enabled" value="1" {{if .APIDocsPublic}}checked{{end}}>
+        Publicly reachable (no login required)
+      </label>
+      <div class="flex justify-end">
+        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-settings-pane="customer" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Customer fields</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Controls which optional profile fields the customer can fill in <code class="text-xs">/app/account</code>. Disabled = field hidden from the customer UI and refused at the server layer even if posted directly.</p>
+    <form method="POST" action="/admin/settings/customer-fields" class="space-y-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+        <input type="checkbox" name="phone_enabled" value="1" {{if .CustomerFields.PhoneEnabled}}checked{{end}}>
+        Show <strong>phone</strong> field to customers (E.164) - required for SMS outage alerts and 2FA SMS fallback
+      </label>
+      <div class="flex justify-end pt-2">
+        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-settings-pane="general" class="hpg-settings-pane hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Panel</h2>
+    <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <div><dt class="hpg-eyebrow">Public URL</dt><dd class="font-mono text-slate-800 dark:text-slate-100 break-all mt-0.5">{{.AppURL}}</dd></div>
+      <div><dt class="hpg-eyebrow">Installed</dt><dd class="mt-0.5"><span class="hpg-pill hpg-pill-ok">yes</span></dd></div>
+    </dl>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">To change the panel URL, edit APP_URL in .env and restart.</p>
+  </section>
+
+  <section data-settings-pane="branding" class="hpg-settings-pane hidden space-y-4">
+
+    <!-- Branding form (posts to /admin/branding); fields are nested under .Branding on the Settings page. -->
+    <div class="hpg-card space-y-4 text-sm">
+      <div>
+        <div class="hpg-eyebrow">Branding</div>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Customise the panel + login page brand. URLs must be <code class="text-xs">http://</code> or <code class="text-xs">https://</code> (they render as <code class="text-xs">&lt;img src&gt;</code>/<code class="text-xs">&lt;link href&gt;</code> so other schemes are refused).</p>
+      </div>
+
+      <form method="POST" action="/admin/branding" class="space-y-4">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Brand name</label>
+          <input name="brand_name" value="{{.Branding.BrandName}}" maxlength="64" placeholder="Hostyt Proxy" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <p class="text-[11px] text-slate-500 mt-1">Shown in the sidebar + login header. Empty = default "Hostyt Proxy".</p>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tagline (optional)</label>
+          <input name="tagline" value="{{.Branding.Tagline}}" maxlength="128" placeholder="Self-hosted reverse-proxy panel" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Logo URL (light mode)</label>
+            <input name="logo_url_light" value="{{.Branding.LogoURLLight}}" placeholder="https://cdn.example.com/logo-dark.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
+            {{if .Branding.LogoURLLight}}<div class="mt-2 inline-block p-2 rounded-lg bg-white ring-1 ring-slate-200 dark:ring-zinc-700"><img src="{{.Branding.LogoURLLight}}" alt="light preview" class="h-8"></div>{{end}}
+            <p class="text-[11px] text-slate-500 mt-1">Used on white backgrounds. Pick a logo with dark ink.</p>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Logo URL (dark mode)</label>
+            <input name="logo_url_dark" value="{{.Branding.LogoURLDark}}" placeholder="https://cdn.example.com/logo-light.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
+            {{if .Branding.LogoURLDark}}<div class="mt-2 inline-block p-2 rounded-lg bg-zinc-900 ring-1 ring-zinc-700"><img src="{{.Branding.LogoURLDark}}" alt="dark preview" class="h-8"></div>{{end}}
+            <p class="text-[11px] text-slate-500 mt-1">Falls back to the light logo if empty. Pick a logo with light ink for dark backgrounds.</p>
+          </div>
+        </div>
+
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Favicon URL</label>
+          <input name="favicon_url" value="{{.Branding.FaviconURL}}" placeholder="https://cdn.example.com/favicon.ico" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <p class="text-[11px] text-slate-500 mt-1">16x16 ICO or PNG. Browsers cache aggressively - change the URL or path to bust.</p>
+        </div>
+
+        <div class="rounded-xl ring-1 ring-slate-200 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900/50 p-4 space-y-3">
+          <div class="hpg-eyebrow">Error / maintenance page skin</div>
+          <p class="text-[11px] text-slate-500">Branding for the pages Caddy serves directly (404, 403, 502, 503, 504, maintenance). Empty fields fall back to a neutral deep-gray skin.</p>
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Error page logo URL</label>
+            <input name="error_logo_url" value="{{.Branding.ErrorLogoURL}}" placeholder="https://cdn.example.com/logo-error.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
+            {{if .Branding.ErrorLogoURL}}<div class="mt-2 inline-block p-2 rounded-lg" style="background: {{if .Branding.ErrorBgColor}}{{.Branding.ErrorBgColor}}{{else}}#1f2937{{end}};"><img src="{{.Branding.ErrorLogoURL}}" alt="error logo preview" class="h-8"></div>{{end}}
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Error page logo link</label>
+            <input name="error_logo_link" value="{{.Branding.ErrorLogoLink}}" placeholder="https://www.your-brand.com/" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
+            <p class="text-[11px] text-slate-500 mt-1">Where the logo links on error pages. Leave empty for a non-clickable logo.</p>
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Background color</label>
+            <div class="flex gap-2 items-center">
+              <input name="error_bg_color" value="{{.Branding.ErrorBgColor}}" placeholder="#1f2937" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+              <span class="inline-block w-8 h-8 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700" style="background: {{if .Branding.ErrorBgColor}}{{.Branding.ErrorBgColor}}{{else}}#1f2937{{end}};"></span>
+            </div>
+            <p class="text-[11px] text-slate-500 mt-1">Hex (#RGB / #RRGGBB / #RRGGBBAA) or rgb()/rgba(). Default is deep slate (#1f2937).</p>
+          </div>
+        </div>
+
+        <div class="flex justify-end pt-2">
+          <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 cursor-pointer transition-colors">Save branding</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- Appearance sub-section: per-browser palette picker (server cookie set via /theme/{slug} link). -->
+    <div class="hpg-card">
+      <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Appearance</h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Pick a color palette. Themes are per-browser and switch instantly - they do not change settings for other users. This is separate from the light/dark toggle in the top bar.</p>
+    {{$cur := .Theme}}
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+      <a href="/theme/default" data-palette-pick="default" data-palette-card="default" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "default" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+        <!-- Live preview: [data-theme] scopes the real palette vars, so these utility-class dots always match themes.css. -->
+        <div data-theme="default" class="flex gap-1.5 mb-2">
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-indigo-600"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
+        </div>
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Slate (default)</span>
+          {{if eq "default" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+        </div>
+      </a>
+      <a href="/theme/midnight" data-palette-pick="midnight" data-palette-card="midnight" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "midnight" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+        <div data-theme="midnight" class="flex gap-1.5 mb-2">
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-indigo-600"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
+        </div>
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Midnight</span>
+          {{if eq "midnight" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+        </div>
+      </a>
+      <a href="/theme/ocean" data-palette-pick="ocean" data-palette-card="ocean" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "ocean" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+        <div data-theme="ocean" class="flex gap-1.5 mb-2">
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-indigo-600"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
+        </div>
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Ocean</span>
+          {{if eq "ocean" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+        </div>
+      </a>
+      <a href="/theme/forest" data-palette-pick="forest" data-palette-card="forest" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "forest" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+        <div data-theme="forest" class="flex gap-1.5 mb-2">
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-indigo-600"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
+        </div>
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Forest</span>
+          {{if eq "forest" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+        </div>
+      </a>
+      <a href="/theme/violet" data-palette-pick="violet" data-palette-card="violet" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "violet" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+        <div data-theme="violet" class="flex gap-1.5 mb-2">
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-indigo-600"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
+        </div>
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Violet</span>
+          {{if eq "violet" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+        </div>
+      </a>
+      <a href="/theme/sunset" data-palette-pick="sunset" data-palette-card="sunset" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "sunset" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+        <div data-theme="sunset" class="flex gap-1.5 mb-2">
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-indigo-600"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
+        </div>
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Sunset</span>
+          {{if eq "sunset" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+        </div>
+      </a>
+      <a href="/theme/nord" data-palette-pick="nord" data-palette-card="nord" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "nord" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+        <div data-theme="nord" class="flex gap-1.5 mb-2">
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-indigo-600"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
+        </div>
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Nord</span>
+          {{if eq "nord" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+        </div>
+      </a>
+      <a href="/theme/mono" data-palette-pick="mono" data-palette-card="mono" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "mono" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+        <div data-theme="mono" class="flex gap-1.5 mb-2">
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-indigo-600"></span>
+          <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
+        </div>
+        <div class="flex items-center justify-between gap-1">
+          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Mono</span>
+          {{if eq "mono" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+        </div>
+      </a>
+    </div>
+    </div>
+  </section>
+
+  <section data-settings-pane="email" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">SMTP</h2>
+    <form method="POST" action="/admin/settings/smtp" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="sm:col-span-2">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Host</label>
+        <input name="host" value="{{.SMTP.Host}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Port</label>
+        <input name="port" type="number" min="1" max="65535" value="{{.SMTP.Port}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Encryption</label>
+        <select name="encryption" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <option value="tls" {{if eq .SMTP.Encryption "tls"}}selected{{end}}>STARTTLS</option>
+          <option value="ssl" {{if eq .SMTP.Encryption "ssl"}}selected{{end}}>SSL/TLS</option>
+          <option value="none" {{if eq .SMTP.Encryption "none"}}selected{{end}}>None</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Username</label>
+        <input name="username" value="{{.SMTP.Username}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Password {{if .SMTP.HasPassword}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}</label>
+        <input name="password" type="password" placeholder="{{if .SMTP.HasPassword}}leave blank to keep{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">From email</label>
+        <input name="from_email" type="email" value="{{.SMTP.FromEmail}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">From name</label>
+        <input name="from_name" value="{{.SMTP.FromName}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div class="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2">
+        <button name="action" value="test" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm">Send test email</button>
+        <button name="action" value="save" class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save SMTP</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-settings-pane="auth" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">OIDC / Single sign-on</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Works with Authentik, Microsoft Entra ID, and any standards-compliant OIDC provider.</p>
+    <form id="oidc-form" method="POST" action="/admin/settings/oidc" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="sm:col-span-2">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="enabled" value="1" {{if .OIDC.Enabled}}checked{{end}}> Enable OIDC sign-in button on the login page</label>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Provider display name</label>
+        <input name="provider_name" value="{{.OIDC.ProviderName}}" placeholder="Authentik" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Label for the login button, e.g. "Sign in with Authentik".</p>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Default role for new users</label>
+        <select name="default_role" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <option value="support" {{if eq .OIDC.DefaultRole "support"}}selected{{end}}>support</option>
+          <option value="admin" {{if eq .OIDC.DefaultRole "admin"}}selected{{end}}>admin</option>
+          <option value="client" {{if eq .OIDC.DefaultRole "client"}}selected{{end}}>client</option>
+        </select>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">"admin" + auto-provision is refused for safety.</p>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Issuer URL</label>
+        <input id="oidc-issuer" name="issuer" value="{{.OIDC.Issuer}}" placeholder="https://authentik.example.com/application/o/hostyt/" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">In Authentik: Application → Provider → "OpenID Configuration Issuer". Paste the base URL, not <code class="text-xs">/.well-known/openid-configuration</code>.</p>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Client ID</label>
+        <input name="client_id" value="{{.OIDC.ClientID}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Client secret {{if .OIDC.HasSecret}}<span class="text-emerald-700 dark:text-emerald-400">(saved, encrypted)</span>{{end}}</label>
+        <input name="client_secret" type="password" autocomplete="new-password" placeholder="{{if .OIDC.HasSecret}}leave blank to keep{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        {{if .OIDC.HasSecret}}<label class="flex items-center gap-2 mt-1 text-xs text-rose-700 dark:text-rose-400"><input type="checkbox" name="clear_secret" value="1"> Clear stored secret on save</label>{{end}}
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Redirect URL <span class="text-slate-400">(configure this exact URL on the IdP side)</span></label>
+        <div class="flex gap-2">
+          <input id="oidc-redirect" name="redirect_url" value="{{.OIDC.RedirectURL}}" placeholder="{{.OIDC.DefaultRedirect}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+          <button type="button" data-oidc-fill-redirect data-redirect="{{.OIDC.DefaultRedirect}}" class="shrink-0 px-3 py-2 rounded-lg border border-slate-300 dark:border-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800">Use default</button>
+        </div>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Leave blank to auto-fill from APP_URL on save.</p>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Scopes (space-separated; <code class="text-xs">openid</code> always included)</label>
+        <input name="scopes" value="{{.OIDC.Scopes}}" placeholder="openid email profile" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Add <code class="text-xs">groups</code> only when your IdP exposes a groups claim you actually map.</p>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="auto_provision" value="1" {{if .OIDC.AutoProvision}}checked{{end}}> Auto-create local account on first OIDC login</label>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Off = admin must pre-create matching email accounts. Existing local users with the same email are linked automatically on first SSO sign-in either way.</p>
+      </div>
+      <div class="sm:col-span-2 border-t border-slate-200 dark:border-zinc-800 pt-3">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+          <input type="checkbox" name="password_login_disabled" value="1" {{if .OIDC.PasswordLoginDisabled}}checked{{end}}>
+          <strong>SSO-only mode</strong> - disable password login for all non-admin users (superadmins can always sign in with password as failsafe)
+        </label>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">When enabled, the login form is hidden and only the SSO button is shown. Enable only after verifying OIDC works.</p>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+          <input type="checkbox" name="allow_unverified_email" value="1" {{if .OIDC.AllowUnverifiedEmail}}checked{{end}}>
+          Allow unverified email from IdP
+        </label>
+        <p class="text-[11px] text-amber-700 dark:text-amber-400 mt-1">By default panel refuses login when the ID token says <code>email_verified: false</code>. Enable ONLY when your IdP (e.g. Authentik tied to corporate AD/LDAP) guarantees email ownership in some other way. Public-signup IdPs without this gate let anyone register <code>victim@yourdomain</code> and take over the matching local account.</p>
+      </div>
+      <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-2 pt-2">
+        <button type="button" id="oidc-test-btn" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm">Test discovery</button>
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save OIDC</button>
+      </div>
+      <div id="oidc-test-result" class="sm:col-span-2 hidden text-xs"></div>
+    </form>
+  </section>
+
+  <section data-settings-pane="captcha" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Cloudflare Turnstile (CAPTCHA)</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Free, privacy-respecting CAPTCHA. Get keys from Cloudflare dashboard → Turnstile.</p>
+    <form method="POST" action="/admin/settings/turnstile" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="sm:col-span-2">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="enabled" value="1" {{if .Turnstile.Enabled}}checked{{end}}> Require Turnstile on login</label>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Site key (public)</label>
+        <input name="site_key" value="{{.Turnstile.SiteKey}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Secret key {{if .Turnstile.HasSecret}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}</label>
+        <input name="secret" type="password" placeholder="{{if .Turnstile.HasSecret}}leave blank to keep{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div class="sm:col-span-2 flex justify-end pt-2">
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save Turnstile</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-settings-pane="cloudflare" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Cloudflare account</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">API token + account ID. Token is verified against Cloudflare on save.</p>
+    <form method="POST" action="/admin/settings/cloudflare" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="sm:col-span-2">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="enabled" value="1" {{if .Cloudflare.Enabled}}checked{{end}}> Cloudflare integration enabled</label>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Account ID</label>
+        <input name="account_id" value="{{.Cloudflare.AccountID}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">API token {{if .Cloudflare.HasToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}</label>
+        <input name="api_token" type="password" placeholder="{{if .Cloudflare.HasToken}}leave blank to keep{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div class="sm:col-span-2">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="trust_connecting_ip" value="1" {{if .Cloudflare.TrustConnectingIP}}checked{{end}}> Trust <code class="text-xs bg-slate-100 dark:bg-zinc-800 px-1 rounded">CF-Connecting-IP</code> header (only when this app sits behind Cloudflare)</label>
+      </div>
+      <div class="sm:col-span-2 flex justify-end pt-2">
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Verify token &amp; save</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-settings-pane="wireguard" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">WireGuard (multi-node mesh)</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Required for one-command node join. Auto-generates a keypair on first save.</p>
+    <form method="POST" action="/admin/settings/wireguard" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="sm:col-span-2">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="enabled" value="1" {{if .WireGuard.Enabled}}checked{{end}}> Multi-node mode enabled</label>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Public endpoint (host:port - what new nodes will dial)</label>
+        <input name="endpoint" value="{{.WireGuard.Endpoint}}" placeholder="manager.example.com:51820" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Listen port (UDP)</label>
+        <input name="listen_port" type="number" value="{{.WireGuard.ListenPort}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Overlay subnet</label>
+        <input name="subnet" value="{{.WireGuard.Subnet}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Control plane IP</label>
+        <input name="control_ip" value="{{.WireGuard.ControlIP}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+      </div>
+      {{if .WireGuard.PublicKey}}
+      <div class="sm:col-span-2">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Control plane public key (given to joining nodes automatically)</label>
+        <code class="block bg-slate-50 dark:bg-zinc-800 p-2 rounded-lg text-xs break-all font-mono text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.WireGuard.PublicKey}}</code>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Private key {{if .WireGuard.HasPrivate}}<span class="text-emerald-700 dark:text-emerald-400">stored AES-256-GCM encrypted</span>{{else}}<span class="text-rose-700 dark:text-rose-400">not generated yet</span>{{end}}.</p>
+      </div>
+      {{end}}
+      <div class="sm:col-span-2 flex justify-end pt-2">
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save WireGuard (generates keypair)</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-settings-pane="acme" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">ACME / Let's Encrypt</h2>
+    <form method="POST" action="/admin/settings/acme" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="sm:col-span-2">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">ACME contact email</label>
+        <input name="email" type="email" required value="{{.ACME.Email}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Used as the registration contact for Let's Encrypt.</p>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="staging" value="1" {{if .ACME.Staging}}checked{{end}}> Use Let's Encrypt staging directory</label>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Enable while testing to avoid burning production rate limits. Issued certs will not be trusted by browsers.</p>
+      </div>
+      <div class="sm:col-span-2 flex justify-end pt-2">
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save ACME</button>
+      </div>
+    </form>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mt-3">Changes take effect on the next Caddy push (next route create/delete or node resync).</p>
+  </section>
+
+  <section data-settings-pane="sms" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">SMS provider</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Used for security alerts and (optionally) 2FA SMS fallback. Pick a gateway below - only its fields will be shown.</p>
+
+    <form method="POST" action="/admin/settings/sms" class="text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <!-- sms_provider value is kept in sync by the card-picker JS below -->
+      <input type="hidden" id="sms_provider_input" name="sms_provider" value="{{if .SMS.Provider}}{{.SMS.Provider}}{{else}}bulkgate{{end}}">
+
+      <!-- Enable toggle -->
+      <div class="mb-4">
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+          <input type="checkbox" name="enabled" value="1" {{if .SMS.Enabled}}checked{{end}}>
+          Enable SMS sending
+        </label>
+      </div>
+
+      <!-- Provider cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5" id="sms-provider-cards">
+        <button type="button" data-sms-card="bulkgate"
+          class="sms-provider-card text-left rounded-lg border-2 p-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+          <div class="font-semibold text-slate-800 dark:text-slate-100 mb-0.5">BulkGate</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">Simple Transactional API. App ID + token, no server setup.</div>
+        </button>
+        <button type="button" data-sms-card="twilio"
+          class="sms-provider-card text-left rounded-lg border-2 p-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+          <div class="font-semibold text-slate-800 dark:text-slate-100 mb-0.5">Twilio</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">Account SID + Auth Token. Verified sender phone or alphanumeric ID.</div>
+        </button>
+        <button type="button" data-sms-card="smsapi"
+          class="sms-provider-card text-left rounded-lg border-2 p-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+          <div class="font-semibold text-slate-800 dark:text-slate-100 mb-0.5">SMSAPI.pl</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">OAuth Bearer token. EU-based gateway, Polish-market oriented.</div>
+        </button>
+        <button type="button" data-sms-card="webhook"
+          class="sms-provider-card text-left rounded-lg border-2 p-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
+          <div class="font-semibold text-slate-800 dark:text-slate-100 mb-0.5">Generic webhook</div>
+          <div class="text-xs text-slate-500 dark:text-slate-400">HTTP POST to any gateway. Payload: to, from, message fields.</div>
+        </button>
+      </div>
+
+      <!-- Shared: sender -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Sender (phone or alphanumeric)</label>
+          <input name="from" value="{{.SMS.From}}" placeholder="+48555111222 or HostytPxy"
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        </div>
+      </div>
+
+      <!-- BulkGate fields -->
+      <div id="sms-fields-bulkgate" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">BulkGate Application ID</label>
+          <input name="bulkgate_app_id" value="{{.SMS.BulkGateAppID}}" placeholder="123"
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono"
+            data-sms-required="bulkgate">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            BulkGate Application Token
+            {{if .SMS.HasBulkGateToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}
+          </label>
+          <input name="bulkgate_app_token" type="password"
+            placeholder="{{if .SMS.HasBulkGateToken}}leave blank to keep{{end}}"
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        </div>
+      </div>
+
+      <!-- Twilio fields -->
+      <div id="sms-fields-twilio" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Twilio Account SID</label>
+          <input name="twilio_account_sid" value="{{.SMS.TwilioAccountSID}}" placeholder="AC..."
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono"
+            data-sms-required="twilio">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            Twilio Auth Token
+            {{if .SMS.HasTwilioToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}
+          </label>
+          <input name="twilio_auth_token" type="password"
+            placeholder="{{if .SMS.HasTwilioToken}}leave blank to keep{{end}}"
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        </div>
+      </div>
+
+      <!-- SMSAPI fields -->
+      <div id="sms-fields-smsapi" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">SMSAPI base URL</label>
+          <input name="smsapi_base_url" value="{{.SMS.SMSAPIBaseURL}}" placeholder="https://api.smsapi.pl"
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            SMSAPI OAuth token
+            {{if .SMS.HasSMSAPIToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}
+          </label>
+          <input name="smsapi_token" type="password"
+            placeholder="{{if .SMS.HasSMSAPIToken}}leave blank to keep{{end}}"
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500"
+            data-sms-required="smsapi">
+        </div>
+      </div>
+
+      <!-- Webhook fields -->
+      <div id="sms-fields-webhook" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Webhook URL (any HTTP gateway)</label>
+          <input name="webhook_url" value="{{.SMS.WebhookURL}}" placeholder="https://sms-gw.example.com/send"
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono"
+            data-sms-required="webhook">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            Webhook Bearer token
+            {{if .SMS.HasWebhookToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}
+          </label>
+          <input name="webhook_token" type="password"
+            placeholder="{{if .SMS.HasWebhookToken}}leave blank to keep{{end}}"
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        </div>
+      </div>
+
+      <div class="flex flex-wrap justify-end gap-2 pt-2">
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save SMS</button>
+      </div>
+    </form>
+
+    <form method="POST" action="/admin/settings/sms/test" class="mt-3 flex flex-wrap items-end gap-2 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="flex-1 min-w-[14rem]">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Send a test SMS to (E.164)</label>
+        <input name="test_phone" placeholder="+48555111222" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+      </div>
+      <button class="px-3 py-2 rounded-lg border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm">Send test SMS</button>
+    </form>
+
+    <form method="POST" action="/admin/settings/sms-otp" class="mt-4 border-t border-slate-200 dark:border-zinc-800 pt-4 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+        <input type="checkbox" name="sms_otp_available" value="1" {{if .SMSOTPAvailable}}checked{{end}}>
+        Allow customers to use SMS as a second factor (2FA). Requires SMS configured above and phone set on the account.
+      </label>
+      <div class="flex justify-end pt-2">
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save SMS 2FA setting</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-settings-pane="sso-jump" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">SSO Jump - FOSSBilling integration</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Allows FOSSBilling (or any trusted system) to sign a URL that logs a customer directly into the panel. Signature: <code class="text-xs">HMAC-SHA256(secret, "email=&lt;email&gt;&amp;exp=&lt;unix&gt;")</code>. <a href="/docs/sso-jump" class="text-indigo-600 dark:text-indigo-400 hover:underline">View integration docs →</a></p>
+
+    {{if .SSOJump.NewSecret}}
+    <div id="hpg-sso-secret-modal" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+      <div class="hpg-card ring-emerald-200 dark:ring-emerald-600/40 shadow-2xl max-w-xl w-full space-y-4 text-sm">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <h3 class="font-semibold text-emerald-900 dark:text-emerald-300 text-lg">SSO Jump secret - shown once</h3>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Copy this secret into your FOSSBilling <code class="text-xs">HOSTYT_SSO_SECRET</code> env variable. This value will <strong>not</strong> be shown again.</p>
+          </div>
+          <button type="button" data-sso-secret-close class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl leading-none">×</button>
+        </div>
+        <div>
+          <label class="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">HOSTYT_SSO_SECRET</label>
+          <div class="flex gap-2">
+            <input id="hpg-sso-secret-val" readonly value="{{.SSOJump.NewSecret}}" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 font-mono text-xs">
+            <button type="button" data-copy-target="hpg-sso-secret-val" class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs hover:bg-emerald-700">Copy</button>
+          </div>
+        </div>
+        <div class="flex justify-end pt-2 border-t border-slate-200 dark:border-zinc-800">
+          <button type="button" data-sso-secret-close class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700">I've copied - close</button>
+        </div>
+      </div>
+    </div>
+    {{end}}
+
+    {{if not .SSOJump.HasSecret}}
+    <div class="mb-4 p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg text-xs text-amber-900 dark:text-amber-200">
+      No secret set - generate one below to enable this feature.
+    </div>
+    {{else}}
+    <div class="mb-4 flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-lg text-xs text-emerald-900 dark:text-emerald-200">
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+      Secret configured (encrypted at rest). Use the Rotate button to issue a new one.
+    </div>
+    {{end}}
+
+    <form method="POST" action="/admin/settings/sso-jump" class="space-y-3 text-sm mb-4">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+        <input type="checkbox" name="sso_jump_enabled" value="1" {{if .SSOJump.Enabled}}checked{{end}}>
+        Enable SSO jump-login
+      </label>
+      <div>
+        <label class="flex items-start gap-2 text-slate-700 dark:text-slate-200">
+          <input type="checkbox" name="sso_jump_allow_admin" value="1" {{if .SSOJump.AllowAdmin}}checked{{end}} class="mt-0.5 shrink-0">
+          <span>Allow admin role login via jump</span>
+        </label>
+        <p class="text-xs text-amber-700 dark:text-amber-400 mt-1 ml-5">Disables failsafe - admin accounts will be loggable without password if their email is signed.</p>
+      </div>
+      <div class="flex justify-end pt-2">
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save settings</button>
+      </div>
+    </form>
+
+    <div class="border-t border-slate-200 dark:border-zinc-800 pt-4 space-y-3 text-sm">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <span class="text-slate-700 dark:text-slate-200 font-medium">Shared secret</span>
+        <form method="POST" action="/admin/settings/sso-jump/rotate" class="inline" data-confirm="{{if .SSOJump.HasSecret}}Rotate secret? This invalidates your current FOSSBilling configuration - you must update HOSTYT_SSO_SECRET there.{{end}}">
+          <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+          <button class="px-3 py-2 rounded-lg {{if .SSOJump.HasSecret}}bg-amber-600 hover:bg-amber-700{{else}}bg-emerald-600 hover:bg-emerald-700{{end}} text-white text-xs">
+            {{if .SSOJump.HasSecret}}Rotate secret{{else}}Generate secret{{end}}
+          </button>
+        </form>
+      </div>
+      <div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Example callback URL (computed from APP_URL)</p>
+        <code class="block bg-slate-50 dark:bg-zinc-800 p-2 rounded-lg text-xs break-all font-mono text-slate-800 dark:text-slate-200">{{.SSOJump.CallbackURLEx}}</code>
+      </div>
+    </div>
+  </section>
+
+</div>
+<script nonce="{{.CSPNonce}}">
+(function(){
+  var tabs = document.querySelectorAll('[data-settings-tab]');
+  var panes = document.querySelectorAll('[data-settings-pane]');
+  function activate(name){
+    tabs.forEach(function(b){
+      var on = b.dataset.settingsTab === name;
+      b.classList.toggle('bg-slate-200', on);
+      b.classList.toggle('dark:bg-zinc-800', on);
+      b.classList.toggle('text-slate-900', on);
+      b.classList.toggle('dark:text-slate-100', on);
+      b.classList.toggle('font-medium', on);
+      b.classList.toggle('text-slate-600', !on);
+      b.classList.toggle('dark:text-slate-300', !on);
+    });
+    panes.forEach(function(p){ p.classList.toggle('hidden', p.dataset.settingsPane !== name); });
+    try { history.replaceState(null, '', '#'+name); } catch(e){}
+    // Persist so a full-page reload (e.g. /theme redirect) restores the tab.
+    try { localStorage.setItem('settings_tab', name); } catch(e){}
+  }
+  function knownTab(name){ for (var i=0;i<tabs.length;i++){ if (tabs[i].dataset.settingsTab === name) return true; } return false; }
+  tabs.forEach(function(b){ b.addEventListener('click', function(){ activate(b.dataset.settingsTab); }); });
+  // Restore: hash wins (sharable), else last-saved tab, else leave default.
+  var hash = (location.hash || '').replace('#','');
+  var saved = '';
+  try { saved = localStorage.getItem('settings_tab') || ''; } catch(e){}
+  if (hash && knownTab(hash)) activate(hash);
+  else if (saved && knownTab(saved)) activate(saved);
+
+  // Appearance picker: persist pick to localStorage + apply instantly (server cookie set via link nav).
+  var paletteCards = document.querySelectorAll('[data-palette-card]');
+  function activePill(){
+    var s = document.createElement('span');
+    s.className = 'text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300';
+    s.textContent = 'Active';
+    return s;
+  }
+  function markPaletteActive(slug){
+    paletteCards.forEach(function(card){
+      var on = card.dataset.paletteCard === slug;
+      card.classList.toggle('border-indigo-500', on);
+      card.classList.toggle('ring-2', on);
+      card.classList.toggle('ring-indigo-500', on);
+      // Resting: soft ring matching the static template branch.
+      card.classList.toggle('ring-1', !on);
+      card.classList.toggle('ring-slate-200/70', !on);
+      card.classList.toggle('dark:ring-zinc-800', !on);
+      // Move the Active pill (sits next to the theme name in the card footer).
+      var row = card.querySelector('.items-center.justify-between');
+      if (!row) return;
+      var pill = row.querySelector('[data-palette-active-pill]');
+      if (on && !pill){ var p = activePill(); p.setAttribute('data-palette-active-pill',''); row.appendChild(p); }
+      else if (!on && pill){ pill.remove(); }
+    });
+  }
+  paletteCards.forEach(function(a){
+    a.addEventListener('click', function(){
+      var slug = a.dataset.palettePick;
+      try { localStorage.setItem('ui_theme', slug); } catch(e){}
+      // /theme/{slug} 303-redirects back without a fragment; keep Branding tab after reload.
+      try { localStorage.setItem('settings_tab', 'branding'); } catch(e){}
+      document.documentElement.dataset.theme = slug;
+      markPaletteActive(slug);
+    });
+  });
+
+  // SMS provider card picker - shows only the selected provider's fields.
+  var providerInput = document.getElementById('sms_provider_input');
+  var cards = document.querySelectorAll('[data-sms-card]');
+
+  function applyCardStyles(card, active) {
+    card.classList.toggle('border-indigo-500', active);
+    card.classList.toggle('bg-indigo-50', active);
+    card.classList.toggle('dark:bg-indigo-950', active);
+    card.classList.toggle('dark:border-indigo-500', active);
+    // Resting: soft ring instead of a hard border color.
+    card.classList.toggle('border-transparent', !active);
+    card.classList.toggle('ring-1', !active);
+    card.classList.toggle('ring-slate-200/70', !active);
+    card.classList.toggle('dark:ring-zinc-800', !active);
+  }
+
+  function selectProvider(id) {
+    if (providerInput) providerInput.value = id;
+
+    // Show matching fields, hide others; toggle required accordingly.
+    document.querySelectorAll('.sms-provider-fields').forEach(function(div) {
+      var match = div.id === 'sms-fields-' + id;
+      div.classList.toggle('hidden', !match);
+      div.querySelectorAll('[data-sms-required]').forEach(function(inp) {
+        // Only require when pre-existing value is absent (password blanks are optional keeps).
+        if (inp.type !== 'password') inp.required = match;
+      });
+    });
+
+    cards.forEach(function(c) { applyCardStyles(c, c.dataset.smsCard === id); });
+  }
+
+  if (cards.length && providerInput) {
+    cards.forEach(function(c) {
+      c.addEventListener('click', function() { selectProvider(c.dataset.smsCard); });
+    });
+    // Init from saved value (falls back to bulkgate via hidden input default).
+    selectProvider(providerInput.value || 'bulkgate');
+  }
+
+  // OIDC: "Use default" redirect fill button.
+  var fillBtn = document.querySelector('[data-oidc-fill-redirect]');
+  if (fillBtn) fillBtn.addEventListener('click', function() {
+    var el = document.getElementById('oidc-redirect');
+    if (el) el.value = fillBtn.dataset.redirect || '';
+  });
+
+  // OIDC: "Test discovery" button - XHRs to /admin/settings/oidc/test with the
+  // current form's issuer value so the operator can validate without saving.
+  var testBtn = document.getElementById('oidc-test-btn');
+  var testResult = document.getElementById('oidc-test-result');
+  var oidcForm = document.getElementById('oidc-form');
+  if (testBtn && testResult && oidcForm) {
+    testBtn.addEventListener('click', function() {
+      var issuer = (document.getElementById('oidc-issuer') || {}).value || '';
+      var csrf = oidcForm.querySelector('[name=csrf_token]');
+      testBtn.disabled = true;
+      testBtn.textContent = 'Probing…';
+      testResult.classList.remove('hidden');
+      testResult.className = 'sm:col-span-2 text-xs text-slate-500 dark:text-slate-400';
+      testResult.textContent = 'Contacting issuer…';
+      var body = new URLSearchParams();
+      body.set('issuer', issuer.trim());
+      if (csrf) body.set('csrf_token', csrf.value);
+      fetch('/admin/settings/oidc/test', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json'},
+        body: body.toString()
+      }).then(function(r){ return r.json().catch(function(){ return {ok:false,error:'invalid JSON response'}; }); })
+        .then(function(j){
+          testBtn.disabled = false;
+          testBtn.textContent = 'Test discovery';
+          if (j && j.ok && j.probe) {
+            testResult.className = 'sm:col-span-2 text-xs p-3 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200';
+            var p = j.probe;
+            testResult.textContent = 'OK. issuer=' + (p.issuer||'') + '  auth=' + (p.authorization_endpoint||'') + '  token=' + (p.token_endpoint||'') + '  jwks=' + (p.jwks_uri||'');
+          } else {
+            testResult.className = 'sm:col-span-2 text-xs p-3 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
+            testResult.textContent = 'Failed: ' + ((j && j.error) || 'unknown error');
+          }
+        })
+        .catch(function(err){
+          testBtn.disabled = false;
+          testBtn.textContent = 'Test discovery';
+          testResult.className = 'sm:col-span-2 text-xs p-3 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
+          testResult.textContent = 'Network error: ' + (err && err.message || err);
+        });
+    });
+  }
+
+  // SSO Jump: copy button + close modal for one-shot secret display.
+  (function(){
+    function copy(id){
+      var el = document.getElementById(id);
+      if (!el) return;
+      el.select(); el.setSelectionRange(0, 99999);
+      try { navigator.clipboard.writeText(el.value); }
+      catch(e){ document.execCommand && document.execCommand('copy'); }
+      window.hpgToast && window.hpgToast('Copied', 'ok');
+    }
+    document.querySelectorAll('[data-copy-target]').forEach(function(b){
+      b.addEventListener('click', function(){ copy(b.dataset.copyTarget); });
+    });
+    document.querySelectorAll('[data-sso-secret-close]').forEach(function(b){
+      b.addEventListener('click', function(){
+        var m = document.getElementById('hpg-sso-secret-modal');
+        if (m) m.remove();
+        // Strip nonce from URL so refresh doesn't try to re-fetch stale nonce.
+        var u = new URL(window.location.href);
+        u.searchParams.delete('show_sso_secret');
+        window.history.replaceState({}, '', u.toString());
+      });
+    });
+  })();
+})();
+</script>
+{{end}}

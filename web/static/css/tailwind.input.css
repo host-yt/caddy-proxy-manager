@@ -1,0 +1,52 @@
+/* Palette theme tokens (--c-* RGB channel vars) - must precede @tailwind. */
+@import "./themes.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* =========================================================================
+ * Dr. Hasan design system - soft, rounded, airy, pastel, light-first.
+ * Reusable component classes used verbatim by every template so the look
+ * lives in ONE file. Palette utilities only (theme-aware) - never hex,
+ * except the subtle shadow rgba which is depth, not a themeable surface.
+ * Each class includes its .dark variant.
+ * ========================================================================= */
+@layer components {
+  /* Soft surface card: hairline ring instead of a hard border + soft depth. */
+  .hpg-card {
+    @apply rounded-2xl bg-white dark:bg-zinc-900 p-5 ring-1 ring-slate-200/70 dark:ring-zinc-800 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-14px_rgba(0,0,0,0.12)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2),0_12px_28px_-14px_rgba(0,0,0,0.5)];
+  }
+
+  /* Pastel icon badge. Color (bg-x-50 text-x-600 ...) is set inline by user. */
+  .hpg-chip {
+    @apply inline-grid place-items-center h-10 w-10 rounded-xl shrink-0;
+  }
+
+  /* Status / filter pill base. */
+  .hpg-pill {
+    @apply rounded-full px-2.5 py-0.5 text-xs font-medium inline-flex items-center gap-1;
+  }
+  .hpg-pill-ok {
+    @apply bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300;
+  }
+  .hpg-pill-warn {
+    @apply bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300;
+  }
+  .hpg-pill-err {
+    @apply bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300;
+  }
+  .hpg-pill-muted {
+    @apply bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-slate-300;
+  }
+
+  /* Big bold metric number. */
+  .hpg-stat-num {
+    @apply text-2xl font-bold tracking-tight tabular-nums;
+  }
+
+  /* Tiny muted section / group label. */
+  .hpg-eyebrow {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-slate-500 dark:text-slate-400;
+  }
+}

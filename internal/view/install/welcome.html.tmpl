@@ -1,0 +1,34 @@
+{{define "welcome"}}
+<h2 class="text-xl font-semibold mb-2">Welcome</h2>
+<p class="text-slate-600 dark:text-slate-300 mb-4">
+  This wizard will configure your control panel. You'll provide database
+  credentials (local or external MariaDB/MySQL), create an admin user,
+  set the panel URL, optionally configure SMTP, and register your first
+  Caddy proxy node.
+</p>
+<ul class="text-sm text-slate-500 space-y-1 mb-6 list-disc list-inside">
+  <li>Have your DB host, port, user, and password ready.</li>
+  <li>Use external managed DB or the bundled <code>mariadb</code> service.</li>
+  <li>Pick a strong admin password (Argon2id-hashed at rest).</li>
+  <li>Caddy node Admin API must be reachable from the app container.</li>
+</ul>
+<form method="POST" action="/install/start" class="space-y-4">
+  <div>
+    <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1" for="install_token">Install token</label>
+    <input id="install_token" name="install_token" type="text" autocomplete="off"
+           class="w-full px-3 py-2 rounded border border-slate-300 dark:border-zinc-700 font-mono text-sm"
+           placeholder="paste the value of INSTALL_TOKEN env var here">
+    <p class="text-xs text-slate-500 mt-1">
+      The panel ships locked. Paste the <code>INSTALL_TOKEN</code> you set in
+      <code>.env</code> (or leave empty if connecting from <code>127.0.0.1</code>).
+      It is stored in a strict-SameSite cookie for the duration of the wizard
+      and discarded once setup completes.
+    </p>
+  </div>
+  <div class="flex justify-end">
+    <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
+      Start setup →
+    </button>
+  </div>
+</form>
+{{end}}

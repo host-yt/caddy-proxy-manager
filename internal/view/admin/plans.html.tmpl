@@ -1,0 +1,206 @@
+{{define "plans"}}
+<section class="hpg-card !p-0 overflow-hidden">
+  <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+    <div class="flex items-center gap-3">
+      <div>
+        <p class="hpg-eyebrow">Catalog</p>
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Plans</h2>
+      </div>
+      <span class="hpg-chip">{{len .Plans}}</span>
+    </div>
+    <button type="button" id="plan-new-btn"
+      class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+      New plan
+    </button>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50/95 dark:bg-zinc-800/95 backdrop-blur text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <tr>
+          <th class="px-4 py-3 font-medium">Name</th>
+          <th class="px-4 py-3 font-medium">Kind</th>
+          <th class="px-4 py-3 font-medium">Max domains</th>
+          <th class="px-4 py-3 font-medium">Max ports</th>
+          <th class="px-4 py-3 font-medium">SSL</th>
+          <th class="px-4 py-3 font-medium">Path</th>
+          <th class="px-4 py-3 font-medium">WS</th>
+          <th class="px-4 py-3 font-medium">Ext proxy</th>
+          <th class="px-4 py-3 font-medium">Node group</th>
+          <th class="px-4 py-3 text-right font-medium">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Plans}}
+        <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
+          <td class="px-4 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}</td>
+          <td class="px-4 py-3.5">
+            {{if eq .Kind "npm"}}<span class="hpg-pill bg-indigo-50 text-indigo-600">NPM</span>{{else}}<span class="hpg-pill hpg-pill-muted">restricted</span>{{end}}
+          </td>
+          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{.MaxDomains}}</td>
+          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{.MaxPorts}}</td>
+          <td class="px-4 py-3.5">{{if .SSL}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
+          <td class="px-4 py-3.5">{{if .PathRouting}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
+          <td class="px-4 py-3.5">{{if .WebSocket}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
+          <td class="px-4 py-3.5">{{if .ExternalProxy}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
+          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.NodeGroupName}}</td>
+          <td class="px-4 py-3.5 text-right whitespace-nowrap">
+            <div class="inline-flex items-center gap-3">
+              <button type="button"
+                class="plan-edit-btn text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                data-id="{{.ID}}"
+                data-name="{{.Name}}"
+                data-kind="{{.Kind}}"
+                data-maxdomains="{{.MaxDomains}}"
+                data-maxports="{{.MaxPorts}}"
+                data-ssl="{{if .SSL}}1{{else}}0{{end}}"
+                data-pathrouting="{{if .PathRouting}}1{{else}}0{{end}}"
+                data-websocket="{{if .WebSocket}}1{{else}}0{{end}}"
+                data-wildcard="{{if .Wildcard}}1{{else}}0{{end}}"
+                data-externalproxy="{{if .ExternalProxy}}1{{else}}0{{end}}"
+                data-ratelimit="{{.RateLimitRPM}}"
+                data-nodegroup="{{.NodeGroupID}}">edit</button>
+              <form method="POST" action="/admin/plans/{{.ID}}/delete" data-confirm="Delete plan {{.Name}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="text-xs font-medium text-rose-600 hover:text-rose-700 hover:underline cursor-pointer">delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="10" class="px-4 py-12 text-center text-slate-500 dark:text-slate-400">No plans yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Create/Edit modal -->
+<div id="plan-modal" class="fixed inset-0 z-50 hidden">
+  <div id="plan-modal-overlay" class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm"></div>
+  <div class="absolute inset-0 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
+    <div class="hpg-card rounded-2xl shadow-2xl w-full max-w-lg my-8 relative" role="dialog" aria-modal="true">
+      <div class="flex items-start justify-between mb-5">
+        <div>
+          <p class="hpg-eyebrow">Catalog</p>
+          <h2 id="plan-modal-title" class="font-semibold text-slate-800 dark:text-slate-100">New plan</h2>
+        </div>
+        <button type="button" id="plan-modal-close"
+          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer" aria-label="Close">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+
+      <form id="plan-form" method="POST" action="/admin/plans" class="space-y-4 text-sm">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">Name</label>
+          <input name="name" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        </div>
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">Plan kind</label>
+          <select name="kind" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+            <option value="restricted" selected>Restricted - admin pins backend IP + port range</option>
+            <option value="npm">NPM-style - client edits backend IP + ports themselves</option>
+          </select>
+          <p class="text-[11px] text-slate-500 mt-1">Restricted enforces the hosting-provider model (sell port slices on shared backends). NPM-style hands full control to the customer; only use for trusted resellers / self-use accounts.</p>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="hpg-eyebrow block mb-1.5">Max domains</label>
+            <input name="max_domains" type="number" min="1" value="5" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+          </div>
+          <div>
+            <label class="hpg-eyebrow block mb-1.5">Max ports</label>
+            <input name="max_ports" type="number" min="1" value="20" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+          </div>
+        </div>
+        <div class="space-y-2">
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="ssl" value="1" checked class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> SSL enabled</label>
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="path_routing" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Path routing</label>
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="websocket" value="1" checked class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> WebSocket</label>
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="wildcard" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Wildcard domains</label>
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="external_proxy" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Allow external HTTPS upstream proxy</label>
+        </div>
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">Rate limit (req/min, 0 = none)</label>
+          <input name="rate_limit_rpm" type="number" min="0" value="0" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+        </div>
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">Node group</label>
+          <select name="node_group_id" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+            {{range .Groups}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button type="button" id="plan-modal-cancel"
+            class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer">Cancel</button>
+          <button type="submit"
+            class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">Save plan</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script nonce="{{.CSPNonce}}">
+(function () {
+  var modal = document.getElementById("plan-modal");
+  var form = document.getElementById("plan-form");
+  var title = document.getElementById("plan-modal-title");
+  if (!modal || !form) return;
+
+  function setVal(name, value) {
+    var el = form.elements[name];
+    if (el) el.value = (value == null ? "" : value);
+  }
+  // Checkbox prefill: data-* booleans are "1"/"0".
+  function setCheck(name, value) {
+    var el = form.elements[name];
+    if (el) el.checked = (value === "1");
+  }
+
+  function open() { modal.classList.remove("hidden"); }
+  function close() { modal.classList.add("hidden"); }
+
+  // Create mode: reset form, post to collection endpoint.
+  document.getElementById("plan-new-btn").addEventListener("click", function () {
+    form.reset();
+    form.action = "/admin/plans";
+    if (title) title.textContent = "New plan";
+    open();
+  });
+
+  // Edit mode: prefill from data-* attrs, post to /{id}/edit.
+  var editBtns = document.querySelectorAll(".plan-edit-btn");
+  for (var i = 0; i < editBtns.length; i++) {
+    editBtns[i].addEventListener("click", function () {
+      var d = this.dataset;
+      form.action = "/admin/plans/" + d.id + "/edit";
+      if (title) title.textContent = "Edit plan";
+      setVal("name", d.name);
+      setVal("kind", d.kind);
+      setVal("max_domains", d.maxdomains);
+      setVal("max_ports", d.maxports);
+      setCheck("ssl", d.ssl);
+      setCheck("path_routing", d.pathrouting);
+      setCheck("websocket", d.websocket);
+      setCheck("wildcard", d.wildcard);
+      setCheck("external_proxy", d.externalproxy);
+      setVal("rate_limit_rpm", d.ratelimit);
+      setVal("node_group_id", d.nodegroup);
+      open();
+    });
+  }
+
+  var closeBtn = document.getElementById("plan-modal-close");
+  var cancelBtn = document.getElementById("plan-modal-cancel");
+  var overlay = document.getElementById("plan-modal-overlay");
+  if (closeBtn) closeBtn.addEventListener("click", close);
+  if (cancelBtn) cancelBtn.addEventListener("click", close);
+  if (overlay) overlay.addEventListener("click", close);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+  });
+})();
+</script>
+{{end}}

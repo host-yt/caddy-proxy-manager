@@ -1,0 +1,79 @@
+{{define "api_keys"}}
+<div class="space-y-4">
+{{template "admin_account_tabs" "api_keys"}}
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <section class="lg:col-span-2 hpg-card !p-0 overflow-hidden">
+    {{if .NewPlain}}
+    <div class="p-5 bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/30">
+      <h3 class="font-semibold text-amber-900 dark:text-amber-200 mb-2">Key created - copy it now</h3>
+      <p class="text-xs text-amber-800 dark:text-amber-300 mb-2">This is the only time the full key will be shown.</p>
+      <code class="block bg-white dark:bg-zinc-950 ring-1 ring-amber-300 dark:ring-amber-500/30 rounded-lg px-3 py-2 text-sm font-mono break-all">{{.NewPlain}}</code>
+    </div>
+    {{end}}
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left">
+        <tr class="hpg-eyebrow">
+          <th class="px-4 py-3 font-medium">Name</th>
+          <th class="px-4 py-3 font-medium">Prefix</th>
+          <th class="px-4 py-3 font-medium">Scopes</th>
+          <th class="px-4 py-3 font-medium">Last used</th>
+          <th class="px-4 py-3 font-medium">Created</th>
+          <th class="px-4 py-3 font-medium">Expires</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Keys}}
+        <tr {{if .Revoked}}class="opacity-50"{{end}}>
+          <td class="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
+          <td class="px-4 py-3"><code class="text-xs">hpg_{{.Prefix}}…</code></td>
+          <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.Scopes}}</td>
+          <td class="px-4 py-3 text-xs text-slate-500">{{.LastUsedAt}}</td>
+          <td class="px-4 py-3 text-xs text-slate-500">{{.CreatedAt}}</td>
+          <td class="px-4 py-3 text-xs text-slate-500">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}-{{end}}</td>
+          <td class="px-4 py-3 text-right">
+            {{if not .Revoked}}
+            <form method="POST" action="/admin/api-keys/{{.ID}}/revoke" data-confirm="Revoke {{.Name}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline">revoke</button>
+            </form>
+            {{else}}<span class="hpg-pill hpg-pill-muted">revoked</span>{{end}}
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="7" class="px-4 py-6 text-center text-slate-500">No API keys yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">New API key</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Keys belong to your user. Use them to call <code>/api/v1/*</code> via <code>Authorization: Bearer …</code>.</p>
+    <form method="POST" action="/admin/api-keys" class="space-y-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
+        <input name="name" required placeholder="fossbilling-integration" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Scopes (comma-separated)</label>
+        <input name="scopes" value="services,routes,nodes" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none">
+        <p class="text-xs text-slate-500 mt-1">Reserved for future per-endpoint authorization.</p>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Expires in (days)</label>
+        <input name="expires_days" type="number" min="0" max="3650" value="0" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none">
+        <p class="text-xs text-slate-500 mt-1">0 = never expires. Recommended: 90.</p>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Rate limit (requests/min)</label>
+        <input name="rate_limit_rpm" type="number" min="0" max="100000" value="0" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none">
+        <p class="text-xs text-slate-500 mt-1">0 = no cap. Cap is per user (max across their keys).</p>
+      </div>
+      <button class="w-full px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Create key</button>
+    </form>
+  </section>
+</div>
+</div>
+{{end}}

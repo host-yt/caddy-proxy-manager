@@ -1,0 +1,290 @@
+{{define "layout.html.tmpl"}}<!doctype html>
+<html lang="en" class="h-full" data-theme="{{.Data.Theme}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{.Data.CSRF}}">
+<title>{{.Data.Title}} - Hostyt Proxy</title>
+<link rel="stylesheet" href="/static/fonts/inter.css">
+<link rel="stylesheet" href="/static/css/tailwind.css">
+<script nonce="{{.Data.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
+<!-- Palette theme bootstrap: client-side pick applies before paint, even before the ui_theme cookie round-trips. Allowlist-guarded so a tampered key cannot inject an arbitrary slug. -->
+<script nonce="{{.Data.CSPNonce}}">(function(){try{var ok={default:1,midnight:1,ocean:1,forest:1,violet:1,sunset:1,nord:1,mono:1};var p=localStorage.getItem('ui_theme');if(p&&ok[p]&&p!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=p;}catch(e){}})();</script>
+{{if .Data.Brand.FaviconURL}}<link rel="icon" href="{{.Data.Brand.FaviconURL}}">{{end}}
+<style>
+  /* Global form-control dark-mode safety net (see install/_layout for context). */
+  input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  select, textarea { color: rgb(var(--c-slate-900)); }
+  .dark input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  .dark select, .dark textarea {
+    background-color: rgb(var(--c-zinc-800));
+    border-color: rgb(var(--c-zinc-700));
+    color: rgb(var(--c-zinc-100));
+  }
+  .dark input::placeholder, .dark textarea::placeholder { color: rgb(var(--c-zinc-500)); }
+</style>
+</head>
+<body class="h-full bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-slate-100">
+
+<!-- Mobile overlay -->
+<div id="sidebar-overlay" class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm hidden" onclick="closeSidebar()"></div>
+
+<!-- Sidebar -->
+<aside id="sidebar" class="fixed inset-y-0 left-0 z-40 flex flex-col w-56 bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-zinc-800 -translate-x-full lg:translate-x-0 transition-transform duration-200 ease-in-out">
+
+  <!-- Brand -->
+  <div class="flex items-center gap-2.5 px-4 py-4 border-b border-slate-200 dark:border-zinc-800 shrink-0">
+    {{if .Data.Brand.LogoURLLight}}<img src="{{.Data.Brand.LogoURLLight}}" alt="" class="h-5 dark:hidden">{{end}}
+    {{if .Data.Brand.LogoURLDark}}<img src="{{.Data.Brand.LogoURLDark}}" alt="" class="h-5 hidden dark:inline-block">{{end}}
+    {{if not .Data.Brand.LogoURLLight}}<span class="w-6 h-6 rounded-md bg-indigo-600 shrink-0 flex items-center justify-center">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+    </span>{{end}}
+    <span class="font-semibold text-sm tracking-tight truncate text-slate-900 dark:text-slate-100">{{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}</span>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+
+    <div class="px-2 pb-1.5 text-[10px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-semibold">Main</div>
+
+    <a href="/app" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+      {{if eq .Page "dashboard"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+      Overview
+    </a>
+
+    <a href="/app/services" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+      {{if eq .Page "services"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
+      Servers
+    </a>
+
+    <a href="/app/routes" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+      {{if or (eq .Page "routes_list") (eq .Page "route_new")}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+      Routes
+    </a>
+
+    <a href="/app/tunnels" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+      {{if eq .Page "tunnels"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Tunnels
+    </a>
+
+    <div class="px-2 pt-4 pb-1.5 text-[10px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-semibold">Settings</div>
+
+    <a href="/app/account" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+      {{if eq .Page "account"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+      Account
+    </a>
+
+    <a href="/app/2fa" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+      {{if eq .Page "twofa"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
+      Security
+    </a>
+
+    <a href="/app/api-keys" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+      {{if eq .Page "api_keys"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+      API Keys
+    </a>
+  </nav>
+
+  <!-- Sidebar footer -->
+  <div class="border-t border-slate-200 dark:border-zinc-800 px-3 py-3 shrink-0">
+    <div class="flex items-center gap-2 mb-3 min-w-0">
+      <div class="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[11px] font-semibold flex items-center justify-center shrink-0 uppercase select-none">
+        {{printf "%.1s" .Data.Email}}
+      </div>
+      <span class="text-xs text-slate-600 dark:text-slate-300 truncate min-w-0">{{.Data.Email}}</span>
+    </div>
+    <div class="flex items-center justify-between">
+      <button type="button" data-theme-toggle title="Toggle theme"
+        class="p-1.5 rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors duration-150 cursor-pointer">
+        <span id="icon-moon">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </span>
+        <span id="icon-sun" class="hidden">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </span>
+      </button>
+      <form method="POST" action="/auth/logout">
+        <input type="hidden" name="csrf_token" value="{{.Data.CSRF}}">
+        <button class="text-xs text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors duration-150 cursor-pointer">Sign out</button>
+      </form>
+    </div>
+  </div>
+</aside>
+
+<!-- Main content column -->
+<div class="min-h-full flex flex-col lg:pl-56">
+
+  {{if .Data.ImpersonatorEmail}}
+  <div class="bg-amber-100 dark:bg-amber-900/40 border-b border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs shrink-0">
+    <div class="px-6 py-2 flex items-center justify-between gap-3">
+      <span>Viewing as <strong>{{.Data.Email}}</strong> (admin: {{.Data.ImpersonatorEmail}}). All actions are audit-attributed to the admin.</span>
+      <form method="POST" action="/auth/end-impersonation">
+        <input type="hidden" name="csrf_token" value="{{.Data.CSRF}}">
+        <button class="px-2 py-0.5 rounded bg-amber-600 text-white hover:bg-amber-700 text-xs font-medium cursor-pointer">Back to admin</button>
+      </form>
+    </div>
+  </div>
+  {{end}}
+
+  <!-- Mobile top bar (hamburger) -->
+  <header class="sticky top-0 z-20 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 px-4 py-3 flex items-center gap-3 lg:hidden shrink-0">
+    <button onclick="openSidebar()" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer" aria-label="Open menu">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <span class="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate">{{.Data.Title}}</span>
+  </header>
+
+  <main class="flex-1 px-6 py-6">
+    <h1 class="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 mb-5 hidden lg:block">{{.Data.Title}}</h1>
+    {{if .Data.Flash}}<div class="mb-4 p-3 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-sm">{{.Data.Flash}}</div>{{end}}
+    {{if .Data.Error}}<div class="mb-4 p-3 rounded-md bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 text-sm">{{.Data.Error}}</div>{{end}}
+
+    {{if eq .Page "dashboard"}}{{template "dashboard" .Data}}{{end}}
+    {{if eq .Page "services"}}{{template "services" .Data}}{{end}}
+    {{if eq .Page "routes_list"}}{{template "routes_list" .Data}}{{end}}
+    {{if eq .Page "route_new"}}{{template "route_new" .Data}}{{end}}
+    {{if eq .Page "twofa"}}{{template "twofa" .Data}}{{end}}
+    {{if eq .Page "api_keys"}}{{template "api_keys" .Data}}{{end}}
+    {{if eq .Page "tunnels"}}{{template "client_tunnels" .Data}}{{end}}
+    {{if eq .Page "account"}}{{template "account" .Data}}{{end}}
+  </main>
+</div>
+
+<!-- Toasts -->
+<div id="hpg-toasts" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none w-80 max-w-[calc(100vw-2rem)]"></div>
+
+<!-- Confirm modal -->
+<div id="hpg-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+  <div class="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-slate-200 dark:border-zinc-800 max-w-md w-full p-5 space-y-4">
+    <p id="hpg-modal-msg" class="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap"></p>
+    <div class="flex justify-end gap-2">
+      <button id="hpg-modal-cancel" type="button" class="px-3 py-1.5 rounded-md text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">Cancel</button>
+      <button id="hpg-modal-ok" type="button" class="px-3 py-1.5 rounded-md bg-rose-600 text-white text-sm font-medium hover:bg-rose-700 cursor-pointer">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Prompt modal -->
+<div id="hpg-prompt" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+  <div class="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-slate-200 dark:border-zinc-800 max-w-md w-full p-5 space-y-4">
+    <p id="hpg-prompt-msg" class="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap"></p>
+    <input id="hpg-prompt-input" type="text" class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    <div class="flex justify-end gap-2">
+      <button id="hpg-prompt-cancel" type="button" class="px-3 py-1.5 rounded-md text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">Cancel</button>
+      <button id="hpg-prompt-ok" type="button" class="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 cursor-pointer">OK</button>
+    </div>
+  </div>
+</div>
+
+<script nonce="{{.Data.CSPNonce}}">
+window.hpgToast = function(msg, kind){
+  if (!msg) return;
+  var wrap = document.getElementById('hpg-toasts'); if (!wrap) return;
+  var el = document.createElement('div');
+  var palette = kind === 'error'
+    ? 'bg-rose-600 text-white'
+    : kind === 'warn' ? 'bg-amber-500 text-white'
+    : 'bg-emerald-600 text-white';
+  el.className = 'pointer-events-auto rounded-lg shadow-lg px-4 py-3 text-sm ' + palette + ' opacity-0 transition-opacity duration-200';
+  el.textContent = msg;
+  wrap.appendChild(el);
+  requestAnimationFrame(function(){ el.classList.remove('opacity-0'); });
+  setTimeout(function(){
+    el.classList.add('opacity-0');
+    setTimeout(function(){ el.remove(); }, 250);
+  }, 4000);
+};
+window.hpgConfirm = function(msg){
+  return new Promise(function(resolve){
+    var m = document.getElementById('hpg-modal');
+    document.getElementById('hpg-modal-msg').textContent = msg || 'Are you sure?';
+    m.classList.remove('hidden'); m.classList.add('flex');
+    function done(ok){
+      m.classList.add('hidden'); m.classList.remove('flex');
+      document.getElementById('hpg-modal-ok').onclick = null;
+      document.getElementById('hpg-modal-cancel').onclick = null;
+      m.onclick = null;
+      resolve(ok);
+    }
+    document.getElementById('hpg-modal-ok').onclick = function(){ done(true); };
+    document.getElementById('hpg-modal-cancel').onclick = function(){ done(false); };
+    m.onclick = function(e){ if (e.target === m) done(false); };
+  });
+};
+window.hpgPrompt = function(msg, defaultValue){
+  return new Promise(function(resolve){
+    var m = document.getElementById('hpg-prompt');
+    var inp = document.getElementById('hpg-prompt-input');
+    document.getElementById('hpg-prompt-msg').textContent = msg || '';
+    inp.value = defaultValue || '';
+    m.classList.remove('hidden'); m.classList.add('flex');
+    setTimeout(function(){ inp.focus(); inp.select(); }, 30);
+    function done(val){
+      m.classList.add('hidden'); m.classList.remove('flex');
+      document.getElementById('hpg-prompt-ok').onclick = null;
+      document.getElementById('hpg-prompt-cancel').onclick = null;
+      inp.onkeydown = null;
+      m.onclick = null;
+      resolve(val);
+    }
+    document.getElementById('hpg-prompt-ok').onclick = function(){ done(inp.value); };
+    document.getElementById('hpg-prompt-cancel').onclick = function(){ done(null); };
+    m.onclick = function(e){ if (e.target === m) done(null); };
+    inp.onkeydown = function(e){
+      if (e.key === 'Enter') { e.preventDefault(); done(inp.value); }
+      else if (e.key === 'Escape') { e.preventDefault(); done(null); }
+    };
+  });
+};
+</script>
+<script nonce="{{.Data.CSPNonce}}">
+function updateThemeIcons(dark) {
+  var moon = document.getElementById('icon-moon');
+  var sun = document.getElementById('icon-sun');
+  if (moon) moon.classList.toggle('hidden', dark);
+  if (sun) sun.classList.toggle('hidden', !dark);
+}
+function toggleTheme(){
+  var dark = document.documentElement.classList.toggle('dark');
+  localStorage.setItem('theme', dark ? 'dark' : 'light');
+  updateThemeIcons(dark);
+}
+(function(){ updateThemeIcons(document.documentElement.classList.contains('dark')); })();
+
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('[data-theme-toggle]').forEach(function(el){
+    el.addEventListener('click', toggleTheme);
+  });
+  document.querySelectorAll('form[data-confirm]').forEach(function(f){
+    var armed = false;
+    f.addEventListener('submit', function(e){
+      if (armed) return;
+      e.preventDefault();
+      window.hpgConfirm(f.dataset.confirm).then(function(ok){
+        if (ok) { armed = true; f.submit(); }
+      });
+    });
+  });
+});
+
+function openSidebar() {
+  document.getElementById('sidebar').classList.remove('-translate-x-full');
+  document.getElementById('sidebar-overlay').classList.remove('hidden');
+  document.body.classList.add('overflow-hidden');
+}
+function closeSidebar() {
+  document.getElementById('sidebar').classList.add('-translate-x-full');
+  document.getElementById('sidebar-overlay').classList.add('hidden');
+  document.body.classList.remove('overflow-hidden');
+}
+</script>
+</body>
+</html>
+{{end}}

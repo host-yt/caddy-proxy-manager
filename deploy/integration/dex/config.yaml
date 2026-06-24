@@ -1,0 +1,25 @@
+issuer: http://127.0.0.1:15556
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+oauth2:
+  skipApprovalScreen: true
+
+staticClients:
+  - id: hpg-panel
+    name: Hostyt Proxy Gateway
+    secret: hpg-test-secret
+    redirectURIs:
+      - http://127.0.0.1:38080/auth/oidc/callback
+
+enablePasswordDB: true
+staticPasswords:
+  # password = secret (bcrypt of "secret")
+  - email: oidc-tester@example.com
+    hash: "$2y$10$Wkz6sw15ANjzvAYrV8ZNjOWiKHfXKQH9MJTjJF6fmrIuKHFRcGuc."
+    username: oidc-tester
+    userID: "08a8684b-db88-4b73-90a9-3cd1661f5466"

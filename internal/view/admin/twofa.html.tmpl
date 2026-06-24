@@ -1,0 +1,135 @@
+{{define "twofa"}}
+<div class="space-y-4">
+{{template "admin_account_tabs" "twofa"}}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+  <section class="hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Authenticator app (TOTP)</h2>
+    {{if .Enabled}}
+    <div class="mb-4"><span class="hpg-pill hpg-pill-ok">TOTP is active on your account</span></div>
+    <form method="POST" action="/admin/2fa/disable" data-confirm="Disable TOTP?">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="text-sm px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700">Disable TOTP</button>
+    </form>
+    {{else if .Enrolling}}
+    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">Scan the QR code with your authenticator (1Password, Aegis, Authy, Google Authenticator…) then enter the 6-digit code below.</p>
+    <div class="flex items-start gap-6">
+      <img src="data:image/png;base64,{{.QRBase64}}" alt="QR" class="ring-1 ring-slate-200 dark:ring-zinc-700 rounded-xl" width="220" height="220">
+      <div class="text-xs">
+        <div class="hpg-eyebrow mb-1">Manual entry</div>
+        <code class="block bg-slate-50 dark:bg-zinc-800 p-2 rounded-lg break-all font-mono">{{.Secret}}</code>
+      </div>
+    </div>
+    <form method="POST" action="/admin/2fa/confirm" class="mt-4 space-y-3">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="secret" value="{{.Secret}}">
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">6-digit code</label>
+        <input name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autofocus
+               class="w-full max-w-xs px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-center tracking-widest">
+      </div>
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Enable TOTP</button>
+    </form>
+    {{else}}
+    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">Add a second factor so that even a stolen password can't open your account.</p>
+    <form method="POST" action="/admin/2fa/start">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Set up TOTP</button>
+    </form>
+    {{end}}
+  </section>
+
+  {{if .RecoveryCodes}}
+  <section class="hpg-card bg-amber-50 dark:bg-amber-500/10 ring-amber-200 dark:ring-amber-500/30">
+    <h2 class="font-semibold text-amber-900 dark:text-amber-200 mb-2">Recovery codes</h2>
+    <p class="text-xs text-amber-800 dark:text-amber-300 mb-3">Store these safely. Each works once if you lose access to your authenticator. They won't be shown again.</p>
+    <ul class="grid grid-cols-2 gap-2 text-sm font-mono">
+      {{range .RecoveryCodes}}<li class="bg-white dark:bg-zinc-900 ring-1 ring-amber-200 dark:ring-amber-500/30 rounded-lg px-2 py-1">{{.}}</li>{{end}}
+    </ul>
+  </section>
+  {{end}}
+
+  <section class="hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">SMS two-factor authentication</h2>
+    {{if .SMSOTPEnrolling}}
+    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">A 6-digit code was sent to your phone. Enter it below to activate SMS 2FA.</p>
+    <form method="POST" action="/admin/2fa/sms/confirm" class="space-y-3">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus
+             placeholder="123456"
+             class="w-full max-w-xs px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-center tracking-widest">
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Verify &amp; enable</button>
+    </form>
+    {{else if .SMSOTPEnabled}}
+    <div class="mb-4"><span class="hpg-pill hpg-pill-ok">SMS 2FA is active</span></div>
+    <form method="POST" action="/admin/2fa/sms/disable" data-confirm="Disable SMS 2FA?">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="text-sm px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700">Disable SMS 2FA</button>
+    </form>
+    {{else if not .HasSMS}}
+    <p class="text-sm text-slate-500 dark:text-slate-400">SMS provider not configured. Wire it under <a href="/admin/settings" class="text-indigo-600 dark:text-indigo-400 hover:underline">Settings → SMS</a> first.</p>
+    {{else if .HasPhone}}
+    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">Receive a 6-digit code by SMS during sign-in.</p>
+    <form method="POST" action="/admin/2fa/sms/start">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Set up SMS 2FA</button>
+    </form>
+    {{else}}
+    <p class="text-sm text-slate-500 dark:text-slate-400">Set your phone number in <a href="/admin/account" class="text-indigo-600 dark:text-indigo-400 hover:underline">Account</a> first.</p>
+    {{end}}
+  </section>
+
+  <section class="hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Email two-factor authentication</h2>
+    {{if .EmailOTPEnrolling}}
+    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">A 6-digit code was sent to your email. Enter it below to activate Email 2FA.</p>
+    <form method="POST" action="/admin/2fa/email/confirm" class="space-y-3">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus
+             placeholder="123456"
+             class="w-full max-w-xs px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-center tracking-widest">
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Verify &amp; enable</button>
+    </form>
+    {{else if .EmailOTPEnabled}}
+    <div class="mb-4"><span class="hpg-pill hpg-pill-ok">Email 2FA is active</span></div>
+    <form method="POST" action="/admin/2fa/email/disable" data-confirm="Disable Email 2FA?">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="text-sm px-3 py-1.5 rounded-lg bg-rose-600 text-white hover:bg-rose-700">Disable Email 2FA</button>
+    </form>
+    {{else if not .HasMailer}}
+    <p class="text-sm text-slate-500 dark:text-slate-400">SMTP not configured. Wire it under <a href="/admin/settings" class="text-indigo-600 dark:text-indigo-400 hover:underline">Settings → SMTP</a> first.</p>
+    {{else}}
+    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">Receive a 6-digit code by email during sign-in.</p>
+    <form method="POST" action="/admin/2fa/email/start">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Set up Email 2FA</button>
+    </form>
+    {{end}}
+  </section>
+
+  <section class="hpg-card lg:col-span-2">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="font-semibold text-slate-800 dark:text-slate-100">Passkeys (WebAuthn)</h2>
+      <button id="passkey-add-btn" data-scope="admin"
+        class="text-sm px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">+ Add passkey</button>
+    </div>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Use Touch ID / Windows Hello / a security key. Passkeys can replace your password - pick one on the login page.</p>
+    <div id="passkeys-list" data-scope="admin">
+      <p class="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+    </div>
+  </section>
+  <script nonce="{{.CSPNonce}}" src="/static/js/passkey.js"></script>
+
+  {{if not .RecoveryCodes}}
+  <section class="hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">Priority &amp; fallbacks</h2>
+    <ol class="text-sm text-slate-600 dark:text-slate-300 list-decimal list-inside space-y-1">
+      <li>TOTP - fastest, works offline.</li>
+      <li>SMS - needs a configured SMS provider + phone on file.</li>
+      <li>Email - needs SMTP. Slowest, useful as a fallback.</li>
+    </ol>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mt-3">Sign-in challenges run in this order; whichever factor is enrolled (and configured) wins.</p>
+  </section>
+  {{end}}
+</div>
+</div>
+{{end}}

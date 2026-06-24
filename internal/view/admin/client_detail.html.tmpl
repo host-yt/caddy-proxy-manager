@@ -1,0 +1,70 @@
+{{define "client_detail"}}
+<div class="max-w-xl space-y-6">
+
+  {{if .Flash}}
+  <div class="px-4 py-2 rounded-lg bg-green-50 text-green-800 ring-1 ring-green-200 text-sm">{{.Flash}}</div>
+  {{end}}
+  {{if .Error}}
+  <div class="px-4 py-2 rounded-lg bg-red-50 text-red-800 ring-1 ring-red-200 text-sm">{{.Error}}</div>
+  {{end}}
+
+  <!-- Client summary -->
+  <section class="hpg-card space-y-1">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100">{{.DisplayName}}</h2>
+    <p class="text-sm text-slate-500">{{.Email}}</p>
+    <p class="text-xs text-slate-400">ID: {{.ID}}</p>
+  </section>
+
+  <!-- Status page controls -->
+  <section class="hpg-card">
+    <h2 class="hpg-eyebrow mb-3">Public status page</h2>
+    {{if .StatusSlug}}
+    <div class="mb-3 text-sm text-slate-700 dark:text-slate-300 space-y-2">
+      <p>Status page is <span class="hpg-pill hpg-pill-ok">enabled</span></p>
+      <p class="font-mono text-xs break-all text-slate-500">{{.StatusURL}}</p>
+    </div>
+    <div class="flex gap-2">
+      <a href="{{.StatusURL}}" target="_blank"
+         class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-sm hover:bg-slate-50 dark:hover:bg-zinc-800">
+        Preview
+      </a>
+      <form method="POST" action="/admin/clients/{{.ID}}/status-slug/generate">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-sm hover:bg-slate-50 dark:hover:bg-zinc-800">
+          Regenerate slug
+        </button>
+      </form>
+      <form method="POST" action="/admin/clients/{{.ID}}/status-slug/revoke"
+            data-confirm="Disable status page for {{.DisplayName}}?">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="px-3 py-1.5 rounded-lg text-sm bg-rose-50 text-rose-700 ring-1 ring-rose-200 hover:bg-rose-100">
+          Disable
+        </button>
+      </form>
+    </div>
+    <div class="mt-3 flex items-center gap-3">
+      <form method="POST" action="/admin/clients/{{.ID}}/status-slug/toggle-traffic">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="text-sm px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800">
+          {{if .ShowTraffic}}Hide traffic bytes{{else}}Show traffic bytes{{end}}
+        </button>
+      </form>
+      <span class="text-xs text-slate-400">
+        Traffic visible to visitors:
+        {{if .ShowTraffic}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}
+      </span>
+    </div>
+    {{else}}
+    <p class="text-sm text-slate-500 mb-3">Status page is <span class="hpg-pill hpg-pill-muted">disabled</span> for this client.</p>
+    <form method="POST" action="/admin/clients/{{.ID}}/status-slug/generate">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
+        Enable status page
+      </button>
+    </form>
+    {{end}}
+  </section>
+
+  <a href="/admin/clients" class="text-sm text-indigo-600 hover:underline">&larr; Back to clients</a>
+</div>
+{{end}}

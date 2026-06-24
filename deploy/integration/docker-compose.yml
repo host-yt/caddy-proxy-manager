@@ -1,0 +1,91 @@
+# Integration test stack for prod-readiness verification.
+#
+# Brings up enough infrastructure to exercise the real-world boundaries
+# the audit flagged as untested in the unit suite:
+#
+#   - Pebble       ACME server (RFC 8555 test impl, valid against Caddy)
+#   - Mailpit      catch-all SMTP + HTTP UI to inspect outbound mail
+#   - Dex          minimal OIDC IdP with a static user, for OIDC handshake
+#   - opensshd     real SFTP server with keypair auth, for SFTP backups
+#   - Caddy        local proxy talking to Pebble (instead of LE prod)
+#
+# Usage:
+#   docker compose -f deploy/integration/docker-compose.yml up -d
+#   go test -tags=integration ./...
+#   docker compose -f deploy/integration/docker-compose.yml down -v
+#
+# Each test reads the relevant host:port from the panel's env / config.
+# CI may run this on every PR; locally, run on demand.
+
+services:
+  pebble:
+    image: ghcr.io/letsencrypt/pebble:latest
+    command: ["-config", "/test/config/pebble-config.json"]
+    environment:
+      PEBBLE_VA_NOSLEEP: "1"
+      PEBBLE_VA_ALWAYS_VALID: "1"   # skip real DNS-01/HTTP-01 round-trips
+    ports:
+      - "14000:14000"   # ACME directory
+      - "15000:15000"   # management API
+    volumes:
+      - ./pebble:/test/config:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "https://localhost:14000/dir", "--no-check-certificate"]
+      interval: 5s
+      retries: 10
+      timeout: 3s
+
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "11025:1025"    # SMTP
+      - "18025:8025"    # web UI + REST
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8025"]
+      interval: 5s
+      retries: 10
+
+  dex:
+    image: dexidp/dex:latest
+    command: ["dex", "serve", "/etc/dex/config.yaml"]
+    ports:
+      - "15556:5556"
+    volumes:
+      - ./dex:/etc/dex:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:5556/healthz/ready"]
+      interval: 5s
+      retries: 10
+
+  sftp:
+    image: atmoz/sftp:latest
+    command: testuser:testpass:::backups
+    ports:
+      - "12222:22"
+    healthcheck:
+      test: ["CMD-SHELL", "ss -lnt | grep -q ':22'"]
+      interval: 5s
+      retries: 10
+
+  mariadb-it:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: itroot
+      MARIADB_DATABASE: hpg_it
+      MARIADB_USER: hpg
+      MARIADB_PASSWORD: hpgpw
+    ports:
+      - "13307:3306"
+    healthcheck:
+      test: ["CMD", "mariadb-admin", "ping", "-uroot", "-pitroot"]
+      interval: 5s
+      retries: 10
+
+  redis-it:
+    image: redis:7-alpine
+    ports:
+      - "16380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10

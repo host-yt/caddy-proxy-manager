@@ -1,0 +1,167 @@
+{{define "totp_challenge.html.tmpl"}}<!doctype html>
+<html lang="{{.Lang}}" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>2FA - Hostyt Proxy</title>
+<link rel="stylesheet" href="/static/fonts/inter.css">
+<link rel="stylesheet" href="/static/css/tailwind.css">
+<script nonce="{{.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
+<style>
+  input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  select, textarea { color: rgb(15 23 42); }
+  .dark input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  .dark select, .dark textarea {
+    background-color: rgb(39 39 42);
+    border-color: rgb(63 63 70);
+    color: rgb(241 245 249);
+  }
+  .dark input::placeholder, .dark textarea::placeholder { color: rgb(100 116 139); }
+  .tab { background: rgb(241 245 249); color: rgb(51 65 85); }
+  .dark .tab { background: rgb(39 39 42); color: rgb(203 213 225); }
+  .tab.active { background: rgb(79 70 229); color: white; }
+  .tab[disabled] { opacity: .4; cursor: not-allowed; }
+</style>
+</head>
+<body class="h-full bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-slate-100 flex items-center justify-center p-4">
+<div class="w-full max-w-md">
+  <header class="text-center mb-6">
+    <h1 class="text-xl font-semibold">Two-factor authentication</h1>
+    <p class="text-slate-500 dark:text-slate-400 text-sm">Verify your identity to continue.</p>
+  </header>
+  <main class="bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-slate-200 dark:border-zinc-800 p-6">
+    {{if .Error}}<div class="mb-4 p-3 rounded-md bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 text-sm">{{.Error}}</div>{{end}}
+
+    <div class="flex flex-wrap gap-2 mb-4 pb-3 border-b border-slate-200 dark:border-zinc-800" id="methodTabs">
+      {{if .HasTOTP}}<button type="button" data-method="totp" class="tab px-3 py-1.5 rounded-md text-sm font-medium">Authenticator app</button>{{end}}
+      {{if .HasEmail}}<button type="button" data-method="email" class="tab px-3 py-1.5 rounded-md text-sm font-medium">Email</button>{{end}}
+      {{if .HasSMS}}<button type="button" data-method="sms" class="tab px-3 py-1.5 rounded-md text-sm font-medium">SMS</button>{{end}}
+      {{if .HasRecovery}}<button type="button" data-method="recovery" class="tab px-3 py-1.5 rounded-md text-sm font-medium">Recovery code</button>{{end}}
+    </div>
+
+    <form method="POST" action="/auth/2fa" class="space-y-4">
+      <input type="hidden" name="method" id="methodField" value="{{.DefaultMethod}}">
+
+      <div id="sendRow" class="hidden space-y-2">
+        <button type="button" id="sendBtn" class="w-full px-4 py-2 rounded-md bg-slate-800 dark:bg-zinc-700 text-white text-sm hover:bg-slate-900 dark:hover:bg-zinc-600">Send code</button>
+        <p id="sendStatus" class="text-xs text-slate-500 dark:text-slate-400"></p>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1" id="codeLabel">Code</label>
+        <input name="code" id="codeInput" inputmode="numeric" autocomplete="one-time-code" required autofocus
+               placeholder="123456"
+               class="w-full px-3 py-3 rounded-md border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 text-center text-lg font-mono tracking-widest focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+
+      <label class="flex items-center gap-2 text-sm select-none cursor-pointer">
+        <input type="checkbox" name="trust_device" class="rounded border-slate-300 dark:border-zinc-700">
+        <span>Remember this browser for 30 days</span>
+      </label>
+
+      <button class="w-full px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Verify</button>
+    </form>
+
+    <p class="text-center text-xs text-slate-500 dark:text-slate-400 mt-4">
+      <a href="/auth/login" class="hover:underline">Cancel and return to sign in</a>
+    </p>
+  </main>
+</div>
+
+<script nonce="{{.CSPNonce}}">
+(function(){
+  var tabs = document.querySelectorAll('#methodTabs .tab');
+  var methodField = document.getElementById('methodField');
+  var sendRow = document.getElementById('sendRow');
+  var sendBtn = document.getElementById('sendBtn');
+  var sendStatus = document.getElementById('sendStatus');
+  var codeInput = document.getElementById('codeInput');
+  var codeLabel = document.getElementById('codeLabel');
+
+  function setActive(m) {
+    methodField.value = m;
+    tabs.forEach(function(t){
+      t.classList.toggle('active', t.dataset.method === m);
+    });
+    if (m === 'sms' || m === 'email') {
+      sendRow.classList.remove('hidden');
+      codeInput.placeholder = '••••••';
+      codeInput.setAttribute('pattern', '[0-9]*');
+      codeLabel.textContent = (m === 'email' ? 'Email' : 'SMS') + ' code';
+      sendStatus.textContent = '';
+    } else if (m === 'recovery') {
+      sendRow.classList.add('hidden');
+      codeInput.placeholder = 'recovery-code';
+      codeInput.removeAttribute('pattern');
+      codeLabel.textContent = 'Recovery code';
+    } else {
+      sendRow.classList.add('hidden');
+      codeInput.placeholder = '123456';
+      codeInput.setAttribute('pattern', '[0-9]*');
+      codeLabel.textContent = 'Authenticator code';
+    }
+    codeInput.value = '';
+  }
+  tabs.forEach(function(t){ t.addEventListener('click', function(){ setActive(t.dataset.method); }); });
+
+  var sendBtnLabel = sendBtn ? sendBtn.textContent : 'Send code';
+  var cooldownTimer = null;
+  function startCooldown(sec) {
+    if (cooldownTimer) clearInterval(cooldownTimer);
+    var left = sec;
+    sendBtn.disabled = true;
+    sendBtn.textContent = 'Resend in ' + left + 's';
+    cooldownTimer = setInterval(function(){
+      left -= 1;
+      if (left <= 0) {
+        clearInterval(cooldownTimer);
+        cooldownTimer = null;
+        sendBtn.disabled = false;
+        sendBtn.textContent = sendBtnLabel;
+        return;
+      }
+      sendBtn.textContent = 'Resend in ' + left + 's';
+    }, 1000);
+  }
+
+  if (sendBtn) {
+    sendBtn.addEventListener('click', function(){
+      sendBtn.disabled = true;
+      sendStatus.textContent = 'Sending…';
+      var body = new URLSearchParams();
+      body.append('method', methodField.value);
+      fetch('/auth/2fa/send', {
+        method: 'POST',
+        body: body,
+        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+        credentials: 'same-origin'
+      })
+        .then(function(r){
+          if (r.status === 204) {
+            sendStatus.textContent = 'Code sent. Check your ' + (methodField.value === 'email' ? 'inbox.' : 'phone.');
+            codeInput.focus();
+            var after = parseInt(r.headers.get('X-Resend-After') || '60', 10);
+            startCooldown(after);
+            return;
+          }
+          if (r.status === 429) {
+            var retry = parseInt(r.headers.get('Retry-After') || '60', 10);
+            return r.text().then(function(t){
+              sendStatus.textContent = t || ('Wait ' + retry + 's before resending.');
+              startCooldown(retry);
+            });
+          }
+          return r.text().then(function(t){ throw new Error(t || ('HTTP '+r.status)); });
+        })
+        .catch(function(e){
+          sendStatus.textContent = 'Send failed: ' + (e.message || e);
+          sendBtn.disabled = false;
+        });
+    });
+  }
+
+  if (methodField.value) setActive(methodField.value);
+})();
+</script>
+</body></html>
+{{end}}

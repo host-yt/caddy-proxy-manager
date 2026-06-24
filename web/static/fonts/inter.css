@@ -1,0 +1,32 @@
+/* Self-hosted Inter (variable font only) - replaces the rsms.me CDN link so
+   pages render without blocking on an external host (air-gapped / WG / slow
+   uplink). Variable font covers weights 100-900 + italic. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('font-files/InterVariable.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('font-files/InterVariable-Italic.woff2') format('woff2');
+}
+/* Aliases kept so existing font-family declarations resolve. */
+@font-face {
+  font-family: 'InterVariable';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('font-files/InterVariable.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'InterVariable';
+  font-style: italic;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('font-files/InterVariable-Italic.woff2') format('woff2');
+}

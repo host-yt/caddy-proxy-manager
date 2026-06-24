@@ -1,0 +1,19 @@
+# Bootstrap config for a remote Caddy node.
+# After the control plane registers this node and POSTs /load, this file
+# is superseded by the JSON config pushed via the Admin API.
+
+{
+	# Admin API listens on the WireGuard IP only - never publicly.
+	# Edit the IP below to match this node's wg0 address.
+	admin 10.66.0.2:2019
+
+	email {$ACME_EMAIL}
+
+	on_demand_tls {
+		ask {$ASK_ENDPOINT_URL}
+	}
+}
+
+:80 {
+	respond "Hostyt Proxy node - awaiting routes from control plane" 503
+}

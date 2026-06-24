@@ -1,0 +1,121 @@
+{{define "status_page.html.tmpl"}}<!doctype html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>Service Status - {{.ClientName}}</title>
+<link rel="stylesheet" href="/static/css/tailwind.css">
+</head>
+<body class="min-h-full bg-slate-50 text-slate-900">
+<div class="max-w-2xl mx-auto px-4 py-10 space-y-8">
+
+  <!-- Header -->
+  <div class="flex items-center justify-between">
+    <div>
+      <h1 class="text-xl font-semibold">{{.ClientName}}</h1>
+      <p class="text-sm text-slate-500">Service status</p>
+    </div>
+    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium
+      {{if .AllUp}}bg-green-100 text-green-800{{else}}bg-red-100 text-red-800{{end}}">
+      <span class="w-2 h-2 rounded-full
+        {{if .AllUp}}bg-green-500{{else}}bg-red-500{{end}}"></span>
+      {{if .AllUp}}All systems operational{{else}}Degraded{{end}}
+    </span>
+  </div>
+
+  <!-- Hosts -->
+  {{if .Routes}}
+  <section>
+    <h2 class="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">Hosts</h2>
+    <div class="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white overflow-hidden">
+      {{range .Routes}}
+      <div class="flex items-center justify-between px-4 py-3">
+        <div>
+          <p class="text-sm font-medium">
+            {{.Domain}}{{if .PathPrefix}}<span class="text-slate-400">{{.PathPrefix}}</span>{{end}}
+          </p>
+          <p class="text-xs text-slate-400 mt-0.5">
+            {{if .SSL}}HTTPS{{else}}HTTP{{end}}
+            {{if eq .NodeHealth "down"}} &middot; <span class="text-red-500">node down</span>{{end}}
+          </p>
+        </div>
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full
+          {{if eq .Status "active"}}bg-green-50 text-green-700
+          {{else if eq .Status "pending_ssl"}}bg-blue-50 text-blue-700
+          {{else if eq .Status "dns_ok"}}bg-yellow-50 text-yellow-700
+          {{else}}bg-red-50 text-red-700{{end}}">
+          {{.Status}}
+        </span>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
+  <!-- Tunnels -->
+  {{if .Tunnels}}
+  <section>
+    <h2 class="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">Tunnels (WireGuard)</h2>
+    <div class="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white overflow-hidden">
+      {{range .Tunnels}}
+      <div class="flex items-center justify-between px-4 py-3">
+        <div>
+          <p class="text-sm font-medium">{{.Name}}</p>
+          <p class="text-xs text-slate-400 mt-0.5">
+            {{.AssignedIP}}
+            {{if .LastHandshakeAt}}
+              &middot; last seen {{.LastHandshakeAt.Format "Jan 2 15:04 UTC"}}
+            {{else}}
+              &middot; never connected
+            {{end}}
+            {{if $.ShowTraffic}}
+              &middot; {{humanBytes .RxBytes}} in / {{humanBytes .TxBytes}} out
+            {{end}}
+          </p>
+        </div>
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full
+          {{if .HandshakeStale}}bg-red-50 text-red-700
+          {{else}}bg-green-50 text-green-700{{end}}">
+          {{if .HandshakeStale}}offline{{else}}online{{end}}
+        </span>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
+  <!-- Traffic sparkline (optional, admin-controlled per client) -->
+  {{if .ShowTraffic}}
+  <section>
+    <h2 class="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">Requests (14 days, approximate)</h2>
+    <canvas id="spark" class="w-full h-24"></canvas>
+    <script>
+    (function(){
+      var labels = {{.TrafficLabels}};
+      var values = {{.TrafficValues}};
+      var canvas = document.getElementById('spark');
+      if (!canvas) return;
+      var ctx = canvas.getContext('2d');
+      var w = canvas.offsetWidth || 600, h = canvas.offsetHeight || 96;
+      canvas.width = w; canvas.height = h;
+      var max = Math.max.apply(null, values) || 1;
+      var step = w / ((labels.length - 1) || 1);
+      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 2; ctx.beginPath();
+      values.forEach(function(v, i) {
+        var x = i * step, y = h - (v / max) * (h - 8) - 4;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      });
+      ctx.stroke();
+    })();
+    </script>
+  </section>
+  {{end}}
+
+  <p class="text-xs text-slate-400 text-center">
+    Updated {{.GeneratedAt.Format "2006-01-02 15:04 UTC"}}
+  </p>
+</div>
+</body>
+</html>
+{{end}}

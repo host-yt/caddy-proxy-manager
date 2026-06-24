@@ -1,0 +1,66 @@
+{{define "services"}}
+<div class="space-y-4">
+{{range .Services}}
+  <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5">
+    <div class="flex items-start justify-between mb-3">
+      <div>
+        <h3 class="font-semibold text-slate-800 dark:text-slate-100">{{.Name}}</h3>
+        <p class="text-xs text-slate-500 dark:text-slate-400">Status:
+          <span class="inline-block px-2 py-0.5 rounded text-xs
+            {{if eq .Status "active"}}bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300
+            {{else if eq .Status "suspended"}}bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300
+            {{else}}bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300{{end}}">{{.Status}}</span>
+          {{if eq .PlanKind "npm"}}<span class="ml-1 inline-block px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs">NPM mode</span>{{end}}
+        </p>
+      </div>
+      <a href="/app/routes/new?service_id={{.ID}}" class="text-sm px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add domain</a>
+    </div>
+    <dl class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+      <div>
+        <dt class="text-xs uppercase text-slate-500 dark:text-slate-400">Backend IP</dt>
+        <dd class="font-mono text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.BackendIP}}</dd>
+      </div>
+      <div>
+        <dt class="text-xs uppercase text-slate-500 dark:text-slate-400">Allowed ports</dt>
+        <dd class="font-mono text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.PortStart}} – {{.PortEnd}}</dd>
+      </div>
+      <div>
+        <dt class="text-xs uppercase text-slate-500 dark:text-slate-400">Plan</dt>
+        <dd class="text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.PlanName}}</dd>
+      </div>
+    </dl>
+
+    {{if eq .PlanKind "npm"}}
+    <details class="mt-4 border-t border-slate-200 dark:border-zinc-800 dark:border-zinc-700 pt-3">
+      <summary class="cursor-pointer text-xs font-medium text-indigo-600 dark:text-indigo-400">Edit backend (NPM mode)</summary>
+      <form method="POST" action="/app/services/{{.ID}}/edit" class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 dark:text-slate-400 mb-1">Backend IP</label>
+          <input name="backend_ip" value="{{.BackendIP}}" required class="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-zinc-700">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 dark:text-slate-400 mb-1">Port start</label>
+          <input name="port_start" type="number" min="1" max="65535" value="{{.PortStart}}" required class="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-zinc-700">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 dark:text-slate-400 mb-1">Port end</label>
+          <input name="port_end" type="number" min="1" max="65535" value="{{.PortEnd}}" required class="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-zinc-700">
+        </div>
+        <div class="sm:col-span-3">
+          <button class="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm hover:bg-indigo-700">Save</button>
+          <span class="text-xs text-slate-500 dark:text-slate-400 ml-2">Changes apply to new routes. Existing routes keep their ports until you edit them.</span>
+        </div>
+      </form>
+    </details>
+    {{else}}
+    <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">Backend IP and port range are managed by your provider and cannot be changed here.</p>
+    {{end}}
+  </section>
+{{else}}
+  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-8 text-center text-slate-500 dark:text-slate-400 text-sm">
+    No VPS services on your account yet. Your provider will activate one shortly.
+  </div>
+{{end}}
+</div>
+{{end}}

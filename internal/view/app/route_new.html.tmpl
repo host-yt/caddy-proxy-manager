@@ -1,0 +1,52 @@
+{{define "route_new"}}
+{{if not .Services}}
+  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-8 text-center text-slate-500 text-sm">
+    No active VPS services yet.
+  </div>
+{{else}}
+<form method="POST" action="/app/routes" class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-6 space-y-4 max-w-xl">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <div>
+    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Service / VPS</label>
+    <select name="service_id" required class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm">
+      {{range .Services}}
+        <option value="{{.ID}}" data-port-start="{{.PortStart}}" data-port-end="{{.PortEnd}}" {{if eq .ID $.SelectedServiceID}}selected{{end}}>
+          {{.Name}} (ports {{.PortStart}}–{{.PortEnd}})
+        </option>
+      {{end}}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Backend port</label>
+    <input name="upstream_port" type="number" min="1" max="65535" required
+           value="{{.Form.UpstreamPort}}"
+           class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm font-mono">
+    <p class="text-xs text-slate-500 mt-1">Must be inside your allowed port range.</p>
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Domain</label>
+    <input name="domain" required value="{{.Form.Domain}}" placeholder="app.your-domain.com"
+           class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm">
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Path prefix (optional)</label>
+    <input name="path_prefix" value="{{.Form.PathPrefix}}" placeholder="/api"
+           class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm">
+    <p class="text-xs text-slate-500 mt-1">Leave empty for root.</p>
+  </div>
+  <div class="space-y-1 text-sm">
+    <label class="flex items-center gap-2"><input type="checkbox" name="ssl" value="1" checked> Issue SSL automatically</label>
+    <label class="flex items-center gap-2"><input type="checkbox" name="websocket" value="1" checked> WebSocket</label>
+    <label class="flex items-center gap-2"><input type="checkbox" name="force_https" value="1" checked> Force HTTPS</label>
+  </div>
+  {{if .NodeHostname}}
+  <div class="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-800 rounded p-3">
+    After creating, point your DNS:
+    <div class="font-mono mt-1"><strong>CNAME</strong> your-domain.com → {{.NodeHostname}}</div>
+    {{if .NodeIP}}<div class="font-mono">or <strong>A</strong> your-domain.com → {{.NodeIP}}</div>{{end}}
+  </div>
+  {{end}}
+  <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Create mapping</button>
+</form>
+{{end}}
+{{end}}

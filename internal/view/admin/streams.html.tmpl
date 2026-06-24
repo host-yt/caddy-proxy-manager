@@ -1,0 +1,94 @@
+{{define "streams"}}
+<div class="space-y-6">
+  <div class="flex items-center justify-between gap-3">
+    <div>
+      <p class="hpg-eyebrow">Layer-4</p>
+      <p class="text-sm text-slate-500 dark:text-slate-400">Layer-4 port forwards via the <code class="text-xs">caddy-l4</code> module. Use for game servers, database tunnels, mail relays - anything not HTTP.</p>
+    </div>
+    <span class="hpg-pill {{if .ModuleAvailable}}hpg-pill-ok{{else}}hpg-pill-err{{end}}">
+      <span class="w-1.5 h-1.5 rounded-full {{if .ModuleAvailable}}bg-emerald-500{{else}}bg-rose-500{{end}}"></span>
+      L4 module {{if .ModuleAvailable}}enabled{{else}}disabled (LAYER4_AVAILABLE=0){{end}}
+    </span>
+  </div>
+
+  <section class="hpg-card p-0 overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <tr>
+          <th class="px-4 py-2.5">Proto</th>
+          <th class="px-4 py-2.5">Listen</th>
+          <th class="px-4 py-2.5">Backend</th>
+          <th class="px-4 py-2.5">Node</th>
+          <th class="px-4 py-2.5">Tag</th>
+          <th class="px-4 py-2.5">Status</th>
+          <th class="px-4 py-2.5"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Streams}}
+        <tr>
+          <td class="px-4 py-3 font-mono uppercase text-slate-700 dark:text-slate-200">{{.Protocol}}</td>
+          <td class="px-4 py-3 font-mono">:{{.ListenPort}}</td>
+          <td class="px-4 py-3 font-mono text-slate-600 dark:text-slate-300">{{.BackendIP}}:{{.UpstreamPort}}</td>
+          <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.NodeName}}</td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{if .Tag}}{{.Tag}}{{else}}-{{end}}</td>
+          <td class="px-4 py-3">
+            <span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else}}hpg-pill-muted{{end}}">{{.Status}}</span>
+          </td>
+          <td class="px-4 py-3 text-right">
+            <form method="POST" action="/admin/streams/{{.ID}}/delete" class="inline" data-confirm="Delete stream {{.Protocol}} :{{.ListenPort}} → {{.BackendIP}}:{{.UpstreamPort}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="7" class="px-4 py-6 text-center text-slate-500">No stream forwards configured yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="hpg-card">
+    <h3 class="font-semibold text-slate-800 dark:text-slate-100 text-sm mb-4">Add stream forward</h3>
+    <form method="POST" action="/admin/streams/new" class="grid grid-cols-1 sm:grid-cols-6 gap-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Protocol</label>
+        <select name="protocol" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <option value="tcp"  {{if eq .Form.Protocol "tcp"}}selected{{end}}>TCP</option>
+          <option value="udp"  {{if eq .Form.Protocol "udp"}}selected{{end}}>UDP</option>
+          <option value="both" {{if eq .Form.Protocol "both"}}selected{{end}}>TCP + UDP</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Listen port (public)</label>
+        <input name="listen_port" type="number" min="1" max="65535" value="{{.Form.ListenPort}}" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Backend IP</label>
+        <input name="backend_ip" value="{{.Form.BackendIP}}" placeholder="10.0.0.5" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Backend port</label>
+        <input name="upstream_port" type="number" min="1" max="65535" value="{{.Form.UpstreamPort}}" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Caddy node</label>
+        <select name="node_id" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <option value="">-- pick --</option>
+          {{range .Nodes}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) $.Form.NodeID}}selected{{end}}>{{.Name}} ({{.Hostname}})</option>{{end}}
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Tag (optional)</label>
+        <input name="tag" value="{{.Form.Tag}}" maxlength="64" placeholder="game-1" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+      </div>
+      <div class="sm:col-span-6 flex justify-end pt-1">
+        <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium">Add stream</button>
+      </div>
+    </form>
+    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-4">Ports 80, 443, 2019 are reserved (HTTPS + admin). The Caddy container must publish the listen port on the host (edit <code class="text-xs">deploy/docker-compose.yml</code> and add the port mapping before saving).</p>
+  </section>
+</div>
+{{end}}

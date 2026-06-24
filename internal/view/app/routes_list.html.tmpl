@@ -1,0 +1,46 @@
+{{define "routes_list"}}
+<div class="flex justify-end mb-4">
+  <a href="/app/routes/new" class="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm hover:bg-indigo-700">+ New domain</a>
+</div>
+<div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left text-xs uppercase tracking-wide text-slate-500">
+      <tr>
+        <th class="px-4 py-2">Domain</th>
+        <th class="px-4 py-2">Path</th>
+        <th class="px-4 py-2">→ Port</th>
+        <th class="px-4 py-2">Service</th>
+        <th class="px-4 py-2">DNS / SSL</th>
+        <th class="px-4 py-2">Actions</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+    {{range .Routes}}
+      <tr>
+        <td class="px-4 py-2 font-medium text-slate-800 dark:text-slate-100"><code>{{.Domain}}</code></td>
+        <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{if .PathPrefix}}{{.PathPrefix}}{{else}}<span class="text-slate-400">/</span>{{end}}</td>
+        <td class="px-4 py-2 font-mono text-slate-700 dark:text-slate-200">{{.UpstreamPort}}</td>
+        <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{.ServiceName}}</td>
+        <td class="px-4 py-2">
+          <span class="inline-block px-2 py-0.5 rounded text-xs
+            {{if eq .Status "active"}}bg-emerald-100 text-emerald-800
+            {{else if eq .Status "failed"}}bg-rose-100 text-rose-800
+            {{else}}bg-amber-100 text-amber-800{{end}}">{{.Status}}</span>
+          {{if .LastError}}<div class="text-xs text-rose-600 mt-1 max-w-xs truncate" title="{{.LastError}}">{{.LastError}}</div>{{end}}
+        </td>
+        <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
+          <form class="inline" method="POST" action="/app/routes/{{.ID}}/verify-dns"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <button class="text-xs text-indigo-700 hover:underline">re-check</button>
+          </form>
+          <form class="inline" method="POST" action="/app/routes/{{.ID}}/delete" data-confirm="Delete {{.Domain}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <button class="text-xs text-rose-600 hover:underline">delete</button>
+          </form>
+        </td>
+      </tr>
+    {{else}}
+      <tr><td colspan="6" class="px-4 py-6 text-center text-slate-500">No domains mapped yet.</td></tr>
+    {{end}}
+    </tbody>
+  </table></div>
+</div>
+{{end}}

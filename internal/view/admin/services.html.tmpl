@@ -1,0 +1,189 @@
+{{define "services"}}
+<section class="hpg-card !p-0 overflow-hidden">
+  <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+    <div class="flex items-center gap-3">
+      <div>
+        <p class="hpg-eyebrow">Fleet</p>
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Services</h2>
+      </div>
+      <span class="hpg-chip">{{len .Services}}</span>
+    </div>
+    <button type="button" id="svc-new-btn"
+      class="px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors">
+      + New service
+    </button>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50/95 dark:bg-zinc-800/95 backdrop-blur text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <tr>
+          <th class="px-5 py-3 font-medium">Service</th>
+          <th class="px-5 py-3 font-medium">Client</th>
+          <th class="px-5 py-3 font-medium">Backend</th>
+          <th class="px-5 py-3 font-medium">Ports</th>
+          <th class="px-5 py-3 font-medium">Plan</th>
+          <th class="px-5 py-3 font-medium">Status</th>
+          <th class="px-5 py-3 text-right font-medium">Actions</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Services}}
+        <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
+          <td class="px-5 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}</td>
+          <td class="px-5 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.ClientName}}</td>
+          <td class="px-5 py-3.5"><code class="font-mono text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-zinc-800 rounded px-1.5 py-0.5">{{.BackendIP}}</code></td>
+          <td class="px-5 py-3.5 whitespace-nowrap"><span class="font-mono text-xs text-slate-500 dark:text-slate-400">{{.PortStart}}-{{.PortEnd}}</span></td>
+          <td class="px-5 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.PlanName}}</td>
+          <td class="px-5 py-3.5">
+            <span class="hpg-pill
+              {{if eq .Status "active"}}hpg-pill-ok
+              {{else if eq .Status "suspended"}}hpg-pill-warn
+              {{else}}hpg-pill-err{{end}}">{{.Status}}</span>
+          </td>
+          <td class="px-5 py-3.5 text-right whitespace-nowrap">
+            <div class="inline-flex items-center gap-3">
+              <button type="button"
+                class="svc-edit-btn text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                data-id="{{.ID}}"
+                data-name="{{.Name}}"
+                data-client="{{.ClientID}}"
+                data-backend="{{.BackendIP}}"
+                data-pstart="{{.PortStart}}"
+                data-pend="{{.PortEnd}}"
+                data-plan="{{.PlanID}}"
+                data-extref="{{.ExternalRef}}">edit</button>
+              <form method="POST" action="/admin/services/{{.ID}}/delete" data-confirm="Delete service {{.Name}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="text-xs font-medium text-rose-600 hover:text-rose-700 hover:underline">delete</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="7" class="px-5 py-12 text-center text-slate-500 dark:text-slate-400">No services yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<!-- Create/Edit modal -->
+<div id="svc-modal" class="fixed inset-0 z-50 hidden">
+  <div id="svc-modal-overlay" class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm"></div>
+  <div class="absolute inset-0 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
+    <div class="hpg-card w-full max-w-lg my-8 relative" role="dialog" aria-modal="true">
+      <div class="flex items-start justify-between mb-5">
+        <div>
+          <p class="hpg-eyebrow">Provision</p>
+          <h2 id="svc-modal-title" class="font-semibold text-slate-800 dark:text-slate-100">New service</h2>
+        </div>
+        <button type="button" id="svc-modal-close"
+          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">&times;</button>
+      </div>
+
+      {{if not .Clients}}
+        <p class="text-xs text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 ring-1 ring-rose-200 dark:ring-rose-900 rounded-lg p-2.5 mb-3">Create a <a href="/admin/clients" class="underline">client</a> first.</p>
+      {{end}}
+      {{if not .Plans}}
+        <p class="text-xs text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 ring-1 ring-rose-200 dark:ring-rose-900 rounded-lg p-2.5 mb-3">Create a <a href="/admin/plans" class="underline">plan</a> first.</p>
+      {{end}}
+
+      <form id="svc-form" method="POST" action="/admin/services" class="space-y-4 text-sm">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">Client</label>
+          <select name="client_id" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+            {{range .Clients}}<option value="{{.ID}}">{{.DisplayName}} ({{.Email}})</option>{{end}}
+          </select>
+        </div>
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">Service name</label>
+          <input name="name" required placeholder="vps-fra-01" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        </div>
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">Backend IP (admin-only)</label>
+          <input name="backend_ip" required placeholder="10.0.0.5" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="hpg-eyebrow block mb-1.5">Port start</label>
+            <input name="port_start" type="number" min="1" max="65535" value="30000" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+          </div>
+          <div>
+            <label class="hpg-eyebrow block mb-1.5">Port end</label>
+            <input name="port_end" type="number" min="1" max="65535" value="30019" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+          </div>
+        </div>
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">Plan</label>
+          <select name="plan_id" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+            {{range .Plans}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
+        </div>
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">External reference (FOSSBilling order ID)</label>
+          <input name="external_reference" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button type="button" id="svc-modal-cancel"
+            class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">Cancel</button>
+          <button type="submit"
+            class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors">Save service</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script nonce="{{.CSPNonce}}">
+(function () {
+  var modal = document.getElementById("svc-modal");
+  var form = document.getElementById("svc-form");
+  var title = document.getElementById("svc-modal-title");
+  if (!modal || !form) return;
+
+  function setVal(name, value) {
+    var el = form.elements[name];
+    if (el) el.value = (value == null ? "" : value);
+  }
+
+  function open() { modal.classList.remove("hidden"); }
+  function close() { modal.classList.add("hidden"); }
+
+  // Create mode: reset form, post to collection endpoint.
+  document.getElementById("svc-new-btn").addEventListener("click", function () {
+    form.reset();
+    form.action = "/admin/services";
+    if (title) title.textContent = "New service";
+    open();
+  });
+
+  // Edit mode: prefill from data-* attrs, post to /{id}/edit.
+  var editBtns = document.querySelectorAll(".svc-edit-btn");
+  for (var i = 0; i < editBtns.length; i++) {
+    editBtns[i].addEventListener("click", function () {
+      var d = this.dataset;
+      form.action = "/admin/services/" + d.id + "/edit";
+      if (title) title.textContent = "Edit service";
+      setVal("client_id", d.client);
+      setVal("name", d.name);
+      setVal("backend_ip", d.backend);
+      setVal("port_start", d.pstart);
+      setVal("port_end", d.pend);
+      setVal("plan_id", d.plan);
+      setVal("external_reference", d.extref);
+      open();
+    });
+  }
+
+  var closeBtn = document.getElementById("svc-modal-close");
+  var cancelBtn = document.getElementById("svc-modal-cancel");
+  var overlay = document.getElementById("svc-modal-overlay");
+  if (closeBtn) closeBtn.addEventListener("click", close);
+  if (cancelBtn) cancelBtn.addEventListener("click", close);
+  if (overlay) overlay.addEventListener("click", close);
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+  });
+})();
+</script>
+{{end}}

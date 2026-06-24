@@ -1,0 +1,115 @@
+{{define "webhooks"}}
+<div class="space-y-6">
+
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="p-5 border-b border-slate-100 dark:border-zinc-800">
+      <h2 class="font-semibold text-slate-800 dark:text-slate-100">Endpoints</h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400">Events POSTed as JSON with HMAC-SHA256 in <code>X-HPG-Signature</code>. Supported event types: <code>route.created</code>, <code>route.active</code>, <code>route.failed</code>, <code>node.joined</code>, <code>node.approved</code>, <code>node.down</code>, <code>cert.issued</code>, <code>backup.success</code>, <code>backup.failed</code>. Use <code>*</code> for all, or a pattern like <code>route.*</code>.</p>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-left hpg-eyebrow text-slate-500 dark:text-slate-400">
+        <tr>
+          <th class="px-4 py-2 font-medium">Name</th>
+          <th class="px-4 py-2 font-medium">URL</th>
+          <th class="px-4 py-2 font-medium">Events</th>
+          <th class="px-4 py-2 font-medium">Enabled</th>
+          <th class="px-4 py-2 font-medium">Created</th>
+          <th class="px-4 py-2 text-right"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Endpoints}}
+        <tr>
+          <td class="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
+          <td class="px-4 py-3 text-slate-600 dark:text-slate-300 text-xs"><code>{{.URL}}</code></td>
+          <td class="px-4 py-3 text-slate-500 text-xs">{{.Events}}</td>
+          <td class="px-4 py-3">{{if .Enabled}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
+          <td class="px-4 py-3 text-xs text-slate-500">{{.Created}}</td>
+          <td class="px-4 py-3 text-right space-x-3">
+            <form method="POST" action="/admin/webhooks/{{.ID}}/test" class="inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-sky-700 dark:text-sky-400 hover:underline">test</button>
+            </form>
+            <form method="POST" action="/admin/webhooks/{{.ID}}/delete" class="inline" data-confirm="Delete {{.Name}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="6" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No endpoints configured.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Add endpoint</h2>
+    <form method="POST" action="/admin/webhooks" class="space-y-3 text-sm max-w-2xl">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
+          <input name="name" required class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Events pattern</label>
+          <input name="events" value="*" required class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">URL</label>
+        <input name="url" type="url" required placeholder="https://billing.example.com/hooks/hpg" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-xs">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">HMAC secret (stored encrypted; receiver verifies <code>X-HPG-Signature</code>)</label>
+        <input name="secret" type="password" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+      </div>
+      <label class="flex items-center gap-2 text-xs">
+        <input type="checkbox" name="enabled" value="1" checked> Enabled
+      </label>
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save endpoint</button>
+    </form>
+  </section>
+
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="p-5 border-b border-slate-100 dark:border-zinc-800">
+      <h2 class="font-semibold text-slate-800 dark:text-slate-100">Recent deliveries</h2>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-left hpg-eyebrow text-slate-500 dark:text-slate-400">
+        <tr>
+          <th class="px-4 py-2 font-medium">ID</th>
+          <th class="px-4 py-2 font-medium">Endpoint</th>
+          <th class="px-4 py-2 font-medium">Event</th>
+          <th class="px-4 py-2 font-medium">Status</th>
+          <th class="px-4 py-2 font-medium">HTTP</th>
+          <th class="px-4 py-2 font-medium">Tries</th>
+          <th class="px-4 py-2 font-medium">Created</th>
+          <th class="px-4 py-2 font-medium">Error</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Deliveries}}
+        <tr>
+          <td class="px-4 py-3">{{.ID}}</td>
+          <td class="px-4 py-3">{{.EndpointID}}</td>
+          <td class="px-4 py-3 text-xs">{{.EventType}}</td>
+          <td class="px-4 py-3">
+            {{if eq .Status "success"}}<span class="hpg-pill hpg-pill-ok">{{.Status}}</span>
+            {{else if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>
+            {{else}}<span class="hpg-pill hpg-pill-warn">{{.Status}}</span>{{end}}
+          </td>
+          <td class="px-4 py-3">{{if .HTTPCode}}{{.HTTPCode}}{{else}}-{{end}}</td>
+          <td class="px-4 py-3">{{.Attempts}}</td>
+          <td class="px-4 py-3 text-xs text-slate-500">{{.CreatedAt}}</td>
+          <td class="px-4 py-3 text-xs text-rose-600">{{.LastError}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="8" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No deliveries yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+</div>
+{{end}}
