@@ -278,7 +278,7 @@
     <section data-pane="sso" class="hpg-pane hidden hpg-card space-y-4">
       <div>
         <h4 class="hpg-eyebrow mb-1">Single sign-on (forward-auth)</h4>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">Document loads (GET/HEAD page navigations) are gated through your SSO provider; unauthenticated users are redirected to login. Note: POST/PUT/DELETE and XHR/fetch subrequests are passed through to the backend, which must enforce its own API auth. Empty Provider URL = SSO off.</p>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">GET/HEAD page navigations are gated through your SSO provider; unauthenticated users are redirected to login. POST/PUT/DELETE and XHR/fetch are passed through (backend enforces its own API auth). Enable Strict mode below to gate all methods and return 401 instead of redirect. Empty Provider URL = SSO off.</p>
       </div>
       {{if .ClientTunnels}}
       <div>
@@ -294,6 +294,13 @@
         <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">SSO provider URL</label>
         <input name="sso_provider_url" value="{{.SSOProviderURL}}" placeholder="https://sso.example.com or authentik-server:9000" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
         <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Three modes: (1) <strong>Local container</strong> e.g. <code>authentik-server:9000</code> when Authentik runs in the same docker network as Caddy. (2) <strong>Through tunnel</strong> e.g. <code>http://authentik-server:9000</code> with "SSO via" set - Caddy resolves the hostname via the peer's DNS. (3) <strong>Public URL</strong> e.g. <code>https://sso.yt</code> only when the IdP is on a separate node (otherwise causes a loop).</p>
+      </div>
+      <div class="flex items-start gap-2 mt-1">
+        <input type="checkbox" name="sso_strict_mode" value="1" id="sso_strict_mode" {{if .SSOStrictMode}}checked{{end}} class="mt-0.5 rounded">
+        <div>
+          <label for="sso_strict_mode" class="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">Strict mode (zero-trust)</label>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Gates ALL HTTP methods (not just GET/HEAD page loads). Returns 401 JSON instead of redirect for unauthenticated requests. Use for API services; breaks browser apps that rely on login redirect.</p>
+        </div>
       </div>
       <div>
         <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Copy headers (one per line)</label>
