@@ -1,0 +1,54 @@
+# Remote Caddy node - runs on a VPS connected to the control plane over
+# WireGuard. Admin API is bound to the WG interface only.
+#
+# Prereqs on the host:
+#   1. WireGuard up with iface `wg0`, this node has IP e.g. 10.66.0.2.
+#      See docs/MULTI_NODE.md.
+#   2. Public ports 80/443/443udp open. UDP 51820 open for WG.
+#   3. /opt/hostyt-node/ contains this file + Caddyfile.bootstrap.
+#
+# Then:
+#   cd /opt/hostyt-node && docker compose up -d
+
+services:
+  caddy:
+    # Stock Caddy used only as fallback for nodes that don't run the
+    # custom cache-handler build. For cache_enabled routes the node MUST
+    # run ghcr.io/marcoome/caddy-proxy-manager-edge (deploy/caddy/Dockerfile).
+    image: ${IMAGE_CADDY:-caddy:2.11.3}
+    restart: unless-stopped
+    # IMPORTANT: bind :2019 to the WireGuard IP only. Public ports
+    # (80/443/443-udp) are bound on 0.0.0.0 as usual.
+    ports:
+      - "10.66.0.2:2019:2019"     # ← change to this node's wg IP
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    # WSS transport: Caddy reaches the host-side wstunnel server via this
+    # bridge's own gateway. NOT host-gateway: that points at docker0, which a
+    # user/Compose bridge can't route to (WSS would proxy to the wrong host).
+    extra_hosts:
+      - "host.docker.internal:172.18.0.1"
+    networks:
+      - internal
+    volumes:
+      - ./Caddyfile.bootstrap:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    environment:
+      ASK_ENDPOINT_URL: ${ASK_ENDPOINT_URL:-http://10.66.0.1:8080/internal/ask}
+      ACME_EMAIL:       ${ACME_EMAIL:-ops@example.com}
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  internal:
+    driver: bridge
+    # Pin so host.docker.internal resolves to a deterministic, routable gateway.
+    # Must match the IP in caddy.extra_hosts above.
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1

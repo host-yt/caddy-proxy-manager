@@ -1,0 +1,173 @@
+{{define "backups"}}
+<div class="space-y-8">
+
+  <section class="hpg-card max-w-md">
+    <h2 class="hpg-eyebrow mb-3">Schedule</h2>
+    <form method="POST" action="/admin/backups/schedule" class="space-y-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Interval (hours, 0 = disabled)</label>
+        <input type="number" min="0" name="interval_hours" value="{{.Schedule.IntervalHours}}"
+               class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Retention (days, 0 = keep forever)</label>
+        <input type="number" min="0" name="retention_days" value="{{.Schedule.RetentionDays}}"
+               class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500">
+      </div>
+      <label class="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200">
+        <input type="checkbox" name="encrypt" value="1" {{if .Schedule.EncryptByDef}}checked{{end}}>
+        <span>Encrypt artifacts at rest (AES-256-GCM, key = HKDF(APP_SECRET))</span>
+      </label>
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save schedule</button>
+    </form>
+  </section>
+
+  <section class="hpg-card p-0 overflow-hidden">
+    <div class="p-5 flex items-center justify-between">
+      <h2 class="hpg-eyebrow">Destinations</h2>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-left text-xs uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-5 py-2">Name</th>
+          <th class="px-5 py-2">Kind</th>
+          <th class="px-5 py-2">Endpoint</th>
+          <th class="px-5 py-2">Status</th>
+          <th class="px-5 py-2 text-right"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Destinations}}
+          <tr>
+            <td class="px-5 py-3 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
+            <td class="px-5 py-3 text-slate-600 dark:text-slate-300">{{.Kind}}</td>
+            <td class="px-5 py-3 text-slate-500 text-xs">{{.Summary}}</td>
+            <td class="px-5 py-3">{{if .Enabled}}<span class="hpg-pill hpg-pill-ok">enabled</span>{{else}}<span class="hpg-pill hpg-pill-muted">disabled</span>{{end}}</td>
+            <td class="px-5 py-3 text-right space-x-3">
+              <form method="POST" action="/admin/backups/destinations/{{.ID}}/test" class="inline">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="text-xs text-sky-600 hover:underline">test</button>
+              </form>
+              <form method="POST" action="/admin/backups/destinations/{{.ID}}/verify" class="inline">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="text-xs text-purple-600 hover:underline" title="Download most recent backup, decrypt, walk tar, assert dump.sql present.">verify</button>
+              </form>
+              <form method="POST" action="/admin/backups/run-now" class="inline">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <input type="hidden" name="destination_id" value="{{.ID}}">
+                <input type="hidden" name="encrypt" value="1">
+                <button class="text-xs text-emerald-600 hover:underline">run now</button>
+              </form>
+              <form method="POST" action="/admin/backups/destinations/{{.ID}}/delete" class="inline"
+                    data-confirm="Delete destination {{.Name}}?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="text-xs text-rose-600 hover:underline">delete</button>
+              </form>
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="5" class="px-5 py-6 text-center text-slate-500">No destinations configured.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+
+    <details class="p-5 border-t border-slate-100 dark:border-zinc-800">
+      <summary class="cursor-pointer text-slate-700 dark:text-slate-200 text-sm font-medium">Add destination</summary>
+      <form method="POST" action="/admin/backups/destinations" class="mt-4 space-y-3 text-sm max-w-2xl">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
+            <input name="name" required class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Kind</label>
+            <select name="kind" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500">
+              {{range .NewKindOpts}}<option value="{{.}}">{{.}}</option>{{end}}
+            </select>
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-500 leading-relaxed">
+          Fill the keys for the chosen kind:<br>
+          <b>sftp</b>: host, port, user, password OR private_key, host_key (or insecure_host_key=1), path<br>
+          <b>ftp</b>: host, port, user, password, tls=explicit|implicit, skip_verify, path<br>
+          <b>s3</b>: endpoint, region, bucket, access_key, secret_key, prefix, use_ssl, path_style<br>
+          <b>local</b>: path (absolute, inside container)<br>
+          <b>Hetzner Storage Box</b>: kind=sftp, host=uXXXXXX.your-storagebox.de, port=23, user=uXXXXXX, password=…, path=./backups
+        </p>
+
+        {{$k := .}}
+        <div class="grid grid-cols-2 gap-3">
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">host</label><input name="cfg_host" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">port</label><input name="cfg_port" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">user / access_key</label><input name="cfg_user" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">password / secret_key</label><input name="cfg_password" type="password" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div class="col-span-2"><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">private_key (SFTP, PEM)</label><textarea name="cfg_private_key" rows="3" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500 font-mono text-xs"></textarea></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">private_key_pass</label><input name="cfg_private_key_pass" type="password" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">host_key (SFTP, "ssh-ed25519 …")</label><input name="cfg_host_key" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">insecure_host_key (0/1)</label><input name="cfg_insecure_host_key" value="0" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">tls (FTP) explicit|implicit</label><input name="cfg_tls" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">skip_verify (0/1)</label><input name="cfg_skip_verify" value="0" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">endpoint (S3)</label><input name="cfg_endpoint" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">region (S3)</label><input name="cfg_region" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">bucket (S3)</label><input name="cfg_bucket" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">access_key (S3)</label><input name="cfg_access_key" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">secret_key (S3)</label><input name="cfg_secret_key" type="password" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">prefix (S3)</label><input name="cfg_prefix" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">use_ssl (S3) 0/1</label><input name="cfg_use_ssl" value="1" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">path_style (S3) 0/1</label><input name="cfg_path_style" value="0" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div class="col-span-2"><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">path / base directory</label><input name="cfg_path" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+        </div>
+        {{$_ := $k}}
+
+        <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save destination</button>
+      </form>
+    </details>
+  </section>
+
+  <section class="hpg-card p-0 overflow-hidden">
+    <div class="p-5">
+      <h2 class="hpg-eyebrow">Recent jobs</h2>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-left text-xs uppercase tracking-wide text-slate-500">
+        <tr>
+          <th class="px-5 py-2">ID</th>
+          <th class="px-5 py-2">Destination</th>
+          <th class="px-5 py-2">Kind</th>
+          <th class="px-5 py-2">Status</th>
+          <th class="px-5 py-2">Size (KB)</th>
+          <th class="px-5 py-2">Enc</th>
+          <th class="px-5 py-2">Started</th>
+          <th class="px-5 py-2">Finished</th>
+          <th class="px-5 py-2">Artifact</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Jobs}}
+          <tr>
+            <td class="px-5 py-3">{{.ID}}</td>
+            <td class="px-5 py-3">{{.DestName}}</td>
+            <td class="px-5 py-3">{{.Kind}}</td>
+            <td class="px-5 py-3">
+              {{if eq .Status "succeeded"}}<span class="hpg-pill hpg-pill-ok">{{.Status}}</span>
+              {{else if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>
+              {{else}}<span class="hpg-pill hpg-pill-warn">{{.Status}}</span>{{end}}
+            </td>
+            <td class="px-5 py-3">{{.SizeKB}}</td>
+            <td class="px-5 py-3">{{if .Encrypted}}yes{{else}}no{{end}}</td>
+            <td class="px-5 py-3 text-slate-500 text-xs">{{.StartedAt}}</td>
+            <td class="px-5 py-3 text-slate-500 text-xs">{{.FinishedAt}}</td>
+            <td class="px-5 py-3 text-slate-500 text-xs">{{.ArtifactKey}}{{if .Error}}<br><span class="text-rose-600">{{.Error}}</span>{{end}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="9" class="px-5 py-6 text-center text-slate-500">No backups yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+
+</div>
+{{end}}

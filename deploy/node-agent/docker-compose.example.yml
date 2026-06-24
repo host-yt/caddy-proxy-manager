@@ -1,0 +1,40 @@
+# Example docker-compose snippet for adding hpg-node-agent as a
+# sidecar on a Caddy node. Drop these two services into the same
+# compose file as the existing `caddy` service (or run as a separate
+# stack sharing the node's network namespace).
+#
+# Required (one-time, per node):
+#   1. `/admin/nodes/{id}/tunnel/enable` in the panel - produces a
+#      one-shot flash with HPG_NODE_TOKEN + HPG_WG_PRIVATE_KEY +
+#      HPG_WG_LISTEN_PORT. Copy them into this env section.
+#   2. Open UDP <HPG_WG_LISTEN_PORT> on the node's public firewall.
+
+version: "3.9"
+services:
+  hpg-node-agent:
+    image: ghcr.io/marcoome/caddy-proxy-manager-node-agent:latest
+    restart: unless-stopped
+    network_mode: host                                # needed for wg-tun0 + nftables + UDP listen
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      HPG_PANEL_URL: "https://proxy.example.com"
+      HPG_NODE_TOKEN: "${HPG_NODE_TOKEN}"             # from panel flash, one-shot
+      HPG_WG_PRIVATE_KEY: "${HPG_WG_PRIVATE_KEY}"     # from panel flash, one-shot
+      HPG_WG_GATEWAY_IP: "100.96.0.1/16"              # this node's tunnel gateway + subnet
+      HPG_WG_LISTEN_PORT: "51821"                     # default; match panel's tunnel_listen_port
+      HPG_WG_INTERFACE: "wg-tun0"                     # default
+      HPG_POLL_INTERVAL: "30s"                        # default
+      # Optional: hard-fail if nftables rule install fails (paranoid mode).
+      HPG_REQUIRE_NFTABLES: "0"
+      HPG_TUNNEL_TRANSPORT: "udp"             # udp|wss|auto — wss/auto starts wstunnel
+      HPG_WSTUNNEL_PORT: ""                    # loopback port for wstunnel server (e.g. 51823)
+    # Healthcheck: agent prints reconcile JSON every poll; if no log
+    # for 90s, container is wedged. Pair with restart policy above.
+    healthcheck:
+      test: ["CMD", "pgrep", "hpg-node-agent"]
+      interval: 30s
+      timeout: 5s
+      retries: 3

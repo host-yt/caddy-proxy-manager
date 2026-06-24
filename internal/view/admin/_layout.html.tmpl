@@ -1,0 +1,497 @@
+{{define "layout.html.tmpl"}}<!doctype html>
+<html lang="en" class="h-full" data-theme="{{.Data.Theme}}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="csrf-token" content="{{.Data.CSRF}}">
+<title>Admin - Hostyt Proxy Gateway</title>
+<link rel="stylesheet" href="/static/fonts/inter.css">
+<link rel="stylesheet" href="/static/css/tailwind.css">
+<link rel="stylesheet" href="/static/css/enhance.css">
+<script nonce="{{.Data.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
+<!-- Palette theme bootstrap: client-side pick applies before paint, even before the ui_theme cookie round-trips. -->
+<script nonce="{{.Data.CSPNonce}}">(function(){try{var ok={default:1,midnight:1,ocean:1,forest:1,violet:1,sunset:1,nord:1,mono:1};var p=localStorage.getItem('ui_theme');if(p&&ok[p]&&p!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=p;}catch(e){}})();</script>
+{{if .Data.Brand.FaviconURL}}<link rel="icon" href="{{.Data.Brand.FaviconURL}}">{{end}}
+<!-- htmx (self-hosted; XHR-based, covered by CSP connect-src 'self'). Used for
+     progressive row-scoped swaps; every hx-* action degrades to a full POST. -->
+<script src="/static/js/htmx.min.js" nonce="{{.Data.CSPNonce}}" defer></script>
+<style>
+  /* Global form-control dark-mode safety net (see install/_layout for context). */
+  input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  select, textarea { color: rgb(var(--c-slate-900)); }
+  .dark input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  .dark select, .dark textarea {
+    background-color: rgb(var(--c-zinc-800));
+    border-color: rgb(var(--c-zinc-700));
+    color: rgb(var(--c-zinc-100));
+  }
+  .dark input::placeholder, .dark textarea::placeholder { color: rgb(var(--c-zinc-500)); }
+</style>
+</head>
+<body class="h-full bg-gradient-to-b from-slate-50 via-white to-indigo-50/30 dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-900 text-slate-900 dark:text-slate-100">
+<a href="#main-content" class="skip-link">Skip to content</a>
+<!-- Mobile top bar (sticky, md:hidden). Brand left, burger right. -->
+<div class="md:hidden sticky top-0 z-30 flex items-center justify-between bg-white dark:bg-zinc-950 text-slate-900 dark:text-white px-4 py-3 ring-1 ring-slate-200/70 dark:ring-zinc-800">
+  <span class="font-semibold tracking-tight flex items-center gap-2">
+    {{if .Data.Brand.LogoURLLight}}<img src="{{.Data.Brand.LogoURLLight}}" alt="" class="h-5 dark:hidden">{{end}}
+    {{if .Data.Brand.LogoURLDark}}<img src="{{.Data.Brand.LogoURLDark}}" alt="" class="h-5 hidden dark:block">{{end}}
+    {{if not (or .Data.Brand.LogoURLLight .Data.Brand.LogoURLDark)}}<span class="inline-block w-2 h-2 rounded-full bg-indigo-500"></span>{{end}}
+    {{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}
+  </span>
+  <button type="button" data-nav-toggle aria-label="Menu" class="text-slate-600 dark:text-slate-300 p-1 -m-1">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
+  </button>
+</div>
+<div id="nav-backdrop" class="fixed inset-0 bg-black/50 z-30 hidden md:hidden" data-nav-close></div>
+<div class="min-h-full md:pl-56">
+  <aside id="admin-sidebar" class="w-56 bg-white dark:bg-zinc-950 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-600 dark:text-slate-300 p-4 flex-col fixed inset-y-0 left-0 z-40 hidden md:flex md:flex-col overflow-y-auto">
+    <div class="text-slate-900 dark:text-white font-semibold text-base tracking-tight mb-6 pb-4 border-b border-slate-200 dark:border-zinc-800 flex items-center gap-2.5">
+      {{if .Data.Brand.LogoURLLight}}<img src="{{.Data.Brand.LogoURLLight}}" alt="" class="h-6 dark:hidden">{{end}}
+      {{if .Data.Brand.LogoURLDark}}<img src="{{.Data.Brand.LogoURLDark}}" alt="" class="h-6 hidden dark:block">{{end}}
+      {{if not (or .Data.Brand.LogoURLLight .Data.Brand.LogoURLDark)}}<span class="inline-block w-2.5 h-2.5 rounded-full bg-indigo-500 ring-4 ring-indigo-500/15"></span>{{end}}
+      {{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}
+    </div>
+    <nav class="text-sm flex-1">
+      <!-- Grouped nav. Crisp uppercase group labels + hairline dividers make sections read as distinct blocks.
+           Active item = soft accent pill (font-medium + bg + ring) plus a left accent bar as a non-color cue.
+           Each link keeps its href + .Page active-state key unchanged. -->
+      <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-3 mb-1.5">Overview</p>
+      <div class="space-y-0.5">
+        <a href="/admin" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "dashboard"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Dashboard</a>
+        <a href="/admin/stats" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "stats"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Statistics</a>
+      </div>
+
+      <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-3 mb-1.5 mt-5 pt-4 border-t border-slate-200/80 dark:border-zinc-800">Traffic</p>
+      <div class="space-y-0.5">
+        <a href="/admin/hosts" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "hosts"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Hosts</a>
+        <a href="/admin/streams" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "streams"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Streams (L4)</a>
+        <a href="/admin/tunnels" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "tunnels"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Tunnels (WG)</a>
+        <a href="/admin/certs" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "certs"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Certificates</a>
+      </div>
+
+      <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-3 mb-1.5 mt-5 pt-4 border-t border-slate-200/80 dark:border-zinc-800">Fleet</p>
+      <div class="space-y-0.5">
+        <a href="/admin/nodes" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "nodes"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Caddy nodes</a>
+      </div>
+
+      <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-3 mb-1.5 mt-5 pt-4 border-t border-slate-200/80 dark:border-zinc-800">Customers</p>
+      <div class="space-y-0.5">
+        <a href="/admin/clients" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "clients"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Clients</a>
+        <a href="/admin/plans" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "plans"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Plans</a>
+        <a href="/admin/services" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "services"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Services</a>
+        <a href="/admin/users" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "users"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Users</a>
+      </div>
+
+      <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-3 mb-1.5 mt-5 pt-4 border-t border-slate-200/80 dark:border-zinc-800">System</p>
+      <div class="space-y-0.5">
+        <a href="/admin/audit" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "audit"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Audit log</a>
+        <a href="/admin/alerts" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "alerts"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Alerts</a>
+        <a href="/admin/backups" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "backups"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Backups</a>
+        <a href="/admin/settings" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "settings"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Settings</a>
+        <a href="/admin/settings/dns-providers" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "dns_providers"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">DNS providers</a>
+        <a href="/admin/settings/external-allowlist" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "external_allowlist"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">External allowlist</a>
+      </div>
+
+      <div class="mt-5 pt-4 border-t border-slate-200 dark:border-zinc-800">
+        <a href="/api-docs" target="_blank" rel="noopener" class="block px-3 py-1.5 rounded-lg transition-colors text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white">API docs ↗</a>
+      </div>
+    </nav>
+  </aside>
+  <main id="main-content" role="main" class="p-6 md:p-8 min-w-0 max-w-full overflow-x-hidden">
+    <header class="sticky top-0 z-20 -mx-6 md:-mx-8 px-6 md:px-8 py-3 mb-6 min-h-[4.5rem] bg-white/70 dark:bg-zinc-950/80 backdrop-blur ring-1 ring-slate-200/70 dark:ring-zinc-800 flex items-center justify-between gap-4">
+      <!-- Unified page shell: fixed-height box, single-line breadcrumb + title so it never jumps between pages. -->
+      <div class="min-w-0">
+        {{if .Data.Breadcrumbs}}
+        <nav aria-label="Breadcrumb" class="flex items-center flex-nowrap gap-1 text-xs text-slate-500 dark:text-slate-400 mb-0.5 overflow-hidden whitespace-nowrap">
+          {{range $i, $c := .Data.Breadcrumbs}}
+            {{if $i}}<span class="text-slate-300 dark:text-zinc-600 shrink-0">/</span>{{end}}
+            {{if $c.URL}}<a href="{{$c.URL}}" class="shrink-0 hover:text-slate-900 dark:hover:text-white transition-colors">{{$c.Label}}</a>{{else}}<span class="truncate text-slate-600 dark:text-slate-300">{{$c.Label}}</span>{{end}}
+          {{end}}
+        </nav>
+        {{end}}
+        {{if ne .Page "dashboard"}}<h1 class="text-xl md:text-2xl font-semibold tracking-tight truncate text-slate-900 dark:text-white">{{.Data.Title}}</h1>{{end}}
+        {{if .Data.PageDesc}}<p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5 truncate">{{.Data.PageDesc}}</p>{{end}}
+      </div>
+      <div class="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
+        <!-- Command palette trigger -->
+        <button type="button" id="cmd-palette-btn"
+                class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-slate-500 dark:text-slate-400 cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 font-mono"
+                title="Search (Cmd+K / Ctrl+K)">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+          </svg>
+          <span>Search</span>
+          <kbd class="ml-1 px-1 py-0.5 rounded bg-slate-100 dark:bg-zinc-700 text-slate-400 dark:text-slate-500 text-[10px] leading-none border border-slate-200 dark:border-zinc-600">⌘K</kbd>
+        </button>
+        <button type="button" data-theme-toggle class="flex items-center gap-1.5 px-3 py-1.5 rounded-full cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800" title="Toggle theme">
+          <!-- Heroicons-style moon/sun; JS toggles d.moon/d.sun visibility via the theme-icon group. -->
+          <svg id="theme-icon" data-mode="moon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path data-moon stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            <g data-sun class="hidden">
+              <circle cx="12" cy="12" r="4"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M4.93 19.07l1.41-1.41m11.32-11.32l1.41-1.41"/>
+            </g>
+          </svg>
+          <span class="hidden sm:inline">Theme</span>
+        </button>
+        <!-- Palette switcher: navigates to /theme/{slug} (server switch) and mirrors the choice into localStorage for instant apply. -->
+        <div class="relative" data-palette-menu>
+          <button type="button" data-palette-toggle class="flex items-center gap-1.5 px-3 py-1.5 rounded-full cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800" title="Color palette" aria-haspopup="true" aria-expanded="false">
+            <span class="inline-block w-3 h-3 rounded-full bg-gradient-to-br from-indigo-500 to-emerald-500 ring-1 ring-black/10"></span>
+            <span class="hidden sm:inline">Palette</span>
+          </button>
+          <div data-palette-list class="hidden absolute right-0 mt-2 z-30 w-44 py-1.5 rounded-2xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200/70 dark:ring-zinc-700 shadow-lg shadow-slate-900/10 text-sm">
+            {{$cur := .Data.Theme}}
+            <a href="/theme/default" data-palette-pick="default" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "default" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Slate (default)</span>{{if eq "default" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/midnight" data-palette-pick="midnight" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "midnight" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Midnight</span>{{if eq "midnight" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/ocean" data-palette-pick="ocean" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "ocean" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Ocean</span>{{if eq "ocean" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/forest" data-palette-pick="forest" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "forest" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Forest</span>{{if eq "forest" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/violet" data-palette-pick="violet" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "violet" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Violet</span>{{if eq "violet" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/sunset" data-palette-pick="sunset" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "sunset" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Sunset</span>{{if eq "sunset" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/nord" data-palette-pick="nord" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "nord" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Nord</span>{{if eq "nord" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/mono" data-palette-pick="mono" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "mono" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Mono</span>{{if eq "mono" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+          </div>
+        </div>
+        <div class="flex gap-1">
+          <a href="/lang/en" class="px-1 {{if eq .Data.Lang "en"}}text-slate-900 dark:text-white font-medium{{else}}hover:text-slate-900 dark:hover:text-white{{end}}">EN</a>
+          <span class="text-slate-400">|</span>
+          <a href="/lang/pl" class="px-1 {{if eq .Data.Lang "pl"}}text-slate-900 dark:text-white font-medium{{else}}hover:text-slate-900 dark:hover:text-white{{end}}">PL</a>
+        </div>
+        <a href="/admin/account" title="Account settings"
+           class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-zinc-800 truncate max-w-[14rem] {{if or (eq .Page "admin_account") (eq .Page "api_keys") (eq .Page "twofa")}}bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300 font-medium{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+          <span class="truncate">{{.Data.Email}}</span>
+        </a>
+        {{if .Data.Role}}<span class="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300">{{.Data.Role}}</span>{{end}}
+        <form action="/auth/logout" method="POST" class="inline">
+          <input type="hidden" name="csrf_token" value="{{.Data.CSRF}}">
+          <button class="px-3 py-1.5 rounded-full cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800">{{T .Data.Lang "nav.signout"}}</button>
+        </form>
+      </div>
+    </header>
+    {{if .Data.Flash}}<div data-toast="success" data-toast-msg="{{.Data.Flash}}" class="hidden"></div>{{end}}
+    {{if .Data.Error}}<div data-toast="error" data-toast-msg="{{.Data.Error}}" class="hidden"></div>{{end}}
+    {{if eq .Page "dashboard"}}{{template "dashboard" .Data}}{{end}}
+    {{if eq .Page "hosts"}}{{template "hosts" .Data}}{{end}}
+    {{if eq .Page "hosts_new"}}{{template "hosts_new" .Data}}{{end}}
+    {{if eq .Page "hosts_edit"}}{{template "hosts_edit" .Data}}{{end}}
+    {{if eq .Page "streams"}}{{template "streams" .Data}}{{end}}
+    {{if eq .Page "tunnels"}}{{template "tunnels" .Data}}{{end}}
+    {{if eq .Page "certs"}}{{template "certs" .Data}}{{end}}
+    {{if eq .Page "branding"}}{{template "branding" .Data}}{{end}}
+    {{if eq .Page "node_detail"}}{{template "node_detail" .Data}}{{end}}
+    {{if eq .Page "nodes"}}{{template "nodes" .Data}}{{end}}
+    {{if eq .Page "plans"}}{{template "plans" .Data}}{{end}}
+    {{if eq .Page "clients"}}{{template "clients" .Data}}{{end}}
+    {{if eq .Page "services"}}{{template "services" .Data}}{{end}}
+    {{if eq .Page "users"}}{{template "users" .Data}}{{end}}
+    {{if eq .Page "api_keys"}}{{template "api_keys" .Data}}{{end}}
+    {{if eq .Page "twofa"}}{{template "twofa" .Data}}{{end}}
+    {{if eq .Page "admin_account"}}{{template "admin_account" .Data}}{{end}}
+    {{if eq .Page "audit"}}{{template "audit" .Data}}{{end}}
+    {{if eq .Page "alerts"}}{{template "alerts" .Data}}{{end}}
+    {{if eq .Page "client_detail"}}{{template "client_detail" .Data}}{{end}}
+    {{if eq .Page "2fa_required"}}{{template "2fa_required" .Data}}{{end}}
+    {{if eq .Page "backups"}}{{template "backups" .Data}}{{end}}
+    {{if eq .Page "settings"}}{{template "settings" .Data}}{{end}}
+    {{if eq .Page "dns_providers"}}{{template "dns_providers" .Data}}{{end}}
+    {{if eq .Page "external_allowlist"}}{{template "external_allowlist" .Data}}{{end}}
+    {{if eq .Page "stats"}}{{template "stats" .Data}}{{end}}
+    {{if eq .Page "stub"}}{{template "stub" .Data}}{{end}}
+  </main>
+</div>
+
+<!-- Toast container (bottom-right). Auto-injected toasts stack here. -->
+<div id="hpg-toasts" role="region" aria-live="polite" aria-label="Notifications" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none w-80 max-w-[calc(100vw-2rem)]"></div>
+
+<!-- Modal confirm (replaces native confirm()). Backdrop blur, centered card. -->
+<div id="hpg-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+  <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200 dark:ring-zinc-800 max-w-md w-full p-5 space-y-4">
+    <p id="hpg-modal-msg" class="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap"></p>
+    <div class="flex justify-end gap-2">
+      <button id="hpg-modal-cancel" type="button" class="px-3 py-1.5 rounded-md text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cancel</button>
+      <button id="hpg-modal-ok" type="button" class="px-3 py-1.5 rounded-md bg-rose-600 text-white text-sm font-medium hover:bg-rose-700">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal prompt (replaces native prompt()). Single text input. -->
+<div id="hpg-prompt" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+  <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200 dark:ring-zinc-800 max-w-md w-full p-5 space-y-4">
+    <p id="hpg-prompt-msg" class="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap"></p>
+    <input id="hpg-prompt-input" type="text" class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    <div class="flex justify-end gap-2">
+      <button id="hpg-prompt-cancel" type="button" class="px-3 py-1.5 rounded-md text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cancel</button>
+      <button id="hpg-prompt-ok" type="button" class="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Command palette overlay -->
+<div id="hpg-palette" class="fixed inset-0 z-[60] hidden items-start justify-center pt-20 bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Command palette">
+  <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200 dark:ring-zinc-800 w-full max-w-xl overflow-hidden">
+    <div class="flex items-center gap-2 px-4 py-3 border-b border-slate-100 dark:border-zinc-800">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+      </svg>
+      <input id="hpg-palette-input" type="text" class="flex-1 bg-transparent text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none" placeholder="Search hosts, clients, nodes, tunnels..." autocomplete="off" spellcheck="false">
+      <kbd class="hidden sm:inline px-1.5 py-0.5 rounded text-[10px] text-slate-400 bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700">Esc</kbd>
+    </div>
+    <ul id="hpg-palette-list" role="listbox" class="max-h-72 overflow-y-auto divide-y divide-slate-50 dark:divide-zinc-800"></ul>
+    <div class="px-4 py-2 flex items-center gap-3 text-[10px] text-slate-400 dark:text-slate-600 border-t border-slate-100 dark:border-zinc-800">
+      <span><kbd class="font-mono">↑↓</kbd> navigate</span>
+      <span><kbd class="font-mono">↵</kbd> open</span>
+      <span><kbd class="font-mono">Esc</kbd> close</span>
+    </div>
+  </div>
+</div>
+
+<script nonce="{{.Data.CSPNonce}}">
+// Shared UI helpers: toast + modal confirm.
+window.hpgToast = function(msg, kind){
+  if (!msg) return;
+  var wrap = document.getElementById('hpg-toasts'); if (!wrap) return;
+  var el = document.createElement('div');
+  var palette = kind === 'error'
+    ? 'bg-rose-600 text-white'
+    : kind === 'warn' ? 'bg-amber-500 text-white'
+    : 'bg-emerald-600 text-white';
+  el.className = 'pointer-events-auto rounded-lg shadow-lg px-4 py-3 text-sm ' + palette + ' opacity-0 transition-opacity duration-200';
+  el.textContent = msg;
+  wrap.appendChild(el);
+  requestAnimationFrame(function(){ el.classList.remove('opacity-0'); });
+  setTimeout(function(){
+    el.classList.add('opacity-0');
+    setTimeout(function(){ el.remove(); }, 250);
+  }, 4000);
+};
+window.hpgConfirm = function(msg){
+  return new Promise(function(resolve){
+    var m = document.getElementById('hpg-modal');
+    document.getElementById('hpg-modal-msg').textContent = msg || 'Are you sure?';
+    m.classList.remove('hidden'); m.classList.add('flex');
+    function done(ok){
+      m.classList.add('hidden'); m.classList.remove('flex');
+      document.getElementById('hpg-modal-ok').onclick = null;
+      document.getElementById('hpg-modal-cancel').onclick = null;
+      m.onclick = null;
+      resolve(ok);
+    }
+    document.getElementById('hpg-modal-ok').onclick = function(){ done(true); };
+    document.getElementById('hpg-modal-cancel').onclick = function(){ done(false); };
+    m.onclick = function(e){ if (e.target === m) done(false); };
+  });
+};
+// hpgPrompt: replaces window.prompt(). Resolves to typed string, or null on cancel.
+window.hpgPrompt = function(msg, defaultValue){
+  return new Promise(function(resolve){
+    var m = document.getElementById('hpg-prompt');
+    var inp = document.getElementById('hpg-prompt-input');
+    document.getElementById('hpg-prompt-msg').textContent = msg || '';
+    inp.value = defaultValue || '';
+    m.classList.remove('hidden'); m.classList.add('flex');
+    setTimeout(function(){ inp.focus(); inp.select(); }, 30);
+    function done(val){
+      m.classList.add('hidden'); m.classList.remove('flex');
+      document.getElementById('hpg-prompt-ok').onclick = null;
+      document.getElementById('hpg-prompt-cancel').onclick = null;
+      inp.onkeydown = null;
+      m.onclick = null;
+      resolve(val);
+    }
+    document.getElementById('hpg-prompt-ok').onclick = function(){ done(inp.value); };
+    document.getElementById('hpg-prompt-cancel').onclick = function(){ done(null); };
+    m.onclick = function(e){ if (e.target === m) done(null); };
+    inp.onkeydown = function(e){
+      if (e.key === 'Enter') { e.preventDefault(); done(inp.value); }
+      else if (e.key === 'Escape') { e.preventDefault(); done(null); }
+    };
+  });
+};
+// hpgConfirmTyped: a destructive-action gate. The user must type `keyword`
+// (e.g. the host/node name) exactly before the action proceeds. Builds on
+// hpgPrompt so it inherits focus + Esc handling.
+window.hpgConfirmTyped = function(msg, keyword){
+  return window.hpgPrompt((msg || 'This cannot be undone.') + '\n\nType "' + keyword + '" to confirm:', '')
+    .then(function(val){ return val !== null && val.trim() === String(keyword); });
+};
+</script>
+<script nonce="{{.Data.CSPNonce}}">
+// Swap moon/sun SVG paths to reflect the active theme (sun shown in dark mode).
+function applyThemeIcon(dark){
+  var ic=document.getElementById('theme-icon'); if(!ic) return;
+  var moon=ic.querySelector('[data-moon]'), sun=ic.querySelector('[data-sun]');
+  if(moon) moon.classList.toggle('hidden', dark);
+  if(sun) sun.classList.toggle('hidden', !dark);
+}
+function toggleTheme(){
+  var d=document.documentElement;
+  var dark=d.classList.toggle('dark');
+  localStorage.setItem('theme', dark?'dark':'light');
+  applyThemeIcon(dark);
+}
+(function(){applyThemeIcon(document.documentElement.classList.contains('dark'));})();
+// Unified handler bindings. CSP forbids inline onclick=/onsubmit=, so
+// templates declare intent via data-* attributes and we wire the
+// addEventListener here in a nonced block.
+document.addEventListener('DOMContentLoaded', function(){
+  document.querySelectorAll('[data-theme-toggle]').forEach(function(el){
+    el.addEventListener('click', toggleTheme);
+  });
+  // Palette switcher: toggle menu; on pick persist to localStorage + apply instantly (server cookie set via the link nav).
+  (function(){
+    var menu = document.querySelector('[data-palette-menu]');
+    if (!menu) return;
+    var btn = menu.querySelector('[data-palette-toggle]');
+    var list = menu.querySelector('[data-palette-list]');
+    function setOpen(open){ list.classList.toggle('hidden', !open); btn.setAttribute('aria-expanded', open?'true':'false'); }
+    btn.addEventListener('click', function(e){ e.stopPropagation(); setOpen(list.classList.contains('hidden')); });
+    document.addEventListener('click', function(e){ if (!menu.contains(e.target)) setOpen(false); });
+    menu.querySelectorAll('[data-palette-pick]').forEach(function(a){
+      a.addEventListener('click', function(){
+        var slug = a.dataset.palettePick;
+        try { localStorage.setItem('ui_theme', slug); } catch(e){}
+        document.documentElement.dataset.theme = slug;
+      });
+    });
+  })();
+  // Mobile nav drawer: data-nav-toggle opens, data-nav-close (backdrop) closes.
+  var sidebar = document.getElementById('admin-sidebar');
+  var backdrop = document.getElementById('nav-backdrop');
+  function setNav(open){
+    if (!sidebar) return;
+    if (open){ sidebar.classList.remove('hidden'); sidebar.classList.add('flex'); backdrop.classList.remove('hidden'); }
+    else { sidebar.classList.add('hidden'); sidebar.classList.remove('flex'); backdrop.classList.add('hidden'); }
+  }
+  document.querySelectorAll('[data-nav-toggle]').forEach(function(b){ b.addEventListener('click', function(){ setNav(true); }); });
+  document.querySelectorAll('[data-nav-close]').forEach(function(b){ b.addEventListener('click', function(){ setNav(false); }); });
+  // data-confirm: gate submit on modal confirmation (replaces native confirm).
+  // Forms that also carry data-confirm-type use the typed-confirm gate instead.
+  document.querySelectorAll('form[data-confirm]:not([data-confirm-type])').forEach(function(f){
+    var armed = false;
+    f.addEventListener('submit', function(e){
+      if (armed) return;
+      e.preventDefault();
+      window.hpgConfirm(f.dataset.confirm).then(function(ok){
+        if (ok) { armed = true; f.submit(); }
+      });
+    });
+  });
+  // data-confirm-type: high-risk action; user must type data-confirm-type
+  // (the resource name/keyword) exactly before the submit goes through.
+  document.querySelectorAll('form[data-confirm-type]').forEach(function(f){
+    var armed = false;
+    f.addEventListener('submit', function(e){
+      if (armed) return;
+      e.preventDefault();
+      window.hpgConfirmTyped(f.dataset.confirm, f.dataset.confirmType).then(function(ok){
+        if (ok) { armed = true; f.submit(); }
+        else { window.hpgToast('Confirmation text did not match - cancelled.', 'warn'); }
+      });
+    });
+  });
+  document.querySelectorAll('[data-check-all]').forEach(function(c){
+    c.addEventListener('change', function(){
+      var name = c.dataset.checkAll;
+      document.querySelectorAll('input[name="'+name+'"]').forEach(function(i){ i.checked = c.checked; });
+    });
+  });
+  document.querySelectorAll('form[data-confirm-bulk]').forEach(function(f){
+    var armed = false;
+    f.addEventListener('submit', function(e){
+      if (armed) return;
+      e.preventDefault();
+      var n = f.querySelectorAll('input[name=ids]:checked').length;
+      if (n === 0) { window.hpgToast('Select at least one row.', 'warn'); return; }
+      var sel = f.querySelector('select[name=action]');
+      var a = sel ? sel.value : '';
+      var msg = a === 'delete' ? 'Delete '+n+' host(s)? This cannot be undone.' : a+' '+n+' host(s)?';
+      window.hpgConfirm(msg).then(function(ok){
+        if (ok) { armed = true; f.submit(); }
+      });
+    });
+  });
+  // Route htmx's confirm prompts through our nice modal instead of the
+  // native confirm(). hx-confirm="..." sets e.detail.question.
+  if (window.htmx) {
+    document.body.addEventListener('htmx:confirm', function(e){
+      if (!e.detail.question) return; // no hx-confirm -> proceed normally
+      e.preventDefault();
+      window.hpgConfirm(e.detail.question).then(function(ok){ if (ok) e.detail.issueRequest(true); });
+    });
+    document.body.addEventListener('htmx:responseError', function(){
+      window.hpgToast('Action failed - reload and retry.', 'error');
+    });
+  }
+  // Auto-fire toasts for server-rendered flash/error sentinels.
+  document.querySelectorAll('[data-toast]').forEach(function(el){
+    window.hpgToast(el.dataset.toastMsg, el.dataset.toast);
+  });
+});
+</script>
+<script nonce="{{.Data.CSPNonce}}">
+// Command palette: Cmd/Ctrl+K, debounced /admin/search, keyboard nav.
+(function(){
+  var pal = document.getElementById('hpg-palette');
+  var inp = document.getElementById('hpg-palette-input');
+  var lst = document.getElementById('hpg-palette-list');
+  var btn = document.getElementById('cmd-palette-btn');
+  if (!pal || !inp || !lst) return;
+  var debTimer = null, items = [], cursor = -1;
+  var kindClass = {
+    host:   'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300',
+    client: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
+    node:   'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
+    tunnel: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+  };
+  function open(){ pal.classList.remove('hidden'); pal.classList.add('flex'); inp.value=''; lst.innerHTML=''; items=[]; cursor=-1; setTimeout(function(){ inp.focus(); },30); }
+  function close(){ pal.classList.add('hidden'); pal.classList.remove('flex'); clearTimeout(debTimer); }
+  function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+  function render(results){
+    items = results; cursor = -1; lst.innerHTML = '';
+    if (!results.length){ lst.innerHTML='<li class="px-4 py-3 text-sm text-slate-400 dark:text-slate-600">No results</li>'; return; }
+    results.forEach(function(r,i){
+      var li = document.createElement('li');
+      li.setAttribute('role','option'); li.setAttribute('data-idx',i);
+      li.className = 'flex items-center gap-3 px-4 py-2.5 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm';
+      li.innerHTML =
+        '<span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium '+(kindClass[r.kind]||'')+'">'+escHtml(r.kind)+'</span>'+
+        '<span class="flex-1 min-w-0"><span class="block truncate text-slate-900 dark:text-slate-100">'+escHtml(r.label)+'</span>'+
+        (r.sub?'<span class="block truncate text-xs text-slate-400 dark:text-slate-500">'+escHtml(r.sub)+'</span>':'')+'</span>';
+      li.addEventListener('click', function(){ navigate(i); });
+      li.addEventListener('mouseenter', function(){ setCursor(i); });
+      lst.appendChild(li);
+    });
+  }
+  function setCursor(idx){
+    var els = lst.querySelectorAll('[data-idx]');
+    els.forEach(function(el){ el.classList.remove('bg-slate-50','dark:bg-zinc-800'); });
+    cursor = idx;
+    if (idx>=0 && idx<els.length){ els[idx].classList.add('bg-slate-50','dark:bg-zinc-800'); els[idx].scrollIntoView({block:'nearest'}); }
+  }
+  function navigate(idx){ if (idx<0||idx>=items.length) return; close(); window.location.href = items[idx].url; }
+  function doSearch(q){
+    if (q.length<2){ lst.innerHTML=''; items=[]; cursor=-1; return; }
+    fetch('/admin/search?q='+encodeURIComponent(q), {credentials:'same-origin', headers:{'Accept':'application/json'}})
+      .then(function(res){ return res.ok?res.json():{results:[]}; })
+      .then(function(data){ render(data.results||[]); })
+      .catch(function(){});
+  }
+  inp.addEventListener('input', function(){ clearTimeout(debTimer); debTimer=setTimeout(function(){ doSearch(inp.value.trim()); },180); });
+  inp.addEventListener('keydown', function(e){
+    var len = items.length;
+    if (e.key==='ArrowDown'){ e.preventDefault(); if(len) setCursor((cursor+1)%len); }
+    else if (e.key==='ArrowUp'){ e.preventDefault(); if(len) setCursor((cursor-1+len)%len); }
+    else if (e.key==='Enter'){ e.preventDefault(); navigate(cursor>=0?cursor:0); }
+    else if (e.key==='Escape'){ e.preventDefault(); close(); }
+  });
+  pal.addEventListener('click', function(e){ if (e.target===pal) close(); });
+  if (btn) btn.addEventListener('click', open);
+  document.addEventListener('keydown', function(e){
+    if ((e.metaKey||e.ctrlKey) && (e.key==='k'||e.key==='K')){ e.preventDefault(); if (pal.classList.contains('hidden')) open(); else close(); }
+  });
+})();
+</script>
+</body>
+</html>
+{{end}}

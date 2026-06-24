@@ -1,0 +1,423 @@
+/* =========================================================================
+ * Palette themes - design-token layer.
+ *
+ * Tailwind's named color ramps (slate/zinc/indigo/emerald/rose/amber/sky)
+ * are remapped in tailwind.config.js to rgb(var(--c-<ramp>-<shade>)/<a>).
+ * So a theme is just one block overriding these channel triplets; every
+ * existing utility (bg-zinc-900, dark:bg-zinc-950, text-indigo-600 ...)
+ * picks it up with zero template edits.
+ *
+ * WHY space-separated RGB channels (not hex): lets the <alpha-value>
+ * placeholder keep working so bg-black/50, bg-slate-50/90 stay valid.
+ *
+ * Surface ramps: slate = light-mode surfaces, zinc = dark-mode surfaces.
+ * indigo = primary accent. emerald/rose/amber/sky = status + secondary.
+ * Every theme overrides BOTH slate and zinc so it is coherent in light
+ * and dark mode. ':root' below holds the stock Tailwind v3 values, which
+ * makes the 'default' theme visually/pixel-identical to before this layer
+ * existed (emitted CSS differs only by var indirection).
+ * ========================================================================= */
+
+:root {
+  /* slate - light-mode surfaces */
+  --c-slate-50: 248 250 252;
+  --c-slate-100: 241 245 249;
+  --c-slate-200: 226 232 240;
+  --c-slate-300: 203 213 225;
+  --c-slate-400: 148 163 184;
+  --c-slate-500: 100 116 139;
+  --c-slate-600: 71 85 105;
+  --c-slate-700: 51 65 85;
+  --c-slate-800: 30 41 59;
+  --c-slate-900: 15 23 42;
+  --c-slate-950: 2 6 23;
+
+  /* zinc - dark-mode surfaces */
+  --c-zinc-50: 250 250 250;
+  --c-zinc-100: 244 244 245;
+  --c-zinc-200: 228 228 231;
+  --c-zinc-300: 212 212 216;
+  --c-zinc-400: 161 161 170;
+  --c-zinc-500: 113 113 122;
+  --c-zinc-600: 82 82 91;
+  --c-zinc-700: 63 63 70;
+  --c-zinc-800: 39 39 42;
+  --c-zinc-900: 24 24 27;
+  --c-zinc-950: 9 9 11;
+
+  /* indigo - primary accent */
+  --c-indigo-50: 238 242 255;
+  --c-indigo-100: 224 231 255;
+  --c-indigo-200: 199 210 254;
+  --c-indigo-300: 165 180 252;
+  --c-indigo-400: 129 140 248;
+  --c-indigo-500: 99 102 241;
+  --c-indigo-600: 79 70 229;
+  --c-indigo-700: 67 56 202;
+  --c-indigo-800: 55 48 163;
+  --c-indigo-900: 49 46 129;
+  --c-indigo-950: 30 27 75;
+
+  /* emerald - success */
+  --c-emerald-50: 236 253 245;
+  --c-emerald-100: 209 250 229;
+  --c-emerald-200: 167 243 208;
+  --c-emerald-300: 110 231 183;
+  --c-emerald-400: 52 211 153;
+  --c-emerald-500: 16 185 129;
+  --c-emerald-600: 5 150 105;
+  --c-emerald-700: 4 120 87;
+  --c-emerald-800: 6 95 70;
+  --c-emerald-900: 6 78 59;
+  --c-emerald-950: 2 44 34;
+
+  /* rose - danger */
+  --c-rose-50: 255 241 242;
+  --c-rose-100: 255 228 230;
+  --c-rose-200: 254 205 211;
+  --c-rose-300: 253 164 175;
+  --c-rose-400: 251 113 133;
+  --c-rose-500: 244 63 94;
+  --c-rose-600: 225 29 72;
+  --c-rose-700: 190 18 60;
+  --c-rose-800: 159 18 57;
+  --c-rose-900: 136 19 55;
+  --c-rose-950: 76 5 25;
+
+  /* amber - warning */
+  --c-amber-50: 255 251 235;
+  --c-amber-100: 254 243 199;
+  --c-amber-200: 253 230 138;
+  --c-amber-300: 252 211 77;
+  --c-amber-400: 251 191 36;
+  --c-amber-500: 245 158 11;
+  --c-amber-600: 217 119 6;
+  --c-amber-700: 180 83 9;
+  --c-amber-800: 146 64 14;
+  --c-amber-900: 120 53 15;
+  --c-amber-950: 69 26 3;
+
+  /* sky - info / secondary accent */
+  --c-sky-50: 240 249 255;
+  --c-sky-100: 224 242 254;
+  --c-sky-200: 186 230 253;
+  --c-sky-300: 125 211 252;
+  --c-sky-400: 56 189 248;
+  --c-sky-500: 14 165 233;
+  --c-sky-600: 2 132 199;
+  --c-sky-700: 3 105 161;
+  --c-sky-800: 7 89 133;
+  --c-sky-900: 12 74 110;
+  --c-sky-950: 8 47 73;
+}
+
+/* =========================================================================
+ * Midnight - OLED near-black zinc, cool blue-tinted slate, bright indigo.
+ * ========================================================================= */
+[data-theme="midnight"] {
+  --c-slate-50: 244 246 251;
+  --c-slate-100: 234 238 247;
+  --c-slate-200: 214 221 238;
+  --c-slate-300: 184 195 222;
+  --c-slate-400: 132 146 184;
+  --c-slate-500: 96 110 150;
+  --c-slate-600: 67 80 117;
+  --c-slate-700: 45 56 88;
+  --c-slate-800: 24 32 56;
+  --c-slate-900: 12 17 34;
+  --c-slate-950: 4 7 18;
+
+  --c-zinc-50: 245 246 250;
+  --c-zinc-100: 232 234 242;
+  --c-zinc-200: 205 209 224;
+  --c-zinc-300: 160 166 190;
+  --c-zinc-400: 110 116 140;
+  --c-zinc-500: 74 80 102;
+  --c-zinc-600: 46 51 70;
+  --c-zinc-700: 28 31 46;
+  --c-zinc-800: 16 18 28;
+  --c-zinc-900: 8 9 16;
+  --c-zinc-950: 2 3 7;
+
+  --c-indigo-300: 173 184 255;
+  --c-indigo-400: 139 150 255;
+  --c-indigo-500: 109 114 255;
+  --c-indigo-600: 88 86 246;
+  --c-indigo-700: 74 66 219;
+  --c-indigo-800: 60 52 178;
+  --c-indigo-900: 48 44 140;
+
+  --c-sky-400: 96 198 255;
+  --c-sky-500: 56 178 255;
+}
+
+/* =========================================================================
+ * Ocean - deep blue-slate surfaces, cyan/sky accent in place of indigo.
+ * ========================================================================= */
+[data-theme="ocean"] {
+  --c-slate-50: 240 248 252;
+  --c-slate-100: 224 240 248;
+  --c-slate-200: 197 224 238;
+  --c-slate-300: 158 199 222;
+  --c-slate-400: 106 152 184;
+  --c-slate-500: 68 112 146;
+  --c-slate-600: 44 84 116;
+  --c-slate-700: 30 62 90;
+  --c-slate-800: 19 44 67;
+  --c-slate-900: 11 30 48;
+  --c-slate-950: 5 17 30;
+
+  --c-zinc-50: 240 247 251;
+  --c-zinc-100: 219 235 244;
+  --c-zinc-200: 184 211 228;
+  --c-zinc-300: 138 172 198;
+  --c-zinc-400: 92 126 156;
+  --c-zinc-500: 58 90 120;
+  --c-zinc-600: 38 66 92;
+  --c-zinc-700: 25 49 71;
+  --c-zinc-800: 16 35 53;
+  --c-zinc-900: 9 24 39;
+  --c-zinc-950: 4 13 24;
+
+  /* indigo accent -> cyan/sky family */
+  --c-indigo-50: 236 250 255;
+  --c-indigo-100: 207 242 253;
+  --c-indigo-200: 165 227 248;
+  --c-indigo-300: 110 205 240;
+  --c-indigo-400: 56 182 228;
+  --c-indigo-500: 20 154 206;
+  /* AA: 600/700 darkened so text-indigo-600 link passes on slate-50 */
+  --c-indigo-600: 7 118 168;
+  --c-indigo-700: 8 98 142;
+  --c-indigo-800: 12 82 118;
+  --c-indigo-900: 14 67 97;
+  --c-indigo-950: 8 41 61;
+
+  --c-sky-400: 56 191 248;
+  --c-sky-500: 14 168 230;
+  --c-sky-600: 4 138 199;
+}
+
+/* =========================================================================
+ * Forest - desaturated green-gray surfaces, emerald accent.
+ * ========================================================================= */
+[data-theme="forest"] {
+  --c-slate-50: 246 249 246;
+  --c-slate-100: 236 243 236;
+  --c-slate-200: 215 228 215;
+  --c-slate-300: 184 204 184;
+  --c-slate-400: 134 160 137;
+  --c-slate-500: 90 114 94;
+  --c-slate-600: 68 92 73;
+  --c-slate-700: 49 70 54;
+  --c-slate-800: 31 48 36;
+  --c-slate-900: 18 32 23;
+  --c-slate-950: 8 18 12;
+
+  --c-zinc-50: 245 248 245;
+  --c-zinc-100: 232 240 232;
+  --c-zinc-200: 206 220 206;
+  --c-zinc-300: 166 188 168;
+  --c-zinc-400: 118 142 122;
+  --c-zinc-500: 82 106 87;
+  --c-zinc-600: 56 78 61;
+  --c-zinc-700: 38 56 43;
+  --c-zinc-800: 24 38 28;
+  --c-zinc-900: 14 26 18;
+  --c-zinc-950: 6 14 9;
+
+  /* indigo accent -> emerald family */
+  --c-indigo-50: 236 253 244;
+  --c-indigo-100: 209 250 226;
+  --c-indigo-200: 167 240 202;
+  --c-indigo-300: 110 224 168;
+  --c-indigo-400: 52 200 134;
+  /* AA: 500-700 darkened so white-on-600 + text-indigo-600 on slate-50 pass */
+  --c-indigo-500: 14 160 100;
+  --c-indigo-600: 5 128 80;
+  --c-indigo-700: 5 104 66;
+  --c-indigo-800: 6 90 60;
+  --c-indigo-900: 6 73 50;
+  --c-indigo-950: 2 42 30;
+}
+
+/* =========================================================================
+ * Violet - plum surfaces, violet accent.
+ * ========================================================================= */
+[data-theme="violet"] {
+  --c-slate-50: 250 248 252;
+  --c-slate-100: 245 240 250;
+  --c-slate-200: 233 222 243;
+  --c-slate-300: 211 192 230;
+  --c-slate-400: 168 142 196;
+  --c-slate-500: 130 102 160;
+  --c-slate-600: 100 74 128;
+  --c-slate-700: 74 53 98;
+  --c-slate-800: 50 35 70;
+  --c-slate-900: 32 21 48;
+  --c-slate-950: 17 10 28;
+
+  --c-zinc-50: 249 247 252;
+  --c-zinc-100: 243 238 249;
+  --c-zinc-200: 226 216 238;
+  --c-zinc-300: 196 178 218;
+  --c-zinc-400: 150 124 180;
+  --c-zinc-500: 112 88 142;
+  --c-zinc-600: 82 62 108;
+  --c-zinc-700: 58 43 80;
+  --c-zinc-800: 38 27 56;
+  --c-zinc-900: 24 16 38;
+  --c-zinc-950: 12 7 22;
+
+  /* indigo accent -> violet family */
+  --c-indigo-50: 245 243 255;
+  --c-indigo-100: 237 233 254;
+  --c-indigo-200: 221 214 254;
+  --c-indigo-300: 196 181 253;
+  --c-indigo-400: 167 139 250;
+  --c-indigo-500: 139 92 246;
+  --c-indigo-600: 124 58 237;
+  --c-indigo-700: 109 40 217;
+  --c-indigo-800: 91 33 182;
+  --c-indigo-900: 76 29 149;
+  --c-indigo-950: 46 16 101;
+}
+
+/* =========================================================================
+ * Sunset - warm charcoal surfaces, amber/rose accent.
+ * ========================================================================= */
+[data-theme="sunset"] {
+  --c-slate-50: 252 248 244;
+  --c-slate-100: 250 241 232;
+  --c-slate-200: 242 224 208;
+  --c-slate-300: 228 197 170;
+  --c-slate-400: 196 154 120;
+  --c-slate-500: 146 104 76;
+  --c-slate-600: 124 86 62;
+  --c-slate-700: 92 62 46;
+  --c-slate-800: 62 42 33;
+  --c-slate-900: 40 27 23;
+  --c-slate-950: 22 14 12;
+
+  --c-zinc-50: 251 247 244;
+  --c-zinc-100: 247 239 232;
+  --c-zinc-200: 233 218 206;
+  --c-zinc-300: 206 182 166;
+  --c-zinc-400: 168 138 120;
+  --c-zinc-500: 130 102 86;
+  --c-zinc-600: 96 72 60;
+  --c-zinc-700: 68 50 42;
+  --c-zinc-800: 44 32 27;
+  --c-zinc-900: 28 20 17;
+  --c-zinc-950: 16 11 9;
+
+  /* indigo accent -> warm rust/burnt-orange family.
+     AA: amber is too light as primary-on-white (3.27); 500-700 are a deeper
+     rust so white-on-600 + text-indigo-600 on slate-50 pass. Amber stays the
+     warning role (--c-amber-*) and the light 50-400 bg/border shades stay warm. */
+  --c-indigo-50: 255 250 235;
+  --c-indigo-100: 254 244 206;
+  --c-indigo-200: 253 228 146;
+  --c-indigo-300: 252 206 92;
+  --c-indigo-400: 250 178 44;
+  --c-indigo-500: 236 118 28;
+  --c-indigo-600: 190 70 28;
+  --c-indigo-700: 158 56 26;
+  --c-indigo-800: 150 62 18;
+  --c-indigo-900: 122 50 18;
+  --c-indigo-950: 70 28 10;
+}
+
+/* =========================================================================
+ * Nord - canonical Nord palette (cool desaturated polar night + frost).
+ * ========================================================================= */
+[data-theme="nord"] {
+  --c-slate-50: 236 241 246;
+  --c-slate-100: 229 233 240;   /* nord4 */
+  --c-slate-200: 216 222 233;   /* nord4 light */
+  --c-slate-300: 192 200 214;
+  --c-slate-400: 143 156 177;
+  --c-slate-500: 96 108 130;
+  --c-slate-600: 76 86 106;     /* nord3 */
+  --c-slate-700: 59 66 82;      /* nord1 */
+  --c-slate-800: 46 52 64;      /* nord0 */
+  --c-slate-900: 39 44 54;
+  --c-slate-950: 30 34 42;
+
+  --c-zinc-50: 236 241 246;
+  --c-zinc-100: 229 233 240;
+  --c-zinc-200: 212 218 228;
+  --c-zinc-300: 168 178 196;
+  --c-zinc-400: 124 136 158;
+  --c-zinc-500: 94 105 126;
+  --c-zinc-600: 67 76 94;
+  --c-zinc-700: 59 66 82;       /* nord1 */
+  --c-zinc-800: 46 52 64;       /* nord0 */
+  --c-zinc-900: 38 43 53;
+  --c-zinc-950: 30 34 42;
+
+  /* indigo accent -> nord frost blue (nord8/9/10) */
+  --c-indigo-50: 236 244 248;
+  --c-indigo-100: 216 232 240;
+  --c-indigo-200: 175 208 224;
+  --c-indigo-300: 143 188 211;  /* nord9 */
+  --c-indigo-400: 136 192 208;  /* nord8 */
+  /* AA: 500-700 darkened from nord10 so white-on-600 + text-indigo-600 on
+     slate-50 pass; lighter frost (300/400 nord8/9) kept for borders/icons */
+  --c-indigo-500: 110 140 178;
+  --c-indigo-600: 78 108 150;
+  --c-indigo-700: 62 90 128;
+  --c-indigo-800: 62 92 130;
+  --c-indigo-900: 52 78 110;
+  --c-indigo-950: 36 54 78;
+
+  /* status colors -> nord aurora for cohesion */
+  --c-emerald-500: 163 190 140; /* nord14 */
+  --c-emerald-600: 138 168 116;
+  --c-rose-500: 191 97 106;     /* nord11 */
+  --c-rose-600: 169 84 92;
+  --c-amber-500: 235 203 139;   /* nord13 */
+  --c-amber-600: 214 178 110;
+}
+
+/* =========================================================================
+ * Mono - neutral grayscale, high contrast, accent = near-black/white gray.
+ * ========================================================================= */
+[data-theme="mono"] {
+  --c-slate-50: 250 250 250;
+  --c-slate-100: 244 244 244;
+  --c-slate-200: 229 229 229;
+  --c-slate-300: 212 212 212;
+  --c-slate-400: 163 163 163;
+  --c-slate-500: 115 115 115;
+  --c-slate-600: 82 82 82;
+  --c-slate-700: 56 56 56;
+  --c-slate-800: 33 33 33;
+  --c-slate-900: 18 18 18;
+  --c-slate-950: 8 8 8;
+
+  --c-zinc-50: 250 250 250;
+  --c-zinc-100: 243 243 243;
+  --c-zinc-200: 224 224 224;
+  --c-zinc-300: 198 198 198;
+  --c-zinc-400: 150 150 150;
+  --c-zinc-500: 109 109 109;
+  --c-zinc-600: 78 78 78;
+  --c-zinc-700: 52 52 52;
+  --c-zinc-800: 30 30 30;
+  --c-zinc-900: 16 16 16;
+  --c-zinc-950: 6 6 6;
+
+  /* indigo accent -> neutral high-contrast gray */
+  --c-indigo-50: 245 245 245;
+  --c-indigo-100: 231 231 231;
+  --c-indigo-200: 209 209 209;
+  --c-indigo-300: 168 168 168;
+  --c-indigo-400: 120 120 120;
+  --c-indigo-500: 82 82 82;
+  --c-indigo-600: 52 52 52;
+  --c-indigo-700: 38 38 38;
+  --c-indigo-800: 28 28 28;
+  --c-indigo-900: 20 20 20;
+  --c-indigo-950: 10 10 10;
+}

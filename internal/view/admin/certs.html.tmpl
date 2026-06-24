@@ -1,0 +1,51 @@
+{{define "certs"}}
+<div class="space-y-4">
+  <div>
+    <h2 class="hpg-eyebrow">SSL certificates <span class="font-normal normal-case text-slate-400">({{.Total}})</span></h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400">Per-domain certificate status. Caddy issues + renews via Let's Encrypt on-demand; "renew" forces a DNS re-check + node re-push.</p>
+  </div>
+
+  <section class="hpg-card overflow-x-auto p-0">
+    <table class="w-full text-sm">
+      <thead class="text-left hpg-eyebrow">
+        <tr>
+          <th class="px-4 py-3">Domain</th>
+          <th class="px-4 py-3">SSL</th>
+          <th class="px-4 py-3">Status</th>
+          <th class="px-4 py-3">Issued at</th>
+          <th class="px-4 py-3">Node</th>
+          <th class="px-4 py-3">Client</th>
+          <th class="px-4 py-3"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      {{range .Certs}}
+        <tr>
+          <td class="px-4 py-3 font-mono text-xs text-slate-800 dark:text-slate-200">{{.Domain}}</td>
+          <td class="px-4 py-3 text-xs">{{if .SSLEnabled}}<span class="hpg-pill hpg-pill-ok">on</span>{{else}}<span class="hpg-pill hpg-pill-muted">off</span>{{end}}</td>
+          <td class="px-4 py-3 text-xs">
+            {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>{{end}}
+            {{if eq .Status "pending_dns"}}<span class="hpg-pill hpg-pill-warn">pending DNS</span>{{end}}
+            {{if eq .Status "dns_ok"}}<span class="hpg-pill bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">DNS ok</span>{{end}}
+            {{if eq .Status "pending_ssl"}}<span class="hpg-pill bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">pending SSL</span>{{end}}
+            {{if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err" title="{{.LastError}}">failed</span>{{end}}
+            {{if eq .Status "disabled"}}<span class="hpg-pill hpg-pill-muted">disabled</span>{{end}}
+          </td>
+          <td class="px-4 py-3 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .IssuedAt}}{{.IssuedAt}}{{else}}-{{end}}</td>
+          <td class="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">{{.NodeName}} <span class="text-slate-400">{{.NodeHost}}</span></td>
+          <td class="px-4 py-3 text-xs text-slate-600 dark:text-slate-300">{{.ClientEmail}}</td>
+          <td class="px-4 py-3 text-right text-xs whitespace-nowrap">
+            <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" class="inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-indigo-600 dark:text-indigo-400 hover:underline">renew</button>
+            </form>
+          </td>
+        </tr>
+      {{else}}
+        <tr><td colspan="7" class="px-4 py-10 text-center text-slate-500 dark:text-slate-400">No proxy hosts yet.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </section>
+</div>
+{{end}}

@@ -1,0 +1,90 @@
+{{define "node_detail"}}
+<div class="space-y-6">
+  <div>
+    <a href="/admin/nodes" class="text-xs text-slate-500 hover:text-indigo-600">← all nodes</a>
+    <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1">{{.Node.PublicHost}}{{if .Node.PublicIP}} · {{.Node.PublicIP}}{{end}} · group {{.Node.GroupName}}</p>
+  </div>
+
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="hpg-card">
+      <div class="hpg-eyebrow">Health</div>
+      <div class="hpg-stat-num mt-1">
+        {{if eq .Node.Health "healthy"}}<span class="text-emerald-600">healthy</span>{{else if eq .Node.Health "unhealthy"}}<span class="text-rose-600">unhealthy</span>{{else}}<span class="text-slate-500">{{.Node.Health}}</span>{{end}}
+      </div>
+      <div class="text-xs text-slate-500 mt-1">{{if .Node.LastSeen}}seen {{.Node.LastSeen}}{{else}}never seen{{end}}</div>
+    </div>
+    <div class="hpg-card">
+      <div class="hpg-eyebrow">Routes</div>
+      <div class="hpg-stat-num mt-1">{{.ActiveRoutes}} / {{.RouteCount}}</div>
+      <div class="text-xs text-slate-500 mt-1">active / total · cap {{.Node.MaxRoutes}}</div>
+    </div>
+    <div class="hpg-card">
+      <div class="hpg-eyebrow">Failed</div>
+      <div class="hpg-stat-num mt-1 {{if .FailedRoutes}}text-rose-600{{else}}text-slate-700 dark:text-slate-200{{end}}">{{.FailedRoutes}}</div>
+    </div>
+    <div class="hpg-card">
+      <div class="hpg-eyebrow">Approval</div>
+      <div class="mt-2">
+        {{if .Node.Approved}}<span class="hpg-pill hpg-pill-ok">approved</span>{{else}}<span class="hpg-pill hpg-pill-warn">pending</span>{{end}}
+      </div>
+      <div class="mt-2">
+        {{if .Node.Enabled}}<span class="hpg-pill hpg-pill-ok">enabled</span>{{else}}<span class="hpg-pill hpg-pill-muted">disabled</span>{{end}}
+      </div>
+    </div>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <form method="POST" action="/admin/nodes/{{.Node.ID}}/resync">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Resync from DB</button>
+    </form>
+    <span class="text-xs text-slate-500 dark:text-slate-400">Rebuild the full Caddy config from the database and POST /load on this node.</span>
+  </div>
+
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="px-5 py-3">
+      <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Recent routes (latest 25)</h3>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <tr><th class="px-5 py-2">Domain</th><th class="px-5 py-2">Upstream</th><th class="px-5 py-2">Client</th><th class="px-5 py-2">Status</th></tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .RecentRoutes}}
+        <tr>
+          <td class="px-5 py-3 font-mono text-xs">{{.Domain}}</td>
+          <td class="px-5 py-3 font-mono text-xs">{{.BackendIP}}:{{.UpstreamPort}}</td>
+          <td class="px-5 py-3 text-xs">{{.ClientEmail}}</td>
+          <td class="px-5 py-3 text-xs">{{.Status}}{{if .LastError}}<span class="ml-1 text-rose-600" title="{{.LastError}}">⚠</span>{{end}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No routes assigned.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="px-5 py-3">
+      <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Recent audit (latest 20)</h3>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-xs">
+      <thead class="text-left uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <tr><th class="px-5 py-2">When</th><th class="px-5 py-2">Actor</th><th class="px-5 py-2">Action</th><th class="px-5 py-2">Meta</th></tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .RecentAudit}}
+        <tr>
+          <td class="px-5 py-3 font-mono">{{.When}}</td>
+          <td class="px-5 py-3">{{.Email}}</td>
+          <td class="px-5 py-3 font-mono">{{.Action}}</td>
+          <td class="px-5 py-3 font-mono text-slate-500 truncate max-w-md">{{.Meta}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No node-scoped audit entries yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+</div>
+{{end}}

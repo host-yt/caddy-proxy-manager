@@ -1,0 +1,26 @@
+{{define "dashboard"}}
+<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-500">VPS services</div>
+    <div class="text-2xl font-semibold mt-1">{{.ServiceCount}}</div>
+  </div>
+  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Active domains</div>
+    <div class="text-2xl font-semibold mt-1">{{.ActiveRoutes}}</div>
+  </div>
+  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4">
+    <div class="text-xs uppercase tracking-wide text-slate-500">Pending</div>
+    <div class="text-2xl font-semibold mt-1">{{.PendingRoutes}}</div>
+  </div>
+</div>
+
+<div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5">
+  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">How it works</h2>
+  <ol class="text-sm text-slate-600 dark:text-slate-300 list-decimal list-inside space-y-1">
+    <li>Open <a class="text-indigo-700 hover:underline" href="/app/services">My VPS</a> to see your services and the public ports your provider allowed.</li>
+    <li>Click <a class="text-indigo-700 hover:underline" href="/app/routes">Domains</a> to map your own domain to one of those ports.</li>
+    <li>Point your DNS (CNAME or A record) at the proxy hostname shown for that mapping.</li>
+    <li>Wait a few seconds - once DNS resolves, the certificate is issued automatically.</li>
+  </ol>
+</div>
+{{end}}

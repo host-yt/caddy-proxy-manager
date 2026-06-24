@@ -1,0 +1,301 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+
+permissions:
+  contents: read
+  packages: write
+
+# Forces docker/* JS actions (still on Node 20 in their latest releases)
+# to use the runner's Node 24, silencing the deprecation warning.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  REGISTRY: ghcr.io
+
+# Pattern: per-arch build on its native runner -> push by digest ->
+# merge job creates one multi-arch manifest. Avoids QEMU emulation cost
+# (was ~30 min per image on amd64-only runners, now ~5-8 min total).
+# Native arm64 runner `ubuntu-24.04-arm` is free for public repos and
+# cheaper-per-build for private (12x faster than QEMU offsets 2x rate).
+
+jobs:
+  # ---------------- app ----------------------------------------------------
+  app-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=app-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=app-${{ matrix.platform }}
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/$(echo '${{ matrix.platform }}' | tr '/' '-')"
+      - name: Upload digest
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-digest-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  app-merge:
+    runs-on: ubuntu-latest
+    needs: app-build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: app-digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Create + push manifest
+        working-directory: /tmp/digests
+        run: |
+          digests=$(for f in *; do echo -n "${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager@$(cat "$f") "; done)
+          tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create $tags $digests
+
+  # ---------------- caddy --------------------------------------------------
+  caddy-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/caddy
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-edge,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=caddy-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=caddy-${{ matrix.platform }}
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/$(echo '${{ matrix.platform }}' | tr '/' '-')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: caddy-digest-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  caddy-merge:
+    runs-on: ubuntu-latest
+    needs: caddy-build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: caddy-digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-edge
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Create + push manifest
+        working-directory: /tmp/digests
+        run: |
+          digests=$(for f in *; do echo -n "${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager-edge@$(cat "$f") "; done)
+          tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create $tags $digests
+
+  # ---------------- wireguard ---------------------------------------------
+  wireguard-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: deploy/wireguard
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-wg,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=wireguard-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=wireguard-${{ matrix.platform }}
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/$(echo '${{ matrix.platform }}' | tr '/' '-')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wireguard-digest-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  wireguard-merge:
+    runs-on: ubuntu-latest
+    needs: wireguard-build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: wireguard-digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-wg
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Create + push manifest
+        working-directory: /tmp/digests
+        run: |
+          digests=$(for f in *; do echo -n "${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager-wg@$(cat "$f") "; done)
+          tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create $tags $digests
+
+  # ---------------- node-agent --------------------------------------------
+  node-agent-build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/node-agent/Dockerfile
+          platforms: ${{ matrix.platform }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-node-agent,push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=node-agent-${{ matrix.platform }}
+          cache-to: type=gha,mode=max,scope=node-agent-${{ matrix.platform }}
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/$(echo '${{ matrix.platform }}' | tr '/' '-')"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: node-agent-digest-${{ strategy.job-index }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  node-agent-merge:
+    runs-on: ubuntu-latest
+    needs: node-agent-build
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: /tmp/digests
+          pattern: node-agent-digest-*
+          merge-multiple: true
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/metadata-action@v5
+        id: meta
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-node-agent
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+      - name: Create + push manifest
+        working-directory: /tmp/digests
+        run: |
+          digests=$(for f in *; do echo -n "${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager-node-agent@$(cat "$f") "; done)
+          tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create $tags $digests

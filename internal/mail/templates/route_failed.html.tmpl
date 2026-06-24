@@ -1,0 +1,12 @@
+<!doctype html>
+<html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;padding:24px;max-width:560px;margin:auto">
+<h2 style="margin:0 0 16px 0;color:#b91c1c">Domain mapping failed</h2>
+<p>We couldn't bring <strong>{{.Domain}}</strong> online.</p>
+<p style="background:#fef2f2;border:1px solid #fecaca;padding:12px;border-radius:6px;color:#7f1d1d;font-size:13px">{{.Reason}}</p>
+<p>Common fixes:</p>
+<ul style="font-size:14px;color:#374151">
+  <li>Make sure your DNS points to the proxy node hostname or IP.</li>
+  <li>Wait a few minutes for DNS to propagate, then click <em>re-check</em>.</li>
+</ul>
+<p style="color:#6b7280;font-size:13px;margin-top:24px">Manage: <a href="{{.AppURL}}/app/routes">{{.AppURL}}/app/routes</a></p>
+</body></html>

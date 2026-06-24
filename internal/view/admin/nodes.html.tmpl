@@ -1,0 +1,361 @@
+{{define "nodes"}}
+{{if .TunnelCreds}}
+<div id="hpg-creds-modal" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+  <div class="hpg-card ring-emerald-200 dark:ring-emerald-600/40 shadow-2xl max-w-xl w-full space-y-4 text-sm">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h3 class="font-semibold text-emerald-900 dark:text-emerald-300 text-lg">Tunnel credentials - shown once</h3>
+        <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Copy into <code class="text-xs">hpg-node-agent</code> env. After you close this modal the values are gone (TTL 10 min, single-fetch). If lost, click <strong>Rotate</strong> in the tunnel modal - invalidates all existing customer installs.</p>
+      </div>
+      <button type="button" data-creds-close class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl leading-none">×</button>
+    </div>
+
+    <div class="space-y-3">
+      <div>
+        <label class="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">HPG_NODE_TOKEN</label>
+        <div class="flex gap-2">
+          <input id="hpg-cred-token" readonly value="{{.TunnelCreds.Token}}" class="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-xs">
+          <button type="button" data-copy-target="hpg-cred-token" class="px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-zinc-700 text-white text-xs hover:bg-slate-900">Copy</button>
+        </div>
+      </div>
+      <div>
+        <label class="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">HPG_WG_PRIVATE_KEY</label>
+        <div class="flex gap-2">
+          <input id="hpg-cred-priv" readonly value="{{.TunnelCreds.PrivateKey}}" class="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-xs">
+          <button type="button" data-copy-target="hpg-cred-priv" class="px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-zinc-700 text-white text-xs hover:bg-slate-900">Copy</button>
+        </div>
+      </div>
+      <div>
+        <label class="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">HPG_WG_LISTEN_PORT</label>
+        <div class="flex gap-2">
+          <input id="hpg-cred-port" readonly value="{{.TunnelCreds.ListenPort}}" class="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-xs">
+          <button type="button" data-copy-target="hpg-cred-port" class="px-3 py-1.5 rounded-lg bg-slate-800 dark:bg-zinc-700 text-white text-xs hover:bg-slate-900">Copy</button>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">.env block</label>
+      <div class="flex gap-2">
+        <textarea id="hpg-cred-all" readonly rows="{{if ne .TunnelCreds.Transport "udp"}}5{{else}}3{{end}}" class="flex-1 px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-xs">HPG_NODE_TOKEN={{.TunnelCreds.Token}}
+HPG_WG_PRIVATE_KEY={{.TunnelCreds.PrivateKey}}
+HPG_WG_LISTEN_PORT={{.TunnelCreds.ListenPort}}{{if ne .TunnelCreds.Transport "udp"}}
+HPG_TUNNEL_TRANSPORT={{.TunnelCreds.Transport}}
+HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
+        <button type="button" data-copy-target="hpg-cred-all" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs hover:bg-emerald-700 self-start">Copy all</button>
+      </div>
+      {{if ne .TunnelCreds.Transport "udp"}}<p class="text-[11px] text-amber-600 dark:text-amber-400 mt-1">WSS node: the two extra vars are required or the agent stays UDP-only.</p>{{end}}
+    </div>
+
+    <div class="flex justify-end pt-2 border-t border-slate-200 dark:border-zinc-800">
+      <button type="button" data-creds-close class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700">I've copied - close</button>
+    </div>
+  </div>
+</div>
+<script nonce="{{.CSPNonce}}">
+(function(){
+  function copy(id){
+    var el = document.getElementById(id);
+    if (!el) return;
+    el.select(); el.setSelectionRange(0, 99999);
+    try { navigator.clipboard.writeText(el.value); }
+    catch(e){ document.execCommand && document.execCommand('copy'); }
+    window.hpgToast && window.hpgToast('Copied', 'ok');
+  }
+  document.querySelectorAll('[data-copy-target]').forEach(function(b){
+    b.addEventListener('click', function(){ copy(b.dataset.copyTarget); });
+  });
+  document.querySelectorAll('[data-creds-close]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var m = document.getElementById('hpg-creds-modal');
+      if (m) m.remove();
+      // Strip query so refresh doesn't try to re-fetch a stale nonce.
+      var u = new URL(window.location.href);
+      u.searchParams.delete('show_creds');
+      window.history.replaceState({}, '', u.toString());
+    });
+  });
+})();
+</script>
+{{end}}
+{{if .NewJoinToken}}
+<div class="mb-6 hpg-card bg-amber-50 dark:bg-amber-500/10 ring-amber-200 dark:ring-amber-500/30">
+  <h3 class="font-semibold text-amber-900 dark:text-amber-200 mb-1">Join command - copy now</h3>
+  <p class="text-xs text-amber-800 dark:text-amber-300 mb-3">Valid for 30 minutes. The plaintext token won't be shown again. Run on the new VPS as root:</p>
+  <pre class="bg-white dark:bg-zinc-950 border border-amber-200 dark:border-amber-500/30 rounded-lg p-3 text-xs font-mono whitespace-pre-wrap break-all">curl -fsSL {{.AppURL}}/install/node.sh | sudo bash -s -- --manager {{.AppURL}} --token {{.NewJoinToken}}</pre>
+  <p class="text-xs text-amber-700 dark:text-amber-300/80 mt-2">Token expires at {{.NewJoinTTL}}.</p>
+</div>
+{{end}}
+<div class="mb-4 flex justify-end gap-2">
+  <button type="button" id="hpg-add-node-btn" class="text-xs px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700">+ Add node manually</button>
+  <form method="POST" action="/admin/nodes/apply-wg" class="inline">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <button class="text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800">
+      Apply WG config (force sidecar refresh)
+    </button>
+  </form>
+</div>
+<div class="mb-6 hpg-card">
+  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Auto-join - one-command node</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Generates a one-time token + curl command. New node installs WireGuard + Docker + Caddy, joins the mesh, and registers itself. The manager-side WG sidecar picks up the new peer within ~10 s - no manual <code>wg syncconf</code> needed.</p>
+  <form method="POST" action="/admin/nodes/join-token" class="grid grid-cols-1 sm:grid-cols-4 gap-3 text-sm">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <div>
+      <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Node group</label>
+      <select name="node_group_id" required class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+        {{range .Groups}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Max routes</label>
+      <input name="max_routes" type="number" min="1" value="1000" class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+    </div>
+    <div>
+      <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Priority</label>
+      <input name="priority" type="number" min="0" value="100" class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+    </div>
+    <div>
+      <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name hint (optional)</label>
+      <input name="name_hint" placeholder="node-fra-01" class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+    </div>
+    <div class="sm:col-span-4 flex justify-end">
+      <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Generate join command</button>
+    </div>
+  </form>
+</div>
+<div class="space-y-6">
+  <section class="hpg-card p-0 overflow-hidden">
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <tr>
+          <th class="px-4 py-2">Name</th>
+          <th class="px-4 py-2">Admin URL</th>
+          <th class="px-4 py-2">Public</th>
+          <th class="px-4 py-2">Group</th>
+          <th class="px-4 py-2">Routes</th>
+          <th class="px-4 py-2">Health</th>
+          <th class="px-4 py-2">Fingerprint</th>
+          <th class="px-4 py-2"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Nodes}}
+        <tr>
+          <td class="px-4 py-2 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
+          <td class="px-4 py-2 text-slate-600 dark:text-slate-300"><code class="text-xs">{{.APIURL}}</code></td>
+          <td class="px-4 py-2 text-slate-600 dark:text-slate-300">
+            {{.PublicHostname}}{{if .PublicIP}} <span class="text-xs text-slate-400">({{.PublicIP}})</span>{{end}}
+          </td>
+          <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{.GroupName}}</td>
+          <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{.CurrentRoutes}} / {{.MaxRoutes}}</td>
+          <td class="px-4 py-2">
+            <span class="hpg-pill {{if eq .Health "healthy"}}hpg-pill-ok{{else if eq .Health "down"}}hpg-pill-err{{else}}hpg-pill-muted{{end}}">
+              <span class="w-1.5 h-1.5 rounded-full {{if eq .Health "healthy"}}bg-emerald-500{{else if eq .Health "down"}}bg-rose-500{{else}}bg-slate-400{{end}}"></span>
+              {{.Health}}
+            </span>
+            {{if not .Enabled}}<span class="hpg-pill hpg-pill-warn ml-1">disabled</span>{{end}}
+          </td>
+          <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">
+            {{if .Fingerprint}}<code class="font-mono">{{.Fingerprint}}</code>{{else}}-{{end}}
+          </td>
+          <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
+            {{if not .Approved}}
+              <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/approve" data-confirm="Approve {{.Name}}? Verify the fingerprint above matches the bootstrap script output.">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="text-xs px-2 py-0.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">approve</button>
+              </form>
+            {{end}}
+            <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/resync">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-indigo-700 dark:text-indigo-400 hover:underline">resync</button>
+            </form>
+            <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/toggle">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-slate-700 dark:text-slate-300 hover:underline">{{if .Enabled}}disable{{else}}enable{{end}}</button>
+            </form>
+            <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/rekey" data-confirm="Rotate WG key for {{.Name}}? New private key will be stashed in settings encrypted; copy it to the node.">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-amber-700 dark:text-amber-400 hover:underline">rekey</button>
+            </form>
+            <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/drain" data-confirm="Drain {{.Name}}? Routes will be moved to a healthy peer in the same group + node is disabled (maintenance mode). Re-enable later without re-approval.">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-amber-600 dark:text-amber-400 hover:underline">drain</button>
+            </form>
+            <button type="button" data-tunnel-open="{{.ID}}" data-tunnel-name="{{.Name}}" data-tunnel-host="{{.PublicHostname}}" data-tunnel-transport="{{.Transport}}" data-tunnel-wstport="{{.WstunnelPort}}" class="text-xs text-sky-700 dark:text-sky-400 hover:underline">tunnel</button>
+            <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/decommission" data-confirm="Decommission {{.Name}}? Routes will be migrated to a peer in the same group; then the node is removed." data-confirm-type="{{.Name}}">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline">decommission</button>
+            </form>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="8" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No nodes yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+
+  <!-- Customer-tunnel modal. Lets the operator enable/disable wg-tun0
+       on a node and pick the UDP listen port + public endpoint. -->
+  <div id="hpg-node-tunnel-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+    <form id="hpg-node-tunnel-form" method="POST" action="" class="hpg-card shadow-2xl max-w-lg w-full space-y-4 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <h3 class="font-semibold text-slate-900 dark:text-slate-100 text-lg">Customer tunnel - <span id="hpg-nt-name"></span></h3>
+      <p class="text-xs text-slate-500 dark:text-slate-400">First save generates server-side keypair + agent token (popup with copy buttons). Subsequent saves only update metadata - use <strong>Rotate keys</strong> below to issue fresh credentials (invalidates existing customer installs).</p>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Listen port (UDP)</label>
+        <input name="listen_port" type="number" min="1" max="65535" value="51821" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono">
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Pick whatever's free on this node's firewall. Customer's .conf will dial this port.</p>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Public endpoint (host:port)</label>
+        <input id="hpg-nt-endpoint" name="endpoint" placeholder="leave blank to use node hostname + listen_port" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tenant /16 subnet</label>
+        <input name="subnet" value="100.96.0.0/16" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono">
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Default CGNAT range. ~65k tenant IPs per node. Don't overlap with operator mesh or customer LANs.</p>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Transport</label>
+          <select id="hpg-nt-transport" name="transport" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+            <option value="udp">UDP (default)</option>
+            <option value="auto">Auto (UDP, fall back to WSS)</option>
+            <option value="wss">WSS (force WebSocket-over-TLS)</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">wstunnel port</label>
+          <input id="hpg-nt-wstport" name="wstunnel_port" type="number" min="1" max="65535" placeholder="e.g. 51823" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono">
+        </div>
+      </div>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400 -mt-2">Non-UDP requires a free loopback port for the wstunnel server. Set <code>HPG_TUNNEL_TRANSPORT</code> + <code>HPG_WSTUNNEL_PORT</code> on this node's agent to match, then redeploy.</p>
+      <div class="flex flex-wrap justify-between gap-2 pt-2 border-t border-slate-200 dark:border-zinc-800">
+        <div class="space-x-2">
+          <button type="button" id="hpg-nt-disable" class="px-3 py-1.5 rounded-lg text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-900/20 text-sm">Disable tunnel</button>
+          <button type="button" id="hpg-nt-rotate" class="px-3 py-1.5 rounded-lg text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-900/20 text-sm">Rotate keys</button>
+        </div>
+        <div class="space-x-2">
+          <button type="button" data-tunnel-close class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 text-sm">Cancel</button>
+          <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium">Save &amp; enable</button>
+        </div>
+      </div>
+    </form>
+  </div>
+  <script nonce="{{.CSPNonce}}">
+  (function(){
+    var m = document.getElementById('hpg-node-tunnel-modal');
+    var f = document.getElementById('hpg-node-tunnel-form');
+    var name = document.getElementById('hpg-nt-name');
+    var ep = document.getElementById('hpg-nt-endpoint');
+    var trSel = document.getElementById('hpg-nt-transport');
+    var wstIn = document.getElementById('hpg-nt-wstport');
+    var disBtn = document.getElementById('hpg-nt-disable');
+    var rotBtn = document.getElementById('hpg-nt-rotate');
+    function open(id, n, host, transport, wstport){
+      f.action = '/admin/nodes/' + id + '/tunnel/enable';
+      name.textContent = n;
+      ep.placeholder = host ? (host + ':51821 (default)') : 'host:port';
+      // Prefill current transport/port so a re-save doesn't flip WSS back to UDP.
+      if (trSel) trSel.value = transport || 'udp';
+      if (wstIn) wstIn.value = (wstport && wstport !== '0') ? wstport : '';
+      disBtn.dataset.nodeId = id;
+      if (rotBtn) rotBtn.dataset.nodeId = id;
+      m.classList.remove('hidden'); m.classList.add('flex');
+    }
+    function close(){ m.classList.add('hidden'); m.classList.remove('flex'); }
+    document.querySelectorAll('[data-tunnel-open]').forEach(function(b){
+      b.addEventListener('click', function(){ open(b.dataset.tunnelOpen, b.dataset.tunnelName, b.dataset.tunnelHost, b.dataset.tunnelTransport, b.dataset.tunnelWstport); });
+    });
+    document.querySelectorAll('[data-tunnel-close]').forEach(function(b){ b.addEventListener('click', close); });
+    m && m.addEventListener('click', function(e){ if (e.target === m) close(); });
+    function submitAction(nodeID, path, csrf){
+      var df = document.createElement('form');
+      df.method = 'POST';
+      df.action = '/admin/nodes/' + nodeID + path;
+      var t = document.createElement('input'); t.type='hidden'; t.name='csrf_token'; t.value = csrf;
+      df.appendChild(t);
+      document.body.appendChild(df); df.submit();
+    }
+    disBtn && disBtn.addEventListener('click', function(){
+      if (!disBtn.dataset.nodeId) return;
+      var csrf = f.querySelector('input[name=csrf_token]').value;
+      window.hpgConfirm && window.hpgConfirm('Disable tunnel on this node? Peers stay in DB; re-enabling later restores everything.').then(function(ok){
+        if (ok) submitAction(disBtn.dataset.nodeId, '/tunnel/disable', csrf);
+      });
+    });
+    rotBtn && rotBtn.addEventListener('click', function(){
+      if (!rotBtn.dataset.nodeId) return;
+      var csrf = f.querySelector('input[name=csrf_token]').value;
+      window.hpgConfirm && window.hpgConfirm('Rotate tunnel keys? This invalidates ALL existing customer install URLs on this node - every peer must re-install with the new install.sh. Use only when the original credentials are lost.').then(function(ok){
+        if (ok) submitAction(rotBtn.dataset.nodeId, '/tunnel/rotate', csrf);
+      });
+    });
+  })();
+  </script>
+
+  <div id="hpg-add-node-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+    <form method="POST" action="/admin/nodes" class="hpg-card shadow-2xl max-w-lg w-full space-y-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <h3 class="font-semibold text-slate-900 dark:text-slate-100 text-lg">Add Caddy node manually</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Use Auto-join above instead unless you already provisioned the node by hand. Admin API URL must be reachable from this app (typically over WireGuard).</p>
+        </div>
+        <button type="button" data-add-node-close class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl leading-none">×</button>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
+        <input name="name" required placeholder="node-fra-01" class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Admin API URL</label>
+        <input name="api_url" required placeholder="http://10.66.0.2:2019" class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono">
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Public hostname</label>
+          <input name="public_hostname" required placeholder="fra.proxy.example.com" class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Public IP (optional)</label>
+          <input name="public_ip" placeholder="203.0.113.10" class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Node group</label>
+        <select name="node_group_id" required class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+          {{range .Groups}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+        </select>
+      </div>
+      <div class="grid grid-cols-2 gap-2">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Max routes</label>
+          <input name="max_routes" type="number" min="1" value="1000" required class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Priority</label>
+          <input name="priority" type="number" min="0" value="100" required class="w-full px-2 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+        </div>
+      </div>
+      <div class="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-zinc-800">
+        <button type="button" data-add-node-close class="px-3 py-1.5 rounded-lg text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 text-sm">Cancel</button>
+        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Add node</button>
+      </div>
+    </form>
+  </div>
+  <script nonce="{{.CSPNonce}}">
+  (function(){
+    var m = document.getElementById('hpg-add-node-modal');
+    var open = document.getElementById('hpg-add-node-btn');
+    if (!m || !open) return;
+    open.addEventListener('click', function(){ m.classList.remove('hidden'); m.classList.add('flex'); });
+    document.querySelectorAll('[data-add-node-close]').forEach(function(b){
+      b.addEventListener('click', function(){ m.classList.add('hidden'); m.classList.remove('flex'); });
+    });
+    m.addEventListener('click', function(e){ if (e.target === m) { m.classList.add('hidden'); m.classList.remove('flex'); } });
+  })();
+  </script>
+</div>
+{{end}}

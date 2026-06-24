@@ -1,0 +1,646 @@
+{{define "hosts_edit"}}
+<div class="max-w-4xl space-y-4">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <a href="/admin/hosts" class="text-xs text-slate-500 hover:text-indigo-600">← all hosts</a>
+      <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1">{{.Domain}}{{.PathPrefix}} · node {{.NodeName}} ({{.NodeHost}}) · status: {{.Status}}</p>
+    </div>
+    <div class="flex items-center gap-2">
+      {{if .CacheEnabled}}
+      <form method="POST" action="/admin/hosts/{{.RouteID}}/purge-cache" data-confirm="Flush cache on the node serving {{.Domain}}?">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="px-3 py-1.5 rounded-lg ring-1 ring-amber-200 dark:ring-amber-800 text-amber-800 dark:text-amber-300 text-xs hover:bg-amber-50 dark:hover:bg-amber-500/10">Purge cache</button>
+      </form>
+      {{end}}
+      <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" title="Re-run DNS check + re-push to Caddy (forces ACME retry).">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="px-3 py-1.5 rounded-lg ring-1 ring-emerald-200 dark:ring-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-500/10">Renew certificate now</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Tab strip -->
+  <nav class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-zinc-800 text-sm" id="hpg-tabs">
+    <button type="button" data-tab="basics"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-indigo-600 text-indigo-700 dark:text-indigo-400 font-medium">Basics</button>
+    <button type="button" data-tab="target"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Target</button>
+    <button type="button" data-tab="ssl"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">SSL &amp; Protocols</button>
+    <button type="button" data-tab="cache"   class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Cache</button>
+    <button type="button" data-tab="lb"      class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Load balancing</button>
+    <button type="button" data-tab="ratelimit" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Rate limit</button>
+    <button type="button" data-tab="waf"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">WAF</button>
+    <button type="button" data-tab="access"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Access list</button>
+    <button type="button" data-tab="sso"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">SSO</button>
+    <button type="button" data-tab="maint"   class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Maintenance</button>
+    <button type="button" data-tab="headers" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Headers</button>
+    <button type="button" data-tab="custom"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Custom JSON</button>
+  </nav>
+
+  <form method="POST" action="/admin/hosts/{{.RouteID}}/edit" class="space-y-4 text-sm" id="hpg-edit-form">
+    <input type="hidden" name="active_tab" id="hpg-active-tab" value="basics">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+    <!-- Basics -->
+    <section data-pane="basics" class="hpg-pane hpg-card space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Domain (primary)</label>
+        <input name="domain" value="{{.Domain}}" required class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Additional domains (aliases, comma-separated)</label>
+        <textarea name="aliases" rows="2" placeholder="alias1.example.com, alias2.example.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">{{.Aliases}}</textarea>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Each alias gets its own Let's Encrypt cert on first hit (on-demand). Point DNS for each at this node before adding.</p>
+      </div>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Path prefix (optional)</label>
+          <input name="path_prefix" value="{{.PathPrefix}}" placeholder="/api" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tag / group (optional)</label>
+          <input name="tag" value="{{.Tag}}" placeholder="saas-customer-1" maxlength="64" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Route kind</label>
+        <select name="kind" id="hpg-kind" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <option value="proxy" {{if eq .Kind "proxy"}}selected{{end}}>Reverse proxy → backend</option>
+          <option value="redirect" {{if eq .Kind "redirect"}}selected{{end}}>Redirect to URL</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Target (Backend OR Redirect, swapped by kind) -->
+    <section data-pane="target" class="hpg-pane hidden hpg-card space-y-4">
+      <div id="hpg-target-proxy" class="space-y-4">
+        <h3 class="hpg-eyebrow">Backend (proxy mode)</h3>
+        {{if .ClientTunnels}}
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Backend via</label>
+          <select id="hpg-via-peer" name="via_wg_peer_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <option value="">Direct IP / hostname (default)</option>
+            {{range .ClientTunnels}}<option value="{{.ID}}" data-ip="{{.AssignedIP}}" {{if eq .ID $.ViaWGPeerID}}selected{{end}}>WG tunnel #{{.ID}} · {{.Name}} ({{.AssignedIP}})</option>{{end}}
+          </select>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">With tunnel: leave empty → dial peer IP, OR type a specific <strong>IP</strong> reachable through the tunnel (e.g. a docker bridge IP if AllowedIPs covers it). <strong>Hostnames are NOT supported yet</strong> - container DNS via tunnel needs peer-side dnsmasq which the install script doesn&apos;t ship. Expose the port on the peer&apos;s host network instead and use <code class="text-xs">peer_ip:port</code>.</p>
+        </div>
+        {{end}}
+        <div class="grid grid-cols-6 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Scheme</label>
+            <select name="upstream_scheme" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+              <option value="http"  {{if ne .UpstreamScheme "https"}}selected{{end}}>http</option>
+              <option value="https" {{if eq .UpstreamScheme "https"}}selected{{end}}>https</option>
+            </select>
+          </div>
+          <div class="col-span-3">
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Backend host (IP or hostname)</label>
+            <input id="hpg-backend-ip" name="backend_ip" value="{{.BackendIP}}" placeholder="10.0.0.5 or backend.example.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <p id="hpg-backend-ip-note" class="text-[11px] text-amber-700 dark:text-amber-400 mt-1 hidden">Tunnel selected: leave empty to dial peer IP, or type an IP reachable through the tunnel. Hostnames are rejected (require peer DNS, not implemented).</p>
+          </div>
+          <div class="col-span-2">
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Port</label>
+            <input name="port" type="number" min="1" max="65535" value="{{.Port}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">Hostname auto-resolves via DNS at proxy time. Whitespace trimmed. Changing host updates owning service - every route on this service swaps backend on next push.</p>
+        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-300 text-sm">
+          <input type="checkbox" name="upstream_skip_tls_verify" value="1" {{if .UpstreamSkipTLSVerify}}checked{{end}}>
+          Ignore invalid SSL on backend
+        </label>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">Only applies when scheme = https. Enable for self-signed backends (Portainer, internal services).</p>
+      </div>
+      <div id="hpg-target-external" class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 space-y-3 {{if not .External}}hidden{{end}}">
+        <label class="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-200">
+          <input type="checkbox" id="hpg-ext-toggle" name="upstream_external" value="1" {{if .External}}checked{{end}}>
+          External HTTPS upstream (proxy to an allowlisted public API)
+        </label>
+        <p class="text-[11px] text-slate-600 dark:text-slate-400">
+          Forwards to the external origin over TLS (correct SNI + Host) from this node's egress IP. Host must be in
+          <code>EXTERNAL_UPSTREAM_ALLOWLIST</code>. Cannot be combined with a WG tunnel. When ticked, the Backend host/port + tunnel above are ignored.
+        </p>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium mb-1">External host (FQDN)</label>
+            <input name="external_host" list="hpg-ext-allow" value="{{.ExternalHost}}" placeholder="adm.tools" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <datalist id="hpg-ext-allow">{{range .ExternalAllowlist}}<option value="{{.}}">{{end}}</datalist>
+          </div>
+          <div>
+            <label class="block text-xs font-medium mb-1">Host / SNI override (optional)</label>
+            <input name="upstream_host_header" value="{{.UpstreamHostHeader}}" placeholder="defaults to external host" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          </div>
+        </div>
+        <div class="pt-1 space-y-2">
+          <div class="flex items-center justify-between gap-2">
+            <span class="hpg-pill {{if .HasProxySecret}}hpg-pill-ok{{else}}hpg-pill-err{{end}}">
+              Inbound bearer: {{if .HasProxySecret}}set{{else}}none{{end}}
+            </span>
+            <div class="flex items-center gap-2">
+              {{if .HasProxySecret}}<button type="button" id="hpg-reveal-secret" data-id="{{.RouteID}}" class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 inline-flex items-center gap-1"><span id="hpg-reveal-icon">&#128065;</span> Reveal</button>{{end}}
+              <button type="submit" form="hpg-regen-secret" class="px-3 py-1.5 rounded-lg ring-1 ring-amber-300 dark:ring-amber-700 text-amber-700 dark:text-amber-300 text-xs hover:bg-amber-100 dark:hover:bg-amber-900/30">Regenerate</button>
+            </div>
+          </div>
+          {{if .HasProxySecret}}
+          <div id="hpg-secret-box" class="hidden items-center gap-2">
+            <input id="hpg-secret-field" type="text" readonly value="" placeholder="hidden" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 font-mono text-xs">
+            <button type="button" id="hpg-secret-copy" class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 shrink-0">Copy</button>
+          </div>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400">Caller sends it as <code>Authorization: Bearer &lt;token&gt;</code>. The node strips this header before forwarding upstream. Revealed on demand only; never written to logs.</p>
+          {{end}}
+        </div>
+      </div>
+      <div id="hpg-target-redirect" class="space-y-4">
+        <h3 class="hpg-eyebrow">Redirect (redirect mode)</h3>
+        <div class="grid grid-cols-4 gap-3">
+          <div class="col-span-3">
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Destination URL</label>
+            <input name="redirect_url" value="{{.RedirectURL}}" placeholder="https://target.example.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Status code</label>
+            <select name="redirect_code" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+              <option value="308" {{if eq .RedirectCode 308}}selected{{end}}>308 Permanent</option>
+              <option value="301" {{if eq .RedirectCode 301}}selected{{end}}>301 Permanent (legacy)</option>
+              <option value="307" {{if eq .RedirectCode 307}}selected{{end}}>307 Temporary</option>
+              <option value="302" {{if eq .RedirectCode 302}}selected{{end}}>302 Found</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- SSL & Protocols -->
+    <section data-pane="ssl" class="hpg-pane hidden hpg-card space-y-3">
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <label class="flex items-center gap-2"><input type="checkbox" name="ssl" value="1" {{if .SSL}}checked{{end}}> SSL (Let's Encrypt on-demand)</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="force_https" value="1" {{if .ForceHTTPS}}checked{{end}}> Force HTTPS (308 redirect on :80)</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="websocket" value="1" {{if .WebSocket}}checked{{end}}> Allow WebSocket upgrades</label>
+        <label class="flex items-center gap-2"><input type="checkbox" name="compress_disabled" value="1" {{if .CompressDisabled}}checked{{end}}> Disable response compression (gzip/zstd)</label>
+      </div>
+      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3 space-y-2">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="wildcard_enabled" value="1" {{if .WildcardEnabled}}checked{{end}}> Wildcard cert via DNS-01 (needs a DNS provider + DNS01_AVAILABLE)</label>
+        <label class="block text-sm"><span class="block text-[11px] text-slate-500 mb-1">Wildcard zone (apex, e.g. customer.com)</span>
+          <input type="text" name="wildcard_zone" value="{{.WildcardZone}}" list="hpg-wild-zones" placeholder="customer.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+          <datalist id="hpg-wild-zones">{{range .WildcardZones}}<option value="{{.}}">{{end}}</datalist>
+        </label>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">Zone must cover this domain. Add the provider credential under <a href="/admin/settings/dns-providers" class="underline">DNS providers</a>.</p>
+      </div>
+      <p class="text-[11px] text-slate-600 dark:text-slate-400 mt-1">WebSocket OFF = Caddy answers 426 Upgrade Required, request never hits upstream. HTTP/2 is always on; HTTP/3 was removed (Caddy v2 protocols are server-wide so a per-route toggle was misleading, and QUIC fragments badly over WG).</p>
+      <input type="hidden" name="http2" value="1">
+      <input type="hidden" name="http3" value="0">
+      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3 text-xs text-slate-500 dark:text-slate-400">
+        Use "Renew certificate now" at the top of the page to force a
+        DNS re-check + Caddy re-push (re-triggers Let's Encrypt on-demand
+        issuance for this domain).
+      </div>
+    </section>
+
+    <!-- Cache -->
+    <section data-pane="cache" class="hpg-pane hidden hpg-card space-y-3">
+      <label class="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+        <input type="checkbox" name="cache_enabled" value="1" {{if .CacheEnabled}}checked{{end}}>
+        Enable origin cache for this host
+      </label>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">Souin module caches GET/HEAD at the edge. Browsers + CDNs also get a matching <code class="text-xs">Cache-Control</code> header.</p>
+      <div class="grid grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">TTL (seconds)</label>
+          <input name="cache_ttl_secs" type="number" min="0" max="31536000" value="{{.CacheTTLSecs}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div class="col-span-2">
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Vary headers (cache key)</label>
+          <input name="cache_vary" value="{{.CacheVary}}" placeholder="Accept-Encoding,Accept-Language" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+        </div>
+      </div>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">Avoid <code class="text-xs">Cookie</code>/<code class="text-xs">Authorization</code> in Vary - cardinality blows up and you cache per-user.</p>
+      <div id="cache-auth-warn" class="hidden p-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 ring-1 ring-amber-200 dark:ring-amber-500/30 text-amber-900 dark:text-amber-300 text-xs">
+        ⚠ Detected <code class="text-xs">Authorization</code> / <code class="text-xs">Cookie</code> in custom headers. Caching auth-aware responses risks serving one user's data to another.
+      </div>
+      {{if .CacheEnabled}}
+      <div class="pt-2 border-t border-slate-100 dark:border-zinc-800">
+        <p class="text-xs text-slate-500 dark:text-slate-400">Flush the cache for this node now (top-right <em>Purge cache</em> button).</p>
+      </div>
+      {{end}}
+    </section>
+
+    <!-- Access list -->
+    <section data-pane="access" class="hpg-pane hidden hpg-card space-y-3">
+      <label class="flex items-start gap-2 text-sm text-slate-800 dark:text-slate-100">
+        <input type="checkbox" name="access_block_all" value="1" {{if .AccessBlockAll}}checked{{end}} class="mt-1">
+        <span>
+          <strong>Block everyone by default</strong>
+          <span class="block text-[11px] text-slate-500 dark:text-slate-400">Only IPs in the Allow list below pass through (whitelist mode). Leave unchecked for the default open mode.</span>
+        </span>
+      </label>
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Allow these IPs / CIDRs</label>
+          <textarea name="access_allow" rows="4" placeholder="10.0.0.0/8&#10;1.2.3.4&#10;2001:db8::/32" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.AccessAllow}}</textarea>
+          <p class="text-[11px] text-slate-500 mt-1">Only meaningful when "Block all" is on. Whitelist of allowed sources.</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Deny these IPs / CIDRs (403)</label>
+          <textarea name="access_deny" rows="4" placeholder="5.6.7.0/24&#10;2001:db8:bad::/48" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.AccessDeny}}</textarea>
+          <p class="text-[11px] text-slate-500 mt-1">Always wins. Use to block specific bad actors even when "Block all" is off, or to carve exceptions from the Allow list.</p>
+        </div>
+      </div>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">One IP/CIDR per line, IPv4 + IPv6 supported. Bare IPs auto-expand to /32 or /128. Three common setups:
+        <br>• <em>Open</em>: leave everything empty.
+        <br>• <em>Blacklist</em>: list bad IPs in Deny, leave the rest as-is.
+        <br>• <em>Whitelist</em>: tick "Block all" + list good IPs in Allow.
+      </p>
+
+      <div class="border-t border-slate-100 dark:border-zinc-800 pt-4 mt-4">
+        <h4 class="hpg-eyebrow mb-2">HTTP Basic Auth</h4>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-3">Browser popup login (NPM-style). Empty username disables the gate.</p>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Username</label>
+            <input name="basic_auth_user" value="{{.BasicAuthUser}}" maxlength="64" placeholder="admin" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Password</label>
+            <input type="password" name="basic_auth_pass" autocomplete="new-password" placeholder="{{if .BasicAuthHasPassword}}(leave blank to keep current){{else}}min 8 chars{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+          </div>
+        </div>
+        {{if .BasicAuthHasPassword}}
+        <label class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 mt-2">
+          <input type="checkbox" name="basic_auth_keep" value="1" checked>
+          Keep current password (only update username)
+        </label>
+        {{end}}
+      </div>
+    </section>
+
+    <!-- SSO forward-auth (Authentik / Authelia / generic) -->
+    <section data-pane="sso" class="hpg-pane hidden hpg-card space-y-4">
+      <div>
+        <h4 class="hpg-eyebrow mb-1">Single sign-on (forward-auth)</h4>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">Document loads (GET/HEAD page navigations) are gated through your SSO provider; unauthenticated users are redirected to login. Note: POST/PUT/DELETE and XHR/fetch subrequests are passed through to the backend, which must enforce its own API auth. Empty Provider URL = SSO off.</p>
+      </div>
+      {{if .ClientTunnels}}
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">SSO via</label>
+        <select name="sso_via_wg_peer_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <option value="">Direct (public URL or local container)</option>
+          {{range .ClientTunnels}}<option value="{{.ID}}" {{if eq .ID $.SSOViaWGPeerID}}selected{{end}}>WG tunnel #{{.ID}} - {{.Name}} ({{.AssignedIP}})</option>{{end}}
+        </select>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Pick a tunnel to route the forward-auth subrequest through it. The SSO Provider URL hostname is resolved via that peer's DNS (peer IP:53). Useful when Authentik lives on another node behind WG.</p>
+      </div>
+      {{end}}
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">SSO provider URL</label>
+        <input name="sso_provider_url" value="{{.SSOProviderURL}}" placeholder="https://sso.example.com or authentik-server:9000" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Three modes: (1) <strong>Local container</strong> e.g. <code>authentik-server:9000</code> when Authentik runs in the same docker network as Caddy. (2) <strong>Through tunnel</strong> e.g. <code>http://authentik-server:9000</code> with "SSO via" set - Caddy resolves the hostname via the peer's DNS. (3) <strong>Public URL</strong> e.g. <code>https://sso.example.com</code> only when the IdP is on a separate node (otherwise causes a loop).</p>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Copy headers (one per line)</label>
+        <textarea name="sso_copy_headers" rows="6" placeholder="X-Authentik-Username&#10;X-Authentik-Email&#10;X-Authentik-Groups" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.SSOCopyHeaders}}</textarea>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Headers from the auth subrequest that get lifted into the upstream request. Default Authentik set:
+          <code>X-Authentik-Username</code>, <code>X-Authentik-Groups</code>, <code>X-Authentik-Email</code>, <code>X-Authentik-Name</code>, <code>X-Authentik-Uid</code>, <code>X-Authentik-Jwt</code>.
+        </p>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Trusted proxies (optional, comma/space-separated)</label>
+        <input name="sso_trusted_proxies" value="{{.SSOTrustedProxies}}" placeholder="10.0.0.0/8 172.16.0.0/12" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Networks the outpost is allowed to set <code>X-Forwarded-*</code> from. Empty = Caddy's <code>private_ranges</code> default.</p>
+      </div>
+      <fieldset class="ring-1 ring-slate-200 dark:ring-zinc-800 rounded-xl p-3 space-y-3">
+        <legend class="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">SSO scope (optional)</legend>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">By default the SSO gate covers the whole route on every host. Narrow it here when you only want SSO on specific URLs (e.g. <code>/admin/*</code>) or on a subset of the hosts/aliases this route serves.</p>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Gate only these paths</label>
+          <textarea name="sso_paths" rows="3" placeholder="/admin/*&#10;/dashboard/*" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.SSOPaths}}</textarea>
+          <p class="text-[11px] text-slate-500 mt-1">One glob per line. Empty = gate every path on the matched hosts.</p>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Gate only these hosts</label>
+          <input name="sso_hosts" value="{{.SSOHosts}}" placeholder="s1.example.com, s2.example.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+          <p class="text-[11px] text-slate-500 mt-1">Comma/space-separated subset of the route's hosts + aliases. Empty = gate every host this route serves.</p>
+        </div>
+      </fieldset>
+      <details class="text-xs text-slate-600 dark:text-slate-400">
+        <summary class="cursor-pointer text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">Authentik full header list</summary>
+        <pre class="mt-2 p-2 bg-slate-50 dark:bg-zinc-800 rounded text-[11px]">X-Authentik-Username
+X-Authentik-Groups
+X-Authentik-Entitlements
+X-Authentik-Email
+X-Authentik-Name
+X-Authentik-Uid
+X-Authentik-Jwt
+X-Authentik-Meta-Jwks
+X-Authentik-Meta-Outpost
+X-Authentik-Meta-Provider
+X-Authentik-Meta-App
+X-Authentik-Meta-Version</pre>
+      </details>
+    </section>
+
+    <!-- Maintenance -->
+    <section data-pane="maint" class="hpg-pane hidden hpg-card space-y-3">
+      <label class="flex items-center gap-2 text-sm text-slate-800 dark:text-slate-100">
+        <input type="checkbox" name="maintenance_mode" value="1" {{if .MaintenanceMode}}checked{{end}}>
+        Serve a 503 maintenance page instead of forwarding
+      </label>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Message (optional, max 500)</label>
+        <textarea name="maintenance_message" rows="3" maxlength="500" placeholder="We are performing scheduled maintenance. Please check back shortly." class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">{{.MaintenanceMessage}}</textarea>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Allow IPs during maintenance (optional)</label>
+        <textarea name="maintenance_allow" rows="3" placeholder="85.222.65.102&#10;2001:db8:cafe::/48" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.MaintenanceAllow}}</textarea>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">These IPs see the real backend while everyone else gets the 503 page. Handy for testing a fix before lifting maintenance globally.</p>
+      </div>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">HTTP 503 + <code class="text-xs">Retry-After: 60</code>. Branded with your error-page skin. SSL + ForceHTTPS still apply.</p>
+
+      <hr class="border-slate-200 dark:border-zinc-700">
+      <label class="flex items-center gap-2 text-sm text-slate-800 dark:text-slate-100">
+        <input type="checkbox" name="error_override" value="1" {{if .ErrorOverride}}checked{{end}}>
+        Override the node-wide maintenance/error branding for this host
+      </label>
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Brand label</label>
+          <input name="error_brand" value="{{.ErrorBrand}}" maxlength="128" placeholder="Acme Inc" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Logo URL</label>
+          <input name="error_logo_url" value="{{.ErrorLogoURL}}" maxlength="512" placeholder="https://cdn.acme.com/logo.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Background color</label>
+          <input name="error_bg_color" value="{{.ErrorBgColor}}" maxlength="32" placeholder="#1f2937" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm font-mono">
+        </div>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Full custom maintenance HTML (optional, max 100 KB)</label>
+        <textarea name="error_html" rows="6" placeholder="&lt;!doctype html&gt;&lt;html&gt;… your own maintenance page …&lt;/html&gt;" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.ErrorHTML}}</textarea>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">When set, this exact HTML is served as the maintenance body (served verbatim, admin-trusted). Leave empty to use the brand label / logo / color above on the standard shell.</p>
+      </div>
+    </section>
+
+    <!-- Headers -->
+    <section data-pane="headers" class="hpg-pane hidden hpg-card space-y-3">
+      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Custom upstream request headers</label>
+      <textarea id="hpg-custom-headers" name="custom_headers" rows="6" placeholder="X-Forwarded-Host: {http.request.host}&#10;X-Real-IP: {http.request.remote.host}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.CustomHeaders}}</textarea>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">One <code class="text-xs">Name: value</code> per line. Caddy placeholders work.</p>
+    </section>
+
+    <!-- Load balancing -->
+    <section data-pane="lb" class="hpg-pane hidden hpg-card space-y-4">
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Additional backends</label>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">The primary backend (Target tab) is always upstream #1. Add more here to load-balance across a pool. Ignored for External and WG-tunnel routes.</p>
+        <div id="hpg-upstreams" class="space-y-2">
+          {{range .Upstreams}}
+          <div class="hpg-upstream-row flex items-center gap-2">
+            <input type="text" name="upstream_host[]" value="{{.Host}}" placeholder="10.0.0.6 or host.internal" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+            <input type="number" name="upstream_port[]" value="{{.Port}}" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+            <input type="number" name="upstream_weight[]" value="{{.Weight}}" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+            <button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700">remove</button>
+          </div>
+          {{end}}
+        </div>
+        <button type="button" id="hpg-upstream-add" class="mt-2 text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800">+ Add backend</button>
+      </div>
+      <div class="grid grid-cols-2 gap-3 text-sm">
+        <label class="block">
+          <span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Selection policy</span>
+          <select name="lb_policy" id="hpg-lb-policy" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+            <option value=""              {{if eq .LBPolicy ""}}selected{{end}}>Default (round-robin)</option>
+            <option value="round_robin"   {{if eq .LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
+            <option value="least_conn"    {{if eq .LBPolicy "least_conn"}}selected{{end}}>Least connections</option>
+            <option value="ip_hash"       {{if eq .LBPolicy "ip_hash"}}selected{{end}}>IP hash (sticky)</option>
+            {{if .WeightedLBAvail}}<option value="weighted_round_robin" {{if eq .LBPolicy "weighted_round_robin"}}selected{{end}}>Weighted round robin</option>{{end}}
+          </select>
+        </label>
+      </div>
+      {{if not .WeightedLBAvail}}<p class="text-[11px] text-amber-600 dark:text-amber-400">Weighted round-robin needs the custom Caddy image (WEIGHTED_LB_AVAILABLE); hidden until the fleet runs it.</p>{{end}}
+      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
+        <p class="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">Active health check (probes backends on a timer)</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Probe path</span><input type="text" name="health_uri" value="{{.HealthURI}}" placeholder="/healthz" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
+          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Interval (s)</span><input type="number" name="health_interval" value="{{.HealthInterval}}" min="1" max="300" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
+          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Timeout (s)</span><input type="number" name="health_timeout" value="{{.HealthTimeout}}" min="1" max="60" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
+          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Expect status (0=any)</span><input type="number" name="health_expect_status" value="{{.HealthStatus}}" min="0" max="599" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
+          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Fails to eject</span><input type="number" name="health_fails" value="{{.HealthFails}}" min="1" max="10" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
+        </div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Leave probe path empty to disable active checks.</p>
+      </div>
+      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="health_passive" value="1" {{if .HealthPassive}}checked{{end}}> Passive health check (eject on live-request failures)</label>
+        <div class="grid grid-cols-2 gap-3 text-sm mt-2">
+          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Fail window (s)</span><input type="number" name="health_fail_dur" value="{{.HealthFailDur}}" min="1" max="600" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
+          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Max fails</span><input type="number" name="health_max_fails" value="{{.HealthMaxFails}}" min="1" max="10" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
+        </div>
+      </div>
+    </section>
+
+    <!-- Rate limit -->
+    <section data-pane="ratelimit" class="hpg-pane hidden hpg-card space-y-4">
+      {{if not .RateLimitModuleAvailable}}
+      <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+        <strong>Module not available.</strong> Needs Caddy built with <code>github.com/mholt/caddy-ratelimit</code> + <code>RATE_LIMIT_AVAILABLE=1</code>. Saving works, but no rate_limit is pushed until the gate is on fleet-wide.
+      </div>
+      {{end}}
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="rate_enabled" value="1" {{if .RateLimitEnabled}}checked{{end}} id="hpg-rl-toggle"> Enable rate limiting</label>
+      <div id="hpg-rl-fields" class="{{if not .RateLimitEnabled}}hidden{{end}} space-y-4">
+        <div class="grid grid-cols-2 gap-4 text-sm">
+          <label class="block"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Window</span><input name="rate_window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}1m{{end}}" placeholder="1m" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm"><span class="text-[11px] text-slate-500">Go duration: 30s, 1m, 1h.</span></label>
+          <label class="block"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Max requests / window</span><input name="rate_max_events" type="number" min="1" max="1000000" value="{{if .RateLimitMaxEvents}}{{.RateLimitMaxEvents}}{{else}}100{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
+        </div>
+        <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Rate limit key</span>
+          <select name="rate_key" id="hpg-rl-key" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+            <option value="{http.request.remote.host}" {{if or (eq .RateLimitKey "") (eq .RateLimitKey "{http.request.remote.host}")}}selected{{end}}>Per client IP</option>
+            <option value="static" {{if eq .RateLimitKey "static"}}selected{{end}}>Global (one counter)</option>
+            <option value="{http.request.uri}" {{if eq .RateLimitKey "{http.request.uri}"}}selected{{end}}>Per URL path</option>
+            <option value="custom" {{if and (ne .RateLimitKey "") (ne .RateLimitKey "{http.request.remote.host}") (ne .RateLimitKey "static") (ne .RateLimitKey "{http.request.uri}")}}selected{{end}}>Custom placeholder</option>
+          </select>
+        </label>
+        <div id="hpg-rl-custom-key" class="{{if or (eq .RateLimitKey "") (eq .RateLimitKey "{http.request.remote.host}") (eq .RateLimitKey "static") (eq .RateLimitKey "{http.request.uri}")}}hidden{{end}}">
+          <input name="rate_key_custom" value="{{if and (ne .RateLimitKey "") (ne .RateLimitKey "{http.request.remote.host}") (ne .RateLimitKey "static") (ne .RateLimitKey "{http.request.uri}")}}{{.RateLimitKey}}{{end}}" placeholder="{http.request.header.X-API-Key}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        </div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">On limit Caddy returns 429 with Retry-After; upstream is never reached.</p>
+      </div>
+    </section>
+
+    <!-- WAF -->
+    <section data-pane="waf" class="hpg-pane hidden hpg-card space-y-4">
+      {{if not .WAFModuleAvailable}}
+      <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+        <strong>Module not available.</strong> Needs Caddy built with <code>github.com/corazawaf/coraza-caddy/v2</code> + <code>WAF_MODULE_AVAILABLE=1</code>. Saving works, but no WAF is pushed until the gate is on fleet-wide.
+      </div>
+      {{end}}
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="waf_enabled" value="1" {{if .WAFEnabled}}checked{{end}} id="hpg-waf-toggle"> Enable WAF (OWASP CRS)</label>
+      <div id="hpg-waf-fields" class="{{if not .WAFEnabled}}hidden{{end}} space-y-3">
+        <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="waf_blocking" value="1" {{if .WAFBlocking}}checked{{end}}> Blocking mode (off = detection-only, logs but never blocks)</label>
+        <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Custom seclang directives (rule exclusions)</span>
+          <textarea name="waf_directives" rows="4" placeholder="SecRuleRemoveById 920420" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.WAFDirectives}}</textarea>
+          <span class="text-[11px] text-slate-500">Applied before the CRS include. 16 KiB max. Start in detection-only and watch logs before enabling blocking.</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Custom JSON -->
+    <section data-pane="custom" class="hpg-pane hidden hpg-card space-y-3">
+      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Custom handler chain (Caddy JSON)</label>
+      <textarea name="custom_config" rows="8" placeholder='[{"handler":"rate_limit","zone":"per_ip","window":"1m","max_events":120}]' class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.CustomConfig}}</textarea>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">JSON array of handler objects. Each needs <code class="text-xs">"handler"</code> key. Runs before proxy primary. Validated on save. 16 KiB max.</p>
+    </section>
+
+    <div class="flex flex-wrap justify-between items-center gap-3 pt-2">
+      <a href="/admin/hosts" class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">Cancel</a>
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save changes</button>
+    </div>
+  </form>
+
+  <!-- Standalone form for the "Regenerate secret" button (kept outside the
+       edit form so it can't carry the edit values; nested forms are invalid). -->
+  <form id="hpg-regen-secret" method="POST" action="/admin/hosts/{{.RouteID}}/regenerate-secret" class="hidden">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  </form>
+
+  <script nonce="{{.CSPNonce}}">
+  (function(){
+    // Reveal/copy the inbound bearer on demand (admin-only endpoint, CSRF header).
+    var btn = document.getElementById('hpg-reveal-secret');
+    var box = document.getElementById('hpg-secret-box');
+    var fld = document.getElementById('hpg-secret-field');
+    var cp  = document.getElementById('hpg-secret-copy');
+    var shown = false;
+    if (btn) btn.addEventListener('click', function(){
+      if (shown){ box.classList.add('hidden'); fld.value=''; shown=false; return; }
+      fetch('/admin/hosts/'+btn.dataset.id+'/reveal-secret', {
+        method:'POST', headers:{'X-CSRF-Token':'{{.CSRF}}'}, credentials:'same-origin'
+      }).then(function(r){ return r.ok ? r.json() : Promise.reject(r.status); })
+        .then(function(j){ fld.value=j.secret||''; box.classList.remove('hidden'); box.classList.add('flex'); shown=true; })
+        .catch(function(){ if(fld){ fld.value='(reveal failed)'; box.classList.remove('hidden'); box.classList.add('flex'); } });
+    });
+    if (cp) cp.addEventListener('click', function(){
+      if (!fld || !fld.value) return;
+      navigator.clipboard && navigator.clipboard.writeText(fld.value);
+      cp.textContent='Copied'; setTimeout(function(){ cp.textContent='Copy'; }, 1500);
+    });
+  })();
+  </script>
+
+  <script nonce="{{.CSPNonce}}">
+  (function(){
+    var tabs = document.querySelectorAll('.hpg-tab');
+    var panes = document.querySelectorAll('.hpg-pane');
+    var activeTabInput = document.getElementById('hpg-active-tab');
+    function activate(name){
+      tabs.forEach(function(t){
+        var on = t.dataset.tab === name;
+        t.classList.toggle('border-indigo-600', on);
+        t.classList.toggle('text-indigo-700', on);
+        t.classList.toggle('dark:text-indigo-400', on);
+        t.classList.toggle('font-medium', on);
+        t.classList.toggle('border-transparent', !on);
+        t.classList.toggle('text-slate-500', !on);
+        t.classList.toggle('dark:text-slate-400', !on);
+      });
+      panes.forEach(function(p){ p.classList.toggle('hidden', p.dataset.pane !== name); });
+      if (activeTabInput) activeTabInput.value = name;
+      // Mirror to URL hash so reload preserves tab + handler redirect on save lands here.
+      try { history.replaceState(null, '', '#tab=' + encodeURIComponent(name)); } catch(_) {}
+    }
+    tabs.forEach(function(t){ t.addEventListener('click', function(){ activate(t.dataset.tab); }); });
+
+    // Restore tab from URL hash on page load (e.g. after save redirect).
+    var initialTab = 'basics';
+    var m = (location.hash || '').match(/tab=([a-z]+)/i);
+    if (m && m[1]) initialTab = m[1];
+    activate(initialTab);
+
+    // Target pane: show proxy XOR redirect block based on Kind, unless the
+    // External upstream toggle is on - it owns the whole target pane and is
+    // mutually exclusive with the WG tunnel + plain backend.
+    var kind = document.getElementById('hpg-kind');
+    var pBox = document.getElementById('hpg-target-proxy');
+    var rBox = document.getElementById('hpg-target-redirect');
+    var extToggle = document.getElementById('hpg-ext-toggle');
+    var extBox = document.getElementById('hpg-target-external');
+    function extOn(){ return extToggle && extToggle.checked; }
+    function syncKind(){
+      if (extOn()){ if (pBox) pBox.classList.add('hidden'); if (rBox) rBox.classList.add('hidden'); return; }
+      var r = kind.value === 'redirect';
+      if (pBox) pBox.classList.toggle('hidden', r);
+      if (rBox) rBox.classList.toggle('hidden', !r);
+    }
+    function syncExt(){
+      if (extBox) extBox.classList.toggle('hidden', !extOn());
+      if (extOn()){
+        var viaSel = document.getElementById('hpg-via-peer');
+        if (viaSel) viaSel.value = ''; // never submit a peer with external
+      }
+      syncKind();
+    }
+    if (kind) { kind.addEventListener('change', syncKind); }
+    if (extToggle){ extToggle.addEventListener('change', syncExt); }
+    syncExt();
+
+    // Cache auth warning.
+    var box = document.getElementById('cache-auth-warn');
+    var ta  = document.getElementById('hpg-custom-headers');
+    var cb  = document.querySelector('input[name=cache_enabled]');
+    function syncCache(){
+      if (!box || !ta || !cb) return;
+      var risky = /\bauthorization\s*:|\bcookie\s*:|\bset-cookie\s*:/.test((ta.value || '').toLowerCase());
+      box.classList.toggle('hidden', !(cb.checked && risky));
+    }
+    if (ta) ta.addEventListener('input', syncCache);
+    if (cb) cb.addEventListener('change', syncCache);
+    syncCache();
+
+    // Tunnel selected: keep the input editable so admin can type a
+    // container hostname; empty falls back to peer IP server-side.
+    var via = document.getElementById('hpg-via-peer');
+    var beIp = document.getElementById('hpg-backend-ip');
+    var beNote = document.getElementById('hpg-backend-ip-note');
+    function syncVia(){
+      if (!via || !beIp) return;
+      var sel = via.options[via.selectedIndex];
+      var ip = sel && sel.dataset && sel.dataset.ip;
+      if (via.value && ip) {
+        beIp.disabled = false;
+        beIp.placeholder = '(empty) → ' + ip + '  · or hostname e.g. signyt-prod-frontend-1';
+        if (beNote) beNote.classList.remove('hidden');
+      } else {
+        beIp.placeholder = '10.0.0.5 or backend.example.com';
+        if (beNote) beNote.classList.add('hidden');
+      }
+    }
+    if (via) via.addEventListener('change', syncVia);
+    syncVia();
+
+    // Load-balancing backends repeater (add/remove rows, vanilla JS).
+    var upWrap = document.getElementById('hpg-upstreams');
+    var upAdd  = document.getElementById('hpg-upstream-add');
+    function upRow(){
+      var div = document.createElement('div');
+      div.className = 'hpg-upstream-row flex items-center gap-2';
+      div.innerHTML =
+        '<input type="text" name="upstream_host[]" placeholder="10.0.0.6 or host.internal" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+        '<input type="number" name="upstream_port[]" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+        '<input type="number" name="upstream_weight[]" value="1" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+        '<button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700">remove</button>';
+      return div;
+    }
+    if (upAdd && upWrap) upAdd.addEventListener('click', function(){ upWrap.appendChild(upRow()); });
+    if (upWrap) upWrap.addEventListener('click', function(e){
+      if (e.target && e.target.classList.contains('hpg-upstream-del')) {
+        var row = e.target.closest('.hpg-upstream-row');
+        if (row) row.remove();
+      }
+    });
+
+    // Rate limit + WAF enable toggles + custom-key reveal.
+    var rlTg = document.getElementById('hpg-rl-toggle'), rlFl = document.getElementById('hpg-rl-fields');
+    if (rlTg && rlFl) rlTg.addEventListener('change', function(){ rlFl.classList.toggle('hidden', !rlTg.checked); });
+    var rlKey = document.getElementById('hpg-rl-key'), rlCustom = document.getElementById('hpg-rl-custom-key');
+    if (rlKey && rlCustom) rlKey.addEventListener('change', function(){ rlCustom.classList.toggle('hidden', rlKey.value !== 'custom'); });
+    var wafTg = document.getElementById('hpg-waf-toggle'), wafFl = document.getElementById('hpg-waf-fields');
+    if (wafTg && wafFl) wafTg.addEventListener('change', function(){ wafFl.classList.toggle('hidden', !wafTg.checked); });
+  })();
+  </script>
+</div>
+{{end}}

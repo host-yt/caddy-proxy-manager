@@ -1,0 +1,218 @@
+{{define "tunnels"}}
+<div class="space-y-5">
+  <div class="flex items-center justify-between gap-4">
+    <p class="text-xs text-slate-500 dark:text-slate-400">WireGuard tunnels customers run from their LAN. Caddy reaches the customer backend through the assigned tunnel IP - no port-forward required.</p>
+    <button type="button" data-open-tunnel-modal class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 whitespace-nowrap">+ Create tunnel</button>
+  </div>
+
+  {{if .NewTunnel}}
+  <!-- Just-created tunnel card. Surfaces the one-line installer + live status poll. -->
+  <section class="hpg-card ring-emerald-200 dark:ring-emerald-800 space-y-4">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex items-start gap-3">
+        <div class="hpg-chip bg-emerald-50 text-emerald-600">✓</div>
+        <div>
+          <h3 class="font-semibold text-slate-900 dark:text-slate-100">Tunnel ready · {{.NewTunnel.Name}}</h3>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Client: <span class="font-mono">{{.NewTunnel.ClientEmail}}</span> · Node: <span class="font-mono">{{.NewTunnel.NodeName}}</span> · IP: <span class="font-mono">{{.NewTunnel.AssignedIP}}</span></p>
+        </div>
+      </div>
+      <span id="hpg-tun-status" class="hpg-pill hpg-pill-warn">Waiting for first handshake…</span>
+    </div>
+    <div>
+      <label class="hpg-eyebrow block mb-1">Run on the customer's Linux server (root):</label>
+      <div class="flex gap-2 items-stretch">
+        <code id="hpg-tun-cmd" class="flex-1 block bg-slate-900 text-emerald-200 font-mono text-xs p-3 rounded-lg break-all">{{.NewTunnel.InstallCommand}}</code>
+        <button type="button" data-copy-target="hpg-tun-cmd" class="px-3 rounded-lg bg-slate-100 dark:bg-zinc-800 text-slate-700 dark:text-slate-200 text-xs hover:bg-slate-200 dark:hover:bg-zinc-700">Copy</button>
+      </div>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Single-use, expires at <time class="font-mono" data-expires="{{.NewTunnel.ExpiresAt}}">{{.NewTunnel.ExpiresAt}}</time>. Alternative: download <a href="{{.NewTunnel.ConfURL}}" class="text-indigo-600 dark:text-indigo-400 underline">.conf</a> manually.</p>
+    </div>
+  </section>
+  {{end}}
+
+  <section class="hpg-card !p-0 overflow-x-auto">
+    <table class="w-full min-w-[60rem] text-sm">
+      <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <tr>
+          <th class="px-3 py-2.5">Name</th>
+          <th class="px-3 py-2.5">Client</th>
+          <th class="px-3 py-2.5">Node</th>
+          <th class="px-3 py-2.5">Assigned IP</th>
+          <th class="px-3 py-2.5">Endpoint</th>
+          <th class="px-3 py-2.5 whitespace-nowrap">Status</th>
+          <th class="px-3 py-2.5 whitespace-nowrap">Health</th>
+          <th class="px-3 py-2.5 whitespace-nowrap">Last handshake</th>
+          <th class="px-3 py-2.5 whitespace-nowrap">Traffic</th>
+          <th class="px-3 py-2.5 text-right"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      {{range .Tunnels}}
+        <tr>
+          <td class="px-3 py-3 text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}} {{if .PeerGroupID}}<span class="ml-1 px-1.5 py-0.5 rounded-md text-[10px] bg-indigo-50 dark:bg-indigo-900/40 text-indigo-600 dark:text-indigo-300 font-mono">HA</span>{{end}}</td>
+          <td class="px-3 py-3 text-xs text-slate-600 dark:text-slate-300">{{.ClientEmail}}</td>
+          <td class="px-3 py-3 text-xs text-slate-600 dark:text-slate-300">{{.NodeName}}</td>
+          <td class="px-3 py-3 font-mono text-xs whitespace-nowrap">{{.AssignedIP}}</td>
+          <td class="px-3 py-3 font-mono text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .Endpoint}}{{.Endpoint}}{{else}}—{{end}}</td>
+          <td class="px-3 py-3 text-xs whitespace-nowrap">
+            {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok whitespace-nowrap">active</span>{{end}}
+            {{if eq .Status "pending"}}<span class="hpg-pill hpg-pill-warn whitespace-nowrap">pending install</span>{{end}}
+            {{if eq .Status "revoked"}}<span class="hpg-pill hpg-pill-muted whitespace-nowrap">revoked</span>{{end}}
+          </td>
+          <td class="px-3 py-3 text-xs whitespace-nowrap">
+            {{if .Healthy}}<span class="hpg-pill hpg-pill-ok whitespace-nowrap">● connected</span>
+            {{else if eq .Status "active"}}<span class="hpg-pill hpg-pill-warn whitespace-nowrap">stale</span>
+            {{else}}<span class="text-slate-400">—</span>{{end}}
+          </td>
+          <td class="px-3 py-3 text-xs font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.LastHandshake}}</td>
+          <td class="px-3 py-3 text-xs font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">
+            <span class="flex flex-col gap-0.5 tabular-nums">
+              <span><span class="text-emerald-500">↓</span> {{.RxHuman}}</span>
+              <span><span class="text-sky-500">↑</span> {{.TxHuman}}</span>
+              <span class="text-[10px] text-slate-400 dark:text-slate-500" title="Lifetime usage (survives rekey/restart)">Σ {{.CumRxHuman}} / {{.CumTxHuman}}</span>
+            </span>
+          </td>
+          <td class="px-3 py-3 text-right text-xs whitespace-nowrap space-x-2 align-top">
+            {{if ne .Status "revoked"}}
+            <form method="POST" action="/admin/tunnels/{{.ID}}/reissue" class="inline" data-confirm="Re-issue config for {{.Name}}? Same keys, fresh install URL with current template (e.g. MTU/MSS updates).">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-sky-600 dark:text-sky-400 hover:underline">reissue config</button>
+            </form>
+            <form method="POST" action="/admin/tunnels/{{.ID}}/rotate" class="inline" data-confirm="Rotate key for {{.Name}}? Customer will need to re-run install with the new token.">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-indigo-600 dark:text-indigo-400 hover:underline">rotate key</button>
+            </form>
+            <form method="POST" action="/admin/tunnels/{{.ID}}/revoke" class="inline" data-confirm="Revoke tunnel {{.Name}}? The customer's connection will drop on next node reconcile (~30s).">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-rose-600 dark:text-rose-400 hover:underline">revoke</button>
+            </form>
+            {{end}}
+            <form method="POST" action="/admin/tunnels/{{.ID}}/delete" class="inline" data-confirm="Hard-delete tunnel {{.Name}}? Row + bootstrap tokens removed permanently. Reclaims assigned_ip. Cannot be undone." data-confirm-type="{{.Name}}">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-rose-700 dark:text-rose-500 hover:underline">delete</button>
+            </form>
+          </td>
+        </tr>
+      {{else}}
+        <tr><td colspan="10" class="px-4 py-10 text-center text-slate-500 dark:text-slate-400">No tunnels yet. Click "Create tunnel" to onboard a client.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<!-- Create-tunnel modal (Cloudflare-style wizard, single step for now). -->
+<div id="hpg-tunnel-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+  <form method="POST" action="/admin/tunnels" class="hpg-card shadow-2xl max-w-lg w-full space-y-4">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <h3 class="font-semibold text-slate-900 dark:text-slate-100 text-lg">Create customer tunnel</h3>
+    <div>
+      <label class="hpg-eyebrow block mb-1">Name</label>
+      <input name="name" placeholder="prod-backend" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+    </div>
+    <div>
+      <label class="hpg-eyebrow block mb-1">Client</label>
+      <select name="client_id" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        <option value="">-- select client --</option>
+        <option value="self">- My own (admin self-tunnel) -</option>
+        {{range .Clients}}<option value="{{.ID}}">{{.Email}}</option>{{end}}
+      </select>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Pick "My own" to create a tunnel bound to your admin account (e.g. for tunneling your Proxmox without opening ports).</p>
+    </div>
+    <div>
+      <label class="hpg-eyebrow block mb-1">Mode</label>
+      <select id="hpg-tun-mode" name="ha" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        <option value="0">Single node</option>
+        <option value="1">HA (replicate across multiple nodes)</option>
+      </select>
+    </div>
+    <div id="hpg-tun-single">
+      <label class="hpg-eyebrow block mb-1">Tunnel node</label>
+      <select name="node_id" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        <option value="">-- select node --</option>
+        {{range .Nodes}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+      </select>
+    </div>
+    <div id="hpg-tun-ha" class="hidden">
+      <label class="hpg-eyebrow block mb-1">Tunnel nodes (pick 2+ for failover)</label>
+      <select name="node_ids" multiple size="4" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        {{range .Nodes}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+      </select>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Customer's .conf will list each as a separate [Peer]; kernel picks whichever has a live handshake. Cmd/Ctrl-click to multi-select.</p>
+    </div>
+    {{if not .Nodes}}<p class="text-[11px] text-rose-600 mt-1">No tunnel-enabled nodes. Edit a node and enable tunnel mode first.</p>{{end}}
+    <div class="flex justify-end gap-2 pt-2">
+      <button type="button" data-close-tunnel-modal class="px-4 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cancel</button>
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Create</button>
+    </div>
+  </form>
+</div>
+
+<script nonce="{{.CSPNonce}}">
+(function(){
+  var modal = document.getElementById('hpg-tunnel-modal');
+  function open(){ modal.classList.remove('hidden'); modal.classList.add('flex'); }
+  function close(){ modal.classList.add('hidden'); modal.classList.remove('flex'); }
+  document.querySelectorAll('[data-open-tunnel-modal]').forEach(function(b){ b.addEventListener('click', open); });
+  // Mode swap: Single vs HA.
+  var modeSel = document.getElementById('hpg-tun-mode');
+  var single  = document.getElementById('hpg-tun-single');
+  var ha      = document.getElementById('hpg-tun-ha');
+  function syncMode(){
+    var isHA = modeSel && modeSel.value === '1';
+    if (single) single.classList.toggle('hidden', isHA);
+    if (ha)     ha.classList.toggle('hidden', !isHA);
+  }
+  if (modeSel) { modeSel.addEventListener('change', syncMode); syncMode(); }
+  document.querySelectorAll('[data-close-tunnel-modal]').forEach(function(b){ b.addEventListener('click', close); });
+  modal && modal.addEventListener('click', function(e){ if (e.target === modal) close(); });
+
+  // Copy-to-clipboard.
+  document.querySelectorAll('[data-copy-target]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var t = document.getElementById(b.dataset.copyTarget);
+      if (!t) return;
+      navigator.clipboard.writeText(t.textContent.trim()).then(function(){
+        b.textContent = '✓';
+        setTimeout(function(){ b.textContent = 'Copy'; }, 1500);
+        if (window.hpgToast) window.hpgToast('Copied to clipboard', 'success');
+      });
+    });
+  });
+
+  // Localize + countdown the expiry timestamp.
+  document.querySelectorAll('time[data-expires]').forEach(function(el){
+    var t = Date.parse(el.dataset.expires);
+    if (!t) return;
+    function tick(){
+      var d = new Date(t);
+      var ms = t - Date.now();
+      if (ms <= 0) { el.textContent = 'expired'; el.classList.add('text-rose-600'); return; }
+      var mins = Math.floor(ms / 60000);
+      var secs = Math.floor((ms % 60000) / 1000);
+      el.textContent = d.toLocaleTimeString() + ' (' + mins + 'm ' + secs + 's left)';
+      setTimeout(tick, 1000);
+    }
+    tick();
+  });
+
+  // Live status poll for the just-created tunnel card.
+  {{if .NewTunnel}}
+  var statusURL = {{.NewTunnel.StatusURL | js}};
+  var badge = document.getElementById('hpg-tun-status');
+  var pollCount = 0;
+  function poll(){
+    if (pollCount++ > 60) return; // give up after ~5 min
+    fetch(statusURL).then(function(r){ return r.json(); }).then(function(j){
+      if (j.last_handshake) {
+        badge.textContent = 'Connected · last handshake ' + j.last_handshake;
+        badge.className = 'hpg-pill hpg-pill-ok';
+        return;
+      }
+      setTimeout(poll, 5000);
+    }).catch(function(){ setTimeout(poll, 5000); });
+  }
+  poll();
+  {{end}}
+})();
+</script>
+{{end}}

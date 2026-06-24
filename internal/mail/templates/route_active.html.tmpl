@@ -1,0 +1,7 @@
+<!doctype html>
+<html><body style="font-family:-apple-system,Segoe UI,Roboto,sans-serif;color:#1f2937;padding:24px;max-width:560px;margin:auto">
+<h2 style="margin:0 0 16px 0">Your domain is live</h2>
+<p><strong>{{.Domain}}</strong>{{if .Path}} <code>{{.Path}}</code>{{end}} → port <code>{{.Port}}</code> is now active.</p>
+<p>Caddy is serving traffic. The SSL certificate will be issued automatically on the first HTTPS request.</p>
+<p style="color:#6b7280;font-size:13px;margin-top:24px">Manage your domains: <a href="{{.AppURL}}/app/routes">{{.AppURL}}/app/routes</a></p>
+</body></html>

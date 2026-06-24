@@ -1,0 +1,48 @@
+{{define "reset.html.tmpl"}}<!doctype html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Set new password - Hostyt Proxy</title>
+<link rel="stylesheet" href="/static/fonts/inter.css">
+<link rel="stylesheet" href="/static/css/tailwind.css">
+<script nonce="{{.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
+<style>
+  /* Global form-control dark-mode safety net (see install/_layout for context). */
+  input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  select, textarea { color: rgb(15 23 42); }
+  .dark input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
+  .dark select, .dark textarea {
+    background-color: rgb(39 39 42);
+    border-color: rgb(63 63 70);
+    color: rgb(241 245 249);
+  }
+  .dark input::placeholder, .dark textarea::placeholder { color: rgb(100 116 139); }
+</style>
+</head>
+<body class="h-full bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-slate-100 flex items-center justify-center p-4">
+<div class="w-full max-w-sm">
+  <header class="text-center mb-6">
+    <h1 class="text-xl font-semibold">Choose a new password</h1>
+  </header>
+  <main class="bg-white dark:bg-zinc-900 rounded-xl shadow-sm border border-slate-200 dark:border-zinc-800 p-6">
+    {{if .Error}}<div class="mb-4 p-3 rounded-md bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 text-sm">{{.Error}}</div>{{end}}
+    <form method="POST" action="/auth/reset" class="space-y-4">
+      <input type="hidden" name="token" value="{{.Token}}">
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">New password</label>
+        <input name="password" type="password" minlength="12" required autofocus
+               class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Confirm password</label>
+        <input name="password_confirm" type="password" minlength="12" required
+               class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <p class="text-xs text-slate-500 dark:text-slate-400">Min 12 characters.</p>
+      <button class="w-full px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Set password</button>
+    </form>
+  </main>
+</div>
+</body></html>
+{{end}}

@@ -1,0 +1,809 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Hostyt Proxy Gateway API",
+    "version": "0.1.0",
+    "description": "## Introduction\n\nHostyt Proxy Gateway (HPG) is a self-hosted control panel for a fleet of Caddy reverse-proxy nodes.\nCustomers receive a VPS with a fixed backend IP and an allowed port range (e.g. `30000-30019`).\nThrough this API they map their own domains to those ports; Caddy config is pushed automatically.\n\n## Authentication\n\nMost endpoints require a **Bearer API key** issued from `/admin/api-keys` (admin) or `/app/api-keys` (client).\n\n```\nAuthorization: Bearer hpg_live_xxxx...\n```\n\n**Node-agent endpoints** use a per-node agent token stored as a SHA-256 hash in `caddy_nodes.agent_token_hash`.\nPass it the same way: `Authorization: Bearer <token>` or `?node_token=<token>`.\n\n**WireGuard bootstrap endpoints** are authenticated by a single-shot 192-hex-char token passed as `?token=`.\nEach token has a 24 h TTL and is invalidated after first use.\n\n## Roles\n\n| Role    | Can do |\n|---------|--------|\n| `admin` | All operations |\n| `client`| Read own services/routes, create/delete own routes |\n\n`backend_ip` is admin-only — clients can never set or change it.\nAllowed ports come from the service record; the server validates membership.\n\n## Rate limits\n\nAll authenticated API endpoints share a per-key quota enforced in Redis.\nBootstrap endpoints are rate-limited to 10 req/min per IP.\nExceeding any limit returns `429 Too Many Requests`.\n\n## Async operations\n\nCaddy config changes (route create/delete, resync) are pushed in the background.\nSSL certificate provisioning is asynchronous — poll `GET /api/v1/services/{id}/routes` and watch `status`.\n"
+  },
+  "servers": [
+    {
+      "url": "https://proxy.example.com",
+      "description": "Production"
+    }
+  ],
+  "tags": [
+    {
+      "name": "Public",
+      "description": "Health and version checks — no auth required."
+    },
+    {
+      "name": "Customer Tunnels",
+      "description": "WireGuard tunnel bootstrap. Auth: single-shot `?token=` (192 hex chars). Rate-limited 10 req/min per IP."
+    },
+    {
+      "name": "Node Agent",
+      "description": "Called by `hpg-node-agent` on each Caddy node. Auth: `Authorization: Bearer <agent_token>` or `?node_token=`."
+    },
+    {
+      "name": "Node Join",
+      "description": "One-shot node registration. The `hpg_join_` token in the request body IS the credential — no Bearer key needed."
+    },
+    {
+      "name": "Services",
+      "description": "Provision and manage customer services (backend IP + allowed port range). Write operations are admin-only; clients can read their own."
+    },
+    {
+      "name": "Routes",
+      "description": "Domain → upstream-port mappings. Caddy config is pushed asynchronously. DNS verification and SSL are queued background jobs."
+    },
+    {
+      "name": "Nodes",
+      "description": "Caddy node management — admin-only."
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "API key from `/admin/api-keys` or `/app/api-keys`."
+      },
+      "nodeAuthToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Per-node agent token. Also accepted as `?node_token=<token>`."
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "properties": {
+          "error": { "type": "string", "example": "not found" }
+        }
+      },
+      "ServiceObject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 42 },
+          "client_id": { "type": "integer", "format": "int64", "example": 7 },
+          "name": { "type": "string", "example": "Acme VPS #1" },
+          "backend_ip": { "type": "string", "format": "ipv4", "example": "10.0.1.55" },
+          "allowed_port_start": { "type": "integer", "example": 30000 },
+          "allowed_port_end": { "type": "integer", "example": 30019 },
+          "plan_id": { "type": "integer", "format": "int64", "example": 3 },
+          "status": { "type": "string", "enum": ["active", "suspended", "terminated"], "example": "active" },
+          "external_reference": { "type": "string", "example": "fossbilling-service-99" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "RouteObject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 201 },
+          "domain": { "type": "string", "example": "app.example.com" },
+          "path_prefix": { "type": "string", "example": "/api" },
+          "upstream_port": { "type": "integer", "example": 30005 },
+          "status": {
+            "type": "string",
+            "enum": ["active", "pending_ssl", "error", "inactive"],
+            "example": "active"
+          }
+        }
+      },
+      "NodeObject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 1 },
+          "name": { "type": "string", "example": "ams-node-01" },
+          "api_url": { "type": "string", "example": "http://10.8.0.2:2019" },
+          "public_hostname": { "type": "string", "example": "ams01.proxy.example.com" },
+          "public_ip": { "type": "string", "format": "ipv4", "example": "185.10.20.30" },
+          "node_group_id": { "type": "integer", "format": "int64", "example": 1 },
+          "max_routes": { "type": "integer", "example": 500 },
+          "current_routes": { "type": "integer", "example": 127 },
+          "enabled": { "type": "boolean", "example": true },
+          "health": { "type": "string", "enum": ["healthy", "degraded", "unknown"], "example": "healthy" }
+        }
+      },
+      "WgPeerStats": {
+        "type": "object",
+        "description": "Per-peer stats parsed from `wg show <iface> dump`.",
+        "required": ["pubkey"],
+        "properties": {
+          "pubkey": { "type": "string", "example": "abc123...==" },
+          "last_handshake": { "type": "integer", "format": "int64", "description": "Unix epoch of last WireGuard handshake", "example": 1719216000 },
+          "rx_bytes": { "type": "integer", "format": "int64", "example": 1048576 },
+          "tx_bytes": { "type": "integer", "format": "int64", "example": 524288 },
+          "endpoint": { "type": "string", "description": "Observed remote endpoint", "example": "203.0.113.5:51820" }
+        }
+      },
+      "NodeDiagnostics": {
+        "type": "object",
+        "description": "Node-level forwarding diagnostics. All fields are optional — older agents omit them.",
+        "properties": {
+          "ip_forward_enabled": { "type": "boolean" },
+          "forward_policy_drop_detected": { "type": "boolean" },
+          "docker_rules_installed": { "type": "boolean" },
+          "firewall_backend": { "type": "string", "example": "nftables" },
+          "mtu": { "type": "integer", "example": 1420 },
+          "listen_port": { "type": "string", "example": "51821" },
+          "last_setup_error": { "type": "string", "example": "" },
+          "wstunnel_healthy": {
+            "type": "boolean",
+            "description": "True when wstunnel sidecar is running and bridge→host iptables rule accepted. Triggers WSS route resync on any transition."
+          }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/api/v1/health": {
+      "get": {
+        "tags": ["Public"],
+        "summary": "Health check",
+        "operationId": "apiHealth",
+        "responses": {
+          "200": {
+            "description": "Service is up",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "example": "ok" },
+                    "version": { "type": "string", "example": "0.1.0-dev" }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/wg/bootstrap": {
+      "get": {
+        "tags": ["Customer Tunnels"],
+        "summary": "Download WireGuard .conf",
+        "operationId": "wgBootstrapConf",
+        "description": "Returns a ready-to-use WireGuard config file. The token is single-shot (24 h TTL) — consuming it marks it used.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": { "type": "string", "minLength": 192, "maxLength": 192 },
+            "description": "Single-shot bootstrap token (192 hex chars)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "WireGuard configuration file",
+            "content": {
+              "text/plain": {
+                "schema": { "type": "string" },
+                "example": "[Interface]\nPrivateKey = ...\nAddress = 100.96.5.42/32\n\n[Peer]\nPublicKey = ...\nEndpoint = ams01.proxy.example.com:51820\n"
+              }
+            }
+          },
+          "403": { "description": "Token invalid, expired, or already consumed", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "500": { "description": "Internal error", "content": { "text/plain": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/api/wg/install.sh": {
+      "get": {
+        "tags": ["Customer Tunnels"],
+        "summary": "Download bash installer",
+        "operationId": "wgInstallScript",
+        "description": "Returns a bash script that installs `wireguard-tools`, fetches `/api/wg/bootstrap`, and creates a systemd unit. Designed for `curl … | sudo bash`. Pass `-- remove` to tear down an existing installation.\n\n```bash\n# Install\ncurl 'https://proxy.example.com/api/wg/install.sh?token=<token>' | sudo bash\n\n# Remove\ncurl 'https://proxy.example.com/api/wg/install.sh?token=<token>' | sudo bash -s -- remove\n```",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": { "type": "string", "minLength": 192, "maxLength": 192 },
+            "description": "Bootstrap token — will be consumed by the script when it calls `/api/wg/bootstrap`."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Bash installer script",
+            "content": { "text/x-shellscript": { "schema": { "type": "string" } } }
+          },
+          "400": { "description": "Missing or malformed token", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "text/plain": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/api/wg/status": {
+      "get": {
+        "tags": ["Customer Tunnels"],
+        "summary": "WireGuard peer status",
+        "operationId": "wgPeerStatus",
+        "description": "Returns whether the peer has an active WireGuard handshake. Polled by the panel UI for a live connection indicator.",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "token",
+            "required": true,
+            "schema": { "type": "string", "minLength": 192, "maxLength": 192 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Peer status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "status": { "type": "string", "enum": ["pending", "active"], "example": "active" },
+                    "last_handshake": {
+                      "oneOf": [
+                        { "type": "string", "format": "date-time" },
+                        { "type": "null" }
+                      ],
+                      "example": "2026-06-24T10:00:00Z"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Missing or malformed token", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "404": { "description": "Unknown token", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "text/plain": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/api/node/wg/peers": {
+      "get": {
+        "tags": ["Node Agent"],
+        "summary": "Pull WireGuard peer list",
+        "operationId": "nodePeersPull",
+        "description": "Called by `hpg-node-agent` every ~30 s. Returns the full list of customer WireGuard peers the node should configure.",
+        "security": [{ "nodeAuthToken": [] }],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "node_token",
+            "required": false,
+            "schema": { "type": "string" },
+            "description": "Alternative to `Authorization: Bearer`. One of the two must be present."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Peer list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "peers": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "pubkey": { "type": "string", "example": "abc123...==" },
+                          "allowed_ip": { "type": "string", "example": "100.96.5.42/32" },
+                          "status": { "type": "string", "enum": ["active", "pending", "revoked"], "example": "active" }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Missing token", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "403": { "description": "Invalid token", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "503": { "description": "Database not ready", "content": { "text/plain": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/api/node/wg/handshakes": {
+      "post": {
+        "tags": ["Node Agent"],
+        "summary": "Report WireGuard handshakes (legacy)",
+        "operationId": "nodeHandshakeReport",
+        "description": "Agent posts latest handshake timestamps. Superseded by `/api/node/wg/stats` but kept live for rolling upgrades.",
+        "security": [{ "nodeAuthToken": [] }],
+        "parameters": [
+          { "in": "query", "name": "node_token", "required": false, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reports": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "pubkey": { "type": "string", "example": "abc123...==" },
+                        "last_handshake": { "type": "string", "format": "date-time" }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Accepted" },
+          "401": { "description": "Missing token", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "403": { "description": "Invalid token", "content": { "text/plain": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/api/node/wg/stats": {
+      "post": {
+        "tags": ["Node Agent"],
+        "summary": "Report WireGuard peer stats",
+        "operationId": "nodeStatsReport",
+        "description": "Full stats report from `wg show <iface> dump` — supersedes `/api/node/wg/handshakes`. Includes rx/tx byte counters, endpoint, and optional node-level forwarding diagnostics. Panel stores reset-safe byte deltas and updates `wstunnel_healthy`, triggering a Caddy route resync on any health transition.",
+        "security": [{ "nodeAuthToken": [] }],
+        "parameters": [
+          { "in": "query", "name": "node_token", "required": false, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "stats": {
+                    "type": "array",
+                    "items": { "$ref": "#/components/schemas/WgPeerStats" }
+                  },
+                  "node": { "$ref": "#/components/schemas/NodeDiagnostics" }
+                }
+              },
+              "example": {
+                "stats": [
+                  {
+                    "pubkey": "abc123...==",
+                    "last_handshake": 1719216000,
+                    "rx_bytes": 1048576,
+                    "tx_bytes": 524288,
+                    "endpoint": "203.0.113.5:51820"
+                  }
+                ],
+                "node": {
+                  "ip_forward_enabled": true,
+                  "forward_policy_drop_detected": false,
+                  "docker_rules_installed": true,
+                  "firewall_backend": "nftables",
+                  "mtu": 1420,
+                  "listen_port": "51821",
+                  "last_setup_error": "",
+                  "wstunnel_healthy": true
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": { "description": "Accepted" },
+          "400": { "description": "Malformed body", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "401": { "description": "Missing token", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "403": { "description": "Invalid token", "content": { "text/plain": { "schema": { "type": "string" } } } },
+          "503": { "description": "Database not ready", "content": { "text/plain": { "schema": { "type": "string" } } } }
+        }
+      }
+    },
+    "/api/v1/nodes/join": {
+      "post": {
+        "tags": ["Node Join"],
+        "summary": "Register a Caddy node",
+        "operationId": "nodeJoin",
+        "description": "One-shot node registration. The `hpg_join_` token in the body IS the credential — no Bearer API key needed. Returns bootstrap payload consumed by the node-agent install script.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["token"],
+                "properties": {
+                  "token": { "type": "string", "example": "hpg_join_xxxxxxxxxxxxxxxx" },
+                  "public_hostname": { "type": "string", "example": "ams01.proxy.example.com" },
+                  "public_ip": { "type": "string", "format": "ipv4", "example": "185.10.20.30" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Bootstrap payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "node_id": { "type": "integer", "format": "int64" },
+                    "node_name": { "type": "string" },
+                    "fingerprint": { "type": "string" },
+                    "wireguard": { "type": "object", "description": "WireGuard interface config for the node" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "Invalid JSON or missing token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Token invalid or already used", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/services": {
+      "post": {
+        "tags": ["Services"],
+        "summary": "Create a service",
+        "operationId": "serviceCreate",
+        "description": "Admin-only. Links a client to a backend IP and port range. `backend_ip` can never be set by the client.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["client_id", "name", "backend_ip", "allowed_port_start", "allowed_port_end", "plan_id"],
+                "properties": {
+                  "client_id": { "type": "integer", "format": "int64", "example": 7 },
+                  "name": { "type": "string", "example": "Acme VPS #1" },
+                  "backend_ip": { "type": "string", "format": "ipv4", "example": "10.0.1.55" },
+                  "allowed_port_start": { "type": "integer", "minimum": 1, "maximum": 65534, "example": 30000 },
+                  "allowed_port_end": { "type": "integer", "minimum": 2, "maximum": 65535, "example": 30019 },
+                  "plan_id": { "type": "integer", "format": "int64", "example": 3 },
+                  "external_reference": { "type": "string", "description": "Optional billing system reference", "example": "fossbilling-service-99" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Service created",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer", "format": "int64" } } } } }
+          },
+          "400": { "description": "Validation error (invalid IP, port range, missing fields)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Missing or invalid bearer token", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Database error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/services/{id}": {
+      "get": {
+        "tags": ["Services"],
+        "summary": "Get a service",
+        "operationId": "serviceGet",
+        "description": "Admins can fetch any service; clients may only fetch their own.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Service object",
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ServiceObject" } } }
+          },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Not your service", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Service not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "patch": {
+        "tags": ["Services"],
+        "summary": "Update a service",
+        "operationId": "serviceUpdate",
+        "description": "Admin-only. Update `status`, `external_reference`, or `notes`. Omit fields to leave unchanged.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "status": { "type": "string", "enum": ["active", "suspended", "terminated"] },
+                  "external_reference": { "type": "string" },
+                  "notes": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Update result",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "updated": { "type": "boolean" } } } } }
+          },
+          "400": { "description": "Invalid status value", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Database error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/services/{id}/ports": {
+      "post": {
+        "tags": ["Services"],
+        "summary": "Update allowed port range",
+        "operationId": "servicePorts",
+        "description": "Admin-only. Replaces the port range for a service. Existing routes using ports outside the new range must be deleted first.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["allowed_port_start", "allowed_port_end"],
+                "properties": {
+                  "allowed_port_start": { "type": "integer", "minimum": 1, "maximum": 65534, "example": 30000 },
+                  "allowed_port_end": { "type": "integer", "minimum": 2, "maximum": 65535, "example": 30019 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Port range updated",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" } } } } }
+          },
+          "400": { "description": "Invalid port range", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Database error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/services/{id}/routes": {
+      "get": {
+        "tags": ["Services"],
+        "summary": "List routes for a service",
+        "operationId": "serviceRoutes",
+        "description": "Lists all routes attached to the service. Use `status` to track SSL provisioning progress. Clients can only query their own services.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Route list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "routes": { "type": "array", "items": { "$ref": "#/components/schemas/RouteObject" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Not your service", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Service not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes": {
+      "post": {
+        "tags": ["Routes"],
+        "summary": "Create a route",
+        "operationId": "routeCreate",
+        "description": "Maps a domain (+ optional path prefix) to an upstream port on the service's backend. `upstream_port` must be within `[allowed_port_start, allowed_port_end]`. Caddy config is pushed asynchronously; SSL certificate provisioning may take up to a few minutes.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["service_id", "upstream_port", "domain"],
+                "properties": {
+                  "service_id": { "type": "integer", "format": "int64", "example": 42 },
+                  "upstream_port": { "type": "integer", "example": 30005 },
+                  "domain": { "type": "string", "example": "app.example.com" },
+                  "path_prefix": { "type": "string", "example": "/api", "description": "Optional — enables sub-path routing on a shared domain" },
+                  "ssl": { "type": "boolean", "default": true, "description": "Enable automatic HTTPS via Caddy On-Demand TLS" },
+                  "websocket": { "type": "boolean", "default": false },
+                  "force_https": { "type": "boolean", "default": true }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Route created",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer", "format": "int64" } } } } }
+          },
+          "400": { "description": "Invalid domain or port out of allowed range", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Service not yours", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Domain already mapped, no node available, or plan domain limit reached", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Internal error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}": {
+      "delete": {
+        "tags": ["Routes"],
+        "summary": "Delete a route",
+        "operationId": "routeDelete",
+        "description": "Removes the route and pushes updated Caddy config. Clients may only delete routes on services they own.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Route deleted",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } }
+          },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Not your route", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Internal error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}/verify-dns": {
+      "post": {
+        "tags": ["Routes"],
+        "summary": "Queue DNS verification",
+        "operationId": "routeVerifyDNS",
+        "description": "Enqueues a background DNS check. Caddy issues a certificate once DNS resolves to the node's IP.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Queued",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "queued": { "type": "boolean" } } } } }
+          },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Not your route", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Internal error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}/retry-ssl": {
+      "post": {
+        "tags": ["Routes"],
+        "summary": "Retry SSL provisioning",
+        "operationId": "routeRetrySSL",
+        "description": "Alias of `verify-dns`. Triggers a fresh DNS check and Caddy certificate retry.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Queued",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "queued": { "type": "boolean" } } } } }
+          },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Not your route", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Internal error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/nodes": {
+      "get": {
+        "tags": ["Nodes"],
+        "summary": "List Caddy nodes",
+        "operationId": "nodesList",
+        "description": "Admin-only. Returns all nodes ordered by priority.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Node list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "nodes": { "type": "array", "items": { "$ref": "#/components/schemas/NodeObject" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Nodes"],
+        "summary": "Create a Caddy node",
+        "operationId": "nodeCreate",
+        "description": "Admin-only. Registers a Caddy node manually (alternative to the node-join flow).",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "api_url", "node_group_id", "max_routes"],
+                "properties": {
+                  "name": { "type": "string", "example": "ams-node-01" },
+                  "api_url": { "type": "string", "example": "http://10.8.0.2:2019" },
+                  "public_hostname": { "type": "string", "example": "ams01.proxy.example.com" },
+                  "public_ip": { "type": "string", "format": "ipv4", "example": "185.10.20.30" },
+                  "node_group_id": { "type": "integer", "format": "int64", "example": 1 },
+                  "max_routes": { "type": "integer", "minimum": 1, "example": 500 },
+                  "priority": { "type": "integer", "default": 0, "example": 10 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Node created",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer", "format": "int64" } } } } }
+          },
+          "400": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Database error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/nodes/{id}/resync": {
+      "post": {
+        "tags": ["Nodes"],
+        "summary": "Resync node Caddy config",
+        "operationId": "nodeResync",
+        "description": "Admin-only. Rebuilds and pushes the full Caddy route config from the DB to the node. Use after manual DB edits or to recover from drift.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Resync completed",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "resynced": { "type": "boolean" } } } } }
+          },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Resync failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    }
+  }
+}

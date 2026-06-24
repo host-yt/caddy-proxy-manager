@@ -1,0 +1,110 @@
+{{define "client_tunnels"}}
+<div class="space-y-4">
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Private network tunnels</h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400">Run a WireGuard client on your server, get a stable internal IP. Caddy reaches your LAN backend through the tunnel - no public IP or port-forward needed.</p>
+    </div>
+    {{if .Nodes}}
+    <button type="button" data-open-client-tunnel class="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">+ New tunnel</button>
+    {{end}}
+  </div>
+
+  {{if .NewTunnel}}
+  <section class="bg-white dark:bg-zinc-900 border border-emerald-300 dark:border-emerald-700 rounded-xl p-5 space-y-3">
+    <h3 class="font-semibold text-slate-900 dark:text-slate-100">Tunnel ready - install on your server (Linux, as root):</h3>
+    <div class="flex gap-2 items-stretch">
+      <code id="hpg-cln-cmd" class="flex-1 block bg-slate-900 text-emerald-200 font-mono text-xs p-3 rounded-md break-all">{{.NewTunnel.InstallCommand}}</code>
+      <button type="button" data-copy-target="hpg-cln-cmd" class="px-3 rounded-md bg-slate-200 dark:bg-zinc-700 text-slate-700 dark:text-slate-200 text-xs hover:bg-slate-300 dark:hover:bg-zinc-600">Copy</button>
+    </div>
+    <p class="text-[11px] text-slate-500 dark:text-slate-400">Single-use, expires in 24h. Or download <a href="{{.NewTunnel.ConfURL}}" class="text-indigo-600 dark:text-indigo-400 underline">.conf</a> and import into the WireGuard app (macOS/Windows).</p>
+  </section>
+  {{end}}
+
+  <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+        <tr>
+          <th class="px-3 py-2">Name</th>
+          <th class="px-3 py-2">Node</th>
+          <th class="px-3 py-2">Tunnel IP</th>
+          <th class="px-3 py-2">Status</th>
+          <th class="px-3 py-2">Health</th>
+          <th class="px-3 py-2">Last handshake</th>
+          <th class="px-3 py-2 text-right"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      {{range .Tunnels}}
+        <tr>
+          <td class="px-3 py-2 text-slate-800 dark:text-slate-100">{{.Name}} {{if .PeerGroupID}}<span class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 font-mono">HA</span>{{end}}</td>
+          <td class="px-3 py-2 text-xs text-slate-600 dark:text-slate-300">{{.NodeName}}</td>
+          <td class="px-3 py-2 font-mono text-xs">{{.AssignedIP}}</td>
+          <td class="px-3 py-2 text-xs">
+            {{if eq .Status "active"}}<span class="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300">active</span>{{end}}
+            {{if eq .Status "pending"}}<span class="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300">pending install</span>{{end}}
+            {{if eq .Status "revoked"}}<span class="px-2 py-0.5 rounded-full bg-zinc-200 dark:bg-zinc-700 text-zinc-700 dark:text-zinc-200">revoked</span>{{end}}
+          </td>
+          <td class="px-3 py-2 text-xs">
+            {{if .Healthy}}<span class="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300">● connected</span>
+            {{else if eq .Status "active"}}<span class="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300">stale</span>
+            {{else}}<span class="text-slate-400">—</span>{{end}}
+          </td>
+          <td class="px-3 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{.LastHandshake}}</td>
+          <td class="px-3 py-2 text-right text-xs whitespace-nowrap">
+            {{if ne .Status "revoked"}}
+            <form method="POST" action="/app/tunnels/{{.ID}}/revoke" class="inline" data-confirm="Revoke {{.Name}}? Your tunnel will stop within ~30s and the backend behind it becomes unreachable.">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-rose-600 dark:text-rose-400 hover:underline">revoke</button>
+            </form>
+            {{end}}
+          </td>
+        </tr>
+      {{else}}
+        <tr><td colspan="7" class="px-4 py-10 text-center text-slate-500 dark:text-slate-400">No tunnels yet. Click "New tunnel" to start.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </section>
+</div>
+
+<!-- Modal -->
+<div id="hpg-cln-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+  <form method="POST" action="/app/tunnels" class="bg-white dark:bg-zinc-900 rounded-xl shadow-2xl border border-slate-200 dark:border-zinc-800 max-w-md w-full p-5 space-y-4">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <h3 class="font-semibold text-slate-900 dark:text-slate-100 text-lg">New private tunnel</h3>
+    <div>
+      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Name</label>
+      <input name="name" placeholder="prod-backend" required class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Region (Caddy node)</label>
+      <select name="node_id" required class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700">
+        <option value="">-- select node --</option>
+        {{range .Nodes}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+      </select>
+    </div>
+    <div class="flex justify-end gap-2 pt-2">
+      <button type="button" data-close-client-tunnel class="px-3 py-1.5 rounded-md text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cancel</button>
+      <button class="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Create</button>
+    </div>
+  </form>
+</div>
+
+<script nonce="{{.CSPNonce}}">
+(function(){
+  var m = document.getElementById('hpg-cln-modal');
+  document.querySelectorAll('[data-open-client-tunnel]').forEach(function(b){ b.addEventListener('click', function(){ m.classList.remove('hidden'); m.classList.add('flex'); }); });
+  document.querySelectorAll('[data-close-client-tunnel]').forEach(function(b){ b.addEventListener('click', function(){ m.classList.add('hidden'); m.classList.remove('flex'); }); });
+  m && m.addEventListener('click', function(e){ if (e.target === m) { m.classList.add('hidden'); m.classList.remove('flex'); } });
+  document.querySelectorAll('[data-copy-target]').forEach(function(b){
+    b.addEventListener('click', function(){
+      var t = document.getElementById(b.dataset.copyTarget);
+      navigator.clipboard.writeText(t.textContent.trim()).then(function(){
+        b.textContent = '✓'; setTimeout(function(){ b.textContent = 'Copy'; }, 1500);
+      });
+    });
+  });
+})();
+</script>
+{{end}}

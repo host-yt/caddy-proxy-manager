@@ -1,0 +1,158 @@
+# =========================================================================
+# Hostyt Proxy Gateway - production-ready compose stack
+# Tested with Docker Compose v2.20+. Works in Portainer Stacks.
+# =========================================================================
+
+services:
+  app:
+    image: ${IMAGE_APP:-ghcr.io/marcoome/caddy-proxy-manager:latest}
+    pull_policy: ${IMAGE_PULL_POLICY:-always}
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_URL: ${APP_URL}
+      APP_BIND: ${APP_BIND:-0.0.0.0:8080}
+      APP_SECRET: ${APP_SECRET}
+      INSTALL_TOKEN: ${INSTALL_TOKEN}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DB_HOST: ${DB_HOST:-mariadb}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
+      CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://caddy:2019}
+      APP_INTERNAL_URL: ${APP_INTERNAL_URL:-http://app:8080}
+      # Default OFF: stock caddy rejects the cache config and the WHOLE node
+      # goes offline. Flip to 1 ONLY after every Caddy node (central + remote)
+      # runs the custom image (deploy/caddy/Dockerfile, xcaddy + cache-handler).
+      CACHE_HANDLER_AVAILABLE: ${CACHE_HANDLER_AVAILABLE:-0}
+      # Same gating for the caddy-l4 module (TCP/UDP stream proxy at
+      # /admin/streams). Stock Caddy rejects apps.layer4. Default on for
+      # this compose because the bundled Caddy image already includes
+      # caddy-l4 via xcaddy (deploy/caddy/Dockerfile).
+      LAYER4_AVAILABLE: ${LAYER4_AVAILABLE:-1}
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - app_data:/app/data
+      - wg_config:/app/wg
+    networks:
+      - internal
+
+  # Bundled MariaDB - comment out if using external managed DB.
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-}"]
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  caddy:
+    # Custom Caddy with xcaddy-bundled cache-handler (Souin) so the panel
+    # can flip CACHE_HANDLER_AVAILABLE=1 and per-route cache_enabled does
+    # real origin caching. CI pushes deploy/caddy/Dockerfile to ghcr; local
+    # dev falls back to `build:` when the image isn't pullable.
+    image: ${IMAGE_CADDY:-ghcr.io/marcoome/caddy-proxy-manager-edge:latest}
+    build:
+      context: ./caddy
+      dockerfile: Dockerfile
+    pull_policy: ${IMAGE_PULL_POLICY:-always}
+    restart: unless-stopped
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"        # HTTP/3
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      # Caddyfile is baked into the image (deploy/caddy/Dockerfile).
+      # Uncomment + supply your own to override:
+      # - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      ASK_ENDPOINT_URL: http://app:8080/internal/ask
+      ACME_EMAIL: ${CADDY_ACME_EMAIL}
+    networks:
+      - internal
+    extra_hosts:
+      # WSS tunnel: reach host-net wstunnel via own bridge gateway, not docker0
+      # (host-gateway points at 172.17.0.1 which a user bridge can't route to).
+      - "host.docker.internal:172.18.0.1"
+
+  # WireGuard sidecar - brings up wg0 on the manager host from the
+  # config file the app writes into the shared volume. Auto-applies
+  # changes (peer add/remove) via `wg syncconf` every 10 s.
+  #
+  # Requires host network namespace + NET_ADMIN. On macOS Docker Desktop
+  # the kernel module path may not exist; this service is intended for
+  # the Linux VPS where the manager actually runs in production.
+  wireguard:
+    image: ${IMAGE_WG:-ghcr.io/marcoome/caddy-proxy-manager-wg:latest}
+    pull_policy: ${IMAGE_PULL_POLICY:-always}
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+    network_mode: host
+    volumes:
+      - wg_config:/config
+      - /lib/modules:/lib/modules:ro
+    profiles:
+      # Skipped by default; enable with: `docker compose --profile mesh up -d`
+      # so single-host local dev doesn't try to claim host networking.
+      - mesh
+
+volumes:
+  app_data:
+  mariadb_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  wg_config:
+
+networks:
+  internal:
+    driver: bridge
+    # Pin subnet so host.docker.internal (caddy) resolves to a deterministic,
+    # routable gateway. Must match the IP in caddy.extra_hosts above.
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1

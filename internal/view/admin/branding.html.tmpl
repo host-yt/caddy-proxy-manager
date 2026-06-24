@@ -1,0 +1,68 @@
+{{define "branding"}}
+<div class="max-w-2xl space-y-4">
+  <p class="text-sm text-slate-600 dark:text-slate-400">Customise the panel + login page brand. URLs must be <code class="text-xs">http://</code> or <code class="text-xs">https://</code> (they render as <code class="text-xs">&lt;img src&gt;</code>/<code class="text-xs">&lt;link href&gt;</code> so other schemes are refused).</p>
+
+  <form method="POST" action="/admin/branding" class="hpg-card space-y-4 text-sm">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+    <div>
+      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Brand name</label>
+      <input name="brand_name" value="{{.BrandName}}" maxlength="64" placeholder="Hostyt Proxy" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-500 outline-none">
+      <p class="text-[11px] text-slate-500 mt-1">Shown in the sidebar + login header. Empty = default "Hostyt Proxy".</p>
+    </div>
+
+    <div>
+      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tagline (optional)</label>
+      <input name="tagline" value="{{.Tagline}}" maxlength="128" placeholder="Self-hosted reverse-proxy panel" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-500 outline-none">
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Logo URL (light mode)</label>
+        <input name="logo_url_light" value="{{.LogoURLLight}}" placeholder="https://cdn.example.com/logo-dark.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-500 outline-none">
+        {{if .LogoURLLight}}<div class="mt-2 inline-block p-2 rounded-lg bg-white ring-1 ring-slate-200 dark:ring-zinc-700"><img src="{{.LogoURLLight}}" alt="light preview" class="h-8"></div>{{end}}
+        <p class="text-[11px] text-slate-500 mt-1">Used on white backgrounds. Pick a logo with dark ink.</p>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Logo URL (dark mode)</label>
+        <input name="logo_url_dark" value="{{.LogoURLDark}}" placeholder="https://cdn.example.com/logo-light.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-500 outline-none">
+        {{if .LogoURLDark}}<div class="mt-2 inline-block p-2 rounded-lg bg-zinc-900 ring-1 ring-zinc-700"><img src="{{.LogoURLDark}}" alt="dark preview" class="h-8"></div>{{end}}
+        <p class="text-[11px] text-slate-500 mt-1">Falls back to the light logo if empty. Pick a logo with light ink for dark backgrounds.</p>
+      </div>
+    </div>
+
+    <div>
+      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Favicon URL</label>
+      <input name="favicon_url" value="{{.FaviconURL}}" placeholder="https://cdn.example.com/favicon.ico" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-500 outline-none">
+      <p class="text-[11px] text-slate-500 mt-1">16x16 ICO or PNG. Browsers cache aggressively - change the URL or path to bust.</p>
+    </div>
+
+    <div class="rounded-xl ring-1 ring-slate-200 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900/50 p-4 space-y-3">
+      <div class="hpg-eyebrow">Error / maintenance page skin</div>
+      <p class="text-[11px] text-slate-500">Branding for the pages Caddy serves directly (404, 403, 502, 503, 504, maintenance). Empty fields fall back to a neutral deep-gray skin.</p>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Error page logo URL</label>
+        <input name="error_logo_url" value="{{.ErrorLogoURL}}" placeholder="https://cdn.example.com/logo-error.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-500 outline-none">
+        {{if .ErrorLogoURL}}<div class="mt-2 inline-block p-2 rounded-lg" style="background: {{if .ErrorBgColor}}{{.ErrorBgColor}}{{else}}#1f2937{{end}};"><img src="{{.ErrorLogoURL}}" alt="error logo preview" class="h-8"></div>{{end}}
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Error page logo link</label>
+        <input name="error_logo_link" value="{{.ErrorLogoLink}}" placeholder="https://www.your-brand.com/" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-500 outline-none">
+        <p class="text-[11px] text-slate-500 mt-1">Where the logo links on error pages. Leave empty for a non-clickable logo.</p>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Background color</label>
+        <div class="flex gap-2 items-center">
+          <input name="error_bg_color" value="{{.ErrorBgColor}}" placeholder="#1f2937" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+          <span class="inline-block w-8 h-8 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700" style="background: {{if .ErrorBgColor}}{{.ErrorBgColor}}{{else}}#1f2937{{end}};"></span>
+        </div>
+        <p class="text-[11px] text-slate-500 mt-1">Hex (#RGB / #RRGGBB / #RRGGBBAA) or rgb()/rgba(). Default is deep slate (#1f2937).</p>
+      </div>
+    </div>
+
+    <div class="flex justify-end pt-2">
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save branding</button>
+    </div>
+  </form>
+</div>
+{{end}}

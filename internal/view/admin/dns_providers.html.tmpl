@@ -1,0 +1,101 @@
+{{define "dns_providers"}}
+<div class="space-y-6">
+
+  {{if not .DNS01Available}}
+  <div class="rounded-xl bg-amber-50 dark:bg-amber-950/40 ring-1 ring-amber-200 dark:ring-amber-800/60 p-4 text-sm text-amber-800 dark:text-amber-200">
+    <strong>DNS-01 is not enabled on this build.</strong> Wildcard policies will not be emitted until every node runs the custom Caddy image (with the <code>caddy-dns/*</code> modules) and <code>DNS01_AVAILABLE=1</code> is set. Flipping it on while a node runs stock Caddy makes that node reject the whole config and drop all its routes.
+  </div>
+  {{end}}
+
+  <section class="hpg-card">
+    <div class="p-5 border-b border-slate-100 dark:border-zinc-800">
+      <h2 class="font-semibold text-slate-800 dark:text-slate-100">DNS providers (wildcard certificates)</h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400">Per-zone credentials for ACME DNS-01 wildcard issuance (<code>*.zone</code>). Credentials are stored encrypted at rest and are never shown again. Use the most narrowly-scoped token your provider supports (e.g. for Cloudflare a <strong>zone-scoped</strong> token with <em>Zone:Read + DNS:Edit</em> on the target zone only).</p>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead>
+        <tr class="hpg-eyebrow text-left">
+          <th class="px-4 py-2 font-medium">Zone</th>
+          <th class="px-4 py-2 font-medium">Provider</th>
+          <th class="px-4 py-2 font-medium">Credential</th>
+          <th class="px-4 py-2 font-medium">Created</th>
+          <th class="px-4 py-2 text-right"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Providers}}
+        <tr>
+          <td class="px-4 py-3 font-medium text-slate-800 dark:text-slate-100"><code>{{.Name}}</code></td>
+          <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.Provider}}</td>
+          <td class="px-4 py-3">{{if .HasToken}}<span class="hpg-pill hpg-pill-ok">set</span>{{else}}<span class="hpg-pill hpg-pill-muted">not set</span>{{end}}</td>
+          <td class="px-4 py-3 text-xs text-slate-500">{{.Created}}</td>
+          <td class="px-4 py-3 text-right">
+            <form method="POST" action="/admin/settings/dns-providers/{{.ID}}/delete" class="inline" data-confirm="Delete DNS provider for {{.Name}}?">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline">delete</button>
+            </form>
+          </td>
+        </tr>
+        {{else}}
+        <tr><td colspan="5" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No DNS providers configured.</td></tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+
+  <section class="hpg-card p-5">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Add / rotate provider</h2>
+    <form method="POST" action="/admin/settings/dns-providers" class="space-y-3 text-sm max-w-2xl">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="grid grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Zone (apex)</label>
+          <input name="name" required placeholder="customer.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 font-mono text-xs">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Provider</label>
+          <select id="dns-provider-select" name="provider" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100">
+            {{range .Registry}}<option value="{{.Slug}}">{{.DisplayName}}</option>{{end}}
+          </select>
+        </div>
+      </div>
+      <!-- Per-provider credential inputs injected here by the nonce'd handler below. -->
+      <div id="dns-fields" class="space-y-3"></div>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">Re-saving an existing zone rotates its credentials. Credentials are never displayed after saving.</p>
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save provider</button>
+    </form>
+  </section>
+
+  <script nonce="{{.CSPNonce}}">
+  (function () {
+    // Registry schema (slug -> fields); no credentials, only input metadata.
+    var REG = {{.RegistryJSON}};
+    var sel = document.getElementById('dns-provider-select');
+    var box = document.getElementById('dns-fields');
+    if (!sel || !box) return;
+    function render() {
+      var fields = REG[sel.value] || [];
+      box.textContent = '';
+      fields.forEach(function (f) {
+        var wrap = document.createElement('div');
+        var lab = document.createElement('label');
+        lab.className = 'block text-xs text-slate-600 dark:text-slate-300 mb-1';
+        lab.textContent = f.label + (f.optional ? ' (optional)' : '');
+        var inp = document.createElement('input');
+        inp.name = 'field_' + f.key;
+        inp.type = f.secret ? 'password' : 'text';
+        inp.autocomplete = 'off';
+        if (f.placeholder) inp.placeholder = f.placeholder;
+        if (!f.optional) inp.required = true;
+        inp.className = 'w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 font-mono text-xs';
+        wrap.appendChild(lab);
+        wrap.appendChild(inp);
+        box.appendChild(wrap);
+      });
+    }
+    sel.addEventListener('change', render);
+    render();
+  })();
+  </script>
+</div>
+{{end}}

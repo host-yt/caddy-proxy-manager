@@ -1,0 +1,193 @@
+{{define "dashboard"}}
+<!-- Personal hero greeting. Layout header already shows title + breadcrumbs. -->
+<div class="mb-6 flex flex-wrap items-end justify-between gap-4">
+  <div>
+    <h1 class="text-2xl font-bold tracking-tight text-slate-900 dark:text-slate-100">
+      Welcome{{if .AdminName}}, {{.AdminName}}{{end}}
+    </h1>
+    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Here is what needs your attention today.</p>
+  </div>
+  <a href="/admin/hosts/new" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+    Add a host
+  </a>
+</div>
+
+<!-- Stat row: soft cards, pastel chips, big metric numbers. -->
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
+  <div class="hpg-card flex items-center gap-4">
+    <span class="hpg-chip bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    </span>
+    <div class="min-w-0">
+      <div class="hpg-eyebrow">Active hosts</div>
+      <div class="hpg-stat-num text-slate-900 dark:text-slate-100">{{.Counts.ActiveHosts}}</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400">of {{.Counts.TotalHosts}} total</div>
+    </div>
+  </div>
+
+  <div class="hpg-card flex items-center gap-4">
+    <span class="hpg-chip bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    </span>
+    <div class="min-w-0">
+      <div class="hpg-eyebrow">Pending</div>
+      <div class="hpg-stat-num {{if .Counts.PendingHosts}}text-amber-600 dark:text-amber-400{{else}}text-slate-900 dark:text-slate-100{{end}}">{{.Counts.PendingHosts}}</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400">awaiting DNS/SSL</div>
+    </div>
+  </div>
+
+  <div class="hpg-card flex items-center gap-4">
+    <span class="hpg-chip bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3V6a3 3 0 013-3h13.5a3 3 0 013 3v5.25a3 3 0 01-3 3m-13.5 0H3m18.75 0H21m-1.5 0v5.25m-15-5.25v5.25m0 0H3m1.5 0h15m0 0H21M9 18h6"/></svg>
+    </span>
+    <div class="min-w-0">
+      <div class="hpg-eyebrow">Nodes online</div>
+      <div class="hpg-stat-num text-slate-900 dark:text-slate-100">{{.Counts.NodesOnline}}<span class="text-base font-medium text-slate-400 dark:text-slate-500">/{{.Counts.NodesTotal}}</span></div>
+      <div class="text-xs {{if lt .Counts.NodesOnline .Counts.NodesTotal}}text-amber-600 dark:text-amber-400{{else}}text-emerald-600 dark:text-emerald-400{{end}}">{{if lt .Counts.NodesOnline .Counts.NodesTotal}}degraded{{else}}healthy{{end}}</div>
+    </div>
+  </div>
+
+  <div class="hpg-card flex items-center gap-4">
+    <span class="hpg-chip bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
+    </span>
+    <div class="min-w-0">
+      <div class="hpg-eyebrow">Clients</div>
+      <div class="hpg-stat-num text-slate-900 dark:text-slate-100">{{.Counts.Clients}}</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400">{{.Counts.Plans}} plan{{if ne .Counts.Plans 1}}s{{end}}</div>
+    </div>
+  </div>
+</div>
+
+<!-- Needs attention: soft card, one row per signal, colored by severity. -->
+<section class="hpg-card mb-6">
+  <div class="flex items-center gap-3 mb-4">
+    <span class="hpg-chip bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z"/></svg>
+    </span>
+    <div>
+      <h2 class="font-semibold text-slate-800 dark:text-slate-100">Needs attention</h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400">Highest-priority signals across the fleet.</p>
+    </div>
+  </div>
+  {{if .Attention}}
+  <ul class="space-y-2">
+    {{range .Attention}}
+    <li>
+      <a href="{{.URL}}" class="group flex items-center gap-3 rounded-xl px-3 py-2.5 ring-1 transition-colors
+        {{if eq .Severity "error"}}ring-rose-200/70 dark:ring-rose-500/25 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/15
+        {{else if eq .Severity "warn"}}ring-amber-200/70 dark:ring-amber-500/25 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/15
+        {{else}}ring-sky-200/70 dark:ring-sky-500/25 bg-sky-50 dark:bg-sky-500/10 hover:bg-sky-100 dark:hover:bg-sky-500/15{{end}}">
+        <span class="h-2.5 w-2.5 rounded-full flex-shrink-0
+          {{if eq .Severity "error"}}bg-rose-500{{else if eq .Severity "warn"}}bg-amber-500{{else}}bg-sky-500{{end}}"></span>
+        <span class="text-sm flex-1 min-w-0
+          {{if eq .Severity "error"}}text-rose-800 dark:text-rose-300
+          {{else if eq .Severity "warn"}}text-amber-800 dark:text-amber-300
+          {{else}}text-sky-800 dark:text-sky-300{{end}}">{{.Text}}</span>
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 opacity-50 group-hover:opacity-90 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+      </a>
+    </li>
+    {{end}}
+  </ul>
+  {{if .Truncated}}
+  <!-- Attention list was capped; point to the full views. -->
+  <a href="/admin/hosts" class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+    View all hosts
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+  </a>
+  {{end}}
+  {{else}}
+  <div class="flex items-center gap-3 rounded-xl px-4 py-4 ring-1 ring-emerald-200/70 dark:ring-emerald-500/25 bg-emerald-50 dark:bg-emerald-500/10">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-emerald-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+    <div>
+      <div class="text-sm font-medium text-emerald-800 dark:text-emerald-300">All clear</div>
+      <div class="text-xs text-emerald-700/80 dark:text-emerald-400/70">No failing hosts, pending certs, or node issues right now.</div>
+    </div>
+  </div>
+  {{end}}
+</section>
+
+<!-- Lower area: traffic sparkline (left) + recent activity (right). -->
+<div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+  <section class="hpg-card lg:col-span-2">
+    <div class="flex items-center gap-3 mb-4">
+      <span class="hpg-chip bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M2.25 18L9 11.25l4.306 4.307a11.95 11.95 0 015.814-5.519l2.74-1.22m0 0l-5.94-2.28m5.94 2.28l-2.28 5.941"/></svg>
+      </span>
+      <div class="flex-1 flex items-baseline justify-between">
+        <div>
+          <h2 class="font-semibold text-slate-800 dark:text-slate-100">Requests</h2>
+          <p class="text-xs text-slate-500 dark:text-slate-400">Last 24 hours</p>
+        </div>
+        <span class="hpg-pill hpg-pill-muted"><span class="tabular-nums font-semibold text-slate-700 dark:text-slate-200">{{.Traffic.Total}}</span> total</span>
+      </div>
+    </div>
+    {{if .Traffic.Values}}
+    <!-- CSS bars: heights computed client-side from data-v so no template math is needed. -->
+    <div id="dash-spark" class="flex items-end gap-px h-32" aria-hidden="true">
+      {{range .Traffic.Values}}
+      <div class="flex-1 min-w-0 bg-indigo-500/80 dark:bg-indigo-400/70 rounded-t-md transition-[height]" style="height:1px" data-v="{{.}}"></div>
+      {{end}}
+    </div>
+    <div class="flex justify-between text-[10px] text-slate-400 dark:text-slate-500 mt-2 font-mono">
+      {{range $i, $l := .Traffic.Labels}}{{if or (eq $i 0) (eq $i 6) (eq $i 12) (eq $i 18) (eq $i 23)}}<span>{{$l}}</span>{{end}}{{end}}
+    </div>
+    {{else}}
+    <div class="h-32 flex items-center justify-center text-sm text-slate-400 dark:text-slate-500">No traffic data yet.</div>
+    {{end}}
+  </section>
+
+  <section class="hpg-card">
+    <div class="flex items-center justify-between mb-4">
+      <div class="flex items-center gap-3">
+        <span class="hpg-chip bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </span>
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Recent activity</h2>
+      </div>
+      <a href="/admin/audit" class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">View all</a>
+    </div>
+    {{if .RecentEvents}}
+    <ul class="space-y-3">
+      {{range .RecentEvents}}
+      <li class="flex items-start gap-3">
+        <!-- Round initials bubble from the actor. -->
+        <span class="inline-grid place-items-center h-9 w-9 rounded-full bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-slate-300 text-xs font-semibold uppercase shrink-0">
+          {{firstRune .Actor}}
+        </span>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center justify-between gap-2">
+            <code class="text-sm text-slate-800 dark:text-slate-100 truncate">{{.Action}}</code>
+            <span class="text-[10px] text-slate-400 dark:text-slate-500 font-mono flex-shrink-0">{{.When}}</span>
+          </div>
+          <div class="text-xs text-slate-500 dark:text-slate-400 truncate">{{.Actor}}{{if .Entity}} · {{.Entity}}{{end}}</div>
+        </div>
+      </li>
+      {{end}}
+    </ul>
+    {{else}}
+    <div class="py-8 text-center text-sm text-slate-400 dark:text-slate-500">No recent activity.</div>
+    {{end}}
+  </section>
+</div>
+
+{{if .Traffic.Values}}
+<script nonce="{{.CSPNonce}}">
+// Size sparkline bars from data-v values; max-relative heights keep it theme-agnostic.
+(function(){
+  var wrap = document.getElementById('dash-spark');
+  if (!wrap) return;
+  var bars = wrap.querySelectorAll('[data-v]');
+  var max = 0;
+  bars.forEach(function(b){ var v = +b.dataset.v || 0; if (v > max) max = v; });
+  bars.forEach(function(b){
+    var v = +b.dataset.v || 0;
+    var pct = max > 0 ? Math.round((v / max) * 100) : 0;
+    b.style.height = Math.max(pct, 2) + '%';
+    b.title = v + ' req';
+  });
+})();
+</script>
+{{end}}
+{{end}}
