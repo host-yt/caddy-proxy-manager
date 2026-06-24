@@ -152,11 +152,6 @@
             <a href="/theme/mono" data-palette-pick="mono" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "mono" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Mono</span>{{if eq "mono" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
           </div>
         </div>
-        <div class="flex gap-1">
-          <a href="/lang/en" class="px-1 {{if eq .Data.Lang "en"}}text-slate-900 dark:text-white font-medium{{else}}hover:text-slate-900 dark:hover:text-white{{end}}">EN</a>
-          <span class="text-slate-400">|</span>
-          <a href="/lang/pl" class="px-1 {{if eq .Data.Lang "pl"}}text-slate-900 dark:text-white font-medium{{else}}hover:text-slate-900 dark:hover:text-white{{end}}">PL</a>
-        </div>
         <a href="/admin/account" title="Account settings"
            class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-zinc-800 truncate max-w-[14rem] {{if or (eq .Page "admin_account") (eq .Page "api_keys") (eq .Page "twofa")}}bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300 font-medium{{end}}">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
@@ -199,6 +194,9 @@
     {{if eq .Page "stats"}}{{template "stats" .Data}}{{end}}
     {{if eq .Page "stub"}}{{template "stub" .Data}}{{end}}
   </main>
+  <footer class="px-6 py-3 text-center">
+    <p class="text-[10px] text-slate-400 dark:text-slate-600">Built with love from 🇺🇦 &amp; 🇵🇱</p>
+  </footer>
 </div>
 
 <!-- Toast container (bottom-right). Auto-injected toasts stack here. -->
