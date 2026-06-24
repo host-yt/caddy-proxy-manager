@@ -79,6 +79,10 @@ type hostRow struct {
 	ExternalHost string
 	IssuedAt     string // ssl_issued_at hint (issued, NOT expiry); empty if unset
 
+	// SSOProviderURL non-empty = SSO gate active; drives the badge in the table.
+	SSOProviderURL string
+	SSOStrictMode  bool
+
 	// Derived view-model fields for the at-a-glance table (filled below).
 	BackendDisplay string
 	CertStatus     string // "active" | "pending" | "off"
@@ -208,7 +212,8 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	             p.name, p.kind,
 	             n.id, n.name, n.public_hostname,
 	             COALESCE(r.upstream_external,0), COALESCE(r.upstream_host_header,''),
-	             COALESCE(DATE_FORMAT(r.ssl_issued_at,'%Y-%m-%d %H:%i'),'')
+	             COALESCE(DATE_FORMAT(r.ssl_issued_at,'%Y-%m-%d %H:%i'),''),
+	             COALESCE(r.sso_provider_url,''), COALESCE(r.sso_strict_mode,0)
 	      FROM routes r
 	      JOIN services s    ON s.id = r.service_id
 	      JOIN clients c     ON c.id = s.client_id
@@ -242,6 +247,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 			&hr.PlanName, &hr.PlanKind,
 			&hr.NodeID, &hr.NodeName, &hr.NodeHostname,
 			&hr.External, &extHostHeader, &hr.IssuedAt,
+			&hr.SSOProviderURL, &hr.SSOStrictMode,
 		); err == nil {
 			hr.ExternalHost = extHostHeader
 			hr.BackendDisplay = hostBackendDisplay(hr)
@@ -1287,6 +1293,7 @@ type hostEditData struct {
 	SSOHosts string
 	// SSOViaWGPeerID binds the SSO provider call to a WG tunnel peer.
 	SSOViaWGPeerID int64
+	SSOStrictMode  bool
 
 	// External HTTPS upstream (admin-only). When External, BackendIP holds the
 	// upstream FQDN (= backend_ip_override). HasProxySecret is whether an
@@ -1333,6 +1340,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	var baUser, baHash sql.NullString
 	var ssoURL, ssoCopy, ssoTrusted, ssoPaths, ssoHosts sql.NullString
 	var ssoViaPeer sql.NullInt64
+	var ssoStrictMode bool
 	var extFlag bool
 	var extHostHeader, secretEnc sql.NullString
 	err := db.QueryRowContext(ctx,
@@ -1350,6 +1358,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        r.sso_provider_url, r.sso_copy_headers, r.sso_trusted_proxies,
 		        COALESCE(r.sso_paths,''), COALESCE(r.sso_hosts,''),
 		        r.sso_via_wg_peer_id,
+		        COALESCE(r.sso_strict_mode,0),
 		        COALESCE(r.upstream_external,0), COALESCE(r.upstream_host_header,''), COALESCE(r.proxy_secret_enc,''),
 		        COALESCE(r.compress_disabled,0),
 		        COALESCE(r.lb_policy,''),
@@ -1379,6 +1388,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&ssoURL, &ssoCopy, &ssoTrusted,
 		&ssoPaths, &ssoHosts,
 		&ssoViaPeer,
+		&ssoStrictMode,
 		&extFlag, &extHostHeader, &secretEnc,
 		&d.CompressDisabled,
 		&d.LBPolicy,
@@ -1484,6 +1494,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	if ssoViaPeer.Valid {
 		d.SSOViaWGPeerID = ssoViaPeer.Int64
 	}
+	d.SSOStrictMode = ssoStrictMode
 	d.ClientTunnels = loadClientTunnels(ctx, db, clientID)
 	if headersJSON.Valid && headersJSON.String != "" {
 		var m map[string]string
@@ -1697,6 +1708,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	ssoPaths := sanitizePathList(r.FormValue("sso_paths"))
 	ssoHosts := sanitizeHostList(r.FormValue("sso_hosts"))
 	ssoViaPeerID, _ := strconv.ParseInt(r.FormValue("sso_via_wg_peer_id"), 10, 64)
+	ssoStrictMode := r.FormValue("sso_strict_mode") == "1"
 	customCfg, err3 := sanitizeCustomConfig(r.FormValue("custom_config"))
 	if err3 != nil {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "custom config: "+sanitizeErr(err3))
@@ -2024,7 +2036,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   custom_config = ?,
 			   basic_auth_user = ?,
 			   sso_provider_url = ?, sso_copy_headers = ?, sso_trusted_proxies = ?,
-			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?,
+			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -2051,7 +2063,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			customCfgVal,
 			basicUserUpdate,
 			ssoProviderURLVal, ssoCopyHeadersVal, ssoTrustedProxiesVal,
-			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID),
+			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
 			id)
 	} else {
 		_, err = h.DB().ExecContext(ctx,
@@ -2080,7 +2092,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   custom_config = ?,
 			   basic_auth_user = ?, basic_auth_bcrypt = ?,
 			   sso_provider_url = ?, sso_copy_headers = ?, sso_trusted_proxies = ?,
-			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?,
+			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -2107,7 +2119,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			customCfgVal,
 			basicUserUpdate, basicHashUpdate,
 			ssoProviderURLVal, ssoCopyHeadersVal, ssoTrustedProxiesVal,
-			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID),
+			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
 			id)
 	}
 	if err != nil {

@@ -1636,6 +1636,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		        COALESCE(r.basic_auth_user,''), COALESCE(r.basic_auth_bcrypt,''),
 		        COALESCE(r.sso_provider_url,''), COALESCE(r.sso_copy_headers,''), COALESCE(r.sso_trusted_proxies,''),
 		        COALESCE(r.sso_paths,''), COALESCE(r.sso_hosts,''),
+		        COALESCE(r.sso_strict_mode,0),
 		        COALESCE(sso_peer.assigned_ip, ''),
 	        COALESCE(r.upstream_external, 0), COALESCE(r.upstream_host_header, ''), COALESCE(r.proxy_secret_enc, ''),
 	        COALESCE(r.compress_disabled, 0),
@@ -1703,6 +1704,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var baUser, baHash string
 		var ssoProviderURL, ssoCopyHeadersRaw, ssoTrustedProxies string
 		var ssoPathsRaw, ssoHostsRaw string
+		var ssoStrictMode bool
 		var ssoResolverIP string
 		var upstreamExternal bool
 		var upstreamHostHeader, proxySecretEnc string
@@ -1727,6 +1729,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&viaPeerID, &peerStatus, &baUser, &baHash,
 			&ssoProviderURL, &ssoCopyHeadersRaw, &ssoTrustedProxies,
 			&ssoPathsRaw, &ssoHostsRaw,
+			&ssoStrictMode,
 			&ssoResolverIP,
 			&upstreamExternal, &upstreamHostHeader, &proxySecretEnc,
 			&compressDisabled,
@@ -1868,7 +1871,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			// SSO-via-tunnel: peer IP is used as static dial host (port
 			// comes from SSO Provider URL). No DNS lookup attempted - peer
 			// must expose the IdP port on its host network.
-			SSOResolver: ssoResolverIP,
+			SSOResolver:   ssoResolverIP,
+			SSOStrictMode: ssoStrictMode,
 
 			// External HTTPS upstream: SNI + Host both use the stored header
 			// (falls back to the FQDN in the builder); ProxySecret gates inbound.

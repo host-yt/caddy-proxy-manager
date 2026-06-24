@@ -93,6 +93,11 @@ type Route struct {
 	// forward_auth subrequest reach an IdP that lives on a remote
 	// tunnel-only network instead of going over the public internet.
 	SSOResolver string
+	// SSOStrictMode extends the SSO gate to ALL HTTP methods (not just GET/HEAD)
+	// and returns 401 JSON when the IdP replies with a redirect (3xx) instead of
+	// passing the redirect through to the client. Use for API-only routes.
+	// When false (default), the gate only checks GET/HEAD document loads.
+	SSOStrictMode bool
 
 	// External marks a reverse_proxy route whose upstream is an allowlisted
 	// EXTERNAL HTTPS origin (e.g. adm.tools), reached from the node's egress
@@ -642,6 +647,26 @@ func BuildRoute(r Route) map[string]any {
 				map[string]any{"handle": h},
 			}
 		}
+		// hrHandlers starts with the success handler (2xx = continue to backend).
+		// In strict mode, add a 3xx handler: IdP redirect = not authenticated = 401.
+		hrHandlers := []any{hr}
+		if r.SSOStrictMode {
+			hrHandlers = append(hrHandlers, map[string]any{
+				"match": map[string]any{"status_code": []int{3}},
+				"routes": []any{
+					map[string]any{
+						"handle": []any{
+							map[string]any{
+								"handler":     "static_response",
+								"status_code": 401,
+								"headers":     map[string]any{"Content-Type": []string{"application/json"}},
+								"body":        `{"error":"unauthorized"}`,
+							},
+						},
+					},
+				},
+			})
+		}
 		// X-Forwarded-Uri MUST be the ORIGINAL request URI, not the
 		// rewritten /outpost.goauthentik.io/auth/caddy. Authentik reads
 		// that header to know where to redirect the user after login -
@@ -673,7 +698,7 @@ func BuildRoute(r Route) map[string]any {
 					"delete": []string{"Content-Length"},
 				},
 			},
-			"handle_response": []any{hr},
+			"handle_response": hrHandlers,
 		})
 		// Forward-auth ONLY runs on safe methods (GET, HEAD). Caddy's
 		// reverse_proxy consumes the request body when it sends the auth
@@ -739,30 +764,35 @@ func BuildRoute(r Route) map[string]any {
 		if len(r.SSOHosts) > 0 {
 			ssoMatch["host"] = r.SSOHosts
 		}
-		handlers = append(handlers, map[string]any{
-			"handler": "subroute",
-			"routes": []any{
+		// In strict mode: gate all methods with no path/header exclusions.
+		// In default mode: gate only GET/HEAD document loads (ssoMatch restrictions apply).
+		authRoute := map[string]any{
+			"handle": []any{
 				map[string]any{
-					"match": []any{ssoMatch},
-					"handle": []any{
+					"handler": "subroute",
+					"routes": []any{
 						map[string]any{
-							"handler": "subroute",
-							"routes": []any{
+							"handle": []any{
 								map[string]any{
-									"handle": []any{
-										map[string]any{
-											"handler": "rewrite",
-											"method":  "GET",
-											"uri":     "/outpost.goauthentik.io/auth/caddy",
-										},
-										fwd,
-									},
+									"handler": "rewrite",
+									"method":  "GET",
+									"uri":     "/outpost.goauthentik.io/auth/caddy",
 								},
+								fwd,
 							},
 						},
 					},
 				},
 			},
+		}
+		if !r.SSOStrictMode {
+			// Default mode only: restrict the auth gate to document-load GET/HEAD.
+			// Strict mode (no match key) catches everything after the outpost passthrough.
+			authRoute["match"] = []any{ssoMatch}
+		}
+		handlers = append(handlers, map[string]any{
+			"handler": "subroute",
+			"routes":  []any{authRoute},
 		})
 		// Belt + braces: restore the original URI after forward_auth so the
 		// downstream backend reverse_proxy never sees the rewritten /auth/caddy
