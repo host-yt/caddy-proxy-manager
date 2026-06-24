@@ -64,7 +64,7 @@ type Metrics struct {
 	rateLimitHits *prometheus.CounterVec // labels: bucket
 
 	// On-Demand TLS /internal/ask
-	askDecisions *prometheus.CounterVec // labels: outcome
+	askDecisions *prometheus.CounterVec // labels: host, outcome
 }
 
 // New returns a Metrics with all collectors registered against a fresh
@@ -360,7 +360,9 @@ func (m *Metrics) RateLimitHit(bucket string) {
 	m.rateLimitHits.WithLabelValues(bucket).Inc()
 }
 
-// AskDecision records a /internal/ask outcome (allow|deny|rate_limited).
+// AskDecision records a /internal/ask outcome. Label is outcome only
+// (allow|deny|rate_limited): the endpoint is public and pre-auth, so labeling
+// by the raw requested domain would let an attacker explode metric cardinality.
 func (m *Metrics) AskDecision(outcome string) {
 	if m == nil {
 		return

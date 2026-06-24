@@ -10,6 +10,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/hostyt/proxy-gateway/internal/obs"
 	"github.com/hostyt/proxy-gateway/internal/security"
 )
 
@@ -24,6 +25,7 @@ type AskHandler struct {
 	DB          func() *sql.DB
 	RDB         *redis.Client
 	Logger      *slog.Logger
+	Metrics     *obs.Metrics
 	PerIPPerMin int // requests per IP per minute; 0 disables
 }
 
@@ -54,6 +56,7 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			}
 			if int(n) > h.PerIPPerMin {
 				h.Logger.Warn("ask rate limited", "ip", ip, "n", n)
+				h.Metrics.AskDecision("rate_limited")
 				http.Error(w, "rate limited", http.StatusTooManyRequests)
 				return
 			}
@@ -62,6 +65,7 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	db := h.DB()
 	if db == nil {
+		h.Metrics.AskDecision("deny")
 		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
@@ -77,9 +81,11 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		cancel()
 		switch {
 		case err == nil && v == "1":
+			h.Metrics.AskDecision("allow")
 			w.WriteHeader(http.StatusOK)
 			return
 		case err == nil && v == "0":
+			h.Metrics.AskDecision("deny")
 			http.Error(w, "denied", http.StatusForbidden)
 			return
 		}
@@ -106,9 +112,11 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !allowed {
+		h.Metrics.AskDecision("deny")
 		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
+	h.Metrics.AskDecision("allow")
 	w.WriteHeader(http.StatusOK)
 }
 

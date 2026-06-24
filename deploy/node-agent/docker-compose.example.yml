@@ -31,6 +31,13 @@ services:
       HPG_REQUIRE_NFTABLES: "0"
       HPG_TUNNEL_TRANSPORT: "udp"             # udp|wss|auto — wss/auto starts wstunnel
       HPG_WSTUNNEL_PORT: ""                    # loopback port for wstunnel server (e.g. 51823)
+      # Access-log forwarding: tail Caddy's access log and POST to the panel's
+      # authenticated /internal/access-log. Requires the same host path mounted
+      # into the caddy service at /var/log/caddy (see remote-node compose).
+      HPG_CADDY_ACCESS_LOG: "/var/log/caddy/access.log"
+    volumes:
+      # Shared with caddy: agent reads the rolling access log Caddy writes.
+      - /opt/hostyt-node/caddy-logs:/var/log/caddy:ro
     # Healthcheck: agent prints reconcile JSON every poll; if no log
     # for 90s, container is wedged. Pair with restart policy above.
     healthcheck:

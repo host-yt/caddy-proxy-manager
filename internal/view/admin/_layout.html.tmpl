@@ -92,6 +92,11 @@
         <a href="/admin/settings/external-allowlist" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "external_allowlist"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">External allowlist</a>
       </div>
 
+      <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-3 mb-1.5 mt-5 pt-4 border-t border-slate-200/80 dark:border-zinc-800">Tools</p>
+      <div class="space-y-0.5">
+        <a href="/admin/tools/npm-import" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "npm_import"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">NPM import</a>
+      </div>
+
       <div class="mt-5 pt-4 border-t border-slate-200 dark:border-zinc-800">
         <a href="/api-docs" target="_blank" rel="noopener" class="block px-3 py-1.5 rounded-lg transition-colors text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white">API docs ↗</a>
       </div>
@@ -193,6 +198,7 @@
     {{if eq .Page "external_allowlist"}}{{template "external_allowlist" .Data}}{{end}}
     {{if eq .Page "stats"}}{{template "stats" .Data}}{{end}}
     {{if eq .Page "stub"}}{{template "stub" .Data}}{{end}}
+    {{if eq .Page "host_logs"}}{{template "host_logs" .Data}}{{end}}
   </main>
   <footer class="px-6 py-3 text-center">
     <p class="text-[10px] text-slate-400 dark:text-slate-600">Made with ❤️ in 🇺🇦 &amp; 🇵🇱</p>

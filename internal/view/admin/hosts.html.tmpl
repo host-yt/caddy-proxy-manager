@@ -116,18 +116,18 @@
             {{if eq .PlanKind "npm"}}<span class="hpg-pill bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300 ml-1">NPM</span>{{end}}
           </td>
           <td class="px-4 py-4 align-top text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.NodeName}} <span class="text-slate-400">{{.NodeHostname}}</span></td>
-          <td class="pl-2 pr-5 py-4 align-top text-right">
-            <!-- Inline actions: scroll horizontally with the table (reachable) instead of a clipped overflow popup. -->
-            <div class="inline-flex items-center gap-1.5 text-xs whitespace-nowrap">
-              <a href="/admin/hosts/{{.RouteID}}/edit" class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/15">edit</a>
-              <a href="https://{{.Domain}}" target="_blank" rel="noopener" title="Open site" class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800">open ↗</a>
+          <td class="pl-2 pr-5 py-4 align-top text-right relative">
+            <!-- Desktop: full inline button row (hidden on mobile via CSS). -->
+            <div class="hpg-act-desktop inline-flex items-center gap-1.5 text-xs whitespace-nowrap">
+              <a href="/admin/hosts/{{.RouteID}}/edit" class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/15 cursor-pointer transition-colors duration-150">edit</a>
+              <a href="https://{{.Domain}}" target="_blank" rel="noopener" title="Open site" class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors duration-150">open ↗</a>
               <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" class="inline" title="Re-run DNS check + re-push to Caddy (forces cert reissue if ACME has been failing)">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:text-emerald-600">retry</button>
+                <button class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800 hover:text-emerald-600 cursor-pointer transition-colors duration-150">retry</button>
               </form>
               <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle" class="inline">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/15">{{if eq .Status "disabled"}}enable{{else}}disable{{end}}</button>
+                <button class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/15 cursor-pointer transition-colors duration-150">{{if eq .Status "disabled"}}enable{{else}}disable{{end}}</button>
               </form>
               <!-- htmx removes the row in place; no-JS falls back to a full POST.
                    hx-confirm is routed through hpgConfirm by the htmx:confirm hook. -->
@@ -136,7 +136,57 @@
                     hx-target="#host-row-{{.RouteID}}" hx-swap="outerHTML swap:150ms"
                     hx-confirm="Delete {{.Domain}}? This cannot be undone.">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="px-2 py-1 rounded-md ring-1 ring-rose-200/70 dark:ring-rose-500/30 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/15">delete</button>
+                <button class="px-2 py-1 rounded-md ring-1 ring-rose-200/70 dark:ring-rose-500/30 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/15 cursor-pointer transition-colors duration-150">delete</button>
+              </form>
+            </div>
+
+            <!-- Mobile: three-dot toggle (visible only on mobile via CSS). -->
+            <button type="button" class="hpg-act-toggle" aria-label="Row actions" aria-expanded="false" aria-haspopup="true"
+                    data-hpg-act-btn="host-act-{{.RouteID}}">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                <circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/>
+              </svg>
+            </button>
+
+            <!-- Dropdown menu panel. -->
+            <div id="host-act-{{.RouteID}}" class="hpg-act-menu" role="menu">
+              <a href="/admin/hosts/{{.RouteID}}/edit" class="hpg-act-item" role="menuitem">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                Edit
+              </a>
+              <a href="https://{{.Domain}}" target="_blank" rel="noopener" class="hpg-act-item" role="menuitem">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                Open site
+              </a>
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" title="Re-run DNS check + re-push to Caddy">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit" class="hpg-act-item" role="menuitem">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.85"/></svg>
+                  Retry
+                </button>
+              </form>
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit" class="hpg-act-item" role="menuitem">
+                  {{if eq .Status "disabled"}}
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="22 11.08 22 12 12 22 2 12 12 2 22 11.08"/></svg>
+                  Enable
+                  {{else}}
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
+                  Disable
+                  {{end}}
+                </button>
+              </form>
+              <div style="height:1px;background:rgba(148,163,184,0.2);margin:0.25rem 0.4rem;border-radius:1px;"></div>
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/delete"
+                    hx-post="/admin/hosts/{{.RouteID}}/delete"
+                    hx-target="#host-row-{{.RouteID}}" hx-swap="outerHTML swap:150ms"
+                    hx-confirm="Delete {{.Domain}}? This cannot be undone.">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit" class="hpg-act-item is-danger" role="menuitem">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                  Delete
+                </button>
               </form>
             </div>
           </td>
@@ -163,30 +213,67 @@
 
   <script nonce="{{.CSPNonce}}">
   (function(){
+    /* ── Bulk action ───────────────────────────────────────────────── */
     var btn = document.getElementById('hosts-bulk-apply');
-    if (!btn) return;
-    btn.addEventListener('click', function(){
-      var sel = document.getElementById('hosts-bulk-select');
-      var action = sel.value;
-      var ids = Array.from(document.querySelectorAll('tbody input[type="checkbox"][name="ids"]:checked')).map(function(c){ return c.value; });
-      if (ids.length === 0) { window.hpgToast && window.hpgToast('Select at least one row.', 'warn'); return; }
-      var msg = action === 'delete' ? 'Delete '+ids.length+' host(s)? This cannot be undone.' : action+' '+ids.length+' host(s)?';
-      var go = function(){
-        document.getElementById('hosts-bulk-action').value = action;
-        var box = document.getElementById('hosts-bulk-ids');
-        box.innerHTML = '';
-        ids.forEach(function(v){
-          var i = document.createElement('input');
-          i.type = 'hidden'; i.name = 'ids'; i.value = v;
-          box.appendChild(i);
-        });
-        document.getElementById('hosts-bulk-form').submit();
-      };
-      if (window.hpgConfirm) {
-        window.hpgConfirm(msg).then(function(ok){ if (ok) go(); });
-      } else if (confirm(msg)) {
-        go();
+    if (btn) {
+      btn.addEventListener('click', function(){
+        var sel = document.getElementById('hosts-bulk-select');
+        var action = sel.value;
+        var ids = Array.from(document.querySelectorAll('tbody input[type="checkbox"][name="ids"]:checked')).map(function(c){ return c.value; });
+        if (ids.length === 0) { window.hpgToast && window.hpgToast('Select at least one row.', 'warn'); return; }
+        var msg = action === 'delete' ? 'Delete '+ids.length+' host(s)? This cannot be undone.' : action+' '+ids.length+' host(s)?';
+        var go = function(){
+          document.getElementById('hosts-bulk-action').value = action;
+          var box = document.getElementById('hosts-bulk-ids');
+          box.innerHTML = '';
+          ids.forEach(function(v){
+            var i = document.createElement('input');
+            i.type = 'hidden'; i.name = 'ids'; i.value = v;
+            box.appendChild(i);
+          });
+          document.getElementById('hosts-bulk-form').submit();
+        };
+        if (window.hpgConfirm) {
+          window.hpgConfirm(msg).then(function(ok){ if (ok) go(); });
+        } else if (confirm(msg)) {
+          go();
+        }
+      });
+    }
+
+    /* ── Mobile row-action dropdown ────────────────────────────────── */
+    var openMenu = null; // currently open menu element
+
+    function closeOpen() {
+      if (openMenu) {
+        openMenu.classList.remove('is-open');
+        var prev = document.querySelector('[data-hpg-act-btn][aria-expanded="true"]');
+        if (prev) prev.setAttribute('aria-expanded', 'false');
+        openMenu = null;
       }
+    }
+
+    document.addEventListener('click', function(e) {
+      var toggle = e.target.closest('[data-hpg-act-btn]');
+      if (toggle) {
+        e.stopPropagation();
+        var menuId = toggle.dataset.hpgActBtn;
+        var menu = document.getElementById(menuId);
+        if (!menu) return;
+        if (openMenu && openMenu !== menu) closeOpen();
+        var isNowOpen = !menu.classList.contains('is-open');
+        menu.classList.toggle('is-open', isNowOpen);
+        toggle.setAttribute('aria-expanded', isNowOpen ? 'true' : 'false');
+        openMenu = isNowOpen ? menu : null;
+        return;
+      }
+      // Click outside closes any open menu.
+      if (openMenu && !e.target.closest('.hpg-act-menu')) closeOpen();
+    });
+
+    // Escape key closes open menu.
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeOpen();
     });
   })();
   </script>

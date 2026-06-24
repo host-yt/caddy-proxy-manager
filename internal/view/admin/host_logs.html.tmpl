@@ -1,0 +1,129 @@
+{{define "host_logs"}}
+<div class="space-y-4 max-w-7xl">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <a href="/admin/hosts/{{.RouteID}}/edit" class="text-xs text-slate-500 hover:text-indigo-600">← edit host</a>
+      <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100 mt-0.5">
+        Access logs
+        {{if .Domain}}<span class="text-sm font-normal text-slate-500 dark:text-slate-400 font-mono ml-1">{{.Domain}}</span>{{end}}
+      </h2>
+    </div>
+    <div class="flex items-center gap-2">
+      <!-- Live tail toggle -->
+      <button id="btn-tail" type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg ring-1 ring-emerald-300 dark:ring-emerald-700 text-emerald-700 dark:text-emerald-400 text-xs font-medium hover:bg-emerald-50 dark:hover:bg-emerald-500/10 cursor-pointer transition-colors">
+        <span id="tail-dot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+        <span id="tail-label">Start live tail</span>
+      </button>
+      <a href="/admin/hosts/{{.RouteID}}/logs.json" target="_blank"
+        class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+        JSON
+      </a>
+    </div>
+  </div>
+
+  {{if .Error}}
+  <div class="hpg-alert-err text-sm">{{.Error}}</div>
+  {{end}}
+
+  {{if not .Entries}}
+  <div class="hpg-card text-sm text-slate-500 dark:text-slate-400 text-center py-12">
+    No log entries yet. Entries appear here once Caddy starts forwarding requests.
+  </div>
+  {{end}}
+
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm" id="log-table">
+        <thead>
+          <tr class="border-b border-slate-100 dark:border-zinc-800 text-left">
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">Time</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Method</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Path</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Status</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Latency</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Remote IP</th>
+          </tr>
+        </thead>
+        <tbody id="log-body" class="divide-y divide-slate-100 dark:divide-zinc-800">
+          {{range .Entries}}
+          <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
+            <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono">{{.TS.Format "2006-01-02 15:04:05"}}</td>
+            <td class="px-4 py-2"><span class="hpg-method-badge text-xs font-mono font-semibold">{{.Method}}</span></td>
+            <td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate" title="{{.URI}}">{{.URI}}</td>
+            <td class="px-4 py-2">
+              <span class="inline-block px-1.5 py-0.5 rounded text-xs font-semibold font-mono
+                {{if lt .Status 300}}text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10
+                {{else if lt .Status 400}}text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-amber-500/10
+                {{else}}text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-500/10{{end}}">
+                {{.Status}}
+              </span>
+            </td>
+            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{.LatencyMS}}ms</td>
+            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{.RemoteIP}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{if .Entries}}
+    <div class="px-4 py-2 border-t border-slate-100 dark:border-zinc-800 text-xs text-slate-400">
+      Showing last {{len .Entries}} entries (max 100). <a href="?reload=1" class="text-indigo-500 hover:underline">Refresh</a>
+    </div>
+    {{end}}
+  </section>
+</div>
+
+<script>
+(function(){
+  var routeID = {{.RouteID}};
+  var btn = document.getElementById('btn-tail');
+  var dot = document.getElementById('tail-dot');
+  var label = document.getElementById('tail-label');
+  var tbody = document.getElementById('log-body');
+  var es = null;
+  var maxRows = 200;
+
+  function statusClass(s){
+    if(s < 300) return 'text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10';
+    if(s < 400) return 'text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-amber-500/10';
+    return 'text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-500/10';
+  }
+
+  function prependRow(e){
+    var ts = new Date(e.ts).toLocaleString('sv').replace('T',' ');
+    var tr = document.createElement('tr');
+    tr.className = 'hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors';
+    tr.innerHTML = [
+      '<td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono">'+ts+'</td>',
+      '<td class="px-4 py-2"><span class="text-xs font-mono font-semibold">'+e.method+'</span></td>',
+      '<td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate" title="'+e.uri+'">'+e.uri+'</td>',
+      '<td class="px-4 py-2"><span class="inline-block px-1.5 py-0.5 rounded text-xs font-semibold font-mono '+statusClass(e.status)+'">'+e.status+'</span></td>',
+      '<td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">'+e.latency_ms+'ms</td>',
+      '<td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">'+e.remote_ip+'</td>',
+    ].join('');
+    tbody.insertBefore(tr, tbody.firstChild);
+    // Trim to maxRows
+    while(tbody.rows.length > maxRows) tbody.deleteRow(tbody.rows.length-1);
+  }
+
+  function startTail(){
+    if(es) return;
+    es = new EventSource('/admin/hosts/'+routeID+'/logs/stream');
+    es.addEventListener('log', function(ev){
+      try{ prependRow(JSON.parse(ev.data)); }catch(e){}
+    });
+    es.onerror = function(){ stopTail(); };
+    dot.classList.replace('bg-slate-400','bg-emerald-500');
+    label.textContent = 'Stop live tail';
+  }
+  function stopTail(){
+    if(es){ es.close(); es=null; }
+    dot.classList.replace('bg-emerald-500','bg-slate-400');
+    label.textContent = 'Start live tail';
+  }
+
+  btn.addEventListener('click', function(){ es ? stopTail() : startTail(); });
+})();
+</script>
+{{end}}

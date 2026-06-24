@@ -1,0 +1,112 @@
+{{define "npm_import"}}
+<div class="max-w-2xl space-y-6">
+
+  <div class="hpg-card">
+    <h2 class="hpg-eyebrow mb-1">Import from Nginx Proxy Manager</h2>
+    <p class="text-sm text-slate-500 dark:text-zinc-400 mb-5">
+      Upload your own NPM JSON backup (<code>Full Backup</code> export).
+      Only <strong>enabled</strong> proxy hosts are imported; redirects and stream hosts are skipped.
+    </p>
+
+    <form id="npm-import-form" enctype="multipart/form-data" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+      <div>
+        <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1" for="npm-file">
+          NPM backup file (.json)
+        </label>
+        <input id="npm-file" type="file" name="file" accept=".json"
+               class="block w-full text-sm text-slate-700 dark:text-zinc-300
+                      file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0
+                      file:text-sm file:font-medium file:cursor-pointer
+                      file:bg-indigo-50 file:text-indigo-700 dark:file:bg-indigo-500/20 dark:file:text-indigo-300
+                      hover:file:bg-indigo-100 dark:hover:file:bg-indigo-500/30">
+      </div>
+
+      <button type="submit" id="npm-import-btn"
+              class="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer disabled:opacity-60">
+        Import
+      </button>
+    </form>
+  </div>
+
+  <!-- result card - hidden until submission -->
+  <div id="npm-result" class="hpg-card hidden">
+    <h3 class="hpg-eyebrow mb-3">Import result</h3>
+    <div class="flex gap-6 mb-4">
+      <div class="text-center">
+        <div id="npm-imported" class="text-3xl font-bold text-emerald-600 dark:text-emerald-400">0</div>
+        <div class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">imported</div>
+      </div>
+      <div class="text-center">
+        <div id="npm-skipped" class="text-3xl font-bold text-amber-500 dark:text-amber-400">0</div>
+        <div class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">skipped</div>
+      </div>
+    </div>
+    <div id="npm-errors-wrap" class="hidden">
+      <p class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Errors</p>
+      <ul id="npm-errors" class="text-xs text-rose-600 dark:text-rose-400 space-y-1 list-disc pl-4"></ul>
+    </div>
+    <a href="/admin/hosts" class="mt-4 inline-block text-sm text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">
+      View hosts &rarr;
+    </a>
+  </div>
+
+</div>
+
+<script nonce="{{.CSPNonce}}">
+(function () {
+  var form = document.getElementById('npm-import-form');
+  var btn  = document.getElementById('npm-import-btn');
+  var resultCard = document.getElementById('npm-result');
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    var fileInput = document.getElementById('npm-file');
+    if (!fileInput.files.length) {
+      alert('Please select a JSON file.');
+      return;
+    }
+    btn.disabled = true;
+    btn.textContent = 'Importing…';
+
+    var fd = new FormData(form);
+    fetch('/admin/tools/npm-import', { method: 'POST', body: fd })
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (data.error) {
+          alert('Error: ' + data.error);
+          btn.disabled = false;
+          btn.textContent = 'Import';
+          return;
+        }
+        document.getElementById('npm-imported').textContent = data.imported || 0;
+        document.getElementById('npm-skipped').textContent  = data.skipped  || 0;
+
+        var errWrap = document.getElementById('npm-errors-wrap');
+        var errList = document.getElementById('npm-errors');
+        errList.innerHTML = '';
+        if (data.errors && data.errors.length) {
+          data.errors.forEach(function (e) {
+            var li = document.createElement('li');
+            li.textContent = e;
+            errList.appendChild(li);
+          });
+          errWrap.classList.remove('hidden');
+        } else {
+          errWrap.classList.add('hidden');
+        }
+
+        resultCard.classList.remove('hidden');
+        btn.textContent = 'Import again';
+        btn.disabled = false;
+      })
+      .catch(function (err) {
+        alert('Request failed: ' + err);
+        btn.disabled = false;
+        btn.textContent = 'Import';
+      });
+  });
+})();
+</script>
+{{end}}

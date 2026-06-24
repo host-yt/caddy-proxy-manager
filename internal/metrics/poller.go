@@ -4,6 +4,11 @@
 // Caddy must have the `metrics` module configured (we enable it on the
 // Admin API listener by default). The endpoint speaks the Prometheus
 // text-format; we parse only the counters we care about.
+//
+// Per-host granularity: Caddy's built-in caddy_http_requests_total uses
+// {server, handler, code, method} labels - no host/SNI label per vhost.
+// When Caddy exposes a "server_name" label (custom builds or future versions),
+// parse() extracts it into HostSamples for per-domain accounting.
 package metrics
 
 import (
@@ -19,6 +24,12 @@ import (
 	"time"
 )
 
+// HostSample holds per-domain request/error counters extracted from Caddy labels.
+type HostSample struct {
+	RequestsTotal uint64
+	ErrorsTotal   uint64
+}
+
 // Sample is one snapshot of cumulative counters from a node.
 type Sample struct {
 	NodeID        int64
@@ -27,6 +38,10 @@ type Sample struct {
 	BytesInTotal  uint64
 	BytesOutTotal uint64
 	ActiveConns   uint32
+	// HostSamples aggregates per-domain request/error counts when Caddy
+	// exposes a "server_name" label. Empty on stock Caddy (all vhosts share
+	// the srv0 server label without a per-host breakdown).
+	HostSamples map[string]*HostSample
 }
 
 // Poller polls every enabled node every Interval and writes a Sample.
@@ -127,10 +142,11 @@ func (p *Poller) scrape(ctx context.Context, nodeID int64, apiURL string) (Sampl
 
 // parse reads Prometheus text format and extracts Caddy counters we care about.
 //
-// We sum across labels because Caddy exposes per-server/per-code series and
-// we only need aggregate per-node values at this layer.
+// Node-level aggregates are always accumulated. When a "server_name" label is
+// present (custom Caddy builds or future versions), per-host counters are also
+// collected into Sample.HostSamples keyed by domain name.
 func parse(r io.Reader, nodeID int64) (Sample, error) {
-	s := Sample{NodeID: nodeID}
+	s := Sample{NodeID: nodeID, HostSamples: make(map[string]*HostSample)}
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
@@ -138,13 +154,16 @@ func parse(r io.Reader, nodeID int64) (Sample, error) {
 		if line == "" || line[0] == '#' {
 			continue
 		}
-		name, val, ok := splitMetric(line)
+		name, labels, val, ok := splitMetric(line)
 		if !ok {
 			continue
 		}
 		switch {
 		case startsWith(name, "caddy_http_requests_total"):
 			s.RequestsTotal += uint64(val)
+			if h := labels["server_name"]; h != "" {
+				hostSample(s.HostSamples, h).RequestsTotal += uint64(val)
+			}
 		case startsWith(name, "caddy_http_response_size_bytes_sum"):
 			s.BytesOutTotal += uint64(val)
 		case startsWith(name, "caddy_http_request_size_bytes_sum"):
@@ -153,33 +172,94 @@ func parse(r io.Reader, nodeID int64) (Sample, error) {
 			s.ActiveConns += uint32(val)
 		case startsWith(name, "caddy_http_request_errors_total"):
 			s.ErrorsTotal += uint64(val)
+			if h := labels["server_name"]; h != "" {
+				hostSample(s.HostSamples, h).ErrorsTotal += uint64(val)
+			}
 		}
 	}
 	return s, sc.Err()
+}
+
+// hostSample returns the HostSample for a domain, creating it on first access.
+func hostSample(m map[string]*HostSample, host string) *HostSample {
+	if hs, ok := m[host]; ok {
+		return hs
+	}
+	hs := &HostSample{}
+	m[host] = hs
+	return hs
 }
 
 // splitMetric parses a single Prometheus line:
 //
 //	metric_name{labels...} VALUE [TIMESTAMP]
 //
-// Returns the metric name (no labels) and the numeric value.
-func splitMetric(line string) (string, float64, bool) {
-	// Find first space → value+ts after it.
+// Returns the metric name, a map of label key→value pairs, and the numeric value.
+func splitMetric(line string) (string, map[string]string, float64, bool) {
+	// Last space separates value (+ optional timestamp) from the metric identity.
 	sp := strings.LastIndexByte(line, ' ')
 	if sp < 0 {
-		return "", 0, false
+		return "", nil, 0, false
 	}
 	rest := strings.TrimSpace(line[sp+1:])
 	v, err := strconv.ParseFloat(rest, 64)
 	if err != nil {
-		return "", 0, false
+		return "", nil, 0, false
 	}
 	head := line[:sp]
-	// Strip {labels} if present.
+
+	var labelStr string
+	name := head
 	if i := strings.IndexByte(head, '{'); i > 0 {
-		head = head[:i]
+		name = head[:i]
+		if j := strings.LastIndexByte(head, '}'); j > i {
+			labelStr = head[i+1 : j]
+		}
 	}
-	return strings.TrimSpace(head), v, true
+	return strings.TrimSpace(name), parseLabels(labelStr), v, true
+}
+
+// parseLabels decodes a Prometheus label string (k="v",k2="v2") into a map.
+// Values may contain escaped quotes; we do a best-effort linear scan.
+func parseLabels(s string) map[string]string {
+	if s == "" {
+		return nil
+	}
+	out := make(map[string]string)
+	for s != "" {
+		// key
+		eq := strings.IndexByte(s, '=')
+		if eq < 0 {
+			break
+		}
+		key := strings.TrimSpace(s[:eq])
+		s = s[eq+1:]
+		// quoted value
+		if len(s) == 0 || s[0] != '"' {
+			break
+		}
+		s = s[1:]
+		var val strings.Builder
+		for len(s) > 0 {
+			if s[0] == '\\' && len(s) > 1 {
+				val.WriteByte(s[1])
+				s = s[2:]
+				continue
+			}
+			if s[0] == '"' {
+				s = s[1:]
+				break
+			}
+			val.WriteByte(s[0])
+			s = s[1:]
+		}
+		out[key] = val.String()
+		// skip comma separator
+		if len(s) > 0 && s[0] == ',' {
+			s = s[1:]
+		}
+	}
+	return out
 }
 
 func startsWith(s, prefix string) bool { return strings.HasPrefix(s, prefix) }

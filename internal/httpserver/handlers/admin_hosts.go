@@ -760,6 +760,17 @@ type nodeDetailRow struct {
 	LastSeen      string
 	MaxRoutes     int
 	CurrentRoutes int
+
+	// WG tunnel health surfaced in the detail cockpit.
+	TunnelEnabled      bool
+	TunnelMTU          sql.NullInt32
+	WstunnelHealthy    sql.NullBool
+	FwdIPForward       sql.NullBool
+	FwdPolicyDrop      sql.NullBool
+	FwdFirewallBackend sql.NullString
+	FwdLastSetupError  sql.NullString
+	FwdReportedAt      sql.NullString
+	WGKeepalive        int // always 25 (PersistentKeepalive set by agent)
 }
 
 type nodeAuditLine struct {
@@ -785,17 +796,28 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 	err := db.QueryRowContext(ctx,
 		`SELECT n.id, n.name, n.api_url, n.public_hostname, COALESCE(n.public_ip,''),
 		        ng.name, n.health_status, n.is_enabled, n.approved_at IS NOT NULL,
-		        n.last_seen_at, n.max_routes, n.current_routes
+		        n.last_seen_at, n.max_routes, n.current_routes,
+		        COALESCE(n.tunnel_enabled,0),
+		        n.fwd_mtu, n.tunnel_wstunnel_healthy,
+		        n.fwd_ip_forward_enabled, n.fwd_policy_drop_detected,
+		        n.fwd_firewall_backend, n.fwd_last_setup_error,
+		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),'')
 		 FROM caddy_nodes n JOIN node_groups ng ON ng.id = n.node_group_id
 		 WHERE n.id = ?`, id,
 	).Scan(&d.Node.ID, &d.Node.Name, &d.Node.APIURL, &d.Node.PublicHost, &d.Node.PublicIP,
 		&d.Node.GroupName, &d.Node.Health, &d.Node.Enabled, &d.Node.Approved,
-		&lastSeen, &d.Node.MaxRoutes, &d.Node.CurrentRoutes)
+		&lastSeen, &d.Node.MaxRoutes, &d.Node.CurrentRoutes,
+		&d.Node.TunnelEnabled,
+		&d.Node.TunnelMTU, &d.Node.WstunnelHealthy,
+		&d.Node.FwdIPForward, &d.Node.FwdPolicyDrop,
+		&d.Node.FwdFirewallBackend, &d.Node.FwdLastSetupError,
+		&d.Node.FwdReportedAt)
 	if err != nil {
 		d.Error = "node not found"
 		h.render(w, "node_detail", d)
 		return
 	}
+	d.Node.WGKeepalive = 25
 	if lastSeen.Valid {
 		d.Node.LastSeen = lastSeen.Time.Format("2006-01-02 15:04:05 MST")
 	}

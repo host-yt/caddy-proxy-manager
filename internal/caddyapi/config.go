@@ -64,7 +64,17 @@ type NodeSettings struct {
 	// WstunnelRoute, when non-nil, adds a reverse-proxy route for the wstunnel
 	// WebSocket server that lets customers tunnel WG over HTTPS when UDP is blocked.
 	WstunnelRoute *WstunnelRoute
+
+	// AccessLogURL, when non-empty, enables structured JSON access logging on
+	// the node. Caddy writes to a rolling file (AccessLogFilePath); the
+	// node-agent tails it and forwards lines to the panel's authenticated
+	// /internal/access-log. Empty = logs stay on Caddy's stderr.
+	AccessLogURL string
 }
+
+// AccessLogFilePath is the on-node file both Caddy (writer) and the node-agent
+// (tailer/forwarder) agree on. Mount a shared volume here in the node compose.
+const AccessLogFilePath = "/var/log/caddy/access.log"
 
 // WstunnelRoute carries the node-level data for the wstunnel Caddy route.
 type WstunnelRoute struct {
@@ -200,6 +210,16 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 			"routes": buildErrorRoutes(s.ErrorBranding),
 		},
 	}
+	// Attach per-server access log forwarding when the panel URL is configured.
+	// Caddy POSTs one JSON object per request to AccessLogURL via the "net" sink.
+	// The logger name "hpg_access" lets us reference it in logs.loggers below.
+	if s.AccessLogURL != "" {
+		srv0["logs"] = map[string]any{
+			"logger_names": map[string]any{
+				"*": "hpg_access",
+			},
+		}
+	}
 
 	apps := map[string]any{
 		"http": map[string]any{
@@ -286,7 +306,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		}
 	}
 
-	return map[string]any{
+	root := map[string]any{
 		"admin": map[string]any{
 			// 0.0.0.0:2019 inside the container = docker bridge only,
 			// not host net. Compose deliberately does NOT publish 2019.
@@ -295,6 +315,35 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		},
 		"apps": apps,
 	}
+	// Top-level logging config: "hpg_access" writes structured JSON access logs
+	// to a rolling file on the node. Stock Caddy has no HTTP log writer, and the
+	// "net" writer speaks raw TCP (not HTTP) - feeding it an HTTP URL either
+	// fails config load or silently never delivers. A file writer is stock,
+	// robust, and never breaks a node config load. The node-agent tails this
+	// file and forwards lines to the panel's authenticated /internal/access-log.
+	if s.AccessLogURL != "" {
+		root["logging"] = map[string]any{
+			"logs": map[string]any{
+				"hpg_access": map[string]any{
+					"encoder": map[string]any{"format": "json"},
+					// Scope to access logs only. Without include, a named log
+					// captures ALL Caddy logs (runtime/admin/error), polluting
+					// the file with non-access lines the panel must discard.
+					// srv0.logs.logger_names "*" routes access entries here.
+					"include": []any{"http.log.access.hpg_access"},
+					"writer": map[string]any{
+						"output":         "file",
+						"filename":       AccessLogFilePath,
+						"roll":           true,
+						"roll_size_mb":   20,
+						"roll_keep":      3,
+						"roll_keep_days": 7,
+					},
+				},
+			},
+		}
+	}
+	return root
 }
 
 // buildWstunnelCaddyRoute returns a raw Caddy route object that proxies
