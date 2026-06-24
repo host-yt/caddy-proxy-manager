@@ -280,7 +280,7 @@ func (h *ClientHandlers) ServiceEdit(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			for _, nid := range nodeIDs {
-				_ = h.Routes.Resync(bg, nid)
+				h.Routes.SchedulePush(nid)
 			}
 		}(id)
 	}

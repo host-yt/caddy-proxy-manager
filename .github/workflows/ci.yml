@@ -29,6 +29,9 @@ jobs:
           templ generate || true
           sqlc generate || true
 
+      - name: Check migrations layout
+        run: make check-migrations
+
       - name: Vet
         run: go vet ./...
 

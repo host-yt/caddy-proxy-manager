@@ -13,6 +13,7 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/hostyt/proxy-gateway/internal/accesslog"
 	"github.com/hostyt/proxy-gateway/internal/auth"
 	"github.com/hostyt/proxy-gateway/internal/config"
 	"github.com/hostyt/proxy-gateway/internal/httpserver/handlers"
@@ -47,6 +48,11 @@ type Deps struct {
 	DB       func() *http.Request // unused; kept type-compatible if needed
 	// StatusPage serves the public per-client status page (no auth).
 	StatusPage *handlers.StatusPageHandlers
+	// FOSSBilling drives the /api/v1/provisioning/* endpoints called by FOSSBilling.
+	FOSSBilling *handlers.FOSSBillingHandlers
+
+	// AccessLogIngest receives structured access-log JSON POSTed by Caddy nodes.
+	AccessLogIngest *accesslog.IngestHandler
 }
 
 type Server struct {
@@ -157,6 +163,9 @@ func (s *Server) routes() {
 	r.Get("/install/node.sh", s.deps.NodeJoin.Script)
 
 	r.Get("/internal/ask", s.deps.Ask.ServeHTTP)
+	if s.deps.AccessLogIngest != nil {
+		r.Post("/internal/access-log", s.deps.AccessLogIngest.ServeHTTP)
+	}
 
 	// Customer-WG public endpoints. Bootstrap token (24h, single-shot)
 	// gates the .conf + installer; node-agent uses Bearer node_token.
@@ -254,6 +263,9 @@ func (s *Server) routes() {
 			r.Post("/{id}/toggle", s.deps.Admin.HostsToggle)
 			r.Post("/{id}/retry", s.deps.Admin.HostsRetry)
 			r.Post("/bulk", s.deps.Admin.HostsBulk)
+			r.Get("/{id}/logs", s.deps.Admin.HostsLogs)
+			r.Get("/{id}/logs.json", s.deps.Admin.HostsLogsJSON)
+			r.Get("/{id}/logs/stream", s.deps.Admin.HostsLogsStream)
 		})
 		r.Route("/streams", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.StreamsList)
@@ -358,6 +370,10 @@ func (s *Server) routes() {
 			r.Get("/", s.deps.Admin.LegalDocsPage)
 			r.Post("/save", s.deps.Admin.LegalDocAdmin)
 		})
+		r.Route("/tools", func(r chi.Router) {
+			r.Get("/npm-import", s.deps.Admin.NpmImportPage)
+			r.Post("/npm-import", s.deps.Admin.NpmImportSubmit)
+		})
 		r.Route("/settings", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.SettingsPage)
 			r.Get("/dns-providers", s.deps.Admin.DNSProvidersPage)
@@ -459,6 +475,15 @@ func (s *Server) routes() {
 				r.Post("/", s.deps.API.NodeCreate)
 				r.Post("/{id}/resync", s.deps.API.NodeResync)
 			})
+			if s.deps.FOSSBilling != nil {
+				r.Route("/provisioning", func(r chi.Router) {
+					r.Post("/client", s.deps.FOSSBilling.ProvisionClient)
+					r.Post("/service", s.deps.FOSSBilling.ProvisionService)
+					r.Post("/route", s.deps.FOSSBilling.ProvisionRoute)
+					r.Put("/service/{id}/suspend", s.deps.FOSSBilling.SuspendService)
+					r.Delete("/service/{id}", s.deps.FOSSBilling.DeleteService)
+				})
+			}
 		})
 	})
 
@@ -528,7 +553,7 @@ func installRedirectMiddleware(state *installstate.Manager) func(http.Handler) h
 			case p == "/install",
 				p == "/install/node.sh",
 				p == "/healthz", p == "/readyz", p == "/metrics",
-				p == "/internal/ask", p == "/favicon.ico":
+				p == "/internal/ask", p == "/internal/access-log", p == "/favicon.ico":
 				next.ServeHTTP(w, r)
 				return
 			}

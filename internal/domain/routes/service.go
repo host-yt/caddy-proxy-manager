@@ -76,6 +76,12 @@ type Service struct {
 	PanelInternalHost string
 	PanelInternalPort int
 
+	// AccessLogURL, when non-empty, configures every node's Caddy to forward
+	// structured access logs (JSON, one per request) to this HPG endpoint.
+	// Typically "http://app:8080/internal/access-log" on the internal Docker
+	// network. Empty = logs stay on Caddy stderr.
+	AccessLogURL string
+
 	// Metrics is optional. When set, push/drift counters tick into Prometheus.
 	Metrics PushMetrics
 
@@ -105,8 +111,18 @@ type Service struct {
 	// incremental op already falls back to /load on any error.
 	IncrementalPush bool
 
+	// PushDebounceMs is the coalesce window for per-node config pushes.
+	// Multiple push requests within the window collapse to one push fired
+	// when the timer expires. 0 disables debouncing (immediate push).
+	// Env: HPG_PUSH_DEBOUNCE_MS (default 500).
+	PushDebounceMs int
+
 	nodeMu sync.Mutex
 	locks  map[int64]*sync.Mutex // per-node serialization for Caddy /load
+
+	// debounceMu guards debouncers.
+	debounceMu sync.Mutex
+	debouncers map[int64]*time.Timer // pending debounced push timer per node
 
 	// healthMu guards lastHealth.
 	healthMu   sync.Mutex
@@ -176,6 +192,49 @@ func (s *Service) nodeLock(id int64) *sync.Mutex {
 	}
 	return m
 }
+
+// schedulePush debounces a full-config push to nodeID. Within the debounce
+// window (PushDebounceMs) repeated calls reset the timer; only the last fires.
+// Falls back to an immediate goroutine push when debouncing is disabled (0).
+func (s *Service) schedulePush(nodeID int64) {
+	window := time.Duration(s.PushDebounceMs) * time.Millisecond
+	if window <= 0 {
+		go func() {
+			defer recoverBg(s.Logger, "schedulePush.immediate")
+			ctx, cancel := context.WithTimeout(s.BackgroundCtx(), 30*time.Second)
+			defer cancel()
+			if err := s.pushNodeConfig(ctx, nodeID); err != nil && s.Logger != nil {
+				s.Logger.Warn("immediate push failed", "node_id", nodeID, "err", err)
+			}
+		}()
+		return
+	}
+	s.debounceMu.Lock()
+	defer s.debounceMu.Unlock()
+	if s.debouncers == nil {
+		s.debouncers = make(map[int64]*time.Timer)
+	}
+	if t, ok := s.debouncers[nodeID]; ok {
+		t.Reset(window) // coalesce: push further into the future
+		return
+	}
+	s.debouncers[nodeID] = time.AfterFunc(window, func() {
+		s.debounceMu.Lock()
+		delete(s.debouncers, nodeID)
+		s.debounceMu.Unlock()
+		defer recoverBg(s.Logger, "schedulePush.debounced")
+		ctx, cancel := context.WithTimeout(s.BackgroundCtx(), 30*time.Second)
+		defer cancel()
+		if err := s.pushNodeConfig(ctx, nodeID); err != nil && s.Logger != nil {
+			s.Logger.Warn("debounced push failed", "node_id", nodeID, "err", err)
+		}
+	})
+}
+
+// SchedulePush is the exported debounce entry-point for external callers
+// (handlers, wg_bootstrap) that need to trigger a node push after a config
+// change but don't want to import the full push path directly.
+func (s *Service) SchedulePush(nodeID int64) { s.schedulePush(nodeID) }
 
 // BackgroundCtx returns the app background context (cancelled after shutdown),
 // or context.Background() when unset (tests/dev). Exported so handlers in other
@@ -597,13 +656,7 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 			if n == nodeID {
 				continue
 			}
-			n := n
-			go func() {
-				defer recoverBg(s.Logger, "pushNodeConfig")
-				ctx2, cancel := context.WithTimeout(s.BackgroundCtx(), 30*time.Second)
-				defer cancel()
-				_ = s.pushNodeConfig(ctx2, n)
-			}()
+			s.schedulePush(n)
 		}
 	}
 	return routeID, nil
@@ -641,6 +694,13 @@ func (s *Service) Delete(ctx context.Context, clientID, routeID int64) error {
 		return ErrServiceNotYours
 	}
 
+	// Collect all fan-out nodes before the transaction so we can decrement
+	// every node that holds a copy of this route.
+	fanOutNodes, err := s.fanOutNodes(ctx, routeID, nodeID)
+	if err != nil {
+		return err
+	}
+
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
@@ -649,21 +709,60 @@ func (s *Service) Delete(ctx context.Context, clientID, routeID int64) error {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM routes WHERE id = ?", routeID); err != nil {
 		return err
 	}
+	// Decrement primary node.
 	if _, err := tx.ExecContext(ctx,
 		"UPDATE caddy_nodes SET current_routes = GREATEST(current_routes - 1, 0) WHERE id = ?", nodeID); err != nil {
 		return err
 	}
+	// Decrement fan-out peers and clean up assignments table.
+	if len(fanOutNodes) > 0 {
+		for _, peerID := range fanOutNodes {
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE caddy_nodes SET current_routes = GREATEST(current_routes - 1, 0) WHERE id = ?", peerID); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.ExecContext(ctx,
+			"DELETE FROM route_node_assignments WHERE route_id = ?", routeID); err != nil {
+			return err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
+
+	allNodes := append([]int64{nodeID}, fanOutNodes...)
 	go func() {
 		defer recoverBg(s.Logger, "pushRouteIncremental.remove")
 		ctx, cancel := context.WithTimeout(s.BackgroundCtx(), 30*time.Second)
 		defer cancel()
-		// Row is already deleted: remove the route from the node by @id.
-		_ = s.pushRouteIncremental(ctx, nodeID, routeID, routeRemove)
+		// Row is already deleted: remove the route from every node it was on.
+		for _, nid := range allNodes {
+			_ = s.pushRouteIncremental(ctx, nid, routeID, routeRemove)
+		}
 	}()
 	return nil
+}
+
+// fanOutNodes returns node IDs in route_node_assignments for routeID,
+// excluding the primary node (already tracked via caddy_node_id).
+func (s *Service) fanOutNodes(ctx context.Context, routeID, primaryNodeID int64) ([]int64, error) {
+	rows, err := s.DB.QueryContext(ctx,
+		"SELECT node_id FROM route_node_assignments WHERE route_id = ? AND node_id != ?",
+		routeID, primaryNodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
 
 // advanceRoute: DNS check → status update → push if eligible.
@@ -1252,6 +1351,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		StreamRoutes:             streams,
 		ErrorBranding:            branding,
 		WstunnelRoute:            wstunnelRoute,
+		AccessLogURL:             s.AccessLogURL,
 	})
 	return &nodePush{cfg: cfg, built: built, routeIDs: routeIDs, apiURL: apiURL}, nil
 }

@@ -124,8 +124,18 @@ cover: ## Test coverage report.
 tidy:
 	$(GO) mod tidy
 
+.PHONY: check-migrations
+check-migrations: ## Verify no .sql file lives in a migrations/ subdirectory (goose ignores them).
+	@bad=$$(find migrations -mindepth 2 -name '*.sql'); \
+	 if [ -n "$$bad" ]; then \
+	   echo "ERROR: .sql files in subdirectories won't be run by goose:"; \
+	   echo "$$bad"; \
+	   exit 1; \
+	 fi
+	@echo "check-migrations: OK (all .sql files are flat in migrations/)"
+
 .PHONY: check
-check: fmt vet lint test ## Full pre-commit check.
+check: fmt vet lint test check-migrations ## Full pre-commit check.
 
 # --- Docker -----------------------------------------------------------------
 

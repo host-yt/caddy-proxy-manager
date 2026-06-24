@@ -101,6 +101,9 @@ services:
     volumes:
       - caddy_data:/data
       - caddy_config:/config
+      # Access logs (when ACCESS_LOG_URL is enabled). Caddy writes a rolling
+      # JSON file here; a node-agent with HPG_CADDY_ACCESS_LOG tails + forwards.
+      - caddy_logs:/var/log/caddy
       # Caddyfile is baked into the image (deploy/caddy/Dockerfile).
       # Uncomment + supply your own to override:
       # - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
@@ -145,6 +148,7 @@ volumes:
   redis_data:
   caddy_data:
   caddy_config:
+  caddy_logs:
   wg_config:
 
 networks:

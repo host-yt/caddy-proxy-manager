@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -19,6 +20,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	proxygateway "github.com/hostyt/proxy-gateway"
+	"github.com/hostyt/proxy-gateway/internal/accesslog"
 	"github.com/hostyt/proxy-gateway/internal/alert"
 	"github.com/hostyt/proxy-gateway/internal/audit"
 	"github.com/hostyt/proxy-gateway/internal/auth"
@@ -171,7 +173,14 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		// Incremental per-route Caddy push (PATCH/POST/DELETE by @id) for
 		// single-route changes; INCREMENTAL_PATCH=0 reverts to full /load.
 		IncrementalPush: os.Getenv("INCREMENTAL_PATCH") != "0",
-		BgCtx:           bgCtx,
+		// Coalesce rapid config pushes per node within this window (ms).
+		// HPG_PUSH_DEBOUNCE_MS=0 disables; default 500.
+		PushDebounceMs: pushDebounceMs(),
+		BgCtx:          bgCtx,
+		// AccessLogURL: when set, every Caddy node's config gains a logging
+		// block that POSTs per-request JSON to HPG's ingest endpoint.
+		// Env: ACCESS_LOG_URL (e.g. "http://app:8080/internal/access-log").
+		AccessLogURL: os.Getenv("ACCESS_LOG_URL"),
 	}
 	// bindDBWhenReady binds the live pool once, then returns. Stops on
 	// shutdown instead of spinning forever (old loops ignored rootCtx).
@@ -289,13 +298,52 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	}
 	// Register process-wide so every audit.Write forwards (149 call-sites).
 	audit.SetDefaultForwarder(siemFwd)
+	// Access log store + live-tail broker. RouteByDomain resolves the host to a
+	// route_id so the ingest handler can tag each log line.
+	alStore := accesslog.New(wizard.DB)
+	alBroker := accesslog.NewBroker()
+	alIngest := &accesslog.IngestHandler{
+		Store:  alStore,
+		Broker: alBroker,
+		Logger: logger,
+		RouteByDomain: func(ctx context.Context, domain string) (int64, bool) {
+			db := wizard.DB()
+			if db == nil {
+				return 0, false
+			}
+			var id int64
+			if err := db.QueryRowContext(ctx,
+				"SELECT id FROM routes WHERE domain = ? LIMIT 1", domain,
+			).Scan(&id); err != nil {
+				return 0, false
+			}
+			return id, true
+		},
+		// Validate the per-node agent token against caddy_nodes.agent_token_hash,
+		// the same credential the WG/stats node endpoints use.
+		AuthNode: func(ctx context.Context, token string) bool {
+			db := wizard.DB()
+			if db == nil {
+				return false
+			}
+			var id int64
+			err := db.QueryRowContext(ctx,
+				`SELECT id FROM caddy_nodes WHERE agent_token_hash IS NOT NULL AND agent_token_hash = SHA2(?, 256) LIMIT 1`,
+				token,
+			).Scan(&id)
+			return err == nil && id > 0
+		},
+	}
+
 	adminH := &handlers.AdminHandlers{
 		DB: wizard.DB, Sessions: sessions, Templates: adminTpls, Logger: logger,
 		State: state, Mailer: mailer, OIDC: oidcSvc, Cloudflare: cfSvc, Captcha: captchaV,
 		Joiner: joinSvc, WG: wgSvc, Backups: backupSvc, Webhooks: whSvc, SMS: smsSvc,
 		RDB: rdb, Metrics: mtr,
-		SIEMForwarder: siemFwd,
-		Enforce2FAEnv: cfg.Security.RequireAdmin2FA,
+		SIEMForwarder:   siemFwd,
+		Enforce2FAEnv:   cfg.Security.RequireAdmin2FA,
+		AccessLogs:      alStore,
+		AccessLogBroker: alBroker,
 	}
 
 	// Bash bootstrap script served at GET /install/node.sh.
@@ -339,6 +387,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		DB:          wizard.DB,
 		RDB:         rdb,
 		Logger:      logger,
+		Metrics:     mtr,
 		PerIPPerMin: cfg.Security.RateLimitAskPerMin,
 	}
 	apiH := &handlers.APIHandlers{
@@ -522,26 +571,31 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Logger:    logger,
 	}
 	srv := httpserver.New(httpserver.Deps{
-		Config:       cfg,
-		Logger:       logger,
-		InstallState: state,
-		Sessions:     sessions,
-		Wizard:       wizard,
-		Auth:         authH,
-		Admin:        adminH,
-		Client:       clientH,
-		Ask:          askH,
-		API:          apiH,
-		APIDocs:      &handlers.APIDocsHandler{DB: wizard.DB},
-		Passkey:      passkeyH,
-		NodeJoin:     joinH,
-		WGBoot:       wgBootH,
-		TrustCFIP:    cfSvc.TrustConnectingIP,
-		Metrics:      mtr,
-		Health:       health,
-		RDB:          rdb,
-		StaticFS:     proxygateway.StaticFS,
-		StatusPage:   statusPageH,
+		Config:          cfg,
+		Logger:          logger,
+		InstallState:    state,
+		Sessions:        sessions,
+		Wizard:          wizard,
+		Auth:            authH,
+		Admin:           adminH,
+		Client:          clientH,
+		Ask:             askH,
+		API:             apiH,
+		APIDocs:         &handlers.APIDocsHandler{DB: wizard.DB},
+		Passkey:         passkeyH,
+		NodeJoin:        joinH,
+		WGBoot:          wgBootH,
+		TrustCFIP:       cfSvc.TrustConnectingIP,
+		Metrics:         mtr,
+		Health:          health,
+		RDB:             rdb,
+		StaticFS:        proxygateway.StaticFS,
+		StatusPage:      statusPageH,
+		AccessLogIngest: alIngest,
+		FOSSBilling: &handlers.FOSSBillingHandlers{
+			DB:     wizard.DB,
+			Routes: routesSvc,
+		},
 	})
 
 	httpSrv := &http.Server{
@@ -660,6 +714,19 @@ func runOneLeaderTerm(parent context.Context, le *leader.Election, fn func(conte
 // buildAskURL points Caddy nodes at this app's /internal/ask endpoint.
 // In Docker Compose this is "http://app:8080/internal/ask". Fall back to
 // APP_URL if APP_INTERNAL_URL is unset.
+// pushDebounceMs reads HPG_PUSH_DEBOUNCE_MS; returns 500 when unset or invalid.
+func pushDebounceMs() int {
+	v := os.Getenv("HPG_PUSH_DEBOUNCE_MS")
+	if v == "" {
+		return 500
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 500
+	}
+	return n
+}
+
 func buildAskURL(cfg *config.Config) string {
 	if v := os.Getenv("APP_INTERNAL_URL"); v != "" {
 		return v + "/internal/ask"

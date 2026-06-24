@@ -28,6 +28,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"log/slog"
 	"net"
 	"net/http"
@@ -43,15 +44,17 @@ import (
 )
 
 type config struct {
-	PanelURL        string
-	NodeToken       string
-	Interface       string
-	ListenPort      string
-	PrivateKey      string
-	GatewayCIDR     string
-	PollInterval    time.Duration
-	TunnelTransport string // "udp"|"wss"|"auto"; default "udp"
-	WstunnelPort    int    // loopback port for wstunnel server; default 0 (disabled)
+	PanelURL         string
+	NodeToken        string
+	Interface        string
+	ListenPort       string
+	PrivateKey       string
+	GatewayCIDR      string
+	PollInterval     time.Duration
+	TunnelTransport  string // "udp"|"wss"|"auto"; default "udp"
+	WstunnelPort     int    // loopback port for wstunnel server; default 0 (disabled)
+	WstunnelBindAddr string // host IP wstunnel listens on; never 0.0.0.0
+	AccessLogPath    string // Caddy access-log file to tail+forward; "" = disabled
 }
 
 // agentHTTP is a client-level backstop timeout: requests already set a
@@ -120,6 +123,8 @@ func loadConfig() (config, error) {
 		PrivateKey:   os.Getenv("HPG_WG_PRIVATE_KEY"),
 		GatewayCIDR:  os.Getenv("HPG_WG_GATEWAY_IP"),
 		PollInterval: 30 * time.Second,
+		// Empty disables forwarding. Set to the shared Caddy access-log file.
+		AccessLogPath: os.Getenv("HPG_CADDY_ACCESS_LOG"),
 	}
 	if d := os.Getenv("HPG_POLL_INTERVAL"); d != "" {
 		if v, err := time.ParseDuration(d); err == nil {
@@ -130,13 +135,26 @@ func loadConfig() (config, error) {
 	switch c.TunnelTransport {
 	case "udp", "wss", "auto":
 	default:
-		return c, fmt.Errorf("invalid HPG_TUNNEL_TRANSPORT %q (want udp|wss|auto)", c.TunnelTransport)
+		log.Fatalf("invalid HPG_TUNNEL_TRANSPORT %q: must be one of udp, wss, auto", c.TunnelTransport)
 	}
 	c.WstunnelPort = 0
 	if p := os.Getenv("HPG_WSTUNNEL_PORT"); p != "" {
 		if n, err := strconv.Atoi(p); err == nil && n > 0 && n < 65536 {
 			c.WstunnelPort = n
 		}
+	}
+	// Determine bind address for wstunnel: explicit env > WG gateway IP > 127.0.0.1.
+	// Never bind to 0.0.0.0 - the nft allowlist is a second layer, not a first one.
+	if v := os.Getenv("HPG_WSTUNNEL_BIND_ADDR"); v != "" {
+		c.WstunnelBindAddr = v
+	} else if c.GatewayCIDR != "" {
+		// Extract the host part of the CIDR (e.g. "100.96.1.1/16" -> "100.96.1.1").
+		if ip, _, err := net.ParseCIDR(c.GatewayCIDR); err == nil && ip.To4() != nil {
+			c.WstunnelBindAddr = ip.String()
+		}
+	}
+	if c.WstunnelBindAddr == "" {
+		c.WstunnelBindAddr = "127.0.0.1"
 	}
 	if c.PanelURL == "" || c.NodeToken == "" || c.PrivateKey == "" || c.GatewayCIDR == "" {
 		return c, fmt.Errorf("missing required env: HPG_PANEL_URL, HPG_NODE_TOKEN, HPG_WG_PRIVATE_KEY, HPG_WG_GATEWAY_IP")
@@ -323,7 +341,14 @@ func main() {
 	}
 	wssReconcile(nftErr)
 
-	log.Info("agent up", "iface", cfg.Interface, "panel", cfg.PanelURL, "poll", cfg.PollInterval.String())
+	log.Info("agent up", "iface", cfg.Interface, "panel", cfg.PanelURL, "poll", cfg.PollInterval.String(),
+		"wstunnel_bind", cfg.WstunnelBindAddr)
+
+	// Access-log forwarder: tail the shared Caddy access-log file and POST new
+	// lines to the panel. Opt-in via HPG_CADDY_ACCESS_LOG; off by default.
+	if cfg.AccessLogPath != "" && !*dry {
+		go forwardAccessLogs(ctx, log, cfg)
+	}
 
 	t := time.NewTicker(cfg.PollInterval)
 	defer t.Stop()
@@ -867,6 +892,91 @@ type peerStat struct {
 	Endpoint      string `json:"endpoint"` // "(none)" mapped to ""
 }
 
+// forwardAccessLogs tails the shared Caddy access-log file and POSTs new NDJSON
+// lines to the panel's authenticated /internal/access-log. Caddy can't POST
+// logs itself (stock has no HTTP writer), so the agent bridges file -> panel,
+// authenticating with the node token. Poll-based tail survives log rotation:
+// if the file shrinks (roll) the offset resets to 0. The offset only advances
+// past COMPLETE lines (last '\n'), so a half-written line Caddy is mid-flushing
+// is left unconsumed and re-read once complete - no truncated-JSON data loss.
+func forwardAccessLogs(ctx context.Context, log *slog.Logger, c config) {
+	endpoint := strings.TrimRight(c.PanelURL, "/") + "/internal/access-log"
+	const maxBatch = 8 << 20 // matches the panel ingest body cap
+	var offset int64
+	warnedMissing := false
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		f, err := os.Open(c.AccessLogPath)
+		if err != nil {
+			if !warnedMissing {
+				log.Warn("access-log file not present yet; waiting (set ACCESS_LOG_URL on the panel to enable)", "path", c.AccessLogPath)
+				warnedMissing = true
+			}
+			continue
+		}
+		warnedMissing = false
+		fi, err := f.Stat()
+		if err != nil {
+			f.Close()
+			continue
+		}
+		if fi.Size() < offset {
+			offset = 0 // rotated/truncated: re-read from start
+		}
+		if fi.Size() == offset {
+			f.Close()
+			continue // nothing new
+		}
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			f.Close()
+			continue
+		}
+		buf, err := io.ReadAll(io.LimitReader(f, maxBatch))
+		f.Close()
+		if err != nil || len(buf) == 0 {
+			continue
+		}
+		// Forward only through the last complete line. A trailing partial line
+		// (Caddy mid-write) stays unconsumed: offset advances by exactly the
+		// bytes we shipped, so the remainder is re-read next tick.
+		nl := bytes.LastIndexByte(buf, '\n')
+		if nl < 0 {
+			continue // no complete line yet
+		}
+		batch := buf[:nl+1]
+		if postAccessLogBatch(ctx, c, endpoint, batch) {
+			offset += int64(len(batch)) // advance only on successful delivery
+		} else {
+			log.Warn("access-log forward failed, will retry", "bytes", len(batch))
+		}
+	}
+}
+
+// postAccessLogBatch ships one NDJSON batch; returns true on 2xx.
+func postAccessLogBatch(ctx context.Context, c config, endpoint string, body []byte) bool {
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+c.NodeToken)
+	req.Header.Set("Content-Type", "application/x-ndjson")
+	resp, err := agentHTTP.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
 // reportStats parses `wg show <iface> dump` and POSTs per-peer stats
 // (handshake epoch, rx/tx bytes, observed endpoint) plus node-level
 // forwarding diagnostics as JSON to /api/node/wg/stats so the panel can show a
@@ -936,7 +1046,7 @@ func reportStats(ctx context.Context, log *slog.Logger, c config) {
 // superviseWstunnel keeps wstunnel server alive; restarts on crash (5s backoff).
 // Forwards all incoming WebSocket connections to WG's local UDP port.
 func superviseWstunnel(ctx context.Context, log *slog.Logger, c config) {
-	bind := "ws://0.0.0.0:" + strconv.Itoa(c.WstunnelPort)
+	bind := "ws://" + c.WstunnelBindAddr + ":" + strconv.Itoa(c.WstunnelPort)
 	target := "127.0.0.1:" + c.ListenPort
 	defer wstunnelRunning.Store(false)
 	for {

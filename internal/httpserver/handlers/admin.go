@@ -19,6 +19,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/hostyt/proxy-gateway/internal/accesslog"
 	"github.com/hostyt/proxy-gateway/internal/audit"
 	"github.com/hostyt/proxy-gateway/internal/auth"
 	"github.com/hostyt/proxy-gateway/internal/backup"
@@ -82,6 +83,11 @@ type AdminHandlers struct {
 	// Enforce2FAEnv mirrors the REQUIRE_ADMIN_2FA env flag: when true the
 	// runtime DB toggle is locked-on (env wins) and the UI shows it disabled.
 	Enforce2FAEnv bool
+
+	// AccessLogs reads stored per-host access log entries from the DB.
+	AccessLogs *accesslog.Store
+	// AccessLogBroker fans out live log entries to SSE subscribers.
+	AccessLogBroker *accesslog.Broker
 }
 
 // adminConfigRefs holds pointers admin settings handlers can flip at runtime.
@@ -128,6 +134,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"hosts":              {{Label: "Traffic", URL: ""}, {Label: "Hosts", URL: ""}},
 	"hosts_new":          {{Label: "Traffic", URL: ""}, {Label: "Hosts", URL: "/admin/hosts"}, {Label: "Add host", URL: ""}},
 	"hosts_edit":         {{Label: "Traffic", URL: ""}, {Label: "Hosts", URL: "/admin/hosts"}, {Label: "Edit host", URL: ""}},
+	"host_logs":          {{Label: "Traffic", URL: ""}, {Label: "Hosts", URL: "/admin/hosts"}, {Label: "Access logs", URL: ""}},
 	"streams":            {{Label: "Traffic", URL: ""}, {Label: "Streams (L4)", URL: ""}},
 	"tunnels":            {{Label: "Traffic", URL: ""}, {Label: "Tunnels (WG)", URL: ""}},
 	"certs":              {{Label: "Traffic", URL: ""}, {Label: "Certificates", URL: ""}},
@@ -148,6 +155,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"api_keys":           {{Label: "System", URL: ""}, {Label: "Settings", URL: "/admin/settings"}, {Label: "API keys", URL: ""}},
 	"twofa":              {{Label: "System", URL: ""}, {Label: "Account", URL: "/admin/account"}, {Label: "Two-factor auth", URL: ""}},
 	"admin_account":      {{Label: "System", URL: ""}, {Label: "Account", URL: ""}},
+	"npm_import":         {{Label: "Tools", URL: ""}, {Label: "NPM import", URL: ""}},
 }
 
 func (h *AdminHandlers) base(r *http.Request, title string) baseAdminData {
@@ -483,6 +491,18 @@ type nodeRow struct {
 	Fingerprint    string // first 16 chars of wg_public_key for fingerprint match
 	Transport      string // tunnel transport: udp|wss|auto
 	WstunnelPort   int    // 0 = unset; prefilled into the tunnel modal
+
+	// WG tunnel health - reported by node-agent via POST /api/node/wg/stats.
+	// All nullable: NULL = agent hasn't reported yet (older agent or no tunnel).
+	TunnelEnabled        bool
+	TunnelMTU            sql.NullInt32  // fwd_mtu: live interface MTU
+	WstunnelHealthy      sql.NullBool   // nil = UDP node or not yet reported
+	FwdIPForward         sql.NullBool   // net.ipv4.ip_forward
+	FwdPolicyDrop        sql.NullBool   // forward-chain policy DROP detected
+	FwdFirewallBackend   sql.NullString // nft|iptables-legacy|firewalld|ufw|none
+	FwdLastSetupError    sql.NullString
+	FwdReportedAt        sql.NullString // human-formatted timestamp; "" = never
+	WGKeepalive          int            // hardcoded 25s in agent (PersistentKeepalive)
 }
 
 type nodesData struct {
@@ -2625,10 +2645,19 @@ func (h *AdminHandlers) TwoFAStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = otpURL
+	// Store secret server-side; never round-trip it through the browser.
+	if h.RDB != nil {
+		rkey := fmt.Sprintf("totp:enroll:%d", sess.UserID)
+		if serr := h.RDB.Set(r.Context(), rkey, secret, 10*time.Minute).Err(); serr != nil {
+			h.Logger.Error("totp enroll stash", "err", serr)
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+	}
 	d := twofaData{
 		baseAdminData: h.base(r, "Set up 2FA"),
 		Enrolling:     true,
-		Secret:        secret,
+		Secret:        secret, // displayed once for manual entry; not sent back in form
 		QRBase64:      base64.StdEncoding.EncodeToString(qrPNG),
 	}
 	h.render(w, "twofa", d)
@@ -2642,7 +2671,24 @@ func (h *AdminHandlers) TwoFAConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = r.ParseForm()
-	secret := strings.TrimSpace(r.FormValue("secret"))
+	// Read secret from server-side Redis stash, not from form body.
+	var secret string
+	if h.RDB != nil {
+		rkey := fmt.Sprintf("totp:enroll:%d", sess.UserID)
+		val, rerr := h.RDB.Get(r.Context(), rkey).Result()
+		if rerr != nil {
+			redirectWithFlash(w, r, "/admin/2fa", "", "setup session expired; restart 2FA setup")
+			return
+		}
+		secret = val
+		// Consume immediately so the key cannot be replayed.
+		_ = h.RDB.Del(r.Context(), rkey).Err()
+	} else {
+		// Fallback when Redis is unavailable: refuse enrollment to avoid
+		// reverting to the insecure form-field path.
+		http.Error(w, "internal error: redis unavailable", http.StatusInternalServerError)
+		return
+	}
 	code := strings.TrimSpace(r.FormValue("code"))
 	if err := auth.ValidateTOTP(secret, code); err != nil {
 		redirectWithFlash(w, r, "/admin/2fa", "", "invalid code; try again")
@@ -3185,7 +3231,12 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 		`SELECT n.id, n.name, n.api_url, COALESCE(n.public_hostname,''), COALESCE(n.public_ip,''),
 		        g.name, n.max_routes, n.current_routes, n.health_status, n.is_enabled,
 		        n.approved_at IS NOT NULL, COALESCE(n.fingerprint,''),
-		        COALESCE(n.tunnel_transport,'udp'), COALESCE(n.tunnel_wstunnel_port,0)
+		        COALESCE(n.tunnel_transport,'udp'), COALESCE(n.tunnel_wstunnel_port,0),
+		        COALESCE(n.tunnel_enabled,0),
+		        n.fwd_mtu, n.tunnel_wstunnel_healthy,
+		        n.fwd_ip_forward_enabled, n.fwd_policy_drop_detected,
+		        n.fwd_firewall_backend, n.fwd_last_setup_error,
+		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),'')
 		 FROM caddy_nodes n JOIN node_groups g ON g.id = n.node_group_id
 		 ORDER BY n.priority DESC, n.id ASC`)
 	if err == nil {
@@ -3194,7 +3245,13 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 			var n nodeRow
 			if err := rows.Scan(&n.ID, &n.Name, &n.APIURL, &n.PublicHostname, &n.PublicIP,
 				&n.GroupName, &n.MaxRoutes, &n.CurrentRoutes, &n.Health, &n.Enabled,
-				&n.Approved, &n.Fingerprint, &n.Transport, &n.WstunnelPort); err == nil {
+				&n.Approved, &n.Fingerprint, &n.Transport, &n.WstunnelPort,
+				&n.TunnelEnabled,
+				&n.TunnelMTU, &n.WstunnelHealthy,
+				&n.FwdIPForward, &n.FwdPolicyDrop,
+				&n.FwdFirewallBackend, &n.FwdLastSetupError,
+				&n.FwdReportedAt); err == nil {
+				n.WGKeepalive = 25
 				d.Nodes = append(d.Nodes, n)
 			}
 		}

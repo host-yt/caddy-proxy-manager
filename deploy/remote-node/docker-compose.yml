@@ -35,6 +35,9 @@ services:
       - ./Caddyfile.bootstrap:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      # Access logs: shared with hpg-node-agent, which tails + forwards them to
+      # the panel. Host bind path so the host-networked agent can read it too.
+      - /opt/hostyt-node/caddy-logs:/var/log/caddy
     environment:
       ASK_ENDPOINT_URL: ${ASK_ENDPOINT_URL:-http://10.66.0.1:8080/internal/ask}
       ACME_EMAIL:       ${ACME_EMAIL:-ops@example.com}

@@ -33,6 +33,61 @@
     </div>
   </div>
 
+  {{if .Node.TunnelEnabled}}
+  <section class="hpg-card">
+    <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3">WG tunnel health</h3>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
+        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">MTU</div>
+        <div class="font-semibold text-slate-800 dark:text-slate-100">
+          {{if .Node.TunnelMTU.Valid}}{{.Node.TunnelMTU.Int32}}{{else}}<span class="text-slate-400">unknown</span>{{end}}
+        </div>
+      </div>
+      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
+        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Keepalive</div>
+        <div class="font-semibold text-slate-800 dark:text-slate-100">{{.Node.WGKeepalive}}s</div>
+      </div>
+      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
+        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">ip_forward</div>
+        <div class="font-semibold">
+          {{if .Node.FwdIPForward.Valid}}
+            {{if .Node.FwdIPForward.Bool}}<span class="text-emerald-600">enabled</span>{{else}}<span class="text-rose-600">DISABLED</span>{{end}}
+          {{else}}<span class="text-slate-400">unknown</span>{{end}}
+        </div>
+      </div>
+      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
+        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Firewall</div>
+        <div class="font-semibold text-slate-800 dark:text-slate-100">
+          {{if .Node.FwdFirewallBackend.Valid}}{{.Node.FwdFirewallBackend.String}}{{else}}<span class="text-slate-400">unknown</span>{{end}}
+        </div>
+      </div>
+      {{if .Node.WstunnelHealthy.Valid}}
+      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
+        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">wstunnel</div>
+        <div class="font-semibold">
+          {{if .Node.WstunnelHealthy.Bool}}<span class="text-emerald-600">healthy</span>{{else}}<span class="text-rose-600">down</span>{{end}}
+        </div>
+      </div>
+      {{end}}
+      {{if .Node.FwdPolicyDrop.Valid}}{{if .Node.FwdPolicyDrop.Bool}}
+      <div class="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2 col-span-2">
+        <div class="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400 mb-1">Forward policy DROP</div>
+        <div class="text-amber-700 dark:text-amber-300">Host firewall drops forwarded traffic - tunnel-to-backend may be silently blackholed. Check nft/iptables FORWARD rules.</div>
+      </div>
+      {{end}}{{end}}
+      {{if .Node.FwdLastSetupError.Valid}}{{if .Node.FwdLastSetupError.String}}
+      <div class="rounded-lg bg-rose-50 dark:bg-rose-900/20 px-3 py-2 col-span-4">
+        <div class="text-[10px] uppercase tracking-wide text-rose-600 dark:text-rose-400 mb-1">Last setup error</div>
+        <div class="font-mono text-rose-700 dark:text-rose-300 break-all">{{.Node.FwdLastSetupError.String}}</div>
+      </div>
+      {{end}}{{end}}
+    </div>
+    {{if .Node.FwdReportedAt.Valid}}{{if .Node.FwdReportedAt.String}}
+    <p class="mt-2 text-[11px] text-slate-400 dark:text-slate-500">Last agent report: {{.Node.FwdReportedAt.String}}</p>
+    {{end}}{{end}}
+  </section>
+  {{end}}
+
   <div class="flex items-center gap-3">
     <form method="POST" action="/admin/nodes/{{.Node.ID}}/resync">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
