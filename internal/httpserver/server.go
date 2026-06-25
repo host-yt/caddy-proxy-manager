@@ -266,6 +266,7 @@ func (s *Server) routes() {
 			r.Get("/{id}/logs", s.deps.Admin.HostsLogs)
 			r.Get("/{id}/logs.json", s.deps.Admin.HostsLogsJSON)
 			r.Get("/{id}/logs/stream", s.deps.Admin.HostsLogsStream)
+			r.Get("/{id}/logs/export", s.deps.Admin.HostsLogsExport)
 		})
 		r.Route("/streams", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.StreamsList)
@@ -275,6 +276,7 @@ func (s *Server) routes() {
 		r.Route("/tunnels", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.TunnelsList)
 			r.Post("/", s.deps.Admin.TunnelsCreate)
+			r.Get("/{id}/bandwidth.json", s.deps.Admin.TunnelsBandwidthJSON)
 			r.Post("/{id}/revoke", s.deps.Admin.TunnelsRevoke)
 			r.Post("/{id}/rotate", s.deps.Admin.TunnelsRotate)
 			r.Post("/{id}/reissue", s.deps.Admin.TunnelsReissue)
@@ -314,6 +316,7 @@ func (s *Server) routes() {
 			r.Get("/", s.deps.Admin.UsersList)
 			r.Post("/", s.deps.Admin.UsersCreate)
 			r.Post("/{id}/edit", s.deps.Admin.UsersUpdate)
+			r.Post("/{id}/scope", s.deps.Admin.UsersScopeUpdate)
 			r.Post("/{id}/toggle", s.deps.Admin.UsersToggle)
 			r.Post("/{id}/delete", s.deps.Admin.UsersDelete)
 			r.Post("/{id}/impersonate", s.deps.Admin.UsersImpersonate)

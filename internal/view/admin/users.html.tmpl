@@ -1,119 +1,158 @@
 {{define "users"}}
-<p class="mb-4 text-xs text-slate-500">Users are panel login accounts with roles. Customer accounts that own services/hosts are <a href="/admin/clients" class="underline">Clients</a>.</p>
-<div class="mb-5 flex flex-wrap gap-2 text-sm">
-  <a href="/admin/users" class="px-3 py-1.5 rounded-full {{if eq .Filter ""}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">All</a>
-  <a href="/admin/users?role=super_admin" class="px-3 py-1.5 rounded-full {{if eq .Filter "super_admin"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Super admin</a>
-  <a href="/admin/users?role=admin" class="px-3 py-1.5 rounded-full {{if eq .Filter "admin"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Admin</a>
-  <a href="/admin/users?role=support" class="px-3 py-1.5 rounded-full {{if eq .Filter "support"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Support</a>
-  <a href="/admin/users?role=client" class="px-3 py-1.5 rounded-full {{if eq .Filter "client"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Client</a>
+<div class="space-y-5">
+  <section class="hpg-card overflow-hidden relative">
+    <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-500"></div>
+    <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 pt-2">
+      <div class="max-w-3xl">
+        <p class="hpg-eyebrow">Access control</p>
+        <h2 class="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">Users, roles and client scope</h2>
+        <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Super admins see the whole installation. Admin and support accounts can be narrowed to selected clients; those limits are enforced on tunnels and host logs.</p>
+      </div>
+      <button type="button" id="usr-new-btn"
+        class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+        New staff user
+      </button>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5 text-sm">
+      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-4 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+        <div class="hpg-eyebrow">Super admin</div>
+        <div class="mt-2 text-slate-700 dark:text-slate-200">Global owner, billing, settings, security.</div>
+      </div>
+      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-4 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+        <div class="hpg-eyebrow">Admin</div>
+        <div class="mt-2 text-slate-700 dark:text-slate-200">Operates assigned customers and infrastructure tasks.</div>
+      </div>
+      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-4 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+        <div class="hpg-eyebrow">Support</div>
+        <div class="mt-2 text-slate-700 dark:text-slate-200">Reserved role; use admin with scope for panel access today.</div>
+      </div>
+      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-4 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+        <div class="hpg-eyebrow">Client</div>
+        <div class="mt-2 text-slate-700 dark:text-slate-200">Self-service portal account managed under Clients.</div>
+      </div>
+    </div>
+  </section>
+
+  <div class="flex flex-wrap gap-2 text-sm">
+    <a href="/admin/users" class="px-3 py-1.5 rounded-full {{if eq .Filter ""}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">All</a>
+    <a href="/admin/users?role=super_admin" class="px-3 py-1.5 rounded-full {{if eq .Filter "super_admin"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Super admin</a>
+    <a href="/admin/users?role=admin" class="px-3 py-1.5 rounded-full {{if eq .Filter "admin"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Admin</a>
+    <a href="/admin/users?role=support" class="px-3 py-1.5 rounded-full {{if eq .Filter "support"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Support</a>
+    <a href="/admin/users?role=client" class="px-3 py-1.5 rounded-full {{if eq .Filter "client"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Client</a>
+  </div>
+
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+      <div>
+        <p class="hpg-eyebrow">Accounts</p>
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Panel users</h2>
+      </div>
+      <span class="hpg-pill hpg-pill-muted">{{len .Users}} users</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left hpg-eyebrow">
+          <tr>
+            <th class="px-4 py-3">User</th>
+            <th class="px-4 py-3">Role</th>
+            <th class="px-4 py-3">Scope</th>
+            <th class="px-4 py-3">Security</th>
+            <th class="px-4 py-3">Last login</th>
+            <th class="px-4 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+          {{range .Users}}
+          <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
+            <td class="px-4 py-3">
+              <div class="flex items-center gap-3 min-w-[15rem]">
+                <div class="h-9 w-9 rounded-xl bg-slate-100 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 grid place-items-center text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">{{printf "%.1s" .Email}}</div>
+                <div class="min-w-0">
+                  <div class="font-medium text-slate-900 dark:text-white truncate">{{if .FullName}}{{.FullName}}{{else}}{{.Email}}{{end}}</div>
+                  <div class="text-xs text-slate-500 dark:text-slate-400 truncate">{{.Email}}</div>
+                </div>
+              </div>
+            </td>
+            <td class="px-4 py-3">
+              <span class="hpg-pill
+                {{if eq .Role "super_admin"}}bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300
+                {{else if eq .Role "admin"}}bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300
+                {{else if eq .Role "support"}}bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300
+                {{else if eq .Role "client"}}bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300
+                {{else}}hpg-pill-muted{{end}}">{{.Role}}</span>
+            </td>
+            <td class="px-4 py-3">
+              {{if eq .Role "super_admin"}}
+                <span class="hpg-pill hpg-pill-ok">all clients</span>
+              {{else if eq .Role "client"}}
+                <span class="hpg-pill hpg-pill-muted">own portal</span>
+              {{else if gt .ScopeCount 0}}
+                <span class="hpg-pill bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">{{.ScopeCount}} clients</span>
+              {{else}}
+                <span class="hpg-pill hpg-pill-warn">no clients</span>
+              {{end}}
+            </td>
+            <td class="px-4 py-3">
+              <div class="flex flex-wrap gap-1.5">
+                {{if .IsActive}}<span class="hpg-pill hpg-pill-ok">active</span>{{else}}<span class="hpg-pill hpg-pill-err">disabled</span>{{end}}
+                {{if .TOTPEnabled}}<span class="hpg-pill hpg-pill-ok">2FA</span>{{else}}<span class="hpg-pill hpg-pill-muted">2FA off</span>{{end}}
+              </div>
+            </td>
+            <td class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .LastLoginAt}}{{.LastLoginAt}}{{else}}never{{end}}</td>
+            <td class="px-4 py-3 text-right">
+              <div class="flex flex-wrap justify-end gap-2 whitespace-nowrap">
+                {{if ne .Role "client"}}
+                <button type="button"
+                  class="usr-edit-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 cursor-pointer"
+                  data-id="{{.ID}}" data-fullname="{{.FullName}}" data-email="{{.Email}}" data-role="{{.Role}}" data-active="{{if .IsActive}}1{{else}}0{{end}}">Edit</button>
+                {{end}}
+                {{if and $.CanManageScopes (ne .Role "client") (ne .Role "super_admin")}}
+                <button type="button"
+                  class="usr-scope-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-sky-700 dark:text-sky-300 ring-1 ring-sky-200 dark:ring-sky-500/30 hover:bg-sky-50 dark:hover:bg-sky-500/10 cursor-pointer"
+                  data-id="{{.ID}}" data-email="{{.Email}}" data-scope="{{.ScopeIDs}}">Scope</button>
+                {{end}}
+                {{if and (eq .Role "client") .IsActive}}
+                <form class="inline" method="POST" action="/admin/users/{{.ID}}/impersonate">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 cursor-pointer">Impersonate</button>
+                </form>
+                {{end}}
+                {{if .CanToggle}}
+                <form class="inline" method="POST" action="/admin/users/{{.ID}}/toggle">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer">{{if .IsActive}}Disable{{else}}Enable{{end}}</button>
+                </form>
+                {{end}}
+                {{if .CanDelete}}
+                <form class="inline" method="POST" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Email}}? This is permanent.">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-700 dark:text-rose-300 ring-1 ring-rose-200 dark:ring-rose-500/30 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer">Delete</button>
+                </form>
+                {{end}}
+              </div>
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="6" class="px-4 py-14 text-center text-slate-500">No users.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </div>
 
-<section class="hpg-card !p-0 overflow-hidden">
-  <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
-    <div class="flex items-center gap-3">
-      <div>
-        <p class="hpg-eyebrow">Access</p>
-        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Users</h2>
-      </div>
-      <span class="hpg-chip">{{len .Users}}</span>
-    </div>
-    <button type="button" id="usr-new-btn"
-      class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 dark:focus:ring-offset-zinc-900">
-      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
-      New user
-    </button>
-  </div>
-  <div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left text-xs uppercase tracking-wide text-slate-500">
-      <tr>
-        <th class="px-4 py-3 font-medium">Name</th>
-        <th class="px-4 py-3 font-medium">Email</th>
-        <th class="px-4 py-3 font-medium">Role</th>
-        <th class="px-4 py-3 font-medium">Active</th>
-        <th class="px-4 py-3 font-medium">2FA</th>
-        <th class="px-4 py-3 font-medium">Last login</th>
-        <th class="px-4 py-3 text-right font-medium">Actions</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-      {{range .Users}}
-      <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
-        <td class="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{{.FullName}}</td>
-        <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.Email}}</td>
-        <td class="px-4 py-3">
-          <span class="inline-block px-2 py-0.5 rounded-full text-xs
-            {{if eq .Role "super_admin"}}bg-purple-50 text-purple-600
-            {{else if eq .Role "admin"}}bg-indigo-50 text-indigo-600
-            {{else if eq .Role "support"}}bg-sky-50 text-sky-600
-            {{else if eq .Role "client"}}bg-emerald-50 text-emerald-600
-            {{else}}bg-slate-100 text-slate-600{{end}}">{{.Role}}</span>
-        </td>
-        <td class="px-4 py-3">{{if .IsActive}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-err">disabled</span>{{end}}</td>
-        <td class="px-4 py-3">{{if .TOTPEnabled}}<span class="hpg-pill hpg-pill-ok">on</span>{{else}}<span class="hpg-pill hpg-pill-muted">off</span>{{end}}</td>
-        <td class="px-4 py-3 text-xs text-slate-500">{{.LastLoginAt}}</td>
-        <td class="px-4 py-3 text-right space-x-2 whitespace-nowrap">
-          {{if ne .Role "client"}}
-          <button type="button"
-            class="usr-edit-btn text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
-            data-id="{{.ID}}"
-            data-fullname="{{.FullName}}"
-            data-email="{{.Email}}"
-            data-role="{{.Role}}"
-            data-active="{{if .IsActive}}1{{else}}0{{end}}">edit</button>
-          {{end}}
-          {{if and (eq .Role "client") .IsActive}}
-          <form class="inline" method="POST" action="/admin/users/{{.ID}}/impersonate">
-            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-            <button class="text-xs text-indigo-600 hover:underline cursor-pointer" title="Sign in as this client. All actions you take are audit-attributed to you.">impersonate</button>
-          </form>
-          {{end}}
-          {{if .CanToggle}}
-          <form class="inline" method="POST" action="/admin/users/{{.ID}}/toggle">
-            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-            <button class="text-xs text-slate-700 dark:text-slate-200 hover:underline cursor-pointer">{{if .IsActive}}disable{{else}}enable{{end}}</button>
-          </form>
-          {{end}}
-          {{if .CanDelete}}
-          <form class="inline" method="POST" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Email}}? This is permanent.">
-            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-            <button class="text-xs text-rose-600 hover:underline cursor-pointer">delete</button>
-          </form>
-          {{end}}
-          <form class="inline" method="POST" action="/admin/users/{{.ID}}/gdpr-export">
-            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-            <button class="text-xs text-sky-700 hover:underline cursor-pointer" title="Download a JSON export of every PII row for this user (GDPR Article 15).">export</button>
-          </form>
-          {{if .CanDelete}}
-          <form class="inline" method="POST" action="/admin/users/{{.ID}}/gdpr-delete" data-confirm="GDPR-erase {{.Email}}? Account is masked, PII removed. Cannot be undone.">
-            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-            <button class="text-xs text-rose-700 hover:underline cursor-pointer" title="Mask account + remove PII (GDPR Article 17). Routes/audit links survive.">erase</button>
-          </form>
-          {{end}}
-        </td>
-      </tr>
-      {{else}}
-      <tr><td colspan="7" class="px-4 py-12 text-center text-slate-500">No users.</td></tr>
-      {{end}}
-    </tbody>
-  </table></div>
-</section>
-
-<!-- Create/Edit modal -->
 <div id="usr-modal" class="fixed inset-0 z-50 hidden">
   <div id="usr-modal-overlay" class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm"></div>
   <div class="absolute inset-0 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
     <div class="hpg-card w-full max-w-lg my-8 relative rounded-2xl shadow-xl" role="dialog" aria-modal="true">
       <div class="flex items-start justify-between mb-5">
         <div>
-          <p class="hpg-eyebrow">Access</p>
-          <h2 id="usr-modal-title" class="font-semibold text-slate-800 dark:text-slate-100">New user</h2>
+          <p class="hpg-eyebrow">Staff account</p>
+          <h2 id="usr-modal-title" class="font-semibold text-slate-900 dark:text-white">New staff user</h2>
         </div>
-        <button type="button" id="usr-modal-close"
-          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none cursor-pointer">&times;</button>
+        <button type="button" id="usr-modal-close" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none cursor-pointer">&times;</button>
       </div>
-
-      <p class="text-xs text-slate-500 mb-4">Creates an admin or support panel account. Use <a href="/admin/clients" class="underline">Clients</a> for customer accounts.</p>
-
       <form id="usr-form" method="POST" action="/admin/users" class="space-y-4 text-sm">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div>
@@ -131,7 +170,7 @@
         <div>
           <label class="hpg-eyebrow block mb-1.5">Role</label>
           <select name="role" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
-            <option value="support">Support (read-only access)</option>
+            <option value="support">Support (reserved)</option>
             <option value="admin">Admin</option>
             {{if .CanCreateSuperAdmin}}<option value="super_admin">Super admin</option>{{end}}
           </select>
@@ -141,15 +180,50 @@
           Active
         </label>
         <div class="flex items-center justify-end gap-2 pt-1">
-          <button type="button" id="usr-modal-cancel"
-            class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer">Cancel</button>
-          <button type="submit"
-            class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">Save user</button>
+          <button type="button" id="usr-modal-cancel" class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer">Cancel</button>
+          <button type="submit" class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">Save user</button>
         </div>
       </form>
     </div>
   </div>
 </div>
+
+{{if .CanManageScopes}}
+<div id="usr-scope-modal" class="fixed inset-0 z-50 hidden">
+  <div id="usr-scope-overlay" class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm"></div>
+  <div class="absolute inset-0 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
+    <div class="hpg-card w-full max-w-2xl my-8 relative rounded-2xl shadow-xl" role="dialog" aria-modal="true">
+      <div class="flex items-start justify-between mb-5">
+        <div>
+          <p class="hpg-eyebrow">Client scope</p>
+          <h2 id="usr-scope-title" class="font-semibold text-slate-900 dark:text-white">Assign clients</h2>
+        </div>
+        <button type="button" id="usr-scope-close" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none cursor-pointer">&times;</button>
+      </div>
+      <form id="usr-scope-form" method="POST" action="/admin/users/0/scope" class="space-y-4 text-sm">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 ring-1 ring-slate-200 dark:ring-zinc-700 p-3 max-h-80 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {{range .ScopeClients}}
+          <label class="scope-client flex items-start gap-2 rounded-lg bg-white dark:bg-zinc-900 ring-1 ring-slate-200/70 dark:ring-zinc-700 p-3 cursor-pointer hover:ring-indigo-300 dark:hover:ring-indigo-500/50">
+            <input type="checkbox" name="client_ids" value="{{.ID}}" class="mt-1 rounded border-0 ring-1 ring-slate-300 dark:ring-zinc-600 focus:ring-2 focus:ring-indigo-500">
+            <span class="min-w-0">
+              <span class="block font-medium text-slate-900 dark:text-white truncate">{{.DisplayName}}</span>
+              <span class="block text-xs text-slate-500 dark:text-slate-400 truncate">{{.Email}}</span>
+            </span>
+          </label>
+          {{else}}
+          <div class="sm:col-span-2 py-8 text-center text-slate-500">No clients yet.</div>
+          {{end}}
+        </div>
+        <div class="flex items-center justify-end gap-2 pt-1">
+          <button type="button" id="usr-scope-cancel" class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer">Cancel</button>
+          <button type="submit" class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">Save scope</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+{{end}}
 
 <script nonce="{{.CSPNonce}}">
 (function () {
@@ -160,37 +234,28 @@
   var pwInput = document.getElementById("usr-pw-input");
   if (!modal || !form) return;
 
-  function setVal(name, value) {
-    var el = form.elements[name];
-    if (el) el.value = (value == null ? "" : value);
-  }
-  function setChecked(name, on) {
-    var el = form.elements[name];
-    if (el) el.checked = !!on;
-  }
+  function setVal(name, value) { var el = form.elements[name]; if (el) el.value = (value == null ? "" : value); }
+  function setChecked(name, on) { var el = form.elements[name]; if (el) el.checked = !!on; }
   function open() { modal.classList.remove("hidden"); }
   function close() { modal.classList.add("hidden"); }
 
-  // Create mode: reset form, password required, post to collection endpoint.
   document.getElementById("usr-new-btn").addEventListener("click", function () {
     form.reset();
     form.action = "/admin/users";
-    if (title) title.textContent = "New user";
+    if (title) title.textContent = "New staff user";
     if (pwLabel) pwLabel.textContent = "Initial password";
     if (pwInput) { pwInput.required = true; pwInput.placeholder = ""; }
     setChecked("is_active", true);
     open();
   });
 
-  // Edit mode: prefill from data-* attrs, password optional, post to /{id}/edit.
-  var editBtns = document.querySelectorAll(".usr-edit-btn");
-  for (var i = 0; i < editBtns.length; i++) {
-    editBtns[i].addEventListener("click", function () {
+  document.querySelectorAll(".usr-edit-btn").forEach(function (btn) {
+    btn.addEventListener("click", function () {
       var d = this.dataset;
       form.reset();
       form.action = "/admin/users/" + d.id + "/edit";
-      if (title) title.textContent = "Edit user";
-      if (pwLabel) pwLabel.textContent = "New password (leave blank to keep)";
+      if (title) title.textContent = "Edit staff user";
+      if (pwLabel) pwLabel.textContent = "New password";
       if (pwInput) { pwInput.required = false; pwInput.placeholder = "Leave blank to keep current"; }
       setVal("full_name", d.fullname);
       setVal("email", d.email);
@@ -199,16 +264,34 @@
       setChecked("is_active", d.active === "1");
       open();
     });
-  }
+  });
 
-  var closeBtn = document.getElementById("usr-modal-close");
-  var cancelBtn = document.getElementById("usr-modal-cancel");
-  var overlay = document.getElementById("usr-modal-overlay");
-  if (closeBtn) closeBtn.addEventListener("click", close);
-  if (cancelBtn) cancelBtn.addEventListener("click", close);
-  if (overlay) overlay.addEventListener("click", close);
+  ["usr-modal-close","usr-modal-cancel","usr-modal-overlay"].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.addEventListener("click", close);
+  });
   document.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && !modal.classList.contains("hidden")) close();
+  });
+})();
+
+(function () {
+  var modal = document.getElementById("usr-scope-modal");
+  var form = document.getElementById("usr-scope-form");
+  if (!modal || !form) return;
+  function close(){ modal.classList.add("hidden"); }
+  document.querySelectorAll(".usr-scope-btn").forEach(function(btn){
+    btn.addEventListener("click", function(){
+      var selected = {};
+      (btn.dataset.scope || "").split(",").forEach(function(id){ if (id) selected[id] = true; });
+      form.action = "/admin/users/" + btn.dataset.id + "/scope";
+      var title = document.getElementById("usr-scope-title");
+      if (title) title.textContent = "Assign clients to " + btn.dataset.email;
+      form.querySelectorAll('input[name="client_ids"]').forEach(function(cb){ cb.checked = !!selected[cb.value]; });
+      modal.classList.remove("hidden");
+    });
+  });
+  ["usr-scope-close","usr-scope-cancel","usr-scope-overlay"].forEach(function(id){
+    var el = document.getElementById(id); if (el) el.addEventListener("click", close);
   });
 })();
 </script>

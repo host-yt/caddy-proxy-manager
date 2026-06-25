@@ -72,6 +72,7 @@
             </span>
           </td>
           <td class="px-3 py-3 text-right text-xs whitespace-nowrap space-x-2 align-top">
+            <button type="button" class="text-violet-600 dark:text-violet-400 hover:underline cursor-pointer" data-bw-toggle="{{.ID}}">bandwidth</button>
             {{if ne .Status "revoked"}}
             <form method="POST" action="/admin/tunnels/{{.ID}}/reissue" class="inline" data-confirm="Re-issue config for {{.Name}}? Same keys, fresh install URL with current template (e.g. MTU/MSS updates).">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
@@ -90,6 +91,30 @@
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
               <button class="text-rose-700 dark:text-rose-500 hover:underline">delete</button>
             </form>
+          </td>
+        </tr>
+        <!-- Inline bandwidth panel, hidden by default, revealed by "bandwidth" button. -->
+        <tr id="hpg-bw-row-{{.ID}}" class="hidden">
+          <td colspan="10" class="px-4 py-4 bg-slate-50/60 dark:bg-zinc-900/50">
+            <div class="flex items-center justify-between mb-3 gap-3">
+              <span class="text-xs font-medium text-slate-700 dark:text-slate-200">Bandwidth · <span class="font-mono">{{.Name}}</span></span>
+              <div class="flex gap-1" data-bw-periods="{{.ID}}">
+                <button type="button" data-period="24h" class="hpg-bw-period-btn px-2.5 py-1 rounded-md text-xs bg-indigo-600 text-white cursor-pointer transition">24h</button>
+                <button type="button" data-period="7d"  class="hpg-bw-period-btn px-2.5 py-1 rounded-md text-xs bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-700 cursor-pointer transition">7d</button>
+                <button type="button" data-period="30d" class="hpg-bw-period-btn px-2.5 py-1 rounded-md text-xs bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-700 cursor-pointer transition">30d</button>
+              </div>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <div class="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mb-1">RX (received)</div>
+                <canvas id="hpg-bw-rx-{{.ID}}" height="100"></canvas>
+              </div>
+              <div>
+                <div class="text-[11px] text-sky-600 dark:text-sky-400 font-medium mb-1">TX (transmitted)</div>
+                <canvas id="hpg-bw-tx-{{.ID}}" height="100"></canvas>
+              </div>
+            </div>
+            <p class="text-[10px] text-slate-400 dark:text-slate-500 mt-2">Sampled from <code>customer_wg_peer_usage_sample</code>; empty when no WG metering data yet.</p>
           </td>
         </tr>
       {{else}}
@@ -213,6 +238,110 @@
   }
   poll();
   {{end}}
+})();
+</script>
+
+<script src="/static/js/chart.umd.min.js" nonce="{{.CSPNonce}}"></script>
+<script nonce="{{.CSPNonce}}">
+(function(){
+  var dark = document.documentElement.classList.contains('dark');
+  var gridColor = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  var tickColor = dark ? '#94a3b8' : '#475569';
+  Chart.defaults.color = tickColor;
+  Chart.defaults.borderColor = gridColor;
+
+  // chart instances keyed by peer id, so we can destroy/recreate on period change
+  var bwCharts = {};
+
+  function fmtBytes(n) {
+    if (n >= 1073741824) return (n/1073741824).toFixed(1)+' GB';
+    if (n >= 1048576)    return (n/1048576).toFixed(1)+' MB';
+    if (n >= 1024)       return (n/1024).toFixed(1)+' KB';
+    return n+' B';
+  }
+
+  function makeLineChart(canvasId, label, color, labels, data) {
+    var el = document.getElementById(canvasId);
+    if (!el) return null;
+    return new Chart(el, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: label,
+          data: data,
+          borderColor: color,
+          backgroundColor: color.replace(')',',0.12)').replace('rgb','rgba'),
+          fill: true,
+          tension: 0.3,
+          pointRadius: data.length > 30 ? 0 : 2
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: {
+          y: {
+            beginAtZero: true,
+            ticks: { callback: function(v){ return fmtBytes(v); } }
+          }
+        }
+      }
+    });
+  }
+
+  function loadBandwidth(peerId, period) {
+    // Destroy existing charts for this peer.
+    if (bwCharts[peerId]) {
+      bwCharts[peerId].forEach(function(c){ if(c) c.destroy(); });
+    }
+    fetch('/admin/tunnels/' + peerId + '/bandwidth.json?period=' + period)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        var rxChart = makeLineChart('hpg-bw-rx-'+peerId, 'RX', 'rgb(16,185,129)', d.labels, d.rx);
+        var txChart = makeLineChart('hpg-bw-tx-'+peerId, 'TX', 'rgb(14,165,233)',  d.labels, d.tx);
+        bwCharts[peerId] = [rxChart, txChart];
+      })
+      .catch(function(err){ console.warn('bandwidth fetch failed', err); });
+  }
+
+  // Wire bandwidth toggle buttons.
+  document.querySelectorAll('[data-bw-toggle]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var id = btn.getAttribute('data-bw-toggle');
+      var row = document.getElementById('hpg-bw-row-' + id);
+      if (!row) return;
+      var wasHidden = row.classList.contains('hidden');
+      row.classList.toggle('hidden', !wasHidden);
+      if (wasHidden) {
+        // First open: load 24h data.
+        if (!bwCharts[id]) loadBandwidth(id, '24h');
+      }
+    });
+  });
+
+  // Wire period selector buttons inside each bandwidth panel.
+  document.querySelectorAll('[data-bw-periods]').forEach(function(bar){
+    var id = bar.getAttribute('data-bw-periods');
+    bar.querySelectorAll('.hpg-bw-period-btn').forEach(function(b){
+      b.addEventListener('click', function(){
+        var period = b.getAttribute('data-period');
+        // Highlight active button.
+        bar.querySelectorAll('.hpg-bw-period-btn').forEach(function(x){
+          var active = x === b;
+          x.classList.toggle('bg-indigo-600', active);
+          x.classList.toggle('text-white', active);
+          x.classList.toggle('bg-white', !active);
+          x.classList.toggle('dark:bg-zinc-800', !active);
+          x.classList.toggle('ring-1', !active);
+          x.classList.toggle('ring-slate-200', !active);
+          x.classList.toggle('dark:ring-zinc-700', !active);
+          x.classList.toggle('text-slate-600', !active);
+          x.classList.toggle('dark:text-slate-300', !active);
+        });
+        loadBandwidth(id, period);
+      });
+    });
+  });
 })();
 </script>
 {{end}}

@@ -21,6 +21,7 @@ import (
 
 	proxygateway "github.com/hostyt/proxy-gateway"
 	"github.com/hostyt/proxy-gateway/internal/accesslog"
+	"github.com/hostyt/proxy-gateway/internal/adminscope"
 	"github.com/hostyt/proxy-gateway/internal/alert"
 	"github.com/hostyt/proxy-gateway/internal/audit"
 	"github.com/hostyt/proxy-gateway/internal/auth"
@@ -33,6 +34,7 @@ import (
 	"github.com/hostyt/proxy-gateway/internal/httpserver"
 	"github.com/hostyt/proxy-gateway/internal/httpserver/handlers"
 	"github.com/hostyt/proxy-gateway/internal/installstate"
+	"github.com/hostyt/proxy-gateway/internal/jobs"
 	"github.com/hostyt/proxy-gateway/internal/leader"
 	"github.com/hostyt/proxy-gateway/internal/mail"
 	"github.com/hostyt/proxy-gateway/internal/metrics"
@@ -342,6 +344,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		RDB: rdb, Metrics: mtr,
 		SIEMForwarder:   siemFwd,
 		Enforce2FAEnv:   cfg.Security.RequireAdmin2FA,
+		AdminScope:      adminscope.New(wizard.DB),
 		AccessLogs:      alStore,
 		AccessLogBroker: alBroker,
 	}
@@ -563,6 +566,16 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// leader-only.
 	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "backup-scheduler", func(ctx context.Context) {
 		(&backup.Scheduler{Service: backupSvc}).Run(ctx)
+	}))
+
+	// Backup restore drill — leader-only, 72h cadence.
+	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "backup-drill", func(ctx context.Context) {
+		(&jobs.BackupDrillJob{DB: wizard.DB, State: state, Logger: logger}).Run(ctx)
+	}))
+
+	// WG peer key rotation — leader-only, 6h cadence.
+	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "wg-key-rotation", func(ctx context.Context) {
+		(&jobs.WGKeyRotationJob{DB: wizard.DB, Logger: logger}).Run(ctx)
 	}))
 
 	statusPageH := &handlers.StatusPageHandlers{

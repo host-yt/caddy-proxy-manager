@@ -1,26 +1,66 @@
 {{define "dashboard"}}
-<div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4">
-    <div class="text-xs uppercase tracking-wide text-slate-500">VPS services</div>
-    <div class="text-2xl font-semibold mt-1">{{.ServiceCount}}</div>
-  </div>
-  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4">
-    <div class="text-xs uppercase tracking-wide text-slate-500">Active domains</div>
-    <div class="text-2xl font-semibold mt-1">{{.ActiveRoutes}}</div>
-  </div>
-  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-4">
-    <div class="text-xs uppercase tracking-wide text-slate-500">Pending</div>
-    <div class="text-2xl font-semibold mt-1">{{.PendingRoutes}}</div>
-  </div>
-</div>
+<div class="space-y-6">
+  <section class="hpg-card overflow-hidden relative">
+    <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-500"></div>
+    <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5 pt-2">
+      <div>
+        <p class="hpg-eyebrow">Proxy workspace</p>
+        <h2 class="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">Your domains, ports and private tunnels</h2>
+        <p class="mt-2 text-sm text-slate-600 dark:text-slate-300 max-w-2xl">Map public domains to allowed service ports, keep an eye on DNS/SSL state, and connect private backends through WireGuard when a server should stay off the public internet.</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        <a href="/app/routes/new" class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">Add domain</a>
+        <a href="/app/tunnels" class="px-4 py-2.5 rounded-lg bg-white dark:bg-zinc-900 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm font-medium hover:bg-slate-50 dark:hover:bg-zinc-800">Private tunnel</a>
+      </div>
+    </div>
+  </section>
 
-<div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">How it works</h2>
-  <ol class="text-sm text-slate-600 dark:text-slate-300 list-decimal list-inside space-y-1">
-    <li>Open <a class="text-indigo-700 hover:underline" href="/app/services">My VPS</a> to see your services and the public ports your provider allowed.</li>
-    <li>Click <a class="text-indigo-700 hover:underline" href="/app/routes">Domains</a> to map your own domain to one of those ports.</li>
-    <li>Point your DNS (CNAME or A record) at the proxy hostname shown for that mapping.</li>
-    <li>Wait a few seconds - once DNS resolves, the certificate is issued automatically.</li>
-  </ol>
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="hpg-card flex items-center gap-4">
+      <span class="hpg-chip bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg>
+      </span>
+      <div>
+        <div class="hpg-eyebrow">Services</div>
+        <div class="hpg-stat-num text-slate-950 dark:text-white">{{.ServiceCount}}</div>
+      </div>
+    </div>
+    <div class="hpg-card flex items-center gap-4">
+      <span class="hpg-chip bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6 9 17l-5-5"/></svg>
+      </span>
+      <div>
+        <div class="hpg-eyebrow">Active domains</div>
+        <div class="hpg-stat-num text-slate-950 dark:text-white">{{.ActiveRoutes}}</div>
+      </div>
+    </div>
+    <div class="hpg-card flex items-center gap-4">
+      <span class="hpg-chip bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+      </span>
+      <div>
+        <div class="hpg-eyebrow">Pending DNS/SSL</div>
+        <div class="hpg-stat-num {{if .PendingRoutes}}text-amber-600 dark:text-amber-400{{else}}text-slate-950 dark:text-white{{end}}">{{.PendingRoutes}}</div>
+      </div>
+    </div>
+  </div>
+
+  <section class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <a href="/app/services" class="hpg-card block hover:ring-indigo-300 dark:hover:ring-indigo-500/50 transition">
+      <p class="hpg-eyebrow">1. Service boundary</p>
+      <h3 class="mt-2 font-semibold text-slate-900 dark:text-white">Check backend IP and allowed ports</h3>
+      <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">These limits define where domains may forward traffic.</p>
+    </a>
+    <a href="/app/routes" class="hpg-card block hover:ring-indigo-300 dark:hover:ring-indigo-500/50 transition">
+      <p class="hpg-eyebrow">2. Public route</p>
+      <h3 class="mt-2 font-semibold text-slate-900 dark:text-white">Map a domain to one port</h3>
+      <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">DNS and certificates move through visible statuses.</p>
+    </a>
+    <a href="/app/tunnels" class="hpg-card block hover:ring-indigo-300 dark:hover:ring-indigo-500/50 transition">
+      <p class="hpg-eyebrow">3. Private backend</p>
+      <h3 class="mt-2 font-semibold text-slate-900 dark:text-white">Use a tunnel when ports are closed</h3>
+      <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">WireGuard gives Caddy a stable private path to your server.</p>
+    </a>
+  </section>
 </div>
 {{end}}

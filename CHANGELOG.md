@@ -7,6 +7,29 @@ yet ship versioned releases.
 ## Unreleased
 
 ### Added
+- **Scoped admin access model** with `admin_client_scope` assignments
+  for non-super-admin staff accounts. The admin Users screen now shows
+  role, status, 2FA state, and assigned customer scope in one access
+  control view.
+- **Client-scope enforcement for sensitive admin surfaces**. Tunnel
+  management and host access logs now check the acting admin's assigned
+  clients before rendering, exporting, streaming, or mutating data.
+- **AI provider abstraction** for Anthropic, OpenAI, Gemini, and
+  OpenRouter using direct `net/http` integrations and encrypted
+  settings keys.
+- **WireGuard key-rotation scheduler** with bounded per-tick execution
+  and consistent timestamp handling.
+- **System events storage** and database migrations for operational
+  event history.
+- **Route egress settings** migration and host editor fields for
+  route-level egress control.
+- **Admin access UI refresh** with a dedicated Users / Access screen,
+  scope assignment modal, clearer role hierarchy, and safer action
+  grouping.
+- **Client portal refresh** across dashboard, services, domain routes,
+  and private tunnels. The customer-facing UI now uses the shared
+  Hostyt card, pill, and metric components for a more consistent
+  operational workflow.
 - **Admin statistics page** at `/admin/stats` with KPI cards, doughnut
   for route status, line chart for 24 h requests, bar chart for
   audit-event activity, per-node table, top clients, recent routes.
@@ -49,6 +72,12 @@ yet ship versioned releases.
 - **Trusted proxies** wired into chi's `RealIP`.
 
 ### Fixed
+- Tunnel hard-delete now revokes a peer before removing the database row
+  so node agents can observe the removal intent.
+- Host log export now has a per-session rate limit and scope checks
+  before CSV/JSON export.
+- AI provider responses are decoded with a bounded reader to prevent
+  unbounded response bodies from consuming memory.
 - Six admin / app form templates were missing `csrf_token` hidden
   inputs; the CSRF middleware was rejecting them with 403. Added
   tokens to clients, plans, services, users, route-new, routes-list
@@ -60,6 +89,10 @@ yet ship versioned releases.
   trailing-slash URLs return 404.
 
 ### Security
+- Added IDOR protections for admin tunnel actions, bandwidth data, host
+  log pages, host log JSON, host log export, and live log streams.
+- Admin scope wiring is now initialized at server startup instead of
+  relying on optional handler state.
 - Latest internal audit: [`docs/SECURITY_REVIEW_2.md`](docs/SECURITY_REVIEW_2.md).
 - Pentest report: [`docs/PENTEST_REPORT.md`](docs/PENTEST_REPORT.md).
 - Carry-forward P0: encrypt `users.totp_secret` at rest (recipe in

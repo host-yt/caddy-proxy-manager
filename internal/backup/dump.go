@@ -71,6 +71,21 @@ SET UNIQUE_CHECKS = 1;
 	return err
 }
 
+// validIdentifier ensures table names contain only [A-Za-z0-9_].
+// Names come from information_schema but a backtick inside a name would break
+// the backtick-quoted fmt.Sprintf interpolations below (second-order injection).
+func validIdentifier(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_') {
+			return false
+		}
+	}
+	return true
+}
+
 func listTables(ctx context.Context, db *sql.DB) ([]string, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT TABLE_NAME FROM information_schema.tables
@@ -86,12 +101,18 @@ func listTables(ctx context.Context, db *sql.DB) ([]string, error) {
 		if err := rows.Scan(&t); err != nil {
 			return nil, err
 		}
+		if !validIdentifier(t) {
+			continue // skip tables with non-identifier names (backtick injection guard)
+		}
 		out = append(out, t)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 func showCreate(ctx context.Context, db *sql.DB, table string) (string, error) {
+	if !validIdentifier(table) {
+		return "", fmt.Errorf("invalid table name: %q", table)
+	}
 	row := db.QueryRowContext(ctx, fmt.Sprintf("SHOW CREATE TABLE `%s`", table))
 	var name, ddl string
 	if err := row.Scan(&name, &ddl); err != nil {
@@ -101,6 +122,9 @@ func showCreate(ctx context.Context, db *sql.DB, table string) (string, error) {
 }
 
 func dumpRows(ctx context.Context, db *sql.DB, table string, w io.Writer) error {
+	if !validIdentifier(table) {
+		return fmt.Errorf("invalid table name: %q", table)
+	}
 	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM `%s`", table))
 	if err != nil {
 		return err

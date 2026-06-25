@@ -477,13 +477,13 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 	// Persist node forwarding diagnostics (best-effort) so the panel can show
 	// WHY a peer is provisioned-but-dead. Truncate the error to the column width.
 	if n := body.Node; n != nil {
-		setupErr := n.LastSetupError
+		setupErr := stripControlChars(n.LastSetupError)
 		if len(setupErr) > 512 {
 			setupErr = setupErr[:512]
 		}
-		fwBackend := n.FirewallBackend
-		if len(fwBackend) > 32 {
-			fwBackend = fwBackend[:32]
+		fwBackend := ""
+		if knownFirewallBackends[n.FirewallBackend] {
+			fwBackend = n.FirewallBackend
 		}
 		_, _ = db.ExecContext(ctx,
 			`UPDATE caddy_nodes
@@ -599,21 +599,24 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// publicBaseURL extracts the panel's external base URL from the request.
-// Falls back to constructed host. Used to embed in installer scripts.
-func publicBaseURL(r *http.Request) string {
+// publicBaseURL returns the panel's external base URL. When appURL is
+// configured by the operator it is always preferred - request headers
+// (Host, X-Forwarded-Host) are attacker-controlled and MUST NOT be
+// trusted for security-sensitive URLs such as InstallCommand.
+func publicBaseURL(r *http.Request, appURL string) string {
+	if appURL != "" {
+		if u, err := url.Parse(appURL); err == nil && u.Host != "" {
+			return strings.TrimRight(appURL, "/")
+		}
+	}
 	scheme := "https"
-	if r.Header.Get("X-Forwarded-Proto") == "http" || r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
-		// Best-effort: keep https for production deploys, drop only when explicit.
-		if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") == "" {
+	if r.TLS == nil && r.Header.Get("X-Forwarded-Proto") != "https" {
+		if r.Header.Get("X-Forwarded-Proto") == "http" || r.Header.Get("X-Forwarded-Proto") == "" {
 			scheme = "http"
 		}
 	}
-	host := r.Host
-	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
-		host = h
-	}
-	return scheme + "://" + host
+	// Never trust X-Forwarded-Host when AppURL is absent - fall back to r.Host only.
+	return scheme + "://" + r.Host
 }
 
 // renderInstallScript returns the bash one-liner installer body. The
@@ -906,6 +909,28 @@ EOF
 # Non-zero exit so 'curl ... | bash' surfaces a failed install to the caller.
 exit $HC
 `
+}
+
+// knownFirewallBackends is the allowlist for fwd_firewall_backend.
+// A rogue node reporting an unknown string gets NULL stored instead.
+var knownFirewallBackends = map[string]bool{
+	"nft": true, "iptables-legacy": true, "iptables-nft": true,
+	"firewalld": true, "ufw": true, "none": true,
+}
+
+// stripControlChars removes ASCII control characters (< 0x20 except tab, and
+// DEL 0x7f) from s. html/template prevents XSS but stored control chars can
+// corrupt log viewers and terminal emulators that render the admin UI.
+func stripControlChars(s string) string {
+	b := strings.Builder{}
+	b.Grow(len(s))
+	for _, r := range s {
+		if (r < 0x20 && r != '\t') || r == 0x7f {
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // boolPtrToNull maps an optional bool to a NULL-able 0/1 for MariaDB TINYINT,

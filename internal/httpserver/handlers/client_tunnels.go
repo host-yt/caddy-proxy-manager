@@ -189,7 +189,7 @@ func (h *ClientHandlers) lookupClientNewTunnel(ctx context.Context, db *sql.DB, 
 	if err != nil || owner != clientID {
 		return nil
 	}
-	base := publicBaseURL(r)
+	base := publicBaseURL(r, h.State.Get().App.URL)
 	return &newTunnelView{
 		PeerID:         peerID,
 		Name:           name,

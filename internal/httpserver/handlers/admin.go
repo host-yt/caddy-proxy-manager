@@ -20,6 +20,7 @@ import (
 	"github.com/redis/go-redis/v9"
 
 	"github.com/hostyt/proxy-gateway/internal/accesslog"
+	"github.com/hostyt/proxy-gateway/internal/adminscope"
 	"github.com/hostyt/proxy-gateway/internal/audit"
 	"github.com/hostyt/proxy-gateway/internal/auth"
 	"github.com/hostyt/proxy-gateway/internal/backup"
@@ -62,6 +63,8 @@ type AdminHandlers struct {
 	WG         *wireguard.Service
 	Backups    *backup.Service
 	Webhooks   *webhook.Service
+	// AdminScope enforces per-client visibility for non-super_admin roles. nil = no enforcement.
+	AdminScope *adminscope.Service
 	// WriteWGConfig rebuilds /app/wg/wg0.conf from DB peers (sidecar
 	// applies via `wg syncconf`). Triggered on node delete, WG settings
 	// save, and the manual 'Apply WG config' button. Nil-safe.
@@ -494,15 +497,15 @@ type nodeRow struct {
 
 	// WG tunnel health - reported by node-agent via POST /api/node/wg/stats.
 	// All nullable: NULL = agent hasn't reported yet (older agent or no tunnel).
-	TunnelEnabled        bool
-	TunnelMTU            sql.NullInt32  // fwd_mtu: live interface MTU
-	WstunnelHealthy      sql.NullBool   // nil = UDP node or not yet reported
-	FwdIPForward         sql.NullBool   // net.ipv4.ip_forward
-	FwdPolicyDrop        sql.NullBool   // forward-chain policy DROP detected
-	FwdFirewallBackend   sql.NullString // nft|iptables-legacy|firewalld|ufw|none
-	FwdLastSetupError    sql.NullString
-	FwdReportedAt        sql.NullString // human-formatted timestamp; "" = never
-	WGKeepalive          int            // hardcoded 25s in agent (PersistentKeepalive)
+	TunnelEnabled      bool
+	TunnelMTU          sql.NullInt32  // fwd_mtu: live interface MTU
+	WstunnelHealthy    sql.NullBool   // nil = UDP node or not yet reported
+	FwdIPForward       sql.NullBool   // net.ipv4.ip_forward
+	FwdPolicyDrop      sql.NullBool   // forward-chain policy DROP detected
+	FwdFirewallBackend sql.NullString // nft|iptables-legacy|firewalld|ufw|none
+	FwdLastSetupError  sql.NullString
+	FwdReportedAt      sql.NullString // human-formatted timestamp; "" = never
+	WGKeepalive        int            // hardcoded 25s in agent (PersistentKeepalive)
 }
 
 type nodesData struct {
@@ -1590,13 +1593,23 @@ type userRow struct {
 	LastLoginAt string
 	CanToggle   bool
 	CanDelete   bool
+	ScopeCount  int
+	ScopeIDs    string
+}
+
+type userScopeClientRow struct {
+	ID          int64
+	DisplayName string
+	Email       string
 }
 
 type usersData struct {
 	baseAdminData
 	Users               []userRow
+	ScopeClients        []userScopeClientRow
 	Filter              string
 	CanCreateSuperAdmin bool
+	CanManageScopes     bool
 }
 
 func (h *AdminHandlers) UsersList(w http.ResponseWriter, r *http.Request) {
@@ -1605,6 +1618,7 @@ func (h *AdminHandlers) UsersList(w http.ResponseWriter, r *http.Request) {
 	d.Filter = r.URL.Query().Get("role")
 	if sess != nil {
 		d.CanCreateSuperAdmin = sess.Role == "super_admin"
+		d.CanManageScopes = sess.Role == "super_admin"
 	}
 	db := h.DB()
 	if db == nil {
@@ -1615,7 +1629,9 @@ func (h *AdminHandlers) UsersList(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	q := `SELECT id, COALESCE(full_name,''), email, role, is_active, totp_enabled,
-	             COALESCE(DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i'), '')
+	             COALESCE(DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i'), ''),
+	             (SELECT COUNT(*) FROM admin_client_scope acs WHERE acs.admin_user_id = users.id),
+	             COALESCE((SELECT GROUP_CONCAT(acs.client_id ORDER BY acs.client_id SEPARATOR ',') FROM admin_client_scope acs WHERE acs.admin_user_id = users.id), '')
 	      FROM users`
 	args := []any{}
 	if d.Filter != "" {
@@ -1628,7 +1644,7 @@ func (h *AdminHandlers) UsersList(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var u userRow
-			if err := rows.Scan(&u.ID, &u.FullName, &u.Email, &u.Role, &u.IsActive, &u.TOTPEnabled, &u.LastLoginAt); err == nil {
+			if err := rows.Scan(&u.ID, &u.FullName, &u.Email, &u.Role, &u.IsActive, &u.TOTPEnabled, &u.LastLoginAt, &u.ScopeCount, &u.ScopeIDs); err == nil {
 				// Safety: a user can't disable/delete themselves; only super_admin
 				// can act on another super_admin.
 				canAct := true
@@ -1644,8 +1660,31 @@ func (h *AdminHandlers) UsersList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+	if d.CanManageScopes {
+		d.ScopeClients = h.loadScopeClientRows(ctx, db)
+	}
 
 	h.render(w, "users", d)
+}
+
+func (h *AdminHandlers) loadScopeClientRows(ctx context.Context, db *sql.DB) []userScopeClientRow {
+	rows, err := db.QueryContext(ctx,
+		`SELECT c.id, COALESCE(c.display_name, u.full_name, u.email), u.email
+		 FROM clients c JOIN users u ON u.id = c.user_id
+		 ORDER BY COALESCE(c.display_name, u.full_name, u.email) LIMIT 1000`)
+	if err != nil {
+		h.Logger.Warn("scope client list", "err", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []userScopeClientRow
+	for rows.Next() {
+		var c userScopeClientRow
+		if err := rows.Scan(&c.ID, &c.DisplayName, &c.Email); err == nil {
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 // UsersUpdate edits a panel user's name, email, role, and active flag in
@@ -1821,6 +1860,71 @@ func (h *AdminHandlers) UsersCreate(w http.ResponseWriter, r *http.Request) {
 		Meta:     map[string]any{"email": email, "role": role},
 	})
 	redirectWithFlash(w, r, "/admin/users", "User created", "")
+}
+
+func (h *AdminHandlers) UsersScopeUpdate(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "super_admin role required", http.StatusForbidden)
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	_ = r.ParseForm()
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	var role string
+	var email string
+	if err := db.QueryRowContext(ctx, "SELECT role, email FROM users WHERE id = ?", id).Scan(&role, &email); err != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "user not found")
+		return
+	}
+	if role == "super_admin" || role == "client" {
+		redirectWithFlash(w, r, "/admin/users", "", "scope applies only to admin/support users")
+		return
+	}
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "tx begin failed")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	if _, err := tx.ExecContext(ctx, "DELETE FROM admin_client_scope WHERE admin_user_id = ?", id); err != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "scope reset failed")
+		return
+	}
+	seen := map[int64]bool{}
+	for _, raw := range r.Form["client_ids"] {
+		clientID, _ := strconv.ParseInt(raw, 10, 64)
+		if clientID <= 0 || seen[clientID] {
+			continue
+		}
+		seen[clientID] = true
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO admin_client_scope (admin_user_id, client_id) VALUES (?, ?)",
+			id, clientID); err != nil {
+			redirectWithFlash(w, r, "/admin/users", "", "scope save failed")
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "scope commit failed")
+		return
+	}
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "user.scope.update", Entity: "user",
+		EntityID: strconv.FormatInt(id, 10),
+		Meta:     map[string]any{"email": email, "client_count": len(seen)},
+	})
+	redirectWithFlash(w, r, "/admin/users", "Access scope updated", "")
 }
 
 func (h *AdminHandlers) UsersToggle(w http.ResponseWriter, r *http.Request) {

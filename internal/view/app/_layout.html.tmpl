@@ -7,6 +7,7 @@
 <title>{{.Data.Title}} - Hostyt Proxy</title>
 <link rel="stylesheet" href="/static/fonts/inter.css">
 <link rel="stylesheet" href="/static/css/tailwind.css">
+<link rel="stylesheet" href="/static/css/enhance.css">
 <script nonce="{{.Data.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
 <!-- Palette theme bootstrap: client-side pick applies before paint, even before the ui_theme cookie round-trips. Allowlist-guarded so a tampered key cannot inject an arbitrary slug. -->
 <script nonce="{{.Data.CSPNonce}}">(function(){try{var ok={default:1,midnight:1,ocean:1,forest:1,violet:1,sunset:1,nord:1,mono:1};var p=localStorage.getItem('ui_theme');if(p&&ok[p]&&p!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=p;}catch(e){}})();</script>
@@ -24,19 +25,19 @@
   .dark input::placeholder, .dark textarea::placeholder { color: rgb(var(--c-zinc-500)); }
 </style>
 </head>
-<body class="h-full bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-slate-100">
+<body class="h-full bg-gradient-to-b from-slate-50 via-white to-sky-50/50 dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-900 text-slate-900 dark:text-slate-100">
 
 <!-- Mobile overlay -->
 <div id="sidebar-overlay" class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm hidden" onclick="closeSidebar()"></div>
 
 <!-- Sidebar -->
-<aside id="sidebar" class="fixed inset-y-0 left-0 z-40 flex flex-col w-56 bg-white dark:bg-zinc-900 border-r border-slate-200 dark:border-zinc-800 -translate-x-full lg:translate-x-0 transition-transform duration-200 ease-in-out">
+<aside id="sidebar" class="fixed inset-y-0 left-0 z-40 flex flex-col w-64 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border-r border-slate-200 dark:border-zinc-800 -translate-x-full lg:translate-x-0 transition-transform duration-200 ease-in-out">
 
   <!-- Brand -->
   <div class="flex items-center gap-2.5 px-4 py-4 border-b border-slate-200 dark:border-zinc-800 shrink-0">
     {{if .Data.Brand.LogoURLLight}}<img src="{{.Data.Brand.LogoURLLight}}" alt="" class="h-5 dark:hidden">{{end}}
     {{if .Data.Brand.LogoURLDark}}<img src="{{.Data.Brand.LogoURLDark}}" alt="" class="h-5 hidden dark:inline-block">{{end}}
-    {{if not .Data.Brand.LogoURLLight}}<span class="w-6 h-6 rounded-md bg-indigo-600 shrink-0 flex items-center justify-center">
+    {{if not .Data.Brand.LogoURLLight}}<span class="w-8 h-8 rounded-xl bg-indigo-600 shrink-0 flex items-center justify-center shadow-sm shadow-indigo-900/20">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
     </span>{{end}}
     <span class="font-semibold text-sm tracking-tight truncate text-slate-900 dark:text-slate-100">{{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}</span>
@@ -120,7 +121,7 @@
 </aside>
 
 <!-- Main content column -->
-<div class="min-h-full flex flex-col lg:pl-56">
+<div class="min-h-full flex flex-col lg:pl-64">
 
   {{if .Data.ImpersonatorEmail}}
   <div class="bg-amber-100 dark:bg-amber-900/40 border-b border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 text-xs shrink-0">
@@ -142,8 +143,16 @@
     <span class="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate">{{.Data.Title}}</span>
   </header>
 
-  <main class="flex-1 px-6 py-6">
-    <h1 class="text-xl font-semibold tracking-tight text-slate-900 dark:text-slate-100 mb-5 hidden lg:block">{{.Data.Title}}</h1>
+  <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-7xl w-full">
+    <div class="hidden lg:flex items-center justify-between gap-4 mb-6">
+      <div>
+        <p class="hpg-eyebrow">Client portal</p>
+        <h1 class="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{{.Data.Title}}</h1>
+      </div>
+      <div class="flex items-center gap-2">
+        <a href="/app/routes/new" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New domain</a>
+      </div>
+    </div>
     {{if .Data.Flash}}<div class="mb-4 p-3 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-sm">{{.Data.Flash}}</div>{{end}}
     {{if .Data.Error}}<div class="mb-4 p-3 rounded-md bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 text-sm">{{.Data.Error}}</div>{{end}}
 

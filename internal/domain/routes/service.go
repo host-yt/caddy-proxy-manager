@@ -1647,7 +1647,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,''),
 	        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
 	        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
-	        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,'')
+	        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
+	        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,'')
 		 FROM routes r
 		 JOIN services sv ON sv.id = r.service_id
 		 LEFT JOIN customer_wg_peer p_base
@@ -1721,6 +1722,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var wafDirectives string
 		var errOverride bool
 		var errHTML, errLogo, errBrand, errBg string
+		var outboundIPMode, outboundIP string
 		if err := rows.Scan(&id, &domain, &aliases, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
 			&tunnelResolverIP,
 			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &headersJSON,
@@ -1738,7 +1740,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&hPassiveEnabled, &hPassiveFailDur, &hPassiveMaxFail,
 			&rateEnabled, &rateWindow, &rateMaxEvents, &rateKey,
 			&wafEnabled, &wafBlocking, &wafDirectives,
-			&errOverride, &errHTML, &errLogo, &errBrand, &errBg); err != nil {
+			&errOverride, &errHTML, &errLogo, &errBrand, &errBg,
+			&outboundIPMode, &outboundIP); err != nil {
 			return nil, nil, err
 		}
 		var ssoCopyHeaders []string
@@ -1906,6 +1909,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			CustomErrorOverride: errOverride,
 			CustomErrorHTML:     errHTML,
 			CustomErrorBranding: caddyapi.ErrorBranding{LogoURL: errLogo, Brand: errBrand, BgColor: errBg},
+
+			OutboundIPMode: outboundIPMode,
+			OutboundIP:     outboundIP,
 		})
 		ids = append(ids, id)
 	}

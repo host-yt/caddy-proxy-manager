@@ -1304,6 +1304,10 @@ type hostEditData struct {
 	UpstreamHostHeader string
 	HasProxySecret     bool
 	ExternalAllowlist  []string
+
+	// Outbound/egress IP. Mode "fixed" binds the upstream connection to OutboundIP.
+	OutboundIPMode string
+	OutboundIP     string
 }
 
 // tunnelOption is the dropdown entry the host-edit form renders.
@@ -1369,7 +1373,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
 		        COALESCE(r.wildcard_enabled,0), COALESCE(r.wildcard_zone,''),
 		        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
-		        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,'')
+		        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
+		        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,'')
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
@@ -1397,7 +1402,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.RateLimitEnabled, &d.RateLimitWindow, &d.RateLimitMaxEvents, &d.RateLimitKey,
 		&d.WAFEnabled, &d.WAFBlocking, &d.WAFDirectives,
 		&d.WildcardEnabled, &d.WildcardZone,
-		&d.ErrorOverride, &d.ErrorHTML, &d.ErrorLogoURL, &d.ErrorBrand, &d.ErrorBgColor)
+		&d.ErrorOverride, &d.ErrorHTML, &d.ErrorLogoURL, &d.ErrorBrand, &d.ErrorBgColor,
+		&d.OutboundIPMode, &d.OutboundIP)
 	if err != nil {
 		d.Error = "host not found"
 		h.render(w, "hosts_edit", d)
@@ -1644,6 +1650,24 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "wildcard: zone must cover the domain (e.g. zone customer.com for app.customer.com)")
 			return
 		}
+	}
+
+	// Outbound/egress IP. Only proxy routes need it; ignored for redirect/maintenance.
+	outboundIPMode := r.FormValue("outbound_ip_mode")
+	if outboundIPMode != "fixed" {
+		outboundIPMode = "default"
+	}
+	outboundIP := strings.TrimSpace(r.FormValue("outbound_ip"))
+	if outboundIPMode == "fixed" && outboundIP == "" {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "egress: IP required when mode is fixed")
+		return
+	}
+	if outboundIP != "" && net.ParseIP(outboundIP) == nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "egress: invalid IP address")
+		return
+	}
+	if outboundIPMode != "fixed" {
+		outboundIP = ""
 	}
 
 	cacheTTL, _ := strconv.Atoi(r.FormValue("cache_ttl_secs"))
@@ -2037,6 +2061,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   basic_auth_user = ?,
 			   sso_provider_url = ?, sso_copy_headers = ?, sso_trusted_proxies = ?,
 			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
+			   outbound_ip_mode = ?, outbound_ip = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -2064,6 +2089,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			basicUserUpdate,
 			ssoProviderURLVal, ssoCopyHeadersVal, ssoTrustedProxiesVal,
 			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
+			outboundIPMode, nullableString(outboundIP),
 			id)
 	} else {
 		_, err = h.DB().ExecContext(ctx,
@@ -2093,6 +2119,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   basic_auth_user = ?, basic_auth_bcrypt = ?,
 			   sso_provider_url = ?, sso_copy_headers = ?, sso_trusted_proxies = ?,
 			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
+			   outbound_ip_mode = ?, outbound_ip = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -2120,6 +2147,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			basicUserUpdate, basicHashUpdate,
 			ssoProviderURLVal, ssoCopyHeadersVal, ssoTrustedProxiesVal,
 			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
+			outboundIPMode, nullableString(outboundIP),
 			id)
 	}
 	if err != nil {
@@ -2314,6 +2342,13 @@ func nullableInt64(v int64) sql.NullInt64 {
 		return sql.NullInt64{}
 	}
 	return sql.NullInt64{Int64: v, Valid: true}
+}
+
+func nullableString(v string) sql.NullString {
+	if v == "" {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: v, Valid: true}
 }
 
 // sanitizeAliases parses the operator-supplied alias textarea (comma /
