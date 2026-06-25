@@ -230,7 +230,7 @@
 
   // Live status poll for the just-created tunnel card.
   {{if .NewTunnel}}
-  var statusURL = {{.NewTunnel.StatusURL | js}};
+  var statusURL = {{.NewTunnel.StatusURL}};
   var badge = document.getElementById('hpg-tun-status');
   var pollCount = 0;
   function poll(){
@@ -252,6 +252,7 @@
 <script src="/static/js/chart.umd.min.js" nonce="{{.CSPNonce}}"></script>
 <script nonce="{{.CSPNonce}}">
 (function(){
+  if (!window.Chart) return;
   var dark = document.documentElement.classList.contains('dark');
   var gridColor = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
   var tickColor = dark ? '#94a3b8' : '#475569';
