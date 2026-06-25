@@ -250,6 +250,40 @@ func TestBuildRoutePathPrefix(t *testing.T) {
 	}
 }
 
+func TestBuildRouteLocationRules(t *testing.T) {
+	r := Route{
+		ID:           "21",
+		Hosts:        []string{"x.example.com"},
+		UpstreamIP:   "10.0.0.5",
+		UpstreamPort: 8080,
+		LocationRules: []LocationRule{
+			{Path: "/private/*", Action: "block"},
+			{Path: "/old/*", Action: "redirect", RedirectURL: "https://new.example.com{http.request.uri}"},
+			{Path: "/api/*", Action: "proxy", UpstreamHost: "10.0.0.9", UpstreamPort: 9000, UpstreamScheme: "https"},
+			{Path: "/app/*", Action: "rewrite", RewriteURI: "/index.php{http.request.uri}"},
+		},
+	}
+	s := mustJSON(r)
+	for _, want := range []string{
+		`"path":["/private","/private/*"]`,
+		`"status_code":403`,
+		`"Location":["https://new.example.com{http.request.uri}"]`,
+		`"path":["/api","/api/*"]`,
+		`"10.0.0.9:9000"`,
+		`"tls":{}`,
+		`"handler":"rewrite"`,
+		`"/index.php{http.request.uri}"`,
+		`"10.0.0.5:8080"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("location rules missing %q\nfull: %s", want, s)
+		}
+	}
+	if strings.Index(s, `"path":["/private","/private/*"]`) > strings.Index(s, `"path":["/api","/api/*"]`) {
+		t.Errorf("location rule order changed\nfull: %s", s)
+	}
+}
+
 func TestBuildRouteForceHTTPSWrapsInSubroute(t *testing.T) {
 	r := Route{ID: "9", Hosts: []string{"z.example.com"}, UpstreamIP: "2.2.2.2", UpstreamPort: 1234, ForceHTTPS: true}
 	m := BuildRoute(r)

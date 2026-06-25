@@ -25,7 +25,7 @@
   .dark input::placeholder, .dark textarea::placeholder { color: rgb(var(--c-zinc-500)); }
 </style>
 </head>
-<body class="h-full bg-gradient-to-b from-slate-50 via-white to-sky-50/50 dark:from-zinc-950 dark:via-zinc-950 dark:to-zinc-900 text-slate-900 dark:text-slate-100">
+<body class="h-full bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-slate-100">
 
 <!-- Mobile overlay -->
 <div id="sidebar-overlay" class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm hidden" onclick="closeSidebar()"></div>
@@ -46,18 +46,18 @@
   <!-- Navigation -->
   <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
 
-    <div class="px-2 pb-1.5 text-[10px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-semibold">Main</div>
+    <div class="px-2 pb-1.5 text-[10px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-semibold">Operations</div>
 
     <a href="/app" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
       {{if eq .Page "dashboard"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
-      Overview
+      Dashboard
     </a>
 
     <a href="/app/services" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
       {{if eq .Page "services"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
-      Servers
+      Services
     </a>
 
     <a href="/app/routes" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
@@ -144,13 +144,15 @@
   </header>
 
   <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-7xl w-full">
-    <div class="hidden lg:flex items-center justify-between gap-4 mb-6">
+    <div class="hidden lg:flex items-center justify-between gap-4 mb-5">
       <div>
         <p class="hpg-eyebrow">Client portal</p>
         <h1 class="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{{.Data.Title}}</h1>
       </div>
       <div class="flex items-center gap-2">
-        <a href="/app/routes/new" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New domain</a>
+        <a href="/app/services" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-white dark:bg-zinc-900 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-800 text-sm font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 shadow-sm">Services</a>
+        <a href="/app/tunnels" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-white dark:bg-zinc-900 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-800 text-sm font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 shadow-sm">Tunnels</a>
+        <a href="/app/routes/new" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New route</a>
       </div>
     </div>
     {{if .Data.Flash}}<div class="mb-4 p-3 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-sm">{{.Data.Flash}}</div>{{end}}

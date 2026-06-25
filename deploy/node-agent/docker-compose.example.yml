@@ -12,7 +12,7 @@
 version: "3.9"
 services:
   hpg-node-agent:
-    image: ghcr.io/marcoome/caddy-proxy-manager-node-agent:latest
+    image: ghcr.io/host-yt/caddy-proxy-manager-node-agent:latest
     restart: unless-stopped
     network_mode: host                                # needed for wg-tun0 + nftables + UDP listen
     cap_add:

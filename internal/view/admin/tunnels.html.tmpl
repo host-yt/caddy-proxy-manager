@@ -2,9 +2,12 @@
 <div class="space-y-5">
   <div class="flex items-center justify-between gap-4">
     <p class="text-xs text-slate-500 dark:text-slate-400">WireGuard tunnels customers run from their LAN. Caddy reaches the customer backend through the assigned tunnel IP - no port-forward required.</p>
+    {{if ne .Role "support"}}
     <button type="button" data-open-tunnel-modal class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 whitespace-nowrap">+ Create tunnel</button>
+    {{end}}
   </div>
 
+  {{if ne .Role "support"}}
   {{if .NewTunnel}}
   <!-- Just-created tunnel card. Surfaces the one-line installer + live status poll. -->
   <section class="hpg-card ring-emerald-200 dark:ring-emerald-800 space-y-4">
@@ -27,6 +30,7 @@
       <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Single-use, expires at <time class="font-mono" data-expires="{{.NewTunnel.ExpiresAt}}">{{.NewTunnel.ExpiresAt}}</time>. Alternative: download <a href="{{.NewTunnel.ConfURL}}" class="text-indigo-600 dark:text-indigo-400 underline">.conf</a> manually.</p>
     </div>
   </section>
+  {{end}}
   {{end}}
 
   <section class="hpg-card !p-0 overflow-x-auto">
@@ -73,6 +77,7 @@
           </td>
           <td class="px-3 py-3 text-right text-xs whitespace-nowrap space-x-2 align-top">
             <button type="button" class="text-violet-600 dark:text-violet-400 hover:underline cursor-pointer" data-bw-toggle="{{.ID}}">bandwidth</button>
+            {{if ne $.Role "support"}}
             {{if ne .Status "revoked"}}
             <form method="POST" action="/admin/tunnels/{{.ID}}/reissue" class="inline" data-confirm="Re-issue config for {{.Name}}? Same keys, fresh install URL with current template (e.g. MTU/MSS updates).">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
@@ -91,6 +96,7 @@
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
               <button class="text-rose-700 dark:text-rose-500 hover:underline">delete</button>
             </form>
+            {{end}}
           </td>
         </tr>
         <!-- Inline bandwidth panel, hidden by default, revealed by "bandwidth" button. -->
@@ -126,6 +132,7 @@
 </div>
 
 <!-- Create-tunnel modal (Cloudflare-style wizard, single step for now). -->
+{{if ne .Role "support"}}
 <div id="hpg-tunnel-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
   <form method="POST" action="/admin/tunnels" class="hpg-card shadow-2xl max-w-lg w-full space-y-4">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
@@ -171,6 +178,7 @@
     </div>
   </form>
 </div>
+{{end}}
 
 <script nonce="{{.CSPNonce}}">
 (function(){

@@ -1,21 +1,60 @@
 {{define "settings"}}
 <div class="space-y-4">
 
-  <div class="hpg-card !p-2 flex flex-wrap gap-1">
-    <button type="button" data-settings-tab="general" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-slate-100 font-medium">General</button>
-    <button type="button" data-settings-tab="branding" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Branding</button>
-    <button type="button" data-settings-tab="email" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Email (SMTP)</button>
-    <button type="button" data-settings-tab="sms" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SMS</button>
-    <button type="button" data-settings-tab="auth" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SSO / OIDC</button>
-    <button type="button" data-settings-tab="captcha" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">CAPTCHA</button>
-    <button type="button" data-settings-tab="cloudflare" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cloudflare</button>
-    <button type="button" data-settings-tab="wireguard" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">WireGuard</button>
-    <button type="button" data-settings-tab="acme" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">ACME / TLS</button>
-    <button type="button" data-settings-tab="customer" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Customer fields</button>
-    <button type="button" data-settings-tab="sso-jump" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SSO Jump</button>
-    <button type="button" data-settings-tab="apidocs" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">API docs</button>
-    <button type="button" data-settings-tab="security" class="hpg-settings-tab px-3 py-1.5 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Security</button>
-  </div>
+  <section class="space-y-3">
+    <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <p class="hpg-eyebrow">System configuration</p>
+        <h2 class="text-lg font-semibold text-slate-950 dark:text-white">Operational settings</h2>
+      </div>
+      <span class="text-xs text-slate-500 dark:text-slate-400">Changes save per section.</span>
+    </div>
+
+    <div class="grid gap-3 lg:grid-cols-5">
+      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
+        <p class="hpg-eyebrow mb-2">Identity</p>
+        <div class="grid gap-1">
+          <button type="button" data-settings-tab="general" class="hpg-settings-tab hpg-settings-tab-active text-left px-3 py-2 rounded-lg text-sm bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-slate-100 font-medium">General</button>
+          <button type="button" data-settings-tab="branding" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Branding</button>
+          <button type="button" data-settings-tab="customer" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Customer fields</button>
+        </div>
+      </div>
+
+      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
+        <p class="hpg-eyebrow mb-2">Auth &amp; access</p>
+        <div class="grid gap-1">
+          <button type="button" data-settings-tab="auth" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SSO / OIDC</button>
+          <button type="button" data-settings-tab="security" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Admin 2FA</button>
+          <button type="button" data-settings-tab="captcha" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">CAPTCHA</button>
+        </div>
+      </div>
+
+      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
+        <p class="hpg-eyebrow mb-2">Delivery</p>
+        <div class="grid gap-1">
+          <button type="button" data-settings-tab="email" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Email (SMTP)</button>
+          <button type="button" data-settings-tab="sms" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SMS</button>
+          <button type="button" data-settings-tab="sso-jump" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SSO Jump</button>
+        </div>
+      </div>
+
+      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
+        <p class="hpg-eyebrow mb-2">Infrastructure</p>
+        <div class="grid gap-1">
+          <button type="button" data-settings-tab="wireguard" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">WireGuard</button>
+          <button type="button" data-settings-tab="cloudflare" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cloudflare</button>
+          <button type="button" data-settings-tab="acme" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">ACME / TLS</button>
+        </div>
+      </div>
+
+      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
+        <p class="hpg-eyebrow mb-2">Developer</p>
+        <div class="grid gap-1">
+          <button type="button" data-settings-tab="apidocs" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">API docs</button>
+        </div>
+      </div>
+    </div>
+  </section>
 
   <section data-settings-pane="security" class="hpg-settings-pane hidden hpg-card">
     <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">Admin 2FA enforcement</h2>

@@ -218,9 +218,19 @@ func (s *Server) routes() {
 		r.Get("/sso/jump", s.deps.Auth.SSOJump)
 	})
 
-	// Admin (super_admin + admin).
+	// Admin panel. Support is admitted through a strict read-only allow-list
+	// below; admin/super_admin keep the full surface.
 	r.Route("/admin", func(r chi.Router) {
-		r.Use(mw.RequireRole("super_admin", "admin"))
+		r.Use(mw.RequireRole("super_admin", "admin", "support"))
+		r.Use(mw.ReadOnlyRoleAllowList("support", []string{
+			"/admin/map",
+			"/admin/tunnels",
+			"/admin/tunnels/*/bandwidth.json",
+			"/admin/hosts/*/logs",
+			"/admin/hosts/*/logs.json",
+			"/admin/hosts/*/logs/stream",
+			"/admin/hosts/*/logs/export",
+		}))
 		// Enforce 2FA enrollment for admins when REQUIRE_ADMIN_2FA (env) or the
 		// security.require_admin_2fa settings row is on. Bypasses enrollment +
 		// logout routes internally; grace window avoids an instant lock-out.
@@ -232,6 +242,7 @@ func (s *Server) routes() {
 		))
 		r.Get("/2fa/required", s.deps.Admin.TwoFARequired)
 		r.Get("/", s.deps.Admin.Dashboard)
+		r.Get("/map", s.deps.Admin.AdminMap)
 		r.Get("/stats", s.deps.Admin.Stats)
 		r.Route("/nodes", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.Nodes)

@@ -286,7 +286,31 @@ docker exec $(docker ps -qf name=hostyt-proxy-gateway-app-1) \
 
 ---
 
-## 8. Useful diagnostic commands
+## 8. Redis overcommit warning
+
+Redis may log this warning during container startup:
+
+```
+WARNING Memory overcommit must be enabled!
+```
+
+Redis still starts, but background saves or replication can fail under memory pressure. This is a Linux host kernel setting, not an application setting. Fix it on the Docker host:
+
+```bash
+sudo sysctl -w vm.overcommit_memory=1
+echo 'vm.overcommit_memory = 1' | sudo tee /etc/sysctl.d/99-hostyt-redis.conf
+sudo sysctl --system
+```
+
+Then restart the Redis container:
+
+```bash
+docker compose -f deploy/docker-compose.yml restart redis
+```
+
+---
+
+## 9. Useful diagnostic commands
 
 ### View logs
 

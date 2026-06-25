@@ -147,6 +147,10 @@ type Route struct {
 	// for plain internal proxy routes (one {"dial":"host:port"} per element,
 	// in order). Ignored for External and BackendResolver routes.
 	Upstreams []Upstream
+	// LocationRules are ordered path-specific overrides evaluated before the
+	// default route target. They let operators model /api or /assets routing
+	// without dropping into raw Caddy JSON.
+	LocationRules []LocationRule
 	// LBPolicy: "" | "round_robin" | "least_conn" | "ip_hash" |
 	// "weighted_round_robin". Emitted as load_balancing.selection_policy.
 	LBPolicy string
@@ -193,6 +197,18 @@ type Upstream struct {
 	Host   string
 	Port   int
 	Weight int // only consumed by weighted_round_robin
+}
+
+// LocationRule is a first-class path override inside one host route.
+type LocationRule struct {
+	Path           string // Caddy path matcher, e.g. "/api/*"
+	Action         string // proxy | redirect | block | rewrite
+	UpstreamHost   string
+	UpstreamPort   int
+	UpstreamScheme string
+	RedirectURL    string
+	RedirectCode   int
+	RewriteURI     string
 }
 
 // BuildRoute returns a Caddy route object ready to PATCH into
@@ -446,6 +462,9 @@ func BuildRoute(r Route) map[string]any {
 				},
 			},
 		})
+	}
+	if early := buildEarlyLocationSubroute(r); early != nil {
+		handlers = append(handlers, early)
 	}
 	// Cache: real origin cache via the Souin cache-handler module that the
 	// custom Caddy image (deploy/caddy/Dockerfile, xcaddy build with
@@ -837,6 +856,9 @@ func BuildRoute(r Route) map[string]any {
 		})
 	}
 
+	if len(r.LocationRules) > 0 && r.Kind != "redirect" && !r.MaintenanceMode {
+		primary = buildLocationSubroute(r, primary)
+	}
 	handlers = append(handlers, primary)
 
 	// Access list. Three modes:
@@ -1016,14 +1038,135 @@ func isHTTPSProvider(raw string) bool {
 	return strings.HasPrefix(strings.TrimSpace(raw), "https://")
 }
 
-// ssoCopyHeadersHandle returns the `handle` slice that, when nested under
-// reverse_proxy's `handle_response.routes[].handle`, copies headers from
-// the IdP's auth response into the upstream request. The Caddyfile-only
-// `copy_headers` shortcut compiles down to a `headers` handler that uses
-// the `{http.reverse_proxy.header.X-Foo}` placeholder per header.
-//
-// Caddy's reverse_proxy schema rejects `copy_headers` as a direct field on
-// either reverse_proxy or handle_response - this expansion is the only
+func buildEarlyLocationSubroute(r Route) map[string]any {
+	if r.Kind == "redirect" || r.MaintenanceMode {
+		return nil
+	}
+	routes := make([]any, 0, len(r.LocationRules))
+	for _, rule := range r.LocationRules {
+		switch rule.Action {
+		case "block", "redirect":
+		default:
+			continue
+		}
+		entry, ok := buildLocationRuleRoute(rule, nil)
+		if ok {
+			routes = append(routes, entry)
+		}
+	}
+	if len(routes) == 0 {
+		return nil
+	}
+	return map[string]any{"handler": "subroute", "routes": routes}
+}
+
+func buildLocationSubroute(r Route, defaultPrimary map[string]any) map[string]any {
+	routes := make([]any, 0, len(r.LocationRules)+1)
+	for _, rule := range r.LocationRules {
+		switch rule.Action {
+		case "proxy", "rewrite", "":
+		default:
+			continue
+		}
+		entry, ok := buildLocationRuleRoute(rule, defaultPrimary)
+		if ok {
+			routes = append(routes, entry)
+		}
+	}
+	if len(routes) == 0 {
+		return defaultPrimary
+	}
+	routes = append(routes, map[string]any{
+		"handle":   []any{defaultPrimary},
+		"terminal": true,
+	})
+	return map[string]any{
+		"handler": "subroute",
+		"routes":  routes,
+	}
+}
+
+func buildLocationRuleRoute(rule LocationRule, defaultPrimary map[string]any) (map[string]any, bool) {
+	paths := locationPathMatchers(rule.Path)
+	if len(paths) == 0 {
+		return nil, false
+	}
+	entry := map[string]any{
+		"match": []any{map[string]any{"path": paths}},
+	}
+	switch rule.Action {
+	case "block":
+		entry["handle"] = []any{map[string]any{
+			"handler":     "static_response",
+			"status_code": 403,
+			"body":        "Forbidden\n",
+		}}
+	case "redirect":
+		if strings.TrimSpace(rule.RedirectURL) == "" {
+			return nil, false
+		}
+		code := rule.RedirectCode
+		if code == 0 {
+			code = 308
+		}
+		entry["handle"] = []any{map[string]any{
+			"handler":     "static_response",
+			"status_code": code,
+			"headers": map[string]any{
+				"Location": []string{rule.RedirectURL},
+			},
+		}}
+	case "rewrite":
+		if defaultPrimary == nil || strings.TrimSpace(rule.RewriteURI) == "" {
+			return nil, false
+		}
+		entry["handle"] = []any{
+			map[string]any{"handler": "rewrite", "uri": rule.RewriteURI},
+			defaultPrimary,
+		}
+	default:
+		if strings.TrimSpace(rule.UpstreamHost) == "" || rule.UpstreamPort <= 0 {
+			return nil, false
+		}
+		transport := map[string]any{
+			"protocol":     "http",
+			"dial_timeout": "10s",
+		}
+		if rule.UpstreamScheme == "https" {
+			transport["tls"] = map[string]any{}
+		}
+		entry["handle"] = []any{map[string]any{
+			"handler":        "reverse_proxy",
+			"flush_interval": -1,
+			"upstreams":      []any{map[string]any{"dial": dial(rule.UpstreamHost, rule.UpstreamPort)}},
+			"transport":      transport,
+		}}
+	}
+	entry["terminal"] = true
+	return entry, true
+}
+
+func locationPathMatchers(path string) []string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if path == "/" || path == "/*" {
+		return []string{"/*"}
+	}
+	if strings.HasSuffix(path, "/*") {
+		exact := strings.TrimSuffix(path, "/*")
+		if exact == "" {
+			return []string{"/*"}
+		}
+		return []string{exact, path}
+	}
+	return []string{path}
+}
+
 // buildLoadBalancing returns the load_balancing object, or nil when no policy
 // is chosen (Caddy then uses its random default). weighted_round_robin is
 // downgraded to round_robin when the module isn't guaranteed available so a
@@ -1105,7 +1248,8 @@ func secs(n, def int) string {
 	return itoa(n) + "s"
 }
 
-// JSON form Caddy accepts.
+// ssoCopyHeadersHandle returns the JSON form Caddy accepts for copying
+// selected IdP auth-response headers into the upstream request.
 func ssoCopyHeadersHandle(hdrs []string) []any {
 	set := map[string]any{}
 	for _, h := range hdrs {

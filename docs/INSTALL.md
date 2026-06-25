@@ -273,8 +273,8 @@ Database migrations run automatically on startup (`goose up` embedded in the bin
 To pin to a specific release, set `IMAGE_APP` and `IMAGE_CADDY` in `.env`:
 
 ```bash
-IMAGE_APP=ghcr.io/marcoome/caddy-proxy-manager:v1.2.3
-IMAGE_CADDY=ghcr.io/marcoome/caddy-proxy-manager-edge:v1.2.3
+IMAGE_APP=ghcr.io/host-yt/caddy-proxy-manager:v1.2.3
+IMAGE_CADDY=ghcr.io/host-yt/caddy-proxy-manager-edge:v1.2.3
 ```
 
 ---
