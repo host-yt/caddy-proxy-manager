@@ -1,4 +1,6 @@
-CREATE TABLE system_events (
+-- +goose Up
+-- +goose StatementBegin
+CREATE TABLE IF NOT EXISTS system_events (
   id         BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
   node_id    BIGINT UNSIGNED NULL,
   route_id   BIGINT UNSIGNED NULL,
@@ -11,3 +13,9 @@ CREATE TABLE system_events (
   KEY idx_se_route (route_id),
   KEY idx_se_node (node_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+-- +goose StatementEnd
+
+-- +goose Down
+-- +goose StatementBegin
+DROP TABLE IF EXISTS system_events;
+-- +goose StatementEnd

@@ -1,4 +1,5 @@
--- +migrate Up
+-- +goose Up
+-- +goose StatementBegin
 CREATE TABLE IF NOT EXISTS route_location_rules (
   id              BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
   route_id        BIGINT UNSIGNED NOT NULL,
@@ -17,6 +18,9 @@ CREATE TABLE IF NOT EXISTS route_location_rules (
   CONSTRAINT fk_route_location_rules_route FOREIGN KEY (route_id) REFERENCES routes(id) ON DELETE CASCADE,
   INDEX idx_route_location_rules_route (route_id, sort_order, id)
 );
+-- +goose StatementEnd
 
--- +migrate Down
+-- +goose Down
+-- +goose StatementBegin
 DROP TABLE IF EXISTS route_location_rules;
+-- +goose StatementEnd
