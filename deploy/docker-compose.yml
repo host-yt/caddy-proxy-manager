@@ -5,7 +5,7 @@
 
 services:
   app:
-    image: ${IMAGE_APP:-ghcr.io/marcoome/caddy-proxy-manager:latest}
+    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:latest}
     pull_policy: ${IMAGE_PULL_POLICY:-always}
     restart: unless-stopped
     environment:
@@ -26,6 +26,7 @@ services:
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
       CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://caddy:2019}
       APP_INTERNAL_URL: ${APP_INTERNAL_URL:-http://app:8080}
+      ACCESS_LOG_URL: ${ACCESS_LOG_URL:-http://app:8080/internal/access-log}
       # Default OFF: stock caddy rejects the cache config and the WHOLE node
       # goes offline. Flip to 1 ONLY after every Caddy node (central + remote)
       # runs the custom image (deploy/caddy/Dockerfile, xcaddy + cache-handler).
@@ -71,12 +72,14 @@ services:
     image: redis:7-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
     volumes:
       - redis_data:/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 5
@@ -86,7 +89,7 @@ services:
     # can flip CACHE_HANDLER_AVAILABLE=1 and per-route cache_enabled does
     # real origin caching. CI pushes deploy/caddy/Dockerfile to ghcr; local
     # dev falls back to `build:` when the image isn't pullable.
-    image: ${IMAGE_CADDY:-ghcr.io/marcoome/caddy-proxy-manager-edge:latest}
+    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:latest}
     build:
       context: ./caddy
       dockerfile: Dockerfile
@@ -125,7 +128,7 @@ services:
   # the kernel module path may not exist; this service is intended for
   # the Linux VPS where the manager actually runs in production.
   wireguard:
-    image: ${IMAGE_WG:-ghcr.io/marcoome/caddy-proxy-manager-wg:latest}
+    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:latest}
     pull_policy: ${IMAGE_PULL_POLICY:-always}
     restart: unless-stopped
     cap_add:

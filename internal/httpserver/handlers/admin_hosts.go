@@ -1193,6 +1193,17 @@ type upstreamRow struct {
 	Weight int
 }
 
+type locationRuleRow struct {
+	Path           string
+	Action         string
+	UpstreamScheme string
+	UpstreamHost   string
+	UpstreamPort   int
+	RedirectURL    string
+	RedirectCode   int
+	RewriteURI     string
+}
+
 type hostEditData struct {
 	baseAdminData
 	RouteID               int64
@@ -1244,6 +1255,7 @@ type hostEditData struct {
 	// Load balancing + health checks (A2). Upstreams are ADDITIONAL backends;
 	// empty = single-dial. WeightedLBAvail gates the weighted policy in the UI.
 	Upstreams       []upstreamRow
+	LocationRules   []locationRuleRow
 	LBPolicy        string
 	WeightedLBAvail bool
 	HealthURI       string
@@ -1433,6 +1445,21 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		urows.Close()
 	}
+	if lrows, lerr := db.QueryContext(ctx,
+		`SELECT path_glob, action, upstream_scheme, COALESCE(upstream_host,''), COALESCE(upstream_port,0),
+		        COALESCE(redirect_url,''), COALESCE(redirect_code,308), COALESCE(rewrite_uri,'')
+		   FROM route_location_rules
+		  WHERE route_id = ?
+		  ORDER BY sort_order ASC, id ASC`, id); lerr == nil {
+		for lrows.Next() {
+			var lr locationRuleRow
+			if lrows.Scan(&lr.Path, &lr.Action, &lr.UpstreamScheme, &lr.UpstreamHost, &lr.UpstreamPort,
+				&lr.RedirectURL, &lr.RedirectCode, &lr.RewriteURI) == nil {
+				d.LocationRules = append(d.LocationRules, lr)
+			}
+		}
+		lrows.Close()
+	}
 	if redirectURL.Valid {
 		d.RedirectURL = redirectURL.String
 	}
@@ -1604,6 +1631,11 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			weight = clampInt(atoiDefault(upWeights[i], 1), 1, 100)
 		}
 		newUpstreams = append(newUpstreams, upstreamRow{Host: host, Port: port, Weight: weight})
+	}
+	newLocationRules, locErr := sanitizeLocationRules(r.Form)
+	if locErr != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit#tab=locations", "", "routing rule: "+sanitizeErr(locErr))
+		return
 	}
 
 	// Rate limiting (A3). Window must be a valid Go duration when enabled.
@@ -2159,9 +2191,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
 		return
 	}
-	// Rewrite the additional backends atomically (DELETE+INSERT in a tx) so a
-	// partial failure can't leave an empty pool. WG/External routes ignore the
-	// pool at build time, so clearing it for them is harmless.
+	// Rewrite child collections atomically (DELETE+INSERT in a tx) so a partial
+	// failure can't leave an empty upstream pool or half-applied location rules.
 	if tx, txErr := h.DB().BeginTx(ctx, nil); txErr == nil {
 		_, e1 := tx.ExecContext(ctx, `DELETE FROM route_upstreams WHERE route_id = ?`, id)
 		var e2 error
@@ -2172,9 +2203,21 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 				break
 			}
 		}
-		if e1 != nil || e2 != nil {
+		_, e3 := tx.ExecContext(ctx, `DELETE FROM route_location_rules WHERE route_id = ?`, id)
+		var e4 error
+		for i, rule := range newLocationRules {
+			if _, e4 = tx.ExecContext(ctx,
+				`INSERT INTO route_location_rules
+				 (route_id, sort_order, path_glob, action, upstream_scheme, upstream_host, upstream_port, redirect_url, redirect_code, rewrite_uri)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				id, i, rule.Path, rule.Action, rule.UpstreamScheme, nullableString(rule.UpstreamHost), nullableInt(rule.UpstreamPort),
+				nullableString(rule.RedirectURL), rule.RedirectCode, nullableString(rule.RewriteURI)); e4 != nil {
+				break
+			}
+		}
+		if e1 != nil || e2 != nil || e3 != nil || e4 != nil {
 			_ = tx.Rollback()
-			h.Logger.Warn("route_upstreams rewrite failed", "id", id, "err", firstErr(e1, e2))
+			h.Logger.Warn("host child rules rewrite failed", "id", id, "err", firstErr(e1, e2, e3, e4))
 		} else {
 			_ = tx.Commit()
 		}
@@ -2194,6 +2237,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			"ssl": ssl, "force_https": forceHTTPS, "websocket": websocket,
 			"cache_enabled":    cacheEnabled,
 			"maintenance_mode": maintenanceMode,
+			"location_rules":   len(newLocationRules),
 		},
 	})
 	// Stay on the edit page (preserving the active tab via #fragment so the
@@ -2349,6 +2393,123 @@ func nullableString(v string) sql.NullString {
 		return sql.NullString{}
 	}
 	return sql.NullString{String: v, Valid: true}
+}
+
+func nullableInt(v int) sql.NullInt64 {
+	if v == 0 {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: int64(v), Valid: true}
+}
+
+func sanitizeLocationRules(form url.Values) ([]locationRuleRow, error) {
+	paths := form["loc_path[]"]
+	actions := form["loc_action[]"]
+	schemes := form["loc_upstream_scheme[]"]
+	hosts := form["loc_upstream_host[]"]
+	ports := form["loc_upstream_port[]"]
+	redirects := form["loc_redirect_url[]"]
+	codes := form["loc_redirect_code[]"]
+	rewrites := form["loc_rewrite_uri[]"]
+	if len(paths) > 50 {
+		return nil, fmt.Errorf("max 50 rules")
+	}
+	out := make([]locationRuleRow, 0, len(paths))
+	for i, rawPath := range paths {
+		path, err := sanitizeLocationPath(rawPath)
+		if err != nil {
+			return nil, err
+		}
+		if path == "" {
+			continue
+		}
+		action := fieldAt(actions, i)
+		switch action {
+		case "", "proxy":
+			action = "proxy"
+		case "redirect", "block", "rewrite":
+		default:
+			return nil, fmt.Errorf("invalid action for %s", path)
+		}
+		scheme := fieldAt(schemes, i)
+		if scheme != "https" {
+			scheme = "http"
+		}
+		rule := locationRuleRow{
+			Path:           path,
+			Action:         action,
+			UpstreamScheme: scheme,
+			RedirectCode:   308,
+		}
+		switch action {
+		case "proxy":
+			rule.UpstreamHost = strings.TrimSpace(fieldAt(hosts, i))
+			rule.UpstreamPort = atoiDefault(fieldAt(ports, i), 0)
+			if !isValidUpstreamHost(rule.UpstreamHost) || rule.UpstreamPort < 1 || rule.UpstreamPort > 65535 {
+				return nil, fmt.Errorf("%s proxy requires a valid host and port", path)
+			}
+		case "redirect":
+			rule.RedirectURL = strings.TrimSpace(fieldAt(redirects, i))
+			if rule.RedirectURL == "" {
+				return nil, fmt.Errorf("%s redirect requires a destination", path)
+			}
+			if !(strings.HasPrefix(rule.RedirectURL, "http://") || strings.HasPrefix(rule.RedirectURL, "https://") || strings.HasPrefix(rule.RedirectURL, "/")) {
+				return nil, fmt.Errorf("%s redirect destination must be http(s):// or /relative", path)
+			}
+			rule.RedirectCode = atoiDefault(fieldAt(codes, i), 308)
+			switch rule.RedirectCode {
+			case 301, 302, 307, 308:
+			default:
+				return nil, fmt.Errorf("%s redirect code must be 301/302/307/308", path)
+			}
+		case "rewrite":
+			rule.RewriteURI = strings.TrimSpace(fieldAt(rewrites, i))
+			if !strings.HasPrefix(rule.RewriteURI, "/") {
+				return nil, fmt.Errorf("%s rewrite URI must start with /", path)
+			}
+			if len(rule.RewriteURI) > 1024 {
+				return nil, fmt.Errorf("%s rewrite URI too long", path)
+			}
+		}
+		out = append(out, rule)
+	}
+	return out, nil
+}
+
+func sanitizeLocationPath(raw string) (string, error) {
+	path := strings.TrimSpace(raw)
+	if path == "" {
+		return "", nil
+	}
+	if strings.Contains(path, "://") || strings.ContainsAny(path, "?#") || strings.Contains(path, "..") {
+		return "", fmt.Errorf("invalid path %q", raw)
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	if len(path) > 255 {
+		return "", fmt.Errorf("path too long")
+	}
+	if strings.Contains(path, "*") {
+		if path != "/*" && !strings.HasSuffix(path, "/*") {
+			return "", fmt.Errorf("wildcard must be a trailing /* in %q", raw)
+		}
+		if strings.Count(path, "*") > 1 {
+			return "", fmt.Errorf("only one wildcard is supported in %q", raw)
+		}
+		return path, nil
+	}
+	if path != "/" {
+		path += "/*"
+	}
+	return path, nil
+}
+
+func fieldAt(values []string, i int) string {
+	if i < 0 || i >= len(values) {
+		return ""
+	}
+	return strings.TrimSpace(values[i])
 }
 
 // sanitizeAliases parses the operator-supplied alias textarea (comma /

@@ -52,6 +52,14 @@
       {{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}
     </div>
     <nav class="text-sm flex-1">
+      {{if eq .Data.Role "support"}}
+      <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-3 mb-1.5">Read-only</p>
+      <div class="space-y-0.5">
+        <a href="/admin/map" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "map"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Infrastructure map</a>
+        <a href="/admin/tunnels" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "tunnels"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Tunnels (WG)</a>
+      </div>
+      <p class="mt-4 px-3 text-xs leading-relaxed text-slate-500 dark:text-slate-400">Support access is read-only and limited to assigned clients.</p>
+      {{else}}
       <!-- Grouped nav. Crisp uppercase group labels + hairline dividers make sections read as distinct blocks.
            Active item = soft accent pill (font-medium + bg + ring) plus a left accent bar as a non-color cue.
            Each link keeps its href + .Page active-state key unchanged. -->
@@ -71,6 +79,7 @@
 
       <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-3 mb-1.5 mt-5 pt-4 border-t border-slate-200/80 dark:border-zinc-800">Fleet</p>
       <div class="space-y-0.5">
+        <a href="/admin/map" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "map"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Infrastructure map</a>
         <a href="/admin/nodes" class="block px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "nodes"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">Caddy nodes</a>
       </div>
 
@@ -100,6 +109,7 @@
       <div class="mt-5 pt-4 border-t border-slate-200 dark:border-zinc-800">
         <a href="/api-docs" target="_blank" rel="noopener" class="block px-3 py-1.5 rounded-lg transition-colors text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white">API docs ↗</a>
       </div>
+      {{end}}
     </nav>
   </aside>
   <main id="main-content" role="main" class="p-6 md:p-8 min-w-0 max-w-full overflow-x-hidden">
@@ -181,6 +191,7 @@
     {{if eq .Page "branding"}}{{template "branding" .Data}}{{end}}
     {{if eq .Page "node_detail"}}{{template "node_detail" .Data}}{{end}}
     {{if eq .Page "nodes"}}{{template "nodes" .Data}}{{end}}
+    {{if eq .Page "map"}}{{template "map" .Data}}{{end}}
     {{if eq .Page "plans"}}{{template "plans" .Data}}{{end}}
     {{if eq .Page "clients"}}{{template "clients" .Data}}{{end}}
     {{if eq .Page "services"}}{{template "services" .Data}}{{end}}

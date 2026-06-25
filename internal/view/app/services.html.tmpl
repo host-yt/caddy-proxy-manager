@@ -1,5 +1,13 @@
 {{define "services"}}
 <div class="space-y-4">
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+    <div>
+      <p class="hpg-eyebrow">Service inventory</p>
+      <h2 class="text-lg font-semibold text-slate-950 dark:text-white">Backends and port ranges</h2>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Each service defines the backend IP and ports available for route mappings.</p>
+    </div>
+    <a href="/app/routes/new" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New route</a>
+  </div>
 {{range .Services}}
   <section class="hpg-card">
     <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
@@ -9,12 +17,12 @@
           {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>{{else if eq .Status "suspended"}}<span class="hpg-pill hpg-pill-warn">suspended</span>{{else}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>{{end}}
           {{if eq .PlanKind "npm"}}<span class="hpg-pill bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">editable backend</span>{{else}}<span class="hpg-pill hpg-pill-muted">provider managed</span>{{end}}
         </div>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{.PlanName}} · {{.RouteCount}} mapped domains</p>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400 truncate">{{.PlanName}} · {{.RouteCount}} mapped routes</p>
       </div>
-      <a href="/app/routes/new?service_id={{.ID}}" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">Add domain</a>
+      <a href="/app/routes/new?service_id={{.ID}}" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">Add route</a>
     </div>
 
-    <dl class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5 text-sm">
+    <dl class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-5 text-sm">
       <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
         <dt class="hpg-eyebrow">Backend IP</dt>
         <dd class="mt-1 font-mono text-slate-900 dark:text-white break-all">{{.BackendIP}}</dd>
@@ -28,7 +36,7 @@
         <dd class="mt-1 text-slate-900 dark:text-white">{{.PlanName}}</dd>
       </div>
       <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
-        <dt class="hpg-eyebrow">Domains</dt>
+        <dt class="hpg-eyebrow">Routes</dt>
         <dd class="mt-1 text-slate-900 dark:text-white tabular-nums">{{.RouteCount}}</dd>
       </div>
     </dl>
@@ -50,12 +58,12 @@
     {{end}}
   </section>
 {{else}}
-  <section class="hpg-card py-14 text-center">
+  <section class="hpg-card py-12 text-center">
     <div class="mx-auto h-12 w-12 rounded-2xl bg-slate-100 dark:bg-zinc-800 grid place-items-center text-slate-400">
       <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg>
     </div>
-    <h3 class="mt-4 font-semibold text-slate-900 dark:text-white">No services yet</h3>
-    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Your provider will activate a service before domains can be mapped.</p>
+    <h3 class="mt-4 font-semibold text-slate-900 dark:text-white">No active services</h3>
+    <p class="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">A service must be active before routes can be created. Once your provider assigns one, its backend IP and allowed ports will appear here.</p>
   </section>
 {{end}}
 </div>

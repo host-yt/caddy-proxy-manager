@@ -49,6 +49,67 @@
   <div class="hpg-alert-err text-sm">{{.Error}}</div>
   {{end}}
 
+  <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+    <div class="hpg-card">
+      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Requests, 24h</p>
+      <div class="mt-2 flex items-baseline gap-2">
+        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{.AnalyticsTotal}}</span>
+        <span class="text-xs text-slate-500 dark:text-slate-400">total</span>
+      </div>
+      <div class="mt-3 flex flex-wrap gap-1.5">
+        {{range .StatusBuckets}}
+        <span class="hpg-pill {{if eq .Bucket "2xx"}}hpg-pill-ok{{else if eq .Bucket "3xx"}}hpg-pill-warn{{else if or (eq .Bucket "4xx") (eq .Bucket "5xx")}}hpg-pill-err{{else}}hpg-pill-muted{{end}}">
+          {{.Bucket}} {{.Count}}
+        </span>
+        {{else}}
+        <span class="hpg-pill hpg-pill-muted">no traffic</span>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="hpg-card">
+      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Top paths</p>
+      <div class="mt-3 space-y-2">
+        {{range .TopPaths}}
+        <div class="flex items-center justify-between gap-3">
+          <span class="min-w-0 truncate font-mono text-xs text-slate-700 dark:text-slate-300" title="{{.Path}}">{{.Path}}</span>
+          <span class="hpg-pill hpg-pill-muted tabular-nums">{{.Count}}</span>
+        </div>
+        {{else}}
+        <p class="text-xs text-slate-500 dark:text-slate-400">No path data yet.</p>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="hpg-card">
+      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Remote IPs</p>
+      <div class="mt-3 space-y-2">
+        {{range .TopRemoteIPs}}
+        <div class="flex items-center justify-between gap-3">
+          <span class="min-w-0 truncate font-mono text-xs text-slate-700 dark:text-slate-300" title="{{.RemoteIP}}">{{.RemoteIP}}</span>
+          <span class="hpg-pill hpg-pill-muted tabular-nums">{{.Count}}</span>
+        </div>
+        {{else}}
+        <p class="text-xs text-slate-500 dark:text-slate-400">No IP data yet.</p>
+        {{end}}
+      </div>
+    </div>
+
+    <div class="hpg-card">
+      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Traffic trend</p>
+      <div class="mt-3 grid grid-cols-6 gap-1.5">
+        {{range .TrafficPoints}}
+        <div class="rounded-lg bg-slate-50 px-1.5 py-2 text-center ring-1 ring-slate-200/70 dark:bg-zinc-900 dark:ring-zinc-800">
+          <div class="font-mono text-[10px] text-slate-400">{{.Start.Format "15:04"}}</div>
+          <div class="mt-1 text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">{{.Count}}</div>
+        </div>
+        {{else}}
+        <p class="col-span-6 text-xs text-slate-500 dark:text-slate-400">No recent samples.</p>
+        {{end}}
+      </div>
+    </div>
+  </section>
+
   <!-- Filter form -->
   <form method="GET" action="/admin/hosts/{{.RouteID}}/logs"
         id="log-filter-form"
@@ -183,18 +244,40 @@
     return 'text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-500/10';
   }
 
+  function cell(className, text, title){
+    var td = document.createElement('td');
+    td.className = className;
+    td.textContent = text == null ? '' : String(text);
+    if(title) td.title = title;
+    return td;
+  }
+
   function prependRow(e){
     var ts = new Date(e.ts).toLocaleString('sv').replace('T',' ');
     var tr = document.createElement('tr');
     tr.className = 'hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors';
-    tr.innerHTML = [
-      '<td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono">'+ts+'</td>',
-      '<td class="px-4 py-2"><span class="text-xs font-mono font-semibold">'+e.method+'</span></td>',
-      '<td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate" title="'+e.uri+'">'+e.uri+'</td>',
-      '<td class="px-4 py-2"><span class="inline-block px-1.5 py-0.5 rounded text-xs font-semibold font-mono '+statusClass(e.status)+'">'+e.status+'</span></td>',
-      '<td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">'+e.latency_ms+'ms</td>',
-      '<td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">'+e.remote_ip+'</td>',
-    ].join('');
+    tr.appendChild(cell('px-4 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono', ts));
+
+    var methodCell = document.createElement('td');
+    methodCell.className = 'px-4 py-2';
+    var method = document.createElement('span');
+    method.className = 'text-xs font-mono font-semibold';
+    method.textContent = e.method || '';
+    methodCell.appendChild(method);
+    tr.appendChild(methodCell);
+
+    tr.appendChild(cell('px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate', e.uri || '', e.uri || ''));
+
+    var statusCell = document.createElement('td');
+    statusCell.className = 'px-4 py-2';
+    var status = document.createElement('span');
+    status.className = 'inline-block px-1.5 py-0.5 rounded text-xs font-semibold font-mono ' + statusClass(Number(e.status) || 0);
+    status.textContent = e.status == null ? '' : String(e.status);
+    statusCell.appendChild(status);
+    tr.appendChild(statusCell);
+
+    tr.appendChild(cell('px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400', (e.latency_ms || 0) + 'ms'));
+    tr.appendChild(cell('px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400', e.remote_ip || ''));
     tbody.insertBefore(tr, tbody.firstChild);
     // Trim to maxRows
     while(tbody.rows.length > maxRows) tbody.deleteRow(tbody.rows.length-1);

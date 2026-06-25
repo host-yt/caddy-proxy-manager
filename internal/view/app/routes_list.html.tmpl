@@ -4,8 +4,9 @@
     <div>
       <p class="hpg-eyebrow">Domain mappings</p>
       <h2 class="text-lg font-semibold text-slate-950 dark:text-white">Public routes</h2>
+      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track domain, path, service target, and DNS/SSL state in one place.</p>
     </div>
-    <a href="/app/routes/new" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New domain</a>
+    <a href="/app/routes/new" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New route</a>
   </div>
 
   <section class="hpg-card !p-0 overflow-hidden">
@@ -13,7 +14,7 @@
       <table class="w-full text-sm">
         <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left hpg-eyebrow">
           <tr>
-            <th class="px-4 py-3">Domain</th>
+            <th class="px-4 py-3">Route</th>
             <th class="px-4 py-3">Target</th>
             <th class="px-4 py-3">Service</th>
             <th class="px-4 py-3">DNS / SSL</th>
@@ -24,13 +25,13 @@
         {{range .Routes}}
           <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
             <td class="px-4 py-3">
-              <div class="font-medium text-slate-900 dark:text-white"><code>{{.Domain}}</code></div>
-              <div class="text-xs text-slate-500 dark:text-slate-400">{{if .PathPrefix}}{{.PathPrefix}}{{else}}/{{end}}</div>
+              <div class="font-medium text-slate-900 dark:text-white break-all"><code>{{.Domain}}</code></div>
+              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400 break-all">path {{if .PathPrefix}}{{.PathPrefix}}{{else}}/{{end}}</div>
             </td>
             <td class="px-4 py-3">
               <span class="hpg-pill hpg-pill-muted font-mono">:{{.UpstreamPort}}</span>
             </td>
-            <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.ServiceName}}</td>
+            <td class="px-4 py-3 text-slate-600 dark:text-slate-300"><span class="block max-w-[12rem] truncate" title="{{.ServiceName}}">{{.ServiceName}}</span></td>
             <td class="px-4 py-3">
               {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>
               {{else if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err">failed</span>
@@ -57,8 +58,9 @@
               <div class="mx-auto h-12 w-12 rounded-2xl bg-slate-100 dark:bg-zinc-800 grid place-items-center text-slate-400">
                 <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20"/></svg>
               </div>
-              <h3 class="mt-4 font-semibold text-slate-900 dark:text-white">No domains mapped</h3>
-              <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create the first route when your DNS is ready.</p>
+              <h3 class="mt-4 font-semibold text-slate-900 dark:text-white">No routes mapped</h3>
+              <p class="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">Create a route when you know the service and backend port. DNS can be verified from this table after the record is changed.</p>
+              <a href="/app/routes/new" class="mt-4 inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">Create route</a>
             </td>
           </tr>
         {{end}}

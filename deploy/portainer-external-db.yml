@@ -1,0 +1,124 @@
+# Hostyt Proxy Gateway - Portainer stack for external MariaDB
+#
+# This stack is for a manager node that uses an external MariaDB service,
+# bundled Redis, bundled Caddy, and the host-network node-agent.
+# Required env: APP_URL, APP_SECRET, INSTALL_TOKEN, DB_HOST, DB_NAME, DB_USER,
+# DB_PASSWORD, REDIS_PASSWORD, CADDY_ACME_EMAIL, HPG_NODE_TOKEN,
+# HPG_WG_PRIVATE_KEY.
+
+services:
+  app:
+    image: ghcr.io/host-yt/caddy-proxy-manager:latest
+    pull_policy: always
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_URL: ${APP_URL}
+      APP_SECRET: ${APP_SECRET}
+      INSTALL_TOKEN: ${INSTALL_TOKEN}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DB_HOST: ${DB_HOST}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_TLS: ${DB_TLS:-true}
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
+      CADDY_ADMIN_URL: http://caddy:2019
+      APP_INTERNAL_URL: http://app:8080
+      ACCESS_LOG_URL: http://app:8080/internal/access-log
+      CACHE_HANDLER_AVAILABLE: ${CACHE_HANDLER_AVAILABLE:-1}
+      LAYER4_AVAILABLE: ${LAYER4_AVAILABLE:-1}
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - app_data:/app/data
+      - wg_config:/app/wg
+    networks:
+      - internal
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  caddy:
+    image: ghcr.io/host-yt/caddy-proxy-manager-edge:latest
+    pull_policy: always
+    restart: unless-stopped
+    cap_add:
+      - NET_BIND_SERVICE
+    extra_hosts:
+      - "host.docker.internal:172.18.0.1"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+    environment:
+      ASK_ENDPOINT_URL: http://app:8080/internal/ask
+      ACME_EMAIL: ${CADDY_ACME_EMAIL}
+    networks:
+      - internal
+
+  hpg-node-agent:
+    image: ghcr.io/host-yt/caddy-proxy-manager-node-agent:latest
+    pull_policy: always
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      HPG_PANEL_URL: ${APP_URL}
+      HPG_NODE_TOKEN: ${HPG_NODE_TOKEN}
+      HPG_WG_PRIVATE_KEY: ${HPG_WG_PRIVATE_KEY}
+      HPG_WG_GATEWAY_IP: ${HPG_WG_GATEWAY_IP:-100.96.0.1/16}
+      HPG_WG_LISTEN_PORT: ${HPG_WG_LISTEN_PORT:-51821}
+      HPG_WG_INTERFACE: ${HPG_WG_INTERFACE:-wg-tun0}
+      HPG_POLL_INTERVAL: ${HPG_POLL_INTERVAL:-30s}
+      HPG_TUNNEL_TRANSPORT: ${HPG_TUNNEL_TRANSPORT:-auto}
+      HPG_WSTUNNEL_PORT: ${HPG_WSTUNNEL_PORT:-51823}
+      HPG_CADDY_ACCESS_LOG: /var/log/caddy/access.log
+    volumes:
+      - caddy_logs:/var/log/caddy:ro
+    healthcheck:
+      test: ["CMD", "pgrep", "hpg-node-agent"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  app_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  caddy_logs:
+  wg_config:
+
+networks:
+  internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1

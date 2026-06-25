@@ -71,8 +71,8 @@ Open the install wizard at `http://<server-ip>:8080/install` to create the admin
 - Pass `--env-file .env` explicitly so Docker Compose picks it up regardless of working directory.
 - To pin to a specific release, add to `.env`:
   ```
-  IMAGE_APP=ghcr.io/marcoome/caddy-proxy-manager:v1.2.3
-  IMAGE_CADDY=ghcr.io/marcoome/caddy-proxy-manager-edge:v1.2.3
+  IMAGE_APP=ghcr.io/host-yt/caddy-proxy-manager:v1.2.3
+  IMAGE_CADDY=ghcr.io/host-yt/caddy-proxy-manager-edge:v1.2.3
   IMAGE_PULL_POLICY=missing
   ```
 
@@ -89,6 +89,11 @@ Open the install wizard at `http://<server-ip>:8080/install` to create the admin
 
 Portainer pulls and starts the services. The stack name becomes the Docker Compose project name; note it for later CLI commands.
 
+If you use an external managed MariaDB, use `deploy/portainer-external-db.yml`
+as the compose path instead. It includes the bundled Redis, bundled Caddy, the
+host-network node-agent, and the shared Caddy access-log volume used by the
+logs/analytics screens.
+
 ### Option B - Paste compose YAML
 
 1. Go to **Stacks -> Add stack -> Web editor**.
@@ -97,6 +102,15 @@ Portainer pulls and starts the services. The stack name becomes the Docker Compo
 4. Deploy.
 
 **Important:** All secrets (`APP_SECRET`, `DB_PASSWORD`, `MARIADB_ROOT_PASSWORD`, `CADDY_ACME_EMAIL`) must be set in the Portainer env-var UI, not hardcoded into the YAML you paste.
+
+Before deploying on a Linux host with bundled Redis, set the host overcommit
+flag so Redis background persistence does not fail under memory pressure:
+
+```bash
+sudo sysctl -w vm.overcommit_memory=1
+echo 'vm.overcommit_memory = 1' | sudo tee /etc/sysctl.d/99-hostyt-redis.conf
+sudo sysctl --system
+```
 
 Portainer Stacks support auto-update from git with a webhook - enable it under **Stack details -> Git polling** or **Webhooks** after the initial deploy.
 
@@ -160,7 +174,7 @@ All four default to `0`.
 
 **Safe rollout procedure:**
 
-1. Update every remote node's Caddy image to `ghcr.io/marcoome/caddy-proxy-manager-edge:latest` (or the same pinned tag as the manager).
+1. Update every remote node's Caddy image to `ghcr.io/host-yt/caddy-proxy-manager-edge:latest` (or the same pinned tag as the manager).
 2. Verify all nodes show **Online** in **Admin -> Caddy nodes**.
 3. Set the desired gate(s) to `1` in `.env` and restart only the `app` container:
    ```bash

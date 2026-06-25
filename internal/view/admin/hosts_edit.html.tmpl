@@ -27,6 +27,7 @@
   <nav class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-zinc-800 text-sm" id="hpg-tabs">
     <button type="button" data-tab="basics"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-indigo-600 text-indigo-700 dark:text-indigo-400 font-medium">Basics</button>
     <button type="button" data-tab="target"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Target</button>
+    <button type="button" data-tab="locations" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Routing rules</button>
     <button type="button" data-tab="ssl"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">SSL &amp; Protocols</button>
     <button type="button" data-tab="cache"   class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Cache</button>
     <button type="button" data-tab="lb"      class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Load balancing</button>
@@ -72,6 +73,76 @@
           <option value="redirect" {{if eq .Kind "redirect"}}selected{{end}}>Redirect to URL</option>
         </select>
       </div>
+    </section>
+
+    <!-- Routing rules -->
+    <section data-pane="locations" class="hpg-pane hidden hpg-card space-y-4">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h3 class="hpg-eyebrow">Path-specific routing</h3>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Rules run top to bottom before the default target. Use them for /api, /assets, rewrites, legacy redirects, or emergency blocks.</p>
+        </div>
+        <button type="button" id="hpg-location-add" class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 shrink-0">+ Add rule</button>
+      </div>
+      <div id="hpg-locations" class="space-y-2">
+        {{range .LocationRules}}
+        <div class="hpg-location-row rounded-lg ring-1 ring-slate-200 dark:ring-zinc-800 p-3 bg-white dark:bg-zinc-900 space-y-3">
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+            <label class="md:col-span-3 block">
+              <span class="block text-[11px] text-slate-500 mb-1">Path</span>
+              <input name="loc_path[]" value="{{.Path}}" placeholder="/api/*" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+            </label>
+            <label class="md:col-span-2 block">
+              <span class="block text-[11px] text-slate-500 mb-1">Action</span>
+              <select name="loc_action[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+                <option value="proxy" {{if eq .Action "proxy"}}selected{{end}}>Proxy</option>
+                <option value="rewrite" {{if eq .Action "rewrite"}}selected{{end}}>Rewrite</option>
+                <option value="redirect" {{if eq .Action "redirect"}}selected{{end}}>Redirect</option>
+                <option value="block" {{if eq .Action "block"}}selected{{end}}>Block</option>
+              </select>
+            </label>
+            <label class="md:col-span-2 block">
+              <span class="block text-[11px] text-slate-500 mb-1">Scheme</span>
+              <select name="loc_upstream_scheme[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+                <option value="http" {{if ne .UpstreamScheme "https"}}selected{{end}}>http</option>
+                <option value="https" {{if eq .UpstreamScheme "https"}}selected{{end}}>https</option>
+              </select>
+            </label>
+            <label class="md:col-span-3 block">
+              <span class="block text-[11px] text-slate-500 mb-1">Upstream host</span>
+              <input name="loc_upstream_host[]" value="{{.UpstreamHost}}" placeholder="10.0.0.10" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+            </label>
+            <label class="md:col-span-1 block">
+              <span class="block text-[11px] text-slate-500 mb-1">Port</span>
+              <input type="number" name="loc_upstream_port[]" value="{{.UpstreamPort}}" min="1" max="65535" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+            </label>
+            <div class="md:col-span-1 flex items-end">
+              <button type="button" class="hpg-location-del px-2 py-2 text-xs text-rose-600 hover:text-rose-700">remove</button>
+            </div>
+          </div>
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
+            <label class="md:col-span-7 block">
+              <span class="block text-[11px] text-slate-500 mb-1">Redirect URL</span>
+              <input name="loc_redirect_url[]" value="{{.RedirectURL}}" placeholder="https://new.example.com{http.request.uri}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+            </label>
+            <label class="md:col-span-2 block">
+              <span class="block text-[11px] text-slate-500 mb-1">Code</span>
+              <select name="loc_redirect_code[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+                <option value="308" {{if eq .RedirectCode 308}}selected{{end}}>308</option>
+                <option value="301" {{if eq .RedirectCode 301}}selected{{end}}>301</option>
+                <option value="307" {{if eq .RedirectCode 307}}selected{{end}}>307</option>
+                <option value="302" {{if eq .RedirectCode 302}}selected{{end}}>302</option>
+              </select>
+            </label>
+            <label class="md:col-span-3 block">
+              <span class="block text-[11px] text-slate-500 mb-1">Rewrite URI</span>
+              <input name="loc_rewrite_uri[]" value="{{.RewriteURI}}" placeholder="/index.php{http.request.uri}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+            </label>
+          </div>
+        </div>
+        {{end}}
+      </div>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400">Entering <code>/api</code> saves as <code>/api/*</code> and matches both <code>/api</code> and nested paths. Leave Path empty to ignore a row.</p>
     </section>
 
     <!-- Target (Backend OR Redirect, swapped by kind) -->
@@ -659,6 +730,35 @@ X-Authentik-Meta-Version</pre>
     if (upWrap) upWrap.addEventListener('click', function(e){
       if (e.target && e.target.classList.contains('hpg-upstream-del')) {
         var row = e.target.closest('.hpg-upstream-row');
+        if (row) row.remove();
+      }
+    });
+
+    var locWrap = document.getElementById('hpg-locations');
+    var locAdd = document.getElementById('hpg-location-add');
+    function locRow(){
+      var div = document.createElement('div');
+      div.className = 'hpg-location-row rounded-lg ring-1 ring-slate-200 dark:ring-zinc-800 p-3 bg-white dark:bg-zinc-900 space-y-3';
+      div.innerHTML =
+        '<div class="grid grid-cols-1 md:grid-cols-12 gap-2">' +
+          '<label class="md:col-span-3 block"><span class="block text-[11px] text-slate-500 mb-1">Path</span><input name="loc_path[]" placeholder="/api/*" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></label>' +
+          '<label class="md:col-span-2 block"><span class="block text-[11px] text-slate-500 mb-1">Action</span><select name="loc_action[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"><option value="proxy">Proxy</option><option value="rewrite">Rewrite</option><option value="redirect">Redirect</option><option value="block">Block</option></select></label>' +
+          '<label class="md:col-span-2 block"><span class="block text-[11px] text-slate-500 mb-1">Scheme</span><select name="loc_upstream_scheme[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"><option value="http">http</option><option value="https">https</option></select></label>' +
+          '<label class="md:col-span-3 block"><span class="block text-[11px] text-slate-500 mb-1">Upstream host</span><input name="loc_upstream_host[]" placeholder="10.0.0.10" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></label>' +
+          '<label class="md:col-span-1 block"><span class="block text-[11px] text-slate-500 mb-1">Port</span><input type="number" name="loc_upstream_port[]" min="1" max="65535" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"></label>' +
+          '<div class="md:col-span-1 flex items-end"><button type="button" class="hpg-location-del px-2 py-2 text-xs text-rose-600 hover:text-rose-700">remove</button></div>' +
+        '</div>' +
+        '<div class="grid grid-cols-1 md:grid-cols-12 gap-2">' +
+          '<label class="md:col-span-7 block"><span class="block text-[11px] text-slate-500 mb-1">Redirect URL</span><input name="loc_redirect_url[]" placeholder="https://new.example.com{http.request.uri}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></label>' +
+          '<label class="md:col-span-2 block"><span class="block text-[11px] text-slate-500 mb-1">Code</span><select name="loc_redirect_code[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"><option value="308">308</option><option value="301">301</option><option value="307">307</option><option value="302">302</option></select></label>' +
+          '<label class="md:col-span-3 block"><span class="block text-[11px] text-slate-500 mb-1">Rewrite URI</span><input name="loc_rewrite_uri[]" placeholder="/index.php{http.request.uri}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></label>' +
+        '</div>';
+      return div;
+    }
+    if (locAdd && locWrap) locAdd.addEventListener('click', function(){ locWrap.appendChild(locRow()); });
+    if (locWrap) locWrap.addEventListener('click', function(e){
+      if (e.target && e.target.classList.contains('hpg-location-del')) {
+        var row = e.target.closest('.hpg-location-row');
         if (row) row.remove();
       }
     });

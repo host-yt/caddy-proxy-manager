@@ -22,10 +22,15 @@ var logsExportLimiter sync.Map
 // hostLogsData drives the host_logs template.
 type hostLogsData struct {
 	baseAdminData
-	RouteID int64
-	Domain  string
-	Entries []accesslog.Entry
-	Filter  accesslog.Filter
+	RouteID        int64
+	Domain         string
+	Entries        []accesslog.Entry
+	Filter         accesslog.Filter
+	StatusBuckets  []accesslog.StatusBucket
+	TopPaths       []accesslog.PathHit
+	TopRemoteIPs   []accesslog.RemoteIPHit
+	TrafficPoints  []accesslog.TrafficPoint
+	AnalyticsTotal int64
 }
 
 // parseLogsFilter reads filter query params from r.
@@ -90,8 +95,56 @@ func (h *AdminHandlers) HostsLogs(w http.ResponseWriter, r *http.Request) {
 			h.Logger.Warn("host logs query", "id", id, "err", err)
 		}
 		d.Entries = entries
+		h.loadHostLogAnalytics(ctx, id, &d)
 	}
 	h.render(w, "host_logs", d)
+}
+
+func (h *AdminHandlers) loadHostLogAnalytics(ctx context.Context, routeID int64, d *hostLogsData) {
+	if h.AccessLogs == nil || routeID == 0 {
+		return
+	}
+	now := time.Now().UTC()
+	f := accesslog.AnalyticsFilter{
+		RouteID: routeID,
+		From:    now.Add(-24 * time.Hour),
+		To:      now,
+		Step:    time.Hour,
+	}
+
+	buckets, err := h.AccessLogs.StatusBuckets(ctx, f)
+	if err != nil {
+		h.Logger.Warn("host logs status analytics", "id", routeID, "err", err)
+	} else {
+		d.StatusBuckets = buckets
+		for _, b := range buckets {
+			d.AnalyticsTotal += b.Count
+		}
+	}
+
+	topPaths, err := h.AccessLogs.TopPaths(ctx, f, 5)
+	if err != nil {
+		h.Logger.Warn("host logs path analytics", "id", routeID, "err", err)
+	} else {
+		d.TopPaths = topPaths
+	}
+
+	topIPs, err := h.AccessLogs.TopRemoteIPs(ctx, f, 5)
+	if err != nil {
+		h.Logger.Warn("host logs remote ip analytics", "id", routeID, "err", err)
+	} else {
+		d.TopRemoteIPs = topIPs
+	}
+
+	points, err := h.AccessLogs.TrafficTimeseries(ctx, f)
+	if err != nil {
+		h.Logger.Warn("host logs traffic analytics", "id", routeID, "err", err)
+		return
+	}
+	if len(points) > 12 {
+		points = points[len(points)-12:]
+	}
+	d.TrafficPoints = points
 }
 
 // HostsLogsJSON returns the last 100 entries as JSON for GET /admin/hosts/{id}/logs.json.

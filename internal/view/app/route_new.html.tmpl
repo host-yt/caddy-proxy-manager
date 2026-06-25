@@ -1,52 +1,86 @@
 {{define "route_new"}}
 {{if not .Services}}
-  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-8 text-center text-slate-500 text-sm">
-    No active VPS services yet.
-  </div>
+  <section class="hpg-card py-12 text-center">
+    <div class="mx-auto h-12 w-12 rounded-2xl bg-slate-100 dark:bg-zinc-800 grid place-items-center text-slate-400">
+      <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg>
+    </div>
+    <h3 class="mt-4 font-semibold text-slate-900 dark:text-white">No active services</h3>
+    <p class="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">Routes need an active service first. When a backend is assigned, return here to map a domain to one of its allowed ports.</p>
+    <a href="/app/services" class="mt-4 inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-white dark:bg-zinc-900 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm font-medium hover:bg-slate-50 dark:hover:bg-zinc-800">View services</a>
+  </section>
 {{else}}
-<form method="POST" action="/app/routes" class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-6 space-y-4 max-w-xl">
-  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-  <div>
-    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Service / VPS</label>
-    <select name="service_id" required class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm">
-      {{range .Services}}
-        <option value="{{.ID}}" data-port-start="{{.PortStart}}" data-port-end="{{.PortEnd}}" {{if eq .ID $.SelectedServiceID}}selected{{end}}>
-          {{.Name}} (ports {{.PortStart}}–{{.PortEnd}})
-        </option>
-      {{end}}
-    </select>
+<div class="grid gap-5 lg:grid-cols-[minmax(0,36rem)_minmax(18rem,1fr)] lg:items-start">
+  <form method="POST" action="/app/routes" class="hpg-card space-y-5">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <div>
+      <p class="hpg-eyebrow">Route target</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-950 dark:text-white">Map a domain to a service port</h2>
+      <p class="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">Choose the service boundary first, then add the public host and upstream port.</p>
+    </div>
+    <div>
+      <label class="hpg-eyebrow block mb-1.5">Service</label>
+      <select name="service_id" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+        {{range .Services}}
+          <option value="{{.ID}}" data-port-start="{{.PortStart}}" data-port-end="{{.PortEnd}}" {{if eq .ID $.SelectedServiceID}}selected{{end}}>
+            {{.Name}} (ports {{.PortStart}}-{{.PortEnd}})
+          </option>
+        {{end}}
+      </select>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-[1fr_10rem] gap-4">
+      <div>
+        <label class="hpg-eyebrow block mb-1.5">Domain</label>
+        <input name="domain" required value="{{.Form.Domain}}" placeholder="app.your-domain.com"
+               class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+      </div>
+      <div>
+        <label class="hpg-eyebrow block mb-1.5">Backend port</label>
+        <input name="upstream_port" type="number" min="1" max="65535" required
+               value="{{.Form.UpstreamPort}}"
+               class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none">
+      </div>
+    </div>
+    <div>
+      <label class="hpg-eyebrow block mb-1.5">Path prefix</label>
+      <input name="path_prefix" value="{{.Form.PathPrefix}}" placeholder="/api"
+             class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+      <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Leave empty to route from the domain root.</p>
+    </div>
+    <div class="grid gap-2 text-sm">
+      <label class="flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-zinc-800/50 px-3 py-2 ring-1 ring-slate-200/70 dark:ring-zinc-700"><input type="checkbox" name="ssl" value="1" checked> <span>Issue SSL automatically</span></label>
+      <label class="flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-zinc-800/50 px-3 py-2 ring-1 ring-slate-200/70 dark:ring-zinc-700"><input type="checkbox" name="websocket" value="1" checked> <span>Allow WebSocket upgrades</span></label>
+      <label class="flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-zinc-800/50 px-3 py-2 ring-1 ring-slate-200/70 dark:ring-zinc-700"><input type="checkbox" name="force_https" value="1" checked> <span>Force HTTPS</span></label>
+    </div>
+    <div class="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+      <a href="/app/routes" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800">Cancel</a>
+      <button class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Create route</button>
+    </div>
+  </form>
+
+  <div class="hpg-card space-y-4">
+    <div>
+      <p class="hpg-eyebrow">DNS target</p>
+      <h3 class="mt-1 font-semibold text-slate-950 dark:text-white">After creating the route</h3>
+      <p class="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">Point the public record to this gateway, then re-check DNS from the routes table.</p>
+    </div>
+    {{if .NodeHostname}}
+    <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+      <div class="hpg-eyebrow">CNAME</div>
+      <div class="mt-1 font-mono text-xs text-slate-900 dark:text-white break-all">your-domain.com -&gt; {{.NodeHostname}}</div>
+    </div>
+    {{if .NodeIP}}
+    <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+      <div class="hpg-eyebrow">A record</div>
+      <div class="mt-1 font-mono text-xs text-slate-900 dark:text-white break-all">your-domain.com -&gt; {{.NodeIP}}</div>
+    </div>
+    {{end}}
+    {{else}}
+    <p class="text-sm text-slate-500 dark:text-slate-400">DNS target details will appear after a gateway node is assigned.</p>
+    {{end}}
+    <div class="rounded-xl bg-amber-50 dark:bg-amber-500/10 p-3 ring-1 ring-amber-200/70 dark:ring-amber-500/30">
+      <p class="text-xs leading-5 text-amber-800 dark:text-amber-200">The backend port must stay inside the selected service range or route creation will fail.</p>
+    </div>
   </div>
-  <div>
-    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Backend port</label>
-    <input name="upstream_port" type="number" min="1" max="65535" required
-           value="{{.Form.UpstreamPort}}"
-           class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm font-mono">
-    <p class="text-xs text-slate-500 mt-1">Must be inside your allowed port range.</p>
-  </div>
-  <div>
-    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Domain</label>
-    <input name="domain" required value="{{.Form.Domain}}" placeholder="app.your-domain.com"
-           class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm">
-  </div>
-  <div>
-    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Path prefix (optional)</label>
-    <input name="path_prefix" value="{{.Form.PathPrefix}}" placeholder="/api"
-           class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm">
-    <p class="text-xs text-slate-500 mt-1">Leave empty for root.</p>
-  </div>
-  <div class="space-y-1 text-sm">
-    <label class="flex items-center gap-2"><input type="checkbox" name="ssl" value="1" checked> Issue SSL automatically</label>
-    <label class="flex items-center gap-2"><input type="checkbox" name="websocket" value="1" checked> WebSocket</label>
-    <label class="flex items-center gap-2"><input type="checkbox" name="force_https" value="1" checked> Force HTTPS</label>
-  </div>
-  {{if .NodeHostname}}
-  <div class="text-xs text-slate-600 dark:text-slate-300 bg-slate-50 dark:bg-zinc-800/60 border border-slate-200 dark:border-zinc-800 rounded p-3">
-    After creating, point your DNS:
-    <div class="font-mono mt-1"><strong>CNAME</strong> your-domain.com → {{.NodeHostname}}</div>
-    {{if .NodeIP}}<div class="font-mono">or <strong>A</strong> your-domain.com → {{.NodeIP}}</div>{{end}}
-  </div>
-  {{end}}
-  <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Create mapping</button>
-</form>
+</div>
 {{end}}
 {{end}}

@@ -1919,6 +1919,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	// avoid N+1; zero-row routes keep their single-dial primary. Best-effort:
 	// a query error leaves routes single-dial rather than failing the build.
 	s.attachRouteUpstreams(ctx, built, ids)
+	s.attachLocationRules(ctx, built, ids)
 	return built, ids, nil
 }
 
@@ -1957,6 +1958,44 @@ func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Rou
 		}
 		if i, ok := idx[rid]; ok {
 			built[i].Upstreams = append(built[i].Upstreams, caddyapi.Upstream{Host: host, Port: port, Weight: weight})
+		}
+	}
+}
+
+func (s *Service) attachLocationRules(ctx context.Context, built []caddyapi.Route, ids []int64) {
+	if len(ids) == 0 {
+		return
+	}
+	idx := make(map[int64]int, len(ids))
+	ph := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		idx[id] = i
+		ph[i] = "?"
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT route_id, path_glob, action, COALESCE(upstream_host,''), COALESCE(upstream_port,0),
+		        upstream_scheme, COALESCE(redirect_url,''), COALESCE(redirect_code,308), COALESCE(rewrite_uri,'')
+		   FROM route_location_rules
+		  WHERE route_id IN (`+strings.Join(ph, ",")+`)
+		  ORDER BY route_id, sort_order ASC, id ASC`, args...)
+	if err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("route_location_rules load failed; path rules skipped", "err", err)
+		}
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var rid int64
+		var rule caddyapi.LocationRule
+		if err := rows.Scan(&rid, &rule.Path, &rule.Action, &rule.UpstreamHost, &rule.UpstreamPort,
+			&rule.UpstreamScheme, &rule.RedirectURL, &rule.RedirectCode, &rule.RewriteURI); err != nil {
+			continue
+		}
+		if i, ok := idx[rid]; ok {
+			built[i].LocationRules = append(built[i].LocationRules, rule)
 		}
 	}
 }

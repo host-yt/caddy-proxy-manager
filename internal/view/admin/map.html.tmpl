@@ -1,0 +1,254 @@
+{{define "map"}}
+<div class="space-y-6">
+  {{if .DBUnavailable}}
+  <section class="hpg-card text-sm text-slate-600 dark:text-slate-300">
+    Database is not available, so the infrastructure map cannot be built right now.
+  </section>
+  {{else}}
+
+  <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+    <div class="hpg-card">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <p class="hpg-eyebrow">Clients</p>
+          <p class="mt-2 text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">{{.Counts.Clients}}</p>
+        </div>
+        {{if .ScopeLimited}}<span class="hpg-pill hpg-pill-muted shrink-0">scoped</span>{{end}}
+      </div>
+      <p class="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Customer owners in the visible topology.</p>
+    </div>
+    <div class="hpg-card">
+      <p class="hpg-eyebrow">Services</p>
+      <div class="mt-2 flex items-end justify-between gap-3">
+        <p class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">{{.Counts.Services}}</p>
+        <span class="hpg-pill hpg-pill-muted shrink-0">backends</span>
+      </div>
+      <p class="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Managed service targets grouped under clients.</p>
+    </div>
+    <div class="hpg-card">
+      <p class="hpg-eyebrow">Routes / hosts</p>
+      <div class="mt-2 flex items-end justify-between gap-3">
+        <p class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">{{.Counts.Routes}}</p>
+        <span class="hpg-pill hpg-pill-ok shrink-0">{{.Counts.ActiveRoutes}} active</span>
+      </div>
+      <p class="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Public host mappings and upstream ports.</p>
+    </div>
+    <div class="hpg-card">
+      <p class="hpg-eyebrow">Fleet / tunnels</p>
+      <div class="mt-2 flex items-end justify-between gap-3">
+        <p class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">{{.Counts.HealthyNodes}}/{{.Counts.Nodes}}</p>
+        <span class="hpg-pill {{if eq .Counts.ActiveTunnels .Counts.Tunnels}}hpg-pill-ok{{else}}hpg-pill-warn{{end}} shrink-0">{{.Counts.ActiveTunnels}} WG</span>
+      </div>
+      <p class="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Healthy edge nodes and active WireGuard peers.</p>
+    </div>
+  </section>
+
+  {{if .ScopeLimited}}
+  <div class="rounded-lg bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-200 dark:ring-sky-500/30">
+    This map is limited to clients assigned to your admin scope. Fleet nodes are shown only when connected to visible routes or tunnels.
+  </div>
+  {{end}}
+
+  <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_23rem]">
+    <section class="hpg-card !p-0 overflow-hidden">
+      <div class="border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="hpg-eyebrow">Topology</p>
+            <h2 class="mt-1 text-base font-semibold text-slate-900 dark:text-white">Client -> service -> route -> node -> WG peer</h2>
+          </div>
+          <div class="flex flex-wrap gap-2 text-xs">
+            <span class="hpg-pill hpg-pill-muted">showing {{.Limits.Clients}} newest clients</span>
+            {{if gt .Counts.Clients .Limits.Clients}}<span class="hpg-pill hpg-pill-warn">list clipped</span>{{end}}
+          </div>
+        </div>
+        <div class="mt-4 flex flex-wrap gap-2 text-[11px]">
+          <span class="hpg-pill hpg-pill-ok">healthy / active</span>
+          <span class="hpg-pill hpg-pill-warn">pending / degraded</span>
+          <span class="hpg-pill hpg-pill-err">down / failed</span>
+          <span class="hpg-pill hpg-pill-muted">not shown / disabled</span>
+        </div>
+      </div>
+
+      <div class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Clients}}
+        <article class="p-4 sm:p-5">
+          <div class="flex flex-wrap items-start justify-between gap-3">
+            <div class="flex min-w-0 items-center gap-3">
+              <div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-50 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-100 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/20">{{firstRune .Name}}</div>
+              <div class="min-w-0">
+                <h3 class="truncate text-sm font-semibold text-slate-900 dark:text-white">{{.Name}}</h3>
+                <p class="truncate text-xs text-slate-500 dark:text-slate-400">{{.Email}}</p>
+              </div>
+            </div>
+            <div class="grid w-full grid-cols-3 gap-2 text-center text-xs sm:w-auto sm:min-w-[17rem]">
+              <div class="rounded-md bg-slate-50 px-2 py-1.5 ring-1 ring-slate-200/70 dark:bg-zinc-900/60 dark:ring-zinc-800">
+                <p class="font-mono text-slate-900 dark:text-white">{{.ServiceCount}}</p>
+                <p class="truncate text-[10px] uppercase text-slate-400 dark:text-slate-500">services</p>
+              </div>
+              <div class="rounded-md bg-slate-50 px-2 py-1.5 ring-1 ring-slate-200/70 dark:bg-zinc-900/60 dark:ring-zinc-800">
+                <p class="font-mono text-slate-900 dark:text-white">{{.RouteCount}}</p>
+                <p class="truncate text-[10px] uppercase text-slate-400 dark:text-slate-500">routes</p>
+              </div>
+              <div class="rounded-md bg-slate-50 px-2 py-1.5 ring-1 ring-slate-200/70 dark:bg-zinc-900/60 dark:ring-zinc-800">
+                <p class="font-mono text-slate-900 dark:text-white">{{.TunnelCount}}</p>
+                <p class="truncate text-[10px] uppercase text-slate-400 dark:text-slate-500">WG</p>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 space-y-3 border-l border-slate-200 pl-3 dark:border-zinc-800 sm:pl-4">
+            {{range .Services}}
+            <div class="relative rounded-lg bg-slate-50/75 p-3 ring-1 ring-slate-200/80 dark:bg-zinc-900/60 dark:ring-zinc-800">
+              <div class="absolute -left-[1.05rem] top-5 h-2 w-2 rounded-full bg-slate-300 ring-2 ring-white dark:bg-zinc-600 dark:ring-zinc-950"></div>
+              <div class="flex flex-wrap items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="flex min-w-0 flex-wrap items-center gap-2">
+                    <span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else if eq .Status "suspended"}}hpg-pill-warn{{else}}hpg-pill-err{{end}} shrink-0">{{.Status}}</span>
+                    <p class="min-w-0 break-words text-sm font-semibold text-slate-900 dark:text-white">{{.Name}}</p>
+                  </div>
+                  <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+                    <code class="max-w-full break-all rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-600 ring-1 ring-slate-200 dark:bg-zinc-950 dark:text-slate-300 dark:ring-zinc-800">{{.BackendIP}}</code>
+                    <span class="font-mono">ports {{.PortStart}}-{{.PortEnd}}</span>
+                  </div>
+                </div>
+                <span class="hpg-pill hpg-pill-muted shrink-0 font-mono">svc #{{.ID}}</span>
+              </div>
+
+              <div class="mt-3 overflow-hidden rounded-lg bg-white ring-1 ring-slate-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
+                {{range .Routes}}
+                <div class="grid gap-3 border-b border-slate-100 p-3 last:border-b-0 dark:border-zinc-800 lg:grid-cols-[minmax(0,1.2fr)_minmax(12rem,0.8fr)]">
+                  <div class="min-w-0">
+                    <div class="flex min-w-0 flex-wrap items-center gap-2">
+                      <span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else if or (eq .Status "pending_dns") (eq .Status "pending_ssl") (eq .Status "dns_ok")}}hpg-pill-warn{{else}}hpg-pill-err{{end}} shrink-0">{{.Status}}</span>
+                      <a href="/admin/hosts/{{.ID}}/edit" class="min-w-0 break-all text-sm font-medium text-indigo-700 hover:underline dark:text-indigo-300">{{.Domain}}</a>
+                      {{if .PathPrefix}}<code class="max-w-full break-all rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-500 dark:bg-zinc-800 dark:text-slate-300">{{.PathPrefix}}</code>{{end}}
+                    </div>
+                    <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">upstream <span class="font-mono">:{{.UpstreamPort}}</span></p>
+                  </div>
+                  <div class="min-w-0 border-t border-slate-100 pt-2 dark:border-zinc-800 lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0">
+                    <div class="flex min-w-0 items-center justify-between gap-2">
+                      <a href="/admin/nodes/{{.NodeID}}" class="min-w-0 truncate text-xs font-medium text-slate-700 hover:text-indigo-700 dark:text-slate-200 dark:hover:text-indigo-300">{{.NodeName}}</a>
+                      <span class="hpg-pill {{if and .NodeEnabled (eq .NodeHealth "healthy")}}hpg-pill-ok{{else if eq .NodeHealth "down"}}hpg-pill-err{{else}}hpg-pill-warn{{end}} shrink-0">{{.NodeHealth}}</span>
+                    </div>
+                    {{if .WGPeerID}}
+                    <p class="mt-1 min-w-0 break-words text-xs text-slate-500 dark:text-slate-400">via WG <span class="font-medium text-slate-700 dark:text-slate-200">{{.WGPeerName}}</span> <span class="font-mono">{{.WGPeerIP}}</span></p>
+                    {{else}}
+                    <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">direct node upstream</p>
+                    {{end}}
+                  </div>
+                </div>
+                {{else}}
+                <div class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
+                  <p class="font-medium text-slate-600 dark:text-slate-300">No routes on this service.</p>
+                  <p class="mt-1 text-xs">Add a host mapping to connect this backend to an edge node.</p>
+                </div>
+                {{end}}
+              </div>
+            </div>
+            {{else}}
+            <div class="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500 dark:border-zinc-800 dark:text-slate-400">
+              <p class="font-medium text-slate-600 dark:text-slate-300">No services for this client.</p>
+              <p class="mt-1 text-xs">Services will appear here before their host routes and node targets.</p>
+            </div>
+            {{end}}
+          </div>
+
+          {{if .Tunnels}}
+          <div class="mt-4">
+            <p class="hpg-eyebrow mb-2">Visible WG peers</p>
+            <div class="flex flex-wrap gap-2">
+              {{range .Tunnels}}
+              <span class="inline-flex max-w-full items-center gap-2 rounded-full bg-emerald-50 px-3 py-1 text-xs text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:ring-emerald-500/30">
+                <span class="min-w-0 truncate font-medium">{{.Name}}</span>
+                <span class="shrink-0 font-mono">{{.AssignedIP}}</span>
+                <span class="min-w-0 truncate">{{.NodeName}}</span>
+              </span>
+              {{end}}
+            </div>
+          </div>
+          {{end}}
+        </article>
+        {{else}}
+        <div class="px-5 py-16 text-center">
+          <p class="font-medium text-slate-700 dark:text-slate-200">No topology data to show.</p>
+          <p class="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">{{if .ScopeLimited}}No clients are currently assigned to your admin scope.{{else}}Create a client, service, and host to populate the map.{{end}}</p>
+        </div>
+        {{end}}
+      </div>
+    </section>
+
+    <aside class="space-y-4">
+      <section class="hpg-card !p-0 overflow-hidden">
+        <div class="border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="hpg-eyebrow">Nodes</p>
+              <h2 class="mt-1 font-semibold text-slate-900 dark:text-white">Fleet edge</h2>
+            </div>
+            {{if gt .Counts.Nodes .Limits.Nodes}}<span class="hpg-pill hpg-pill-warn shrink-0">clipped</span>{{end}}
+          </div>
+        </div>
+        <div class="divide-y divide-slate-100 dark:divide-zinc-800">
+          {{range .Nodes}}
+          <div class="p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div class="min-w-0">
+                <a href="/admin/nodes/{{.ID}}" class="block truncate font-medium text-slate-900 hover:text-indigo-700 dark:text-white dark:hover:text-indigo-300">{{.Name}}</a>
+                <p class="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">{{if .PublicHostname}}{{.PublicHostname}}{{else if .PublicIP}}{{.PublicIP}}{{else}}no public endpoint{{end}}</p>
+              </div>
+              <span class="hpg-pill {{if and .Enabled (eq .HealthStatus "healthy")}}hpg-pill-ok{{else if eq .HealthStatus "down"}}hpg-pill-err{{else}}hpg-pill-warn{{end}} shrink-0">{{.HealthStatus}}</span>
+            </div>
+            <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div class="rounded-md bg-slate-50 px-2.5 py-2 dark:bg-zinc-900">
+                <p class="truncate text-slate-400 dark:text-slate-500">route load</p>
+                <p class="font-mono text-slate-700 dark:text-slate-200">{{.CurrentRoutes}}/{{.MaxRoutes}}</p>
+              </div>
+              <div class="rounded-md bg-slate-50 px-2.5 py-2 dark:bg-zinc-900">
+                <p class="truncate text-slate-400 dark:text-slate-500">visible here</p>
+                <p class="font-mono text-slate-700 dark:text-slate-200">{{.RoutesShown}}R / {{.TunnelsShown}}WG</p>
+              </div>
+            </div>
+            {{if .TunnelEnabled}}
+            <div class="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:ring-emerald-500/30">
+              <div class="flex min-w-0 items-center justify-between gap-2">
+                <span class="font-medium">WG enabled</span>
+                {{if .WGIP}}<span class="shrink-0 font-mono">{{.WGIP}}</span>{{end}}
+              </div>
+              {{if .TunnelSubnet}}<p class="mt-1 break-all font-mono opacity-80">{{.TunnelSubnet}}</p>{{end}}
+            </div>
+            {{else}}
+            <div class="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 ring-1 ring-slate-200/70 dark:bg-zinc-900 dark:text-slate-400 dark:ring-zinc-800">WG disabled on this node.</div>
+            {{end}}
+            {{if .Tunnels}}
+            <div class="mt-3 space-y-1.5">
+              {{range .Tunnels}}
+              <div class="flex items-center justify-between gap-2 rounded-md bg-white px-2.5 py-2 text-xs ring-1 ring-slate-200 dark:bg-zinc-950 dark:ring-zinc-800">
+                <span class="min-w-0 truncate text-slate-700 dark:text-slate-200">{{.Name}}</span>
+                <span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else if eq .Status "pending"}}hpg-pill-warn{{else}}hpg-pill-err{{end}} shrink-0">{{.Status}}</span>
+              </div>
+              {{end}}
+            </div>
+            {{else if .TunnelEnabled}}
+            <div class="mt-3 rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500 dark:border-zinc-800 dark:text-slate-400">No visible WG peers on this node.</div>
+            {{end}}
+          </div>
+          {{else}}
+          <div class="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+            <p class="font-medium text-slate-600 dark:text-slate-300">No nodes are connected to the visible topology.</p>
+            <p class="mt-1 text-xs">Nodes appear once routes or tunnels in scope point at them.</p>
+          </div>
+          {{end}}
+        </div>
+      </section>
+
+      <section class="rounded-lg bg-slate-50 p-4 text-xs leading-5 text-slate-500 ring-1 ring-slate-200/70 dark:bg-zinc-900/60 dark:text-slate-400 dark:ring-zinc-800">
+        <p class="hpg-eyebrow mb-2">Display limits</p>
+        <p>Showing up to {{.Limits.Clients}} clients, {{.Limits.Services}} services, {{.Limits.Routes}} routes, {{.Limits.Nodes}} nodes, and {{.Limits.Tunnels}} tunnels.</p>
+        <p class="mt-2">Summary counts use the full visible scope{{if .ScopeLimited}} after admin scoping{{end}}.</p>
+      </section>
+    </aside>
+  </div>
+  {{end}}
+</div>
+{{end}}
