@@ -641,7 +641,7 @@ func (h *AdminHandlers) lookupNewTunnel(ctx context.Context, db *sql.DB, r *http
 	if err != nil {
 		return nil
 	}
-	base := publicBaseURL(r, h.State.Get().App.URL)
+	base := publicBaseURL(r, appURLFromInstallState(h.State))
 	return &newTunnelView{
 		PeerID:         peerID,
 		Name:           name,

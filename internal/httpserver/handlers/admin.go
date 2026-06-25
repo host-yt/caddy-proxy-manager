@@ -3226,9 +3226,7 @@ func (h *AdminHandlers) NodesJoinToken(w http.ResponseWriter, r *http.Request) {
 	d := nodesData{baseAdminData: h.base(r, "Caddy nodes")}
 	d.NewJoinToken = tk.Plain
 	d.NewJoinTTL = tk.ExpiresAt.Format(time.RFC3339)
-	if st := h.State.Get(); st.App != nil {
-		d.AppURL = st.App.URL
-	}
+	d.AppURL = appURLFromInstallState(h.State)
 	h.populateNodesData(r.Context(), &d)
 	h.render(w, "nodes", d)
 }
