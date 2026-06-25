@@ -1,16 +1,23 @@
 package handlers
 
 import (
+	"context"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/hostyt/proxy-gateway/internal/accesslog"
+	"github.com/hostyt/proxy-gateway/internal/auth"
+	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
 )
+
+var logsExportLimiter sync.Map
 
 // hostLogsData drives the host_logs template.
 type hostLogsData struct {
@@ -18,6 +25,34 @@ type hostLogsData struct {
 	RouteID int64
 	Domain  string
 	Entries []accesslog.Entry
+	Filter  accesslog.Filter
+}
+
+// parseLogsFilter reads filter query params from r.
+func parseLogsFilter(r *http.Request) accesslog.Filter {
+	q := r.URL.Query()
+	var f accesslog.Filter
+	f.StatusMin, _ = strconv.Atoi(q.Get("status_min"))
+	f.StatusMax, _ = strconv.Atoi(q.Get("status_max"))
+	f.Method = q.Get("method")
+	f.RemoteIP = q.Get("remote_ip")
+	f.URIPattern = q.Get("uri")
+	if s := q.Get("from"); s != "" {
+		f.From, _ = time.Parse("2006-01-02", s)
+	}
+	if s := q.Get("to"); s != "" {
+		t, err := time.Parse("2006-01-02", s)
+		if err == nil {
+			f.To = t.Add(24*time.Hour - time.Second) // inclusive end of day
+		}
+	}
+	return f
+}
+
+// hasFilter reports whether any filter field is set.
+func hasFilter(f accesslog.Filter) bool {
+	return f.StatusMin > 0 || f.StatusMax > 0 || f.Method != "" ||
+		f.RemoteIP != "" || f.URIPattern != "" || !f.From.IsZero() || !f.To.IsZero()
 }
 
 // HostsLogs renders GET /admin/hosts/{id}/logs as an HTML page.
@@ -30,10 +65,27 @@ func (h *AdminHandlers) HostsLogs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ctx := r.Context()
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	_ = db.QueryRowContext(ctx, "SELECT domain FROM routes WHERE id = ?", id).Scan(&d.Domain)
 
+	f := parseLogsFilter(r)
+	d.Filter = f
+
 	if h.AccessLogs != nil {
-		entries, err := h.AccessLogs.Recent(ctx, id, 100)
+		var (
+			entries []accesslog.Entry
+			err     error
+		)
+		if hasFilter(f) {
+			f.Limit = 200
+			entries, err = h.AccessLogs.Filtered(ctx, id, f)
+		} else {
+			entries, err = h.AccessLogs.Recent(ctx, id, 100)
+		}
 		if err != nil {
 			h.Logger.Warn("host logs query", "id", id, "err", err)
 		}
@@ -49,7 +101,13 @@ func (h *AdminHandlers) HostsLogsJSON(w http.ResponseWriter, r *http.Request) {
 		apiJSON(w, http.StatusOK, []any{})
 		return
 	}
-	entries, err := h.AccessLogs.Recent(r.Context(), id, 100)
+	ctx := r.Context()
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		apiJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden"})
+		return
+	}
+	entries, err := h.AccessLogs.Recent(ctx, id, 100)
 	if err != nil {
 		h.Logger.Warn("host logs json", "id", id, "err", err)
 		apiJSON(w, http.StatusInternalServerError, map[string]string{"error": "query failed"})
@@ -81,12 +139,115 @@ func (h *AdminHandlers) HostsLogsJSON(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, http.StatusOK, out)
 }
 
+// HostsLogsExport serves GET /admin/hosts/{id}/logs/export?format=csv|json
+// with optional filter params. Max maxExportRows rows.
+func (h *AdminHandlers) HostsLogsExport(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	format := r.URL.Query().Get("format")
+	if format != "csv" && format != "json" {
+		format = "csv"
+	}
+	if id == 0 || h.AccessLogs == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !checkLogsExportRateLimit(logsExportLimiterKey(r, sess), time.Now()) {
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+
+	f := parseLogsFilter(r)
+	f.Limit = accesslog.MaxExportRows
+
+	entries, err := h.AccessLogs.Filtered(ctx, id, f)
+	if err != nil {
+		h.Logger.Warn("host logs export", "id", id, "err", err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+
+	// Resolve domain for filename.
+	var domain string
+	if db := h.DB(); db != nil {
+		_ = db.QueryRowContext(ctx, "SELECT domain FROM routes WHERE id = ?", id).Scan(&domain)
+	}
+	if domain == "" {
+		domain = strconv.FormatInt(id, 10)
+	}
+
+	if format == "csv" {
+		filename := fmt.Sprintf("hosts-%d-logs.csv", id)
+		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+		cw := csv.NewWriter(w)
+		_ = cw.Write([]string{"id", "ts", "method", "uri", "status", "latency_ms", "remote_ip", "user_agent"})
+		for i, e := range entries {
+			_ = cw.Write([]string{
+				strconv.FormatInt(e.ID, 10),
+				e.TS.UTC().Format(time.RFC3339Nano),
+				e.Method,
+				e.URI,
+				strconv.Itoa(e.Status),
+				strconv.Itoa(e.LatencyMS),
+				e.RemoteIP,
+				e.UserAgent,
+			})
+			if (i+1)%100 == 0 {
+				cw.Flush()
+			}
+		}
+		cw.Flush()
+		return
+	}
+
+	// JSON streaming.
+	filename := fmt.Sprintf("hosts-%d-logs.json", id)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	enc := json.NewEncoder(w)
+	type row struct {
+		ID        int64  `json:"id"`
+		TS        string `json:"ts"`
+		Method    string `json:"method"`
+		URI       string `json:"uri"`
+		Status    int    `json:"status"`
+		LatencyMS int    `json:"latency_ms"`
+		RemoteIP  string `json:"remote_ip"`
+		UserAgent string `json:"user_agent"`
+	}
+	out := make([]row, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, row{
+			ID:        e.ID,
+			TS:        e.TS.UTC().Format(time.RFC3339Nano),
+			Method:    e.Method,
+			URI:       e.URI,
+			Status:    e.Status,
+			LatencyMS: e.LatencyMS,
+			RemoteIP:  e.RemoteIP,
+			UserAgent: e.UserAgent,
+		})
+	}
+	_ = enc.Encode(out)
+}
+
 // HostsLogsStream serves GET /admin/hosts/{id}/logs/stream as SSE.
 // The client receives a "log" event for each new request forwarded by Caddy.
 func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if id == 0 || h.AccessLogBroker == nil {
 		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckRoute(r.Context(), sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -138,4 +299,44 @@ func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) 
 			flusher.Flush()
 		}
 	}
+}
+
+func (h *AdminHandlers) scopeCheckRoute(ctx context.Context, sess *auth.Session, routeID int64) bool {
+	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+		return true
+	}
+	ok, err := h.AdminScope.CanAccessRoute(ctx, sess.UserID, routeID)
+	if err != nil {
+		h.Logger.Warn("admin route scope check", "user_id", sess.UserID, "route_id", routeID, "err", err)
+		return false
+	}
+	return ok
+}
+
+func logsExportLimiterKey(r *http.Request, sess *auth.Session) string {
+	if sess != nil {
+		if sess.CSRFToken != "" {
+			return "sess:" + sess.CSRFToken
+		}
+		if sess.UserID > 0 {
+			return "user:" + strconv.FormatInt(sess.UserID, 10)
+		}
+	}
+	return "ip:" + r.RemoteAddr
+}
+
+func checkLogsExportRateLimit(key string, now time.Time) bool {
+	if last, ok := logsExportLimiter.Load(key); ok {
+		if t, ok := last.(time.Time); ok && now.Sub(t) < 10*time.Second {
+			return false
+		}
+	}
+	logsExportLimiter.Store(key, now)
+	logsExportLimiter.Range(func(k, v any) bool {
+		if t, ok := v.(time.Time); ok && now.Sub(t) > time.Hour {
+			logsExportLimiter.Delete(k)
+		}
+		return true
+	})
+	return true
 }

@@ -198,7 +198,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	protocols := []string{"h1", "h2"}
 
 	srv0 := map[string]any{
-		"listen":    []string{":80", ":443"},
+		"listen":    []string{":80", ":443", "[::]:80", "[::]:443"},
 		"routes":    out,
 		"protocols": protocols,
 		"metrics":   map[string]any{}, // exposes Prometheus metrics at admin /metrics

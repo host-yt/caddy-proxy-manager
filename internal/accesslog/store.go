@@ -6,6 +6,7 @@ package accesslog
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 )
 
@@ -33,27 +34,22 @@ type Store struct {
 func New(db func() *sql.DB) *Store { return &Store{db: db} }
 
 // Insert appends one entry and trims older rows beyond maxPerHost.
-// Best-effort: errors are not fatal to the calling request.
+// The insert and the prune run in separate statements so a transient prune
+// failure never silently discards the new log entry.
 func (s *Store) Insert(ctx context.Context, e Entry) error {
 	db := s.db()
 	if db == nil {
 		return nil
 	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	if _, err = tx.ExecContext(ctx,
+	if _, err := db.ExecContext(ctx,
 		`INSERT INTO host_access_log (route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent)
 		 VALUES (?,?,?,?,?,?,?,?)`,
 		e.RouteID, e.TS, e.Method, e.URI, e.Status, e.LatencyMS, e.RemoteIP, e.UserAgent,
 	); err != nil {
 		return err
 	}
-	// Keep only maxPerHost most recent rows per route.
-	if _, err = tx.ExecContext(ctx,
+	// Best-effort prune: keep only maxPerHost most recent rows per route.
+	_, _ = db.ExecContext(ctx,
 		`DELETE FROM host_access_log
 		 WHERE route_id = ?
 		   AND id NOT IN (
@@ -65,10 +61,8 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 		       ) sub
 		   )`,
 		e.RouteID, e.RouteID, maxPerHost,
-	); err != nil {
-		return err
-	}
-	return tx.Commit()
+	)
+	return nil
 }
 
 // Recent returns the last n entries for a route, newest first.
@@ -77,8 +71,10 @@ func (s *Store) Recent(ctx context.Context, routeID int64, n int) ([]Entry, erro
 	if db == nil {
 		return nil, nil
 	}
-	if n <= 0 || n > maxPerHost {
+	if n <= 0 {
 		n = 100
+	} else if n > maxPerHost {
+		n = maxPerHost
 	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT id,route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent
@@ -88,6 +84,110 @@ func (s *Store) Recent(ctx context.Context, routeID int64, n int) ([]Entry, erro
 		 LIMIT ?`,
 		routeID, n,
 	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Entry
+	for rows.Next() {
+		var e Entry
+		if err := rows.Scan(&e.ID, &e.RouteID, &e.TS,
+			&e.Method, &e.URI, &e.Status, &e.LatencyMS, &e.RemoteIP, &e.UserAgent,
+		); err == nil {
+			out = append(out, e)
+		}
+	}
+	return out, rows.Err()
+}
+
+// Filter constrains a Filtered query. Zero values are ignored.
+type Filter struct {
+	StatusMin  int
+	StatusMax  int
+	Method     string
+	RemoteIP   string
+	URIPattern string // SQL LIKE pattern; % wildcards are added if no % present
+	From       time.Time
+	To         time.Time
+	Limit      int
+}
+
+// MaxExportRows is the hard cap for Filtered when Limit exceeds maxPerHost.
+const MaxExportRows = 50_000
+
+// Filtered returns entries for a route matching f, newest first.
+func (s *Store) Filtered(ctx context.Context, routeID int64, f Filter) ([]Entry, error) {
+	db := s.db()
+	if db == nil {
+		return nil, nil
+	}
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 200
+	} else if limit > MaxExportRows {
+		limit = MaxExportRows
+	}
+
+	var conds []string
+	var args []any
+	conds = append(conds, "route_id = ?")
+	args = append(args, routeID)
+
+	if f.StatusMin > 0 {
+		conds = append(conds, "status >= ?")
+		args = append(args, f.StatusMin)
+	}
+	if f.StatusMax > 0 {
+		conds = append(conds, "status <= ?")
+		args = append(args, f.StatusMax)
+	}
+	if f.Method != "" {
+		m := f.Method
+		if len(m) > 16 {
+			m = m[:16]
+		}
+		conds = append(conds, "method = ?")
+		args = append(args, strings.ToUpper(m))
+	}
+	if f.RemoteIP != "" {
+		ip := f.RemoteIP
+		if len(ip) > 64 {
+			ip = ip[:64]
+		}
+		conds = append(conds, "remote_ip = ?")
+		args = append(args, ip)
+	}
+	if f.URIPattern != "" {
+		pat := f.URIPattern
+		if len(pat) > 500 {
+			pat = pat[:500]
+		}
+		// Escape SQL LIKE special chars so _ is literal, not single-char wildcard.
+		pat = strings.ReplaceAll(pat, `\`, `\\`)
+		pat = strings.ReplaceAll(pat, "_", `\_`)
+		if !strings.Contains(pat, "%") {
+			pat = "%" + pat + "%"
+		}
+		conds = append(conds, `uri LIKE ? ESCAPE '\\'`)
+		args = append(args, pat)
+	}
+	if !f.From.IsZero() {
+		conds = append(conds, "ts >= ?")
+		args = append(args, f.From)
+	}
+	if !f.To.IsZero() {
+		conds = append(conds, "ts <= ?")
+		args = append(args, f.To)
+	}
+
+	q := `SELECT id,route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent
+	      FROM host_access_log
+	      WHERE ` + strings.Join(conds, " AND ") + `
+	      ORDER BY ts DESC, id DESC
+	      LIMIT ?`
+	args = append(args, limit)
+
+	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}

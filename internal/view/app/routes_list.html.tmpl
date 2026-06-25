@@ -1,46 +1,70 @@
 {{define "routes_list"}}
-<div class="flex justify-end mb-4">
-  <a href="/app/routes/new" class="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm hover:bg-indigo-700">+ New domain</a>
-</div>
-<div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
-  <div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left text-xs uppercase tracking-wide text-slate-500">
-      <tr>
-        <th class="px-4 py-2">Domain</th>
-        <th class="px-4 py-2">Path</th>
-        <th class="px-4 py-2">→ Port</th>
-        <th class="px-4 py-2">Service</th>
-        <th class="px-4 py-2">DNS / SSL</th>
-        <th class="px-4 py-2">Actions</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-    {{range .Routes}}
-      <tr>
-        <td class="px-4 py-2 font-medium text-slate-800 dark:text-slate-100"><code>{{.Domain}}</code></td>
-        <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{if .PathPrefix}}{{.PathPrefix}}{{else}}<span class="text-slate-400">/</span>{{end}}</td>
-        <td class="px-4 py-2 font-mono text-slate-700 dark:text-slate-200">{{.UpstreamPort}}</td>
-        <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{.ServiceName}}</td>
-        <td class="px-4 py-2">
-          <span class="inline-block px-2 py-0.5 rounded text-xs
-            {{if eq .Status "active"}}bg-emerald-100 text-emerald-800
-            {{else if eq .Status "failed"}}bg-rose-100 text-rose-800
-            {{else}}bg-amber-100 text-amber-800{{end}}">{{.Status}}</span>
-          {{if .LastError}}<div class="text-xs text-rose-600 mt-1 max-w-xs truncate" title="{{.LastError}}">{{.LastError}}</div>{{end}}
-        </td>
-        <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
-          <form class="inline" method="POST" action="/app/routes/{{.ID}}/verify-dns"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-            <button class="text-xs text-indigo-700 hover:underline">re-check</button>
-          </form>
-          <form class="inline" method="POST" action="/app/routes/{{.ID}}/delete" data-confirm="Delete {{.Domain}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-            <button class="text-xs text-rose-600 hover:underline">delete</button>
-          </form>
-        </td>
-      </tr>
-    {{else}}
-      <tr><td colspan="6" class="px-4 py-6 text-center text-slate-500">No domains mapped yet.</td></tr>
-    {{end}}
-    </tbody>
-  </table></div>
+<div class="space-y-4">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+      <p class="hpg-eyebrow">Domain mappings</p>
+      <h2 class="text-lg font-semibold text-slate-950 dark:text-white">Public routes</h2>
+    </div>
+    <a href="/app/routes/new" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New domain</a>
+  </div>
+
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left hpg-eyebrow">
+          <tr>
+            <th class="px-4 py-3">Domain</th>
+            <th class="px-4 py-3">Target</th>
+            <th class="px-4 py-3">Service</th>
+            <th class="px-4 py-3">DNS / SSL</th>
+            <th class="px-4 py-3 text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .Routes}}
+          <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
+            <td class="px-4 py-3">
+              <div class="font-medium text-slate-900 dark:text-white"><code>{{.Domain}}</code></div>
+              <div class="text-xs text-slate-500 dark:text-slate-400">{{if .PathPrefix}}{{.PathPrefix}}{{else}}/{{end}}</div>
+            </td>
+            <td class="px-4 py-3">
+              <span class="hpg-pill hpg-pill-muted font-mono">:{{.UpstreamPort}}</span>
+            </td>
+            <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.ServiceName}}</td>
+            <td class="px-4 py-3">
+              {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>
+              {{else if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err">failed</span>
+              {{else if eq .Status "dns_ok"}}<span class="hpg-pill bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">DNS ok</span>
+              {{else}}<span class="hpg-pill hpg-pill-warn">{{.Status}}</span>{{end}}
+              {{if .LastError}}<div class="text-xs text-rose-600 dark:text-rose-400 mt-1 max-w-sm truncate" title="{{.LastError}}">{{.LastError}}</div>{{end}}
+            </td>
+            <td class="px-4 py-3 text-right">
+              <div class="flex justify-end gap-2 whitespace-nowrap">
+                <form method="POST" action="/app/routes/{{.ID}}/verify-dns">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/10">Re-check</button>
+                </form>
+                <form method="POST" action="/app/routes/{{.ID}}/delete" data-confirm="Delete {{.Domain}}?">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-700 dark:text-rose-300 ring-1 ring-rose-200 dark:ring-rose-500/30 hover:bg-rose-50 dark:hover:bg-rose-500/10">Delete</button>
+                </form>
+              </div>
+            </td>
+          </tr>
+        {{else}}
+          <tr>
+            <td colspan="5" class="px-4 py-14 text-center">
+              <div class="mx-auto h-12 w-12 rounded-2xl bg-slate-100 dark:bg-zinc-800 grid place-items-center text-slate-400">
+                <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20"/></svg>
+              </div>
+              <h3 class="mt-4 font-semibold text-slate-900 dark:text-white">No domains mapped</h3>
+              <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Create the first route when your DNS is ready.</p>
+            </td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
 </div>
 {{end}}

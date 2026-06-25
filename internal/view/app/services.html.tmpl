@@ -1,66 +1,62 @@
 {{define "services"}}
 <div class="space-y-4">
 {{range .Services}}
-  <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5">
-    <div class="flex items-start justify-between mb-3">
-      <div>
-        <h3 class="font-semibold text-slate-800 dark:text-slate-100">{{.Name}}</h3>
-        <p class="text-xs text-slate-500 dark:text-slate-400">Status:
-          <span class="inline-block px-2 py-0.5 rounded text-xs
-            {{if eq .Status "active"}}bg-emerald-100 dark:bg-emerald-900/40 text-emerald-800 dark:text-emerald-300
-            {{else if eq .Status "suspended"}}bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300
-            {{else}}bg-rose-100 dark:bg-rose-900/40 text-rose-800 dark:text-rose-300{{end}}">{{.Status}}</span>
-          {{if eq .PlanKind "npm"}}<span class="ml-1 inline-block px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-xs">NPM mode</span>{{end}}
-        </p>
+  <section class="hpg-card">
+    <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-2">
+          <h3 class="text-lg font-semibold text-slate-950 dark:text-white truncate">{{.Name}}</h3>
+          {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>{{else if eq .Status "suspended"}}<span class="hpg-pill hpg-pill-warn">suspended</span>{{else}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>{{end}}
+          {{if eq .PlanKind "npm"}}<span class="hpg-pill bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">editable backend</span>{{else}}<span class="hpg-pill hpg-pill-muted">provider managed</span>{{end}}
+        </div>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">{{.PlanName}} · {{.RouteCount}} mapped domains</p>
       </div>
-      <a href="/app/routes/new?service_id={{.ID}}" class="text-sm px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">Add domain</a>
+      <a href="/app/routes/new?service_id={{.ID}}" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">Add domain</a>
     </div>
-    <dl class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
-      <div>
-        <dt class="text-xs uppercase text-slate-500 dark:text-slate-400">Backend IP</dt>
-        <dd class="font-mono text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.BackendIP}}</dd>
+
+    <dl class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5 text-sm">
+      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+        <dt class="hpg-eyebrow">Backend IP</dt>
+        <dd class="mt-1 font-mono text-slate-900 dark:text-white break-all">{{.BackendIP}}</dd>
       </div>
-      <div>
-        <dt class="text-xs uppercase text-slate-500 dark:text-slate-400">Allowed ports</dt>
-        <dd class="font-mono text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.PortStart}} – {{.PortEnd}}</dd>
+      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+        <dt class="hpg-eyebrow">Allowed ports</dt>
+        <dd class="mt-1 font-mono text-slate-900 dark:text-white">{{.PortStart}}-{{.PortEnd}}</dd>
       </div>
-      <div>
-        <dt class="text-xs uppercase text-slate-500 dark:text-slate-400">Plan</dt>
-        <dd class="text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.PlanName}}</dd>
+      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+        <dt class="hpg-eyebrow">Plan</dt>
+        <dd class="mt-1 text-slate-900 dark:text-white">{{.PlanName}}</dd>
+      </div>
+      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+        <dt class="hpg-eyebrow">Domains</dt>
+        <dd class="mt-1 text-slate-900 dark:text-white tabular-nums">{{.RouteCount}}</dd>
       </div>
     </dl>
 
     {{if eq .PlanKind "npm"}}
-    <details class="mt-4 border-t border-slate-200 dark:border-zinc-800 dark:border-zinc-700 pt-3">
-      <summary class="cursor-pointer text-xs font-medium text-indigo-600 dark:text-indigo-400">Edit backend (NPM mode)</summary>
-      <form method="POST" action="/app/services/{{.ID}}/edit" class="mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
+    <details class="mt-4 rounded-xl bg-slate-50 dark:bg-zinc-800/40 ring-1 ring-slate-200/70 dark:ring-zinc-700 p-4">
+      <summary class="cursor-pointer text-sm font-medium text-indigo-700 dark:text-indigo-300">Edit backend IP</summary>
+      <form method="POST" action="/app/services/{{.ID}}/edit" class="mt-4 grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 text-sm">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 dark:text-slate-400 mb-1">Backend IP</label>
-          <input name="backend_ip" value="{{.BackendIP}}" required class="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-zinc-700">
+          <label class="hpg-eyebrow block mb-1.5">Backend IP</label>
+          <input name="backend_ip" value="{{.BackendIP}}" required class="w-full px-3 py-2 rounded-lg border-0 bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
         </div>
-        <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 dark:text-slate-400 mb-1">Port start</label>
-          <input name="port_start" type="number" min="1" max="65535" value="{{.PortStart}}" required class="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-zinc-700">
-        </div>
-        <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 dark:text-slate-400 mb-1">Port end</label>
-          <input name="port_end" type="number" min="1" max="65535" value="{{.PortEnd}}" required class="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-zinc-700">
-        </div>
-        <div class="sm:col-span-3">
-          <button class="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm hover:bg-indigo-700">Save</button>
-          <span class="text-xs text-slate-500 dark:text-slate-400 ml-2">Changes apply to new routes. Existing routes keep their ports until you edit them.</span>
+        <div class="flex items-end">
+          <button class="w-full sm:w-auto px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save</button>
         </div>
       </form>
     </details>
-    {{else}}
-    <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">Backend IP and port range are managed by your provider and cannot be changed here.</p>
     {{end}}
   </section>
 {{else}}
-  <div class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-8 text-center text-slate-500 dark:text-slate-400 text-sm">
-    No VPS services on your account yet. Your provider will activate one shortly.
-  </div>
+  <section class="hpg-card py-14 text-center">
+    <div class="mx-auto h-12 w-12 rounded-2xl bg-slate-100 dark:bg-zinc-800 grid place-items-center text-slate-400">
+      <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="6" rx="2"/><rect x="3" y="14" width="18" height="6" rx="2"/></svg>
+    </div>
+    <h3 class="mt-4 font-semibold text-slate-900 dark:text-white">No services yet</h3>
+    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Your provider will activate a service before domains can be mapped.</p>
+  </section>
 {{end}}
 </div>
 {{end}}

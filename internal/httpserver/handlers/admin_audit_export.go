@@ -17,8 +17,27 @@ func (h *AdminHandlers) AuditExport(w http.ResponseWriter, r *http.Request) {
 	entity := strings.TrimSpace(q.Get("entity"))
 	actionLike := strings.TrimSpace(q.Get("action"))
 	actorLike := strings.TrimSpace(q.Get("actor"))
-	since := strings.TrimSpace(q.Get("since"))
-	until := strings.TrimSpace(q.Get("until"))
+	sinceRaw := strings.TrimSpace(q.Get("since"))
+	untilRaw := strings.TrimSpace(q.Get("until"))
+	// Parse since/until before use: MySQL coerces invalid strings to 0000-00-00,
+	// which would match all rows. Accept YYYY-MM-DD or RFC3339.
+	parseDateParam := func(s string) (string, bool) {
+		if s == "" {
+			return "", true
+		}
+		for _, layout := range []string{"2006-01-02", time.RFC3339} {
+			if t, err := time.Parse(layout, s); err == nil {
+				return t.UTC().Format(time.RFC3339), true
+			}
+		}
+		return "", false
+	}
+	since, sinceOK := parseDateParam(sinceRaw)
+	until, untilOK := parseDateParam(untilRaw)
+	if !sinceOK || !untilOK {
+		http.Error(w, "since/until must be YYYY-MM-DD or RFC3339", http.StatusBadRequest)
+		return
+	}
 	format := strings.ToLower(strings.TrimSpace(q.Get("format")))
 	if format != "json" {
 		format = "csv"

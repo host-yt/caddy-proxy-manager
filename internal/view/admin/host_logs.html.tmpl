@@ -19,12 +19,104 @@
         class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
         JSON
       </a>
+      <!-- Export dropdown -->
+      <div class="relative" id="export-wrap">
+        <button type="button" id="btn-export"
+          class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+          Export
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+        <div id="export-menu" class="hidden absolute right-0 mt-1 w-36 rounded-lg shadow-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 z-20 py-1">
+          <a id="export-csv" href="#"
+            class="block px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+            Export CSV
+          </a>
+          <a id="export-json" href="#"
+            class="block px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+            Export JSON
+          </a>
+        </div>
+      </div>
     </div>
   </div>
 
   {{if .Error}}
   <div class="hpg-alert-err text-sm">{{.Error}}</div>
   {{end}}
+
+  <!-- Filter form -->
+  <form method="GET" action="/admin/hosts/{{.RouteID}}/logs"
+        id="log-filter-form"
+        class="hpg-card flex flex-wrap gap-3 items-end">
+    <!-- Status range -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Status min</label>
+      <input type="number" name="status_min" min="100" max="599" placeholder="e.g. 400"
+        value="{{if .Filter.StatusMin}}{{.Filter.StatusMin}}{{end}}"
+        class="w-24 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+    </div>
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Status max</label>
+      <input type="number" name="status_max" min="100" max="599" placeholder="e.g. 499"
+        value="{{if .Filter.StatusMax}}{{.Filter.StatusMax}}{{end}}"
+        class="w-24 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+    </div>
+    <!-- Method -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Method</label>
+      <select name="method"
+        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 cursor-pointer transition-colors">
+        <option value="">All</option>
+        {{range $m := (slice "GET" "POST" "PUT" "PATCH" "DELETE" "HEAD" "OPTIONS")}}
+        <option value="{{$m}}" {{if eq $.Filter.Method $m}}selected{{end}}>{{$m}}</option>
+        {{end}}
+      </select>
+    </div>
+    <!-- Remote IP -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Remote IP</label>
+      <input type="text" name="remote_ip" placeholder="1.2.3.4"
+        value="{{.Filter.RemoteIP}}"
+        class="w-32 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 font-mono transition-colors">
+    </div>
+    <!-- URI pattern -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">URI contains</label>
+      <input type="text" name="uri" placeholder="/api/"
+        value="{{.Filter.URIPattern}}"
+        class="w-36 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 font-mono transition-colors">
+    </div>
+    <!-- Date from -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">From</label>
+      <input type="date" name="from"
+        value="{{if not .Filter.From.IsZero}}{{.Filter.From.Format "2006-01-02"}}{{end}}"
+        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+    </div>
+    <!-- Date to -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">To</label>
+      <input type="date" name="to"
+        value="{{if not .Filter.To.IsZero}}{{.Filter.To.Format "2006-01-02"}}{{end}}"
+        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+    </div>
+    <!-- Actions -->
+    <div class="flex items-center gap-2 ml-auto">
+      <button type="submit"
+        class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium cursor-pointer transition-colors">
+        Filter
+      </button>
+      <a href="/admin/hosts/{{.RouteID}}/logs"
+        class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+        Clear
+      </a>
+    </div>
+  </form>
 
   {{if not .Entries}}
   <div class="hpg-card text-sm text-slate-500 dark:text-slate-400 text-center py-12">
@@ -68,7 +160,8 @@
     </div>
     {{if .Entries}}
     <div class="px-4 py-2 border-t border-slate-100 dark:border-zinc-800 text-xs text-slate-400">
-      Showing last {{len .Entries}} entries (max 100). <a href="?reload=1" class="text-indigo-500 hover:underline">Refresh</a>
+      Showing {{len .Entries}} entries.
+      <a href="?" class="text-indigo-500 hover:underline ml-1">Refresh</a>
     </div>
     {{end}}
   </section>
@@ -124,6 +217,46 @@
   }
 
   btn.addEventListener('click', function(){ es ? stopTail() : startTail(); });
+
+  // Export dropdown: build URL from current filter form values.
+  (function(){
+    var wrap = document.getElementById('export-wrap');
+    var menu = document.getElementById('export-menu');
+    var btnExp = document.getElementById('btn-export');
+
+    function filterParams(){
+      var form = document.getElementById('log-filter-form');
+      if(!form) return '';
+      var p = new URLSearchParams();
+      ['status_min','status_max','method','remote_ip','uri','from','to'].forEach(function(n){
+        var el = form.elements[n];
+        if(el && el.value) p.set(n, el.value);
+      });
+      return p.toString() ? '&' + p.toString() : '';
+    }
+
+    function exportURL(fmt){
+      return '/admin/hosts/'+routeID+'/logs/export?format='+fmt+filterParams();
+    }
+
+    btnExp.addEventListener('click', function(e){
+      e.stopPropagation();
+      menu.classList.toggle('hidden');
+    });
+
+    document.addEventListener('click', function(){ menu.classList.add('hidden'); });
+
+    document.getElementById('export-csv').addEventListener('click', function(e){
+      e.preventDefault();
+      window.location.href = exportURL('csv');
+      menu.classList.add('hidden');
+    });
+    document.getElementById('export-json').addEventListener('click', function(e){
+      e.preventDefault();
+      window.location.href = exportURL('json');
+      menu.classList.add('hidden');
+    });
+  })();
 })();
 </script>
 {{end}}
