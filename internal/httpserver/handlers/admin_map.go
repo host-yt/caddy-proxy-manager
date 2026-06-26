@@ -101,7 +101,7 @@ type adminMapNode struct {
 	TunnelEnabled  bool
 	TunnelEndpoint string
 	TunnelSubnet   string
-	TunnelMTU      int // 0 means not set / legacy node
+	TunnelMTU      sql.NullInt32 // fwd_mtu: live probed MTU; NULL when never measured
 	CurrentRoutes  int
 	MaxRoutes      int
 	RoutesShown    int
@@ -371,7 +371,7 @@ func (h *AdminHandlers) loadAdminMapNodes(ctx context.Context, db *sql.DB, allCl
 	}
 	q := `SELECT id, name, COALESCE(public_hostname,''), COALESCE(public_ip,''), COALESCE(wg_ip,''),
 		        health_status, is_enabled, COALESCE(tunnel_enabled,0), COALESCE(tunnel_endpoint,''), COALESCE(tunnel_subnet,''),
-		        current_routes, max_routes, COALESCE(tunnel_mtu,0)
+		        current_routes, max_routes, fwd_mtu
 		 FROM caddy_nodes` + where + `
 		 ORDER BY is_enabled DESC, FIELD(health_status,'healthy','degraded','unknown','down'), priority DESC, id DESC LIMIT ?`
 	args = append(args, adminMapNodeLimit)
@@ -384,9 +384,11 @@ func (h *AdminHandlers) loadAdminMapNodes(ctx context.Context, db *sql.DB, allCl
 	for rows.Next() {
 		var n adminMapNode
 		if err := rows.Scan(&n.ID, &n.Name, &n.PublicHostname, &n.PublicIP, &n.WGIP, &n.HealthStatus, &n.Enabled,
-			&n.TunnelEnabled, &n.TunnelEndpoint, &n.TunnelSubnet, &n.CurrentRoutes, &n.MaxRoutes, &n.TunnelMTU); err == nil {
-			out = append(out, &n)
+			&n.TunnelEnabled, &n.TunnelEndpoint, &n.TunnelSubnet, &n.CurrentRoutes, &n.MaxRoutes, &n.TunnelMTU); err != nil {
+			h.Logger.Warn("map nodes scan", "err", err)
+			continue
 		}
+		out = append(out, &n)
 	}
 	return out
 }

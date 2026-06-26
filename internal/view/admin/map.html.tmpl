@@ -373,7 +373,7 @@
               </div>
               {{if .TunnelSubnet}}<p class="mt-1 break-all font-mono opacity-80">{{.TunnelSubnet}}</p>{{end}}
               <!-- MTU inline on node card -->
-              {{if .TunnelMTU}}<p class="mt-1 text-[10px] opacity-70">MTU {{.TunnelMTU}}</p>{{end}}
+              {{if .TunnelMTU.Valid}}<p class="mt-1 text-[10px] opacity-70">MTU {{.TunnelMTU.Int32}}</p>{{end}}
             </div>
             {{else}}
             <div class="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 ring-1 ring-slate-200/70 dark:bg-zinc-900 dark:text-slate-400 dark:ring-zinc-800">WG disabled on this node.</div>
@@ -432,7 +432,7 @@
   border-radius: 0.5rem;
   background: white;
   box-shadow: 0 4px 16px rgba(0,0,0,.1);
-  ring: 1px solid #e2e8f0;
+  border: 1px solid #e2e8f0;
   overflow: hidden;
 }
 .dark .hpg-row-actions-menu { background: #18181b; }
@@ -455,17 +455,12 @@
 
   // --- URL + localStorage persistence ---
   function readSaved() {
-    // URL params take precedence over localStorage (deep-link support).
+    // Each dimension restored independently: URL param wins, else localStorage fallback.
     var params = new URLSearchParams(window.location.search);
-    var q = params.get('q');
-    var f = params.get('filter');
-    if (!q && !f) {
-      try {
-        var stored = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
-        q = stored.q || '';
-        f = stored.filter || 'all';
-      } catch(e) { q = ''; f = 'all'; }
-    }
+    var stored = {};
+    try { stored = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch(e) {}
+    var q = params.has('q') ? params.get('q') : (stored.q || '');
+    var f = params.has('filter') ? params.get('filter') : (stored.filter || 'all');
     return { q: q || '', filter: f || 'all' };
   }
 
