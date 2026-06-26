@@ -217,15 +217,13 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 			"routes": buildErrorRoutes(s.ErrorBranding),
 		},
 	}
-	// Attach per-server access log forwarding when the panel URL is configured.
-	// Caddy POSTs one JSON object per request to AccessLogURL via the "net" sink.
-	// The logger name "hpg_access" lets us reference it in logs.loggers below.
+	// Enable access logging on the server when the panel URL is configured.
+	// Do NOT set logger_names: that map keys on hostname, and a "*" key is not a
+	// valid host so Caddy ignores it - access entries stay on the default
+	// "http.log.access" logger. Our hpg_access writer below captures them via an
+	// include on that default name. Empty {} just turns access logging on.
 	if s.AccessLogURL != "" {
-		srv0["logs"] = map[string]any{
-			"logger_names": map[string]any{
-				"*": "hpg_access",
-			},
-		}
+		srv0["logs"] = map[string]any{}
 	}
 
 	apps := map[string]any{
@@ -336,8 +334,9 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 					// Scope to access logs only. Without include, a named log
 					// captures ALL Caddy logs (runtime/admin/error), polluting
 					// the file with non-access lines the panel must discard.
-					// srv0.logs.logger_names "*" routes access entries here.
-					"include": []any{"http.log.access.hpg_access"},
+					// Default access logger name is "http.log.access" (no suffix,
+					// since we don't set logger_names on srv0).
+					"include": []any{"http.log.access"},
 					"writer": map[string]any{
 						"output":         "file",
 						"filename":       AccessLogFilePath,
