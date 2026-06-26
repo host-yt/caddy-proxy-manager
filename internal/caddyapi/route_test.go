@@ -513,3 +513,77 @@ func jsonStr(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+// TestBuildNodeConfigDualStack asserts that srv0 listens on both IPv4 and IPv6
+// for ports 80 and 443. Caddy must accept connections on both families or
+// nodes on IPv6-only networks (or dual-stack with separate sockets) go dark.
+func TestBuildNodeConfigDualStack(t *testing.T) {
+	cfg := BuildNodeConfig([]Route{
+		{ID: "1", Hosts: []string{"a.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 8080},
+	}, NodeSettings{ACMEEmail: "ops@example.com"})
+
+	srv0 := cfg["apps"].(map[string]any)["http"].(map[string]any)["servers"].(map[string]any)["srv0"].(map[string]any)
+	listenRaw := srv0["listen"].([]string)
+	want := map[string]bool{":80": false, ":443": false, "[::]:80": false, "[::]:443": false}
+	for _, addr := range listenRaw {
+		if _, ok := want[addr]; ok {
+			want[addr] = true
+		}
+	}
+	for addr, found := range want {
+		if !found {
+			t.Errorf("dual-stack: listen address %q missing; got %v", addr, listenRaw)
+		}
+	}
+	// h1 + h2 only; no h3.
+	s := jsonStr(srv0)
+	if strings.Contains(s, `"h3"`) {
+		t.Error("srv0 must not advertise h3")
+	}
+	if !strings.Contains(s, `"h1"`) || !strings.Contains(s, `"h2"`) {
+		t.Errorf("srv0 must list h1 and h2 protocols\nfull: %s", s)
+	}
+}
+
+// TestDialIPv6Bracketed verifies that a bare IPv6 upstream address is
+// correctly bracketed in the Caddy config. Caddy (and Go's net package)
+// require [addr]:port for IPv6 literals; bare addr:port is ambiguous.
+func TestDialIPv6Bracketed(t *testing.T) {
+	r := Route{
+		ID:           "50",
+		Hosts:        []string{"v6upstream.example.com"},
+		UpstreamIP:   "2001:db8::beef",
+		UpstreamPort: 8080,
+	}
+	s := mustJSON(r)
+	want := `"[2001:db8::beef]:8080"`
+	if !strings.Contains(s, want) {
+		t.Errorf("IPv6 upstream must be bracketed as %s\nfull: %s", want, s)
+	}
+	// Ensure the unbracketed form is absent to catch a regression.
+	if strings.Contains(s, `"2001:db8::beef:8080"`) {
+		t.Errorf("unbracketed IPv6:port must not appear\nfull: %s", s)
+	}
+}
+
+// TestDialIPv6BracketedMultiUpstream verifies IPv6 bracketing for the
+// multi-upstream pool path (Upstreams slice).
+func TestDialIPv6BracketedMultiUpstream(t *testing.T) {
+	r := Route{
+		ID:    "51",
+		Hosts: []string{"pool.example.com"},
+		Upstreams: []Upstream{
+			{Host: "2001:db8::1", Port: 9000},
+			{Host: "10.0.0.2", Port: 9000},
+		},
+		LBPolicy: "round_robin",
+	}
+	s := mustJSON(r)
+	if !strings.Contains(s, `"[2001:db8::1]:9000"`) {
+		t.Errorf("IPv6 pool upstream must be bracketed\nfull: %s", s)
+	}
+	// IPv4 must not gain brackets.
+	if !strings.Contains(s, `"10.0.0.2:9000"`) {
+		t.Errorf("IPv4 pool upstream must remain unbracketed\nfull: %s", s)
+	}
+}
