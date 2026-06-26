@@ -309,6 +309,14 @@ func (s *Server) routes() {
 			r.Post("/{id}/delete", s.deps.Admin.ManualCertsDelete)
 			r.Post("/{id}/replace", s.deps.Admin.ManualCertsReplace)
 		})
+		// mTLS CA scaffold: per-tenant CAs + client cert issue/revoke.
+		r.Route("/mtls", func(r chi.Router) {
+			r.Get("/", s.deps.Admin.MTLSList)
+			r.Post("/ca", s.deps.Admin.MTLSCreateCA)
+			r.Post("/ca/{id}/delete", s.deps.Admin.MTLSDeleteCA)
+			r.Post("/ca/{id}/issue", s.deps.Admin.MTLSIssue)
+			r.Post("/cert/{id}/revoke", s.deps.Admin.MTLSRevoke)
+		})
 		r.Get("/branding", s.deps.Admin.BrandingPage)
 		r.Post("/branding", s.deps.Admin.BrandingSave)
 		r.Route("/hosts", func(r chi.Router) {
