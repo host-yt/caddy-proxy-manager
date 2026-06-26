@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/auth"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 // EmailOTPStart sends an enrollment code to the customer's email.

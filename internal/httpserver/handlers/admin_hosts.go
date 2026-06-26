@@ -20,10 +20,10 @@ import (
 	"github.com/go-chi/chi/v5"
 	"golang.org/x/crypto/bcrypt"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/caddyapi"
-	"github.com/hostyt/proxy-gateway/internal/domain/routes"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 // bcryptHash returns a bcrypt hash of pw with the default cost (Caddy's

@@ -15,9 +15,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/auth"
-	"github.com/hostyt/proxy-gateway/internal/domain/routes"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 )
 
 // FOSSBillingHandlers handles provisioning calls from a FOSSBilling instance.

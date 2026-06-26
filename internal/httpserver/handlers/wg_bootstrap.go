@@ -16,8 +16,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/hostyt/proxy-gateway/internal/domain/wgpeer"
-	"github.com/hostyt/proxy-gateway/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // WGBootstrapHandler serves the customer-side WG tunnel configuration:

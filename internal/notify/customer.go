@@ -8,8 +8,8 @@ import (
 	"database/sql"
 	"log/slog"
 
-	"github.com/hostyt/proxy-gateway/internal/mail"
-	"github.com/hostyt/proxy-gateway/internal/sms"
+	"github.com/host-yt/caddy-proxy-manager/internal/mail"
+	"github.com/host-yt/caddy-proxy-manager/internal/sms"
 )
 
 // Customer notifies the operator's end customers. Implements the

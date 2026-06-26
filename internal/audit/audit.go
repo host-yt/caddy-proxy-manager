@@ -11,7 +11,7 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/hostyt/proxy-gateway/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // ActorUser, ActorAPI, ActorSystem cover all writers.

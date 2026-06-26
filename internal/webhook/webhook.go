@@ -27,8 +27,8 @@ import (
 
 	"net/url"
 
-	"github.com/hostyt/proxy-gateway/internal/installstate"
-	"github.com/hostyt/proxy-gateway/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // Event types the panel emits.

@@ -9,8 +9,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 type webhookRow struct {

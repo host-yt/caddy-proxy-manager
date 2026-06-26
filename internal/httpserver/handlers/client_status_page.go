@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 // StatusPageToggle enables or disables the client's public status page.

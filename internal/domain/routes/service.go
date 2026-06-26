@@ -21,8 +21,8 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/hostyt/proxy-gateway/internal/caddyapi"
-	"github.com/hostyt/proxy-gateway/internal/dns"
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/dns"
 )
 
 // recoverBg logs and swallows a panic in a fire-and-forget goroutine.

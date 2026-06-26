@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/hostyt/proxy-gateway/internal/i18n"
+	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
 )
 
 //go:embed admin/*.html.tmpl

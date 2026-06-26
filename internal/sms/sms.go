@@ -19,8 +19,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/installstate"
-	"github.com/hostyt/proxy-gateway/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // Provider identifies the upstream gateway.

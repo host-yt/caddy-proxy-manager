@@ -7,9 +7,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
-	"github.com/hostyt/proxy-gateway/internal/sms"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/sms"
 )
 
 // e164Re matches the E.164 phone format: a leading +, a non-zero leading

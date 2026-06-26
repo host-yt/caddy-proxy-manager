@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	proxygateway "github.com/hostyt/proxy-gateway"
+	proxygateway "github.com/host-yt/caddy-proxy-manager"
 )
 
 // TestMigrationsEmbedComplete fails if any migrations/*.sql file is missing

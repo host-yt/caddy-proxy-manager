@@ -20,7 +20,7 @@ import (
 
 	"golang.org/x/crypto/curve25519"
 
-	"github.com/hostyt/proxy-gateway/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 )
 
 // Keypair is a base64-encoded WireGuard keypair.

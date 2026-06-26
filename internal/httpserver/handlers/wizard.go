@@ -14,11 +14,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/auth"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
-	"github.com/hostyt/proxy-gateway/internal/installstate"
-	"github.com/hostyt/proxy-gateway/internal/store"
-	"github.com/hostyt/proxy-gateway/internal/view"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
+	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
 // Wizard owns the install flow. Single instance per app.

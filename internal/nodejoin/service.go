@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/wireguard"
+	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
 
 // TokenTTL — how long a generated join token stays valid.

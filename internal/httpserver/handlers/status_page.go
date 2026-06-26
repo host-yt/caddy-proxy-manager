@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/hostyt/proxy-gateway/internal/view"
+	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
 // StatusPageHandlers serves the public per-client status page.

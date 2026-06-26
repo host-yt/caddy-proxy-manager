@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/alert"
+	"github.com/host-yt/caddy-proxy-manager/internal/alert"
 )
 
 type alertRow struct {

@@ -19,7 +19,7 @@ import (
 
 	gomail "github.com/wneessen/go-mail"
 
-	"github.com/hostyt/proxy-gateway/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 )
 
 //go:embed templates/*.html.tmpl

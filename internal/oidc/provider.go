@@ -18,8 +18,8 @@ import (
 	goOIDC "github.com/coreos/go-oidc/v3/oidc"
 	"golang.org/x/oauth2"
 
-	"github.com/hostyt/proxy-gateway/internal/installstate"
-	"github.com/hostyt/proxy-gateway/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // Config is what we persist in the `settings` table.

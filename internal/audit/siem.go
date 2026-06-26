@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // Forwarder posts audit events to an external SIEM endpoint.

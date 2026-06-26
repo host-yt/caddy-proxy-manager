@@ -1,4 +1,4 @@
-module github.com/hostyt/proxy-gateway
+module github.com/host-yt/caddy-proxy-manager
 
 go 1.26.3
 

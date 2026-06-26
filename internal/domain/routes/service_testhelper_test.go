@@ -3,7 +3,7 @@ package routes
 import (
 	"fmt"
 
-	"github.com/hostyt/proxy-gateway/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 )
 
 // hashRoutesViaCaddy is a test-only bridge that lets the table-driven hash

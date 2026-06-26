@@ -10,9 +10,9 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/auth"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 // TwoFARequired renders the "you must enroll 2FA" interstitial shown by the
