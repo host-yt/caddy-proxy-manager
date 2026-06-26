@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 	"time"
@@ -53,6 +55,24 @@ type mtlsData struct {
 	CAs    []mtlsCARow
 	Total  int
 	Bundle *mtlsBundle // non-nil immediately after a successful issue
+}
+
+// mtlsScopeDenied reports whether the caller may NOT manage mTLS authorities.
+// CAs are operator-global trust anchors (no per-client scope), so a scoped
+// admin (non-super_admin with AdminScope wired) is blocked outright. It writes
+// the 403 response when access is denied. Mirrors the WAF global-suppression
+// guard pattern other privileged admin handlers use.
+func (h *AdminHandlers) mtlsScopeDenied(w http.ResponseWriter, r *http.Request) bool {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return true
+	}
+	if sess.Role != "super_admin" && h.AdminScope != nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return true
+	}
+	return false
 }
 
 // mtlsSvc returns a ready-to-use Service or nil when deps are missing.
@@ -111,6 +131,9 @@ func (h *AdminHandlers) loadMTLSView(ctx context.Context, svc *mtls.Service) ([]
 
 // MTLSList GET /admin/mtls - list CAs and their issued client certs.
 func (h *AdminHandlers) MTLSList(w http.ResponseWriter, r *http.Request) {
+	if h.mtlsScopeDenied(w, r) {
+		return
+	}
 	d := mtlsData{baseAdminData: h.base(r, "mTLS Authorities")}
 	svc := h.mtlsSvc()
 	if svc == nil {
@@ -134,6 +157,9 @@ func (h *AdminHandlers) MTLSList(w http.ResponseWriter, r *http.Request) {
 
 // MTLSCreateCA POST /admin/mtls/ca - generate a new per-tenant/operator CA.
 func (h *AdminHandlers) MTLSCreateCA(w http.ResponseWriter, r *http.Request) {
+	if h.mtlsScopeDenied(w, r) {
+		return
+	}
 	const page = "/admin/mtls"
 	svc := h.mtlsSvc()
 	if svc == nil {
@@ -177,6 +203,9 @@ func (h *AdminHandlers) MTLSCreateCA(w http.ResponseWriter, r *http.Request) {
 
 // MTLSDeleteCA POST /admin/mtls/ca/{id}/delete - remove a CA and its issued certs.
 func (h *AdminHandlers) MTLSDeleteCA(w http.ResponseWriter, r *http.Request) {
+	if h.mtlsScopeDenied(w, r) {
+		return
+	}
 	const page = "/admin/mtls"
 	svc := h.mtlsSvc()
 	if svc == nil {
@@ -205,6 +234,9 @@ func (h *AdminHandlers) MTLSDeleteCA(w http.ResponseWriter, r *http.Request) {
 // MTLSIssue POST /admin/mtls/ca/{id}/issue - mint a client cert. The private key
 // is shown exactly once on the rendered page and never stored.
 func (h *AdminHandlers) MTLSIssue(w http.ResponseWriter, r *http.Request) {
+	if h.mtlsScopeDenied(w, r) {
+		return
+	}
 	const page = "/admin/mtls"
 	svc := h.mtlsSvc()
 	if svc == nil {
@@ -261,6 +293,9 @@ func (h *AdminHandlers) MTLSIssue(w http.ResponseWriter, r *http.Request) {
 
 // MTLSRevoke POST /admin/mtls/cert/{id}/revoke - revoke an issued client cert.
 func (h *AdminHandlers) MTLSRevoke(w http.ResponseWriter, r *http.Request) {
+	if h.mtlsScopeDenied(w, r) {
+		return
+	}
 	const page = "/admin/mtls"
 	svc := h.mtlsSvc()
 	if svc == nil {
@@ -284,4 +319,88 @@ func (h *AdminHandlers) MTLSRevoke(w http.ResponseWriter, r *http.Request) {
 		EntityID: strconv.FormatInt(id, 10),
 	})
 	redirectWithFlash(w, r, page, "Client certificate revoked.", "")
+}
+
+// MTLSCABundle GET /admin/mtls/ca/{id}/bundle.pem - download a CA's public cert
+// PEM. This is the trust material clients import / admins distribute so issued
+// client certs can be verified. No private key is ever exposed.
+func (h *AdminHandlers) MTLSCABundle(w http.ResponseWriter, r *http.Request) {
+	if h.mtlsScopeDenied(w, r) {
+		return
+	}
+	svc := h.mtlsSvc()
+	if svc == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	ca, err := svc.GetCA(ctx, id)
+	if err != nil {
+		http.Error(w, "CA not found", http.StatusNotFound)
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-pem-file")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"ca-%d.pem\"", id))
+	_, _ = io.WriteString(w, ca.CertPEM)
+}
+
+// mtlsCRLData is the revocation-list view: revoked + still-valid certs for a CA.
+type mtlsCRLData struct {
+	baseAdminData
+	CAID    int64
+	CAName  string
+	Revoked []mtlsCertRow // revoked rows only (CRL-style status list)
+}
+
+// MTLSCRL GET /admin/mtls/ca/{id}/crl - revocation view derived from the
+// issued-certs table (revoked rows). Reuses ListIssued; no new store method.
+func (h *AdminHandlers) MTLSCRL(w http.ResponseWriter, r *http.Request) {
+	if h.mtlsScopeDenied(w, r) {
+		return
+	}
+	svc := h.mtlsSvc()
+	if svc == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		http.Error(w, "invalid id", http.StatusBadRequest)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	ca, err := svc.GetCA(ctx, id)
+	if err != nil {
+		http.Error(w, "CA not found", http.StatusNotFound)
+		return
+	}
+	issued, err := svc.ListIssued(ctx, id)
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	d := mtlsCRLData{baseAdminData: h.base(r, "mTLS revocation list"), CAID: id, CAName: ca.Name}
+	for _, c := range issued {
+		if !c.Revoked() {
+			continue
+		}
+		row := mtlsCertRow{
+			ID: c.ID, Subject: c.Subject, Serial: c.Serial,
+			NotAfter: c.NotAfter.UTC().Format("2006-01-02"),
+			Status:   c.Status, Revoked: true, Expired: c.Expired(),
+			IssuedAt: c.IssuedAt.UTC().Format("2006-01-02"),
+		}
+		if c.RevokedAt.Valid {
+			row.RevokedAt = c.RevokedAt.Time.UTC().Format("2006-01-02")
+		}
+		d.Revoked = append(d.Revoked, row)
+	}
+	h.render(w, "mtls_crl", d)
 }

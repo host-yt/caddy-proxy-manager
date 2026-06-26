@@ -34,6 +34,7 @@
     <button type="button" data-tab="ratelimit" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Rate limit</button>
     <button type="button" data-tab="waf"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">WAF</button>
     <button type="button" data-tab="geo"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Geo</button>
+    <button type="button" data-tab="mtls"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">mTLS</button>
     <button type="button" data-tab="access"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Access list</button>
     <button type="button" data-tab="sso"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">SSO</button>
     <button type="button" data-tab="portal"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Portal</button>
@@ -637,6 +638,25 @@ X-Authentik-Meta-Version</pre>
       </label>
     </section>
 
+    <!-- mTLS client-cert enforcement -->
+    <section data-pane="mtls" class="hpg-pane hidden hpg-card space-y-4">
+      {{if not .MTLSCAs}}
+      <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+        <strong>No certificate authorities yet.</strong> Create one under <a href="/admin/mtls" class="underline">mTLS authorities</a> before requiring client certificates.
+      </div>
+      {{end}}
+      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="require_client_cert" value="1" {{if .RequireClientCert}}checked{{end}} id="hpg-mtls-toggle"> Require a client certificate (mutual TLS)</label>
+      <div id="hpg-mtls-fields" class="{{if not .RequireClientCert}}hidden{{end}} space-y-3">
+        <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Trust anchor (CA)</span>
+          <select name="mtls_ca_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <option value="0">- select a CA -</option>
+            {{range .MTLSCAs}}<option value="{{.ID}}" {{if eq .ID $.MTLSCAID}}selected{{end}}>{{.Label}}</option>{{end}}
+          </select>
+          <span class="text-[11px] text-slate-500">Caddy will require + verify a client cert chaining to this CA on the TLS handshake. Requires SSL enabled on this host; clients without a valid cert are rejected at connect time.</span>
+        </label>
+      </div>
+    </section>
+
     <!-- Custom JSON -->
     <section data-pane="custom" class="hpg-pane hidden hpg-card space-y-3">
       <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Custom handler chain (Caddy JSON)</label>
@@ -925,6 +945,9 @@ X-Authentik-Meta-Version</pre>
     if (rlKey && rlCustom) rlKey.addEventListener('change', function(){ rlCustom.classList.toggle('hidden', rlKey.value !== 'custom'); });
     var wafTg = document.getElementById('hpg-waf-toggle'), wafFl = document.getElementById('hpg-waf-fields');
     if (wafTg && wafFl) wafTg.addEventListener('change', function(){ wafFl.classList.toggle('hidden', !wafTg.checked); });
+
+    var mtlsTg = document.getElementById('hpg-mtls-toggle'), mtlsFl = document.getElementById('hpg-mtls-fields');
+    if (mtlsTg && mtlsFl) mtlsTg.addEventListener('change', function(){ mtlsFl.classList.toggle('hidden', !mtlsTg.checked); });
 
     // Egress IP: show fixed-IP input only when mode=fixed (random resolves at build time).
     var egressMode = document.getElementById('hpg-egress-mode');

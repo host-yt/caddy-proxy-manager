@@ -1468,6 +1468,19 @@ type hostEditData struct {
 	DNSResolverIP      string
 	DNSResolverViaWGID int64  // WG peer whose assigned_ip is used as resolver
 	DNSAddressFamily   string // "any" | "ipv4" | "ipv6"
+
+	// mTLS client-cert enforcement. RequireClientCert gates the Caddy TLS
+	// connection policy; MTLSCAID selects the trust-anchor CA. MTLSCAs feeds
+	// the dropdown (id + label).
+	RequireClientCert bool
+	MTLSCAID          int64
+	MTLSCAs           []mtlsCAOption
+}
+
+// mtlsCAOption is one selectable trust-anchor CA in the host editor dropdown.
+type mtlsCAOption struct {
+	ID    int64
+	Label string
 }
 
 // tunnelOption is the dropdown entry the host-edit form renders.
@@ -1544,7 +1557,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
 		        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(r.dns_resolver_via_wg_peer_id,0),
-	        COALESCE(r.dns_address_family,'any')
+	        COALESCE(r.dns_address_family,'any'),
+	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0)
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
@@ -1576,11 +1590,23 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.WildcardEnabled, &d.WildcardZone,
 		&d.ErrorOverride, &d.ErrorHTML, &d.ErrorLogoURL, &d.ErrorBrand, &d.ErrorBgColor,
 		&d.OutboundIPMode, &d.OutboundIP,
-		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily)
+		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily,
+		&d.RequireClientCert, &d.MTLSCAID)
 	if err != nil {
 		d.Error = "host not found"
 		h.render(w, "hosts_edit", d)
 		return
+	}
+	// mTLS CA dropdown: active CAs only, newest first (best-effort).
+	if car, cerr := db.QueryContext(ctx,
+		`SELECT id, COALESCE(NULLIF(name,''), common_name) FROM mtls_cas WHERE status='active' ORDER BY id DESC`); cerr == nil {
+		for car.Next() {
+			var o mtlsCAOption
+			if car.Scan(&o.ID, &o.Label) == nil {
+				d.MTLSCAs = append(d.MTLSCAs, o)
+			}
+		}
+		car.Close()
 	}
 	d.WeightedLBAvail = h.Routes.WeightedLBAvailable
 	d.RateLimitModuleAvailable = h.Routes.RateLimitModuleAvailable
@@ -1886,6 +1912,17 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		geoMode = "off"
 	}
 	geoCountries := geoip.NormalizeCountries(r.FormValue("geo_countries"))
+	// mTLS client-cert enforcement. require_client_cert needs a valid CA; an
+	// enforced host with no CA would brick the handshake, so reject early.
+	requireClientCert := r.FormValue("require_client_cert") == "1"
+	mtlsCAID, _ := strconv.ParseInt(r.FormValue("mtls_ca_id"), 10, 64)
+	if requireClientCert && mtlsCAID <= 0 {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "mTLS: select a certificate authority to require client certs")
+		return
+	}
+	if !requireClientCert {
+		mtlsCAID = 0 // clear the anchor when enforcement is off
+	}
 	// Wildcard DNS-01 (B1). Zone must cover the route domain when enabled.
 	wildcardEnabled := r.FormValue("wildcard_enabled") == "1"
 	wildcardZone := strings.ToLower(strings.TrimSpace(r.FormValue("wildcard_zone")))
@@ -2399,6 +2436,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
 			   geo_mode = ?, geo_countries = ?,
+			   require_client_cert = ?, mtls_ca_id = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
 			   maintenance_mode = ?, maintenance_message = ?,
@@ -2430,6 +2468,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
 			geoMode, geoCountries,
+			requireClientCert, nullableInt64(mtlsCAID),
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,
 			maintenanceMode, maintMsgVal,
@@ -2463,6 +2502,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
 			   geo_mode = ?, geo_countries = ?,
+			   require_client_cert = ?, mtls_ca_id = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
 			   maintenance_mode = ?, maintenance_message = ?,
@@ -2494,6 +2534,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
 			geoMode, geoCountries,
+			requireClientCert, nullableInt64(mtlsCAID),
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,
 			maintenanceMode, maintMsgVal,

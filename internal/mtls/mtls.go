@@ -6,8 +6,10 @@
 // (AES-256-GCM). Client private keys are returned exactly once at issue time
 // and never persisted. No key material is ever logged.
 //
-// SCAFFOLD: this package does not yet wire mTLS enforcement into the Caddy
-// builder. That tail is deferred - see the remnant note in the task manifest.
+// Enforcement is wired end to end: hosts opt in via routes.require_client_cert
+// + routes.mtls_ca_id, the routes builder emits a Caddy TLS connection policy
+// (client_authentication require_and_verify against the CA's inline trust pool),
+// and the CA cert PEM bundle / revocation list are exposed under /admin/mtls.
 package mtls
 
 import (
