@@ -186,6 +186,48 @@
     </div>
   </section>
 
+  <!-- Traffic chart section with 24h/7d/30d window toggle -->
+  <section class="hpg-card space-y-4" id="traffic-chart-section">
+    <div class="flex flex-wrap items-center justify-between gap-3">
+      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Traffic over time</p>
+      <div class="flex gap-1" id="chart-window-btns">
+        <button type="button" data-window="24h"
+          class="chart-win-btn px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors bg-indigo-600 text-white">24h</button>
+        <button type="button" data-window="7d"
+          class="chart-win-btn px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800">7d</button>
+        <button type="button" data-window="30d"
+          class="chart-win-btn px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800">30d</button>
+      </div>
+    </div>
+
+    <!-- Summary stat cards populated by JS -->
+    <div id="chart-summary" class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div class="rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900 px-4 py-3">
+        <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Requests</p>
+        <p id="cs-requests" class="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">-</p>
+      </div>
+      <div class="rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900 px-4 py-3">
+        <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">4xx errors</p>
+        <p id="cs-4xx" class="mt-1 text-2xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">-</p>
+      </div>
+      <div class="rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900 px-4 py-3">
+        <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">5xx errors</p>
+        <p id="cs-5xx" class="mt-1 text-2xl font-semibold tabular-nums text-rose-600 dark:text-rose-400">-</p>
+      </div>
+      <div class="rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900 px-4 py-3">
+        <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Avg / Max latency</p>
+        <p id="cs-latency" class="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">-</p>
+      </div>
+    </div>
+
+    <!-- SVG chart area -->
+    <div id="chart-wrap" class="relative overflow-hidden rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-white dark:bg-zinc-900" style="height:180px">
+      <svg id="traffic-svg" width="100%" height="100%" preserveAspectRatio="none" style="display:block"></svg>
+      <div id="chart-empty" class="hidden absolute inset-0 flex items-center justify-center text-sm text-slate-400 dark:text-slate-500">No traffic data for this window.</div>
+      <div id="chart-loading" class="absolute inset-0 flex items-center justify-center text-sm text-slate-400 dark:text-slate-500">Loading…</div>
+    </div>
+  </section>
+
   <!-- Filter form -->
   <form method="GET" action="/admin/hosts/{{.RouteID}}/logs"
         id="log-filter-form"
@@ -416,6 +458,161 @@
       menu.classList.add('hidden');
     });
   })();
+})();
+</script>
+
+<script nonce="{{.CSPNonce}}">
+(function(){
+  var routeID = {{.RouteID}};
+  var activeWindow = '24h';
+
+  var elReq = document.getElementById('cs-requests');
+  var el4xx = document.getElementById('cs-4xx');
+  var el5xx = document.getElementById('cs-5xx');
+  var elLat = document.getElementById('cs-latency');
+  var svg   = document.getElementById('traffic-svg');
+  var wrap  = document.getElementById('chart-wrap');
+  var empty = document.getElementById('chart-empty');
+  var loading = document.getElementById('chart-loading');
+
+  // Update window-toggle button active state.
+  function setActiveBtn(win) {
+    document.querySelectorAll('.chart-win-btn').forEach(function(b) {
+      var active = b.dataset.window === win;
+      b.className = 'chart-win-btn px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ' +
+        (active
+          ? 'bg-indigo-600 text-white'
+          : 'ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800');
+    });
+  }
+
+  // Format a number with k/M suffix.
+  function fmt(n) {
+    if (n >= 1e6) return (n/1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return (n/1e3).toFixed(1) + 'k';
+    return String(n);
+  }
+
+  // Draw a simple SVG polyline bar chart from series data.
+  function drawChart(series) {
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+    var W = wrap.clientWidth || 600;
+    var H = wrap.clientHeight || 180;
+    var padL = 4, padR = 4, padT = 12, padB = 24;
+    var chartW = W - padL - padR;
+    var chartH = H - padT - padB;
+
+    var maxReq = 0;
+    series.forEach(function(b){ if (b.requests > maxReq) maxReq = b.requests; });
+    if (maxReq === 0) maxReq = 1; // avoid div/0
+
+    var n = series.length;
+    var barW = Math.max(2, chartW / n - 1);
+
+    var ns = 'http://www.w3.org/2000/svg';
+
+    // Baseline
+    var base = document.createElementNS(ns, 'line');
+    base.setAttribute('x1', padL);
+    base.setAttribute('y1', padT + chartH);
+    base.setAttribute('x2', padL + chartW);
+    base.setAttribute('y2', padT + chartH);
+    base.setAttribute('stroke', 'currentColor');
+    base.setAttribute('stroke-width', '1');
+    base.setAttribute('class', 'text-slate-200 dark:text-zinc-700');
+    svg.appendChild(base);
+
+    series.forEach(function(b, i) {
+      var x = padL + (i / n) * chartW;
+      var reqH  = (b.requests / maxReq) * chartH;
+      var errH  = ((b.errors_4xx + b.errors_5xx) / maxReq) * chartH;
+
+      // Requests bar (indigo)
+      var rBar = document.createElementNS(ns, 'rect');
+      rBar.setAttribute('x', x);
+      rBar.setAttribute('y', padT + chartH - reqH);
+      rBar.setAttribute('width', barW);
+      rBar.setAttribute('height', reqH);
+      rBar.setAttribute('rx', '2');
+      rBar.setAttribute('fill', '#6366f1');
+      rBar.setAttribute('opacity', '0.7');
+      svg.appendChild(rBar);
+
+      // Error overlay (rose)
+      if (errH > 0) {
+        var eBar = document.createElementNS(ns, 'rect');
+        eBar.setAttribute('x', x);
+        eBar.setAttribute('y', padT + chartH - errH);
+        eBar.setAttribute('width', barW);
+        eBar.setAttribute('height', errH);
+        eBar.setAttribute('rx', '2');
+        eBar.setAttribute('fill', '#f43f5e');
+        eBar.setAttribute('opacity', '0.8');
+        svg.appendChild(eBar);
+      }
+
+      // Label: first, middle, last bucket time
+      if (i === 0 || i === Math.floor(n/2) || i === n-1) {
+        var t = document.createElementNS(ns, 'text');
+        t.setAttribute('x', x + barW/2);
+        t.setAttribute('y', padT + chartH + 16);
+        t.setAttribute('text-anchor', 'middle');
+        t.setAttribute('font-size', '9');
+        t.setAttribute('fill', 'currentColor');
+        t.setAttribute('class', 'text-slate-400 dark:text-slate-500');
+        // Show date+time for ≥7d windows, just HH:MM for 24h
+        var d = new Date(b.bucket_start);
+        var label = activeWindow === '24h'
+          ? d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
+          : (d.getMonth()+1)+'/'+d.getDate();
+        t.textContent = label;
+        svg.appendChild(t);
+      }
+    });
+  }
+
+  function load(win) {
+    activeWindow = win;
+    setActiveBtn(win);
+    loading.classList.remove('hidden');
+    empty.classList.add('hidden');
+
+    fetch('/admin/hosts/' + routeID + '/rollups.json?window=' + win)
+      .then(function(r){ return r.json(); })
+      .then(function(data) {
+        loading.classList.add('hidden');
+        var s = data.summary || {};
+        var series = data.series || [];
+
+        // Fill summary cards.
+        elReq.textContent = fmt(s.requests || 0);
+        el4xx.textContent = fmt(s.errors_4xx || 0);
+        el5xx.textContent = fmt(s.errors_5xx || 0);
+        var avgLat = (s.requests > 0) ? Math.round(s.latency_sum_ms / s.requests) : 0;
+        elLat.textContent = avgLat + ' / ' + (s.latency_max_ms || 0) + ' ms';
+
+        if (series.length === 0) {
+          empty.classList.remove('hidden');
+          while (svg.firstChild) svg.removeChild(svg.firstChild);
+          return;
+        }
+        drawChart(series);
+      })
+      .catch(function() {
+        loading.classList.add('hidden');
+        empty.classList.remove('hidden');
+        empty.textContent = 'Failed to load chart data.';
+      });
+  }
+
+  // Wire up toggle buttons.
+  document.querySelectorAll('.chart-win-btn').forEach(function(b) {
+    b.addEventListener('click', function(){ load(b.dataset.window); });
+  });
+
+  // Load default window on page ready.
+  load('24h');
 })();
 </script>
 {{end}}
