@@ -237,12 +237,8 @@ type Upstream struct {
 	Port        int
 	Weight      int // only consumed by weighted_round_robin
 	MaxRequests int // Caddy max_requests per upstream (0 = unlimited)
-	// Per-upstream passive health override. When HealthOverride is true, the
-	// values below replace the pool-level passive health check settings for
-	// this specific upstream only. Ignored when HealthOverride is false.
-	HealthOverride    bool
-	HealthMaxFails    int // max fails before ejection (0 = omit, use Caddy default)
-	HealthFailDurSecs int // observation window in seconds (0 = omit)
+	// No per-upstream passive health fields: stock Caddy's reverse_proxy
+	// Upstream supports only dial + max_requests. Passive health is pool-level.
 }
 
 // LocationRule is a first-class path override inside one host route.
@@ -414,19 +410,9 @@ func BuildRoute(r Route) map[string]any {
 				if u.MaxRequests > 0 {
 					ue["max_requests"] = u.MaxRequests
 				}
-				// Per-upstream passive health override: emit fail/duration when set.
-				if u.HealthOverride {
-					ph := map[string]any{}
-					if u.HealthMaxFails > 0 {
-						ph["max_fails"] = u.HealthMaxFails
-					}
-					if u.HealthFailDurSecs > 0 {
-						ph["fail_duration"] = secs(u.HealthFailDurSecs, 30)
-					}
-					if len(ph) > 0 {
-						ue["passive_health_thresholds"] = ph
-					}
-				}
+				// No per-upstream passive health key: stock Caddy's reverse_proxy
+				// Upstream has only dial + max_requests, and DisallowUnknownFields
+				// rejects the whole /load. Passive health stays pool-level.
 				ups = append(ups, ue)
 			}
 			primary["upstreams"] = ups
@@ -709,7 +695,8 @@ func BuildRoute(r Route) map[string]any {
 		// peer host must expose the IdP port on its host network.
 		dialHost := dial
 		if r.SSOResolver != "" && ssoPort != "" {
-			dialHost = r.SSOResolver + ":" + ssoPort
+			// JoinHostPort brackets IPv6 literals; bare concat breaks them.
+			dialHost = net.JoinHostPort(r.SSOResolver, ssoPort)
 		}
 		mkRP := func(extra map[string]any) map[string]any {
 			rp := map[string]any{
