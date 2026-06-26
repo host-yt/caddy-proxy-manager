@@ -505,21 +505,38 @@ X-Authentik-Meta-Version</pre>
         <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">The primary backend (Target tab) is always upstream #1. Add more here to load-balance across a pool. Ignored for External and WG-tunnel routes.</p>
         <div id="hpg-upstreams" class="space-y-2">
           {{range .Upstreams}}
-          <div class="hpg-upstream-row flex flex-wrap items-center gap-2">
-            <input type="text" name="upstream_host[]" value="{{.Host}}" placeholder="10.0.0.6 or host.internal" class="flex-1 min-w-32 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-            <input type="number" name="upstream_port[]" value="{{.Port}}" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-            <input type="number" name="upstream_weight[]" value="{{.Weight}}" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-            <input type="number" name="upstream_max_requests[]" value="{{.MaxRequests}}" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-            <input type="hidden" name="upstream_enabled[]" value="{{if .Enabled}}1{{else}}0{{end}}">
-            <label class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
-              <input type="checkbox" class="hpg-upstream-enabled" {{if .Enabled}}checked{{end}}> on
-            </label>
-            <button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>
+          <div class="hpg-upstream-row rounded-lg ring-1 ring-slate-100 dark:ring-zinc-800 p-2 space-y-1.5 bg-white dark:bg-zinc-900">
+            <div class="flex flex-wrap items-center gap-2">
+              <input type="text" name="upstream_host[]" value="{{.Host}}" placeholder="10.0.0.6 or host.internal" class="flex-1 min-w-32 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+              <input type="number" name="upstream_port[]" value="{{.Port}}" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+              <input type="number" name="upstream_weight[]" value="{{.Weight}}" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+              <input type="number" name="upstream_max_requests[]" value="{{.MaxRequests}}" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+              <input type="hidden" name="upstream_enabled[]" value="{{if .Enabled}}1{{else}}0{{end}}">
+              <label class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+                <input type="checkbox" class="hpg-upstream-enabled" {{if .Enabled}}checked{{end}}> on
+              </label>
+              <button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>
+            </div>
+            <!-- Per-upstream passive health override -->
+            <div class="flex flex-wrap items-center gap-2 pl-1">
+              <input type="hidden" name="upstream_health_override[]" value="{{if .HealthOverride}}1{{else}}0{{end}}">
+              <label class="flex items-center gap-1 text-[11px] text-slate-500 cursor-pointer">
+                <input type="checkbox" class="hpg-upstream-health-ovr" {{if .HealthOverride}}checked{{end}}> override passive health
+              </label>
+              <span class="hpg-upstream-health-fields {{if not .HealthOverride}}hidden{{end}} flex items-center gap-2">
+                <label class="text-[11px] text-slate-500">max fails
+                  <input type="number" name="upstream_health_max_fails[]" value="{{.HealthMaxFails}}" min="0" max="100" placeholder="pool" class="ml-1 w-16 px-2 py-1 rounded ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+                </label>
+                <label class="text-[11px] text-slate-500">window (s)
+                  <input type="number" name="upstream_health_fail_dur[]" value="{{.HealthFailDurSecs}}" min="0" max="3600" placeholder="pool" class="ml-1 w-16 px-2 py-1 rounded ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+                </label>
+              </span>
+            </div>
           </div>
           {{end}}
         </div>
         <button type="button" id="hpg-upstream-add" class="mt-2 text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">+ Add backend</button>
-        <p class="text-[11px] text-slate-400 mt-1">host - port - weight - max req (0=unlimited) - on/off</p>
+        <p class="text-[11px] text-slate-400 mt-1">host - port - weight - max req (0=unlimited) - on/off - optional per-upstream passive health override</p>
       </div>
       <div class="grid grid-cols-2 gap-3 text-sm">
         <label class="block">
@@ -710,6 +727,20 @@ X-Authentik-Meta-Version</pre>
         </select>
         <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Forces the resolver lookup type. Only takes effect when a custom resolver (IP or WG peer) is configured above.</p>
       </div>
+
+      <!-- DNS resolver test -->
+      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
+        <div class="flex items-center gap-2 mb-2">
+          <p class="text-xs font-medium text-slate-700 dark:text-slate-300">Test resolver</p>
+          <button type="button" id="hpg-dns-test-btn"
+            class="px-3 py-1.5 rounded-lg ring-1 ring-indigo-200 dark:ring-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors cursor-pointer inline-flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.328l5.603 3.113z"/></svg>
+            Run test
+          </button>
+        </div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">Tests DNS resolution of the backend hostname through the configured custom resolver (saved values used, not the current form inputs). Only meaningful when a resolver IP or WG peer is configured and the backend is a hostname.</p>
+        <div id="hpg-dns-test-result" class="hidden rounded-lg p-3 text-xs font-mono space-y-1"></div>
+      </div>
     </section>
 
     <div class="flex flex-wrap justify-between items-center gap-3 pt-2">
@@ -843,15 +874,25 @@ X-Authentik-Meta-Version</pre>
     var upAdd  = document.getElementById('hpg-upstream-add');
     function upRow(){
       var div = document.createElement('div');
-      div.className = 'hpg-upstream-row flex flex-wrap items-center gap-2';
+      div.className = 'hpg-upstream-row rounded-lg ring-1 ring-slate-100 dark:ring-zinc-800 p-2 space-y-1.5 bg-white dark:bg-zinc-900';
       div.innerHTML =
-        '<input type="text" name="upstream_host[]" placeholder="10.0.0.6 or host.internal" class="flex-1 min-w-32 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
-        '<input type="number" name="upstream_port[]" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
-        '<input type="number" name="upstream_weight[]" value="1" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
-        '<input type="number" name="upstream_max_requests[]" value="0" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
-        '<input type="hidden" name="upstream_enabled[]" value="1">' +
-        '<label class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer"><input type="checkbox" class="hpg-upstream-enabled" checked> on</label>' +
-        '<button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>';
+        '<div class="flex flex-wrap items-center gap-2">' +
+          '<input type="text" name="upstream_host[]" placeholder="10.0.0.6 or host.internal" class="flex-1 min-w-32 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+          '<input type="number" name="upstream_port[]" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+          '<input type="number" name="upstream_weight[]" value="1" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+          '<input type="number" name="upstream_max_requests[]" value="0" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+          '<input type="hidden" name="upstream_enabled[]" value="1">' +
+          '<label class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer"><input type="checkbox" class="hpg-upstream-enabled" checked> on</label>' +
+          '<button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>' +
+        '</div>' +
+        '<div class="flex flex-wrap items-center gap-2 pl-1">' +
+          '<input type="hidden" name="upstream_health_override[]" value="0">' +
+          '<label class="flex items-center gap-1 text-[11px] text-slate-500 cursor-pointer"><input type="checkbox" class="hpg-upstream-health-ovr"> override passive health</label>' +
+          '<span class="hpg-upstream-health-fields hidden flex items-center gap-2">' +
+            '<label class="text-[11px] text-slate-500">max fails<input type="number" name="upstream_health_max_fails[]" value="0" min="0" max="100" placeholder="pool" class="ml-1 w-16 px-2 py-1 rounded ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"></label>' +
+            '<label class="text-[11px] text-slate-500">window (s)<input type="number" name="upstream_health_fail_dur[]" value="0" min="0" max="3600" placeholder="pool" class="ml-1 w-16 px-2 py-1 rounded ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"></label>' +
+          '</span>' +
+        '</div>';
       return div;
     }
     if (upAdd && upWrap) upAdd.addEventListener('click', function(){ upWrap.appendChild(upRow()); });
@@ -861,13 +902,21 @@ X-Authentik-Meta-Version</pre>
         if (row) row.remove();
       }
     });
-    // Sync enabled checkbox -> hidden input for each upstream row.
+    // Sync enabled checkbox -> hidden input and health override checkbox -> hidden + field reveal.
     if (upWrap) upWrap.addEventListener('change', function(e){
       if (e.target && e.target.classList.contains('hpg-upstream-enabled')) {
         var row = e.target.closest('.hpg-upstream-row');
         if (!row) return;
         var hidden = row.querySelector('input[name="upstream_enabled[]"]');
         if (hidden) hidden.value = e.target.checked ? '1' : '0';
+      }
+      if (e.target && e.target.classList.contains('hpg-upstream-health-ovr')) {
+        var row = e.target.closest('.hpg-upstream-row');
+        if (!row) return;
+        var hidden = row.querySelector('input[name="upstream_health_override[]"]');
+        if (hidden) hidden.value = e.target.checked ? '1' : '0';
+        var fields = row.querySelector('.hpg-upstream-health-fields');
+        if (fields) fields.classList.toggle('hidden', !e.target.checked);
       }
     });
 
@@ -914,6 +963,41 @@ X-Authentik-Meta-Version</pre>
     if (egressMode && egressRow) {
       egressMode.addEventListener('change', function(){
         egressRow.classList.toggle('hidden', egressMode.value !== 'fixed');
+      });
+    }
+
+    // DNS resolver test button.
+    var dnsTestBtn = document.getElementById('hpg-dns-test-btn');
+    var dnsTestResult = document.getElementById('hpg-dns-test-result');
+    if (dnsTestBtn && dnsTestResult) {
+      dnsTestBtn.addEventListener('click', function() {
+        dnsTestResult.className = 'rounded-lg p-3 text-xs font-mono bg-slate-50 dark:bg-zinc-800 text-slate-500';
+        dnsTestResult.textContent = 'Running...';
+        fetch('/admin/hosts/{{.RouteID}}/dns/test', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': '{{.CSRF}}' },
+          credentials: 'same-origin'
+        }).then(function(resp) { return resp.json(); })
+          .then(function(j) {
+            var ok = j.ok === true;
+            var cls = ok
+              ? 'rounded-lg p-3 text-xs font-mono space-y-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300'
+              : 'rounded-lg p-3 text-xs font-mono space-y-1 bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300';
+            dnsTestResult.className = cls;
+            var lines = [];
+            if (j.host) lines.push('host: ' + j.host);
+            if (j.resolver) lines.push('resolver: ' + j.resolver);
+            if (j.address_family) lines.push('family: ' + j.address_family);
+            if (j.latency_ms !== undefined) lines.push('latency: ' + j.latency_ms + ' ms');
+            if (Array.isArray(j.resolved) && j.resolved.length) lines.push('resolved: ' + j.resolved.join(', '));
+            if (j.error) lines.push('error: ' + j.error);
+            if (j.note) lines.push('note: ' + j.note);
+            dnsTestResult.textContent = lines.join('\n');
+          })
+          .catch(function(err) {
+            dnsTestResult.className = 'rounded-lg p-3 text-xs font-mono bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300';
+            dnsTestResult.textContent = 'request failed: ' + err;
+          });
       });
     }
   })();

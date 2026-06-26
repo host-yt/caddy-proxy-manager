@@ -237,6 +237,12 @@ type Upstream struct {
 	Port        int
 	Weight      int // only consumed by weighted_round_robin
 	MaxRequests int // Caddy max_requests per upstream (0 = unlimited)
+	// Per-upstream passive health override. When HealthOverride is true, the
+	// values below replace the pool-level passive health check settings for
+	// this specific upstream only. Ignored when HealthOverride is false.
+	HealthOverride    bool
+	HealthMaxFails    int // max fails before ejection (0 = omit, use Caddy default)
+	HealthFailDurSecs int // observation window in seconds (0 = omit)
 }
 
 // LocationRule is a first-class path override inside one host route.
@@ -407,6 +413,19 @@ func BuildRoute(r Route) map[string]any {
 				// max_requests caps concurrent upstream connections (0 = omit = unlimited).
 				if u.MaxRequests > 0 {
 					ue["max_requests"] = u.MaxRequests
+				}
+				// Per-upstream passive health override: emit fail/duration when set.
+				if u.HealthOverride {
+					ph := map[string]any{}
+					if u.HealthMaxFails > 0 {
+						ph["max_fails"] = u.HealthMaxFails
+					}
+					if u.HealthFailDurSecs > 0 {
+						ph["fail_duration"] = secs(u.HealthFailDurSecs, 30)
+					}
+					if len(ph) > 0 {
+						ue["passive_health_thresholds"] = ph
+					}
 				}
 				ups = append(ups, ue)
 			}
