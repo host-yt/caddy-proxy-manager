@@ -23,7 +23,9 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -35,6 +37,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -412,6 +415,11 @@ func main() {
 	defer t.Stop()
 	// First reconcile immediately.
 	reconcile(ctx, log, cfg, *dry)
+	// GeoIP check is throttled to ~30 min, not every 30s tick. Run once at
+	// startup so a fresh node converges quickly.
+	var lastGeoSync time.Time
+	syncGeoIP(ctx, log, cfg)
+	lastGeoSync = time.Now()
 	for {
 		select {
 		case <-ctx.Done():
@@ -425,6 +433,11 @@ func main() {
 			nftErr := reconcileFirewall(ctx, log, cfg, *dry)
 			wssReconcile(nftErr)
 			reconcile(ctx, log, cfg, *dry)
+			// Throttle the GeoIP DB check independently of the fast poll tick.
+			if time.Since(lastGeoSync) >= geoSyncInterval {
+				syncGeoIP(ctx, log, cfg)
+				lastGeoSync = time.Now()
+			}
 		}
 	}
 }
@@ -1019,6 +1032,159 @@ func postAccessLogBatch(ctx context.Context, c config, endpoint string, body []b
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+// geoSyncInterval throttles the GeoIP DB check so it runs ~every 30 min, not
+// on every fast poll tick.
+const geoSyncInterval = 30 * time.Minute
+
+// geoipDBPath must match internal/geoip.DBPath - the location every Caddy node
+// (and its caddy-maxmind-geolocation module) reads the country DB from.
+const geoipDBPath = "/data/geoip/GeoLite2-Country.mmdb"
+
+// syncGeoIP compares the panel's GeoIP DB sha256 with the local file and pulls a
+// fresh mmdb only when they differ. No-op (debug log) when the panel has none.
+func syncGeoIP(ctx context.Context, log *slog.Logger, c config) {
+	remoteSHA, ok := fetchGeoIPMeta(ctx, log, c)
+	if !ok {
+		return
+	}
+	if remoteSHA == "" {
+		log.Debug("geoip: panel has no DB yet")
+		return
+	}
+	localSHA, _ := fileSHA256(geoipDBPath)
+	if localSHA == remoteSHA {
+		return // already current
+	}
+	data, ok := fetchGeoIPMMDB(ctx, log, c)
+	if !ok {
+		return
+	}
+	// Verify the panel served what its meta promised before overwriting.
+	if got := sha256Hex(data); got != remoteSHA {
+		log.Warn("geoip: sha mismatch from panel, skipping write", "want_prefix", geoShaPrefix(remoteSHA), "got_prefix", geoShaPrefix(got))
+		return
+	}
+	if err := writeAtomic(geoipDBPath, data); err != nil {
+		log.Warn("geoip: write failed", "err", err)
+		return
+	}
+	log.Info("geoip: updated local DB", "size", len(data), "sha_prefix", geoShaPrefix(remoteSHA))
+}
+
+// fetchGeoIPMeta returns the panel's current DB sha256; ok=false on transport error.
+func fetchGeoIPMeta(ctx context.Context, log *slog.Logger, c config) (sha string, ok bool) {
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	url := strings.TrimRight(c.PanelURL, "/") + "/api/node/geoip/meta"
+	req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+c.NodeToken)
+	resp, err := agentHTTP.Do(req)
+	if err != nil {
+		log.Warn("geoip: meta fetch failed", "err", err)
+		return "", false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		log.Warn("geoip: meta non-200", "code", resp.StatusCode)
+		return "", false
+	}
+	var meta struct {
+		SHA256 string `json:"sha256"`
+	}
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 4096)).Decode(&meta); err != nil {
+		log.Warn("geoip: meta decode", "err", err)
+		return "", false
+	}
+	return meta.SHA256, true
+}
+
+// fetchGeoIPMMDB downloads the raw mmdb bytes from the panel.
+func fetchGeoIPMMDB(ctx context.Context, log *slog.Logger, c config) ([]byte, bool) {
+	reqCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+	url := strings.TrimRight(c.PanelURL, "/") + "/api/node/geoip/mmdb"
+	req, _ := http.NewRequestWithContext(reqCtx, http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+c.NodeToken)
+	resp, err := agentHTTP.Do(req)
+	if err != nil {
+		log.Warn("geoip: mmdb fetch failed", "err", err)
+		return nil, false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		log.Warn("geoip: mmdb non-200", "code", resp.StatusCode)
+		return nil, false
+	}
+	const maxMmdb = 128 << 20
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxMmdb))
+	if err != nil || len(data) == 0 {
+		log.Warn("geoip: mmdb read failed", "err", err)
+		return nil, false
+	}
+	return data, true
+}
+
+// fileSHA256 returns the hex sha256 of a file, "" if it doesn't exist.
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+// writeAtomic writes data via a same-dir temp file + fsync + rename so Caddy
+// never reads a partial mmdb. Creates /data/geoip (0755) if missing.
+func writeAtomic(path string, data []byte) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		os.Remove(tmp)
+		return err
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+func geoShaPrefix(s string) string {
+	if len(s) > 12 {
+		return s[:12]
+	}
+	return s
 }
 
 // reportStats parses `wg show <iface> dump` and POSTs per-peer stats

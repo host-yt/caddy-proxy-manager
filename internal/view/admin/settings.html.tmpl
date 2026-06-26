@@ -44,6 +44,7 @@
           <button type="button" data-settings-tab="wireguard" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">WireGuard</button>
           <button type="button" data-settings-tab="cloudflare" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cloudflare</button>
           <button type="button" data-settings-tab="acme" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">ACME / TLS</button>
+          <button type="button" data-settings-tab="geoip" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">GeoIP database</button>
         </div>
       </div>
 
@@ -512,6 +513,41 @@
       </div>
     </form>
     <p class="text-xs text-slate-500 dark:text-slate-400 mt-3">Changes take effect on the next Caddy push (next route create/delete or node resync).</p>
+  </section>
+
+  <section data-settings-pane="geoip" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">GeoIP database (MaxMind GeoLite2)</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Enter your free MaxMind account ID + license key. The panel downloads GeoLite2-Country daily and distributes it to every Caddy node over the tunnel, so per-route country blocking works without manual file placement.</p>
+
+    <form method="POST" action="/admin/settings/geoip" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">MaxMind account ID</label>
+        <input name="account_id" type="text" value="{{.GeoIP.AccountID}}" autocomplete="off" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">License key {{if .GeoIP.Configured}}<span class="text-emerald-600">(configured)</span>{{end}}</label>
+        <input name="license_key" type="password" placeholder="{{if .GeoIP.Configured}}leave blank to keep current{{else}}paste license key{{end}}" autocomplete="new-password" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      </div>
+      <div class="sm:col-span-2 flex justify-end pt-2">
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save GeoIP credentials</button>
+      </div>
+    </form>
+
+    <div class="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-700 text-xs text-slate-600 dark:text-slate-300">
+      <p class="mb-2 font-medium text-slate-700 dark:text-slate-200">Current database</p>
+      {{if .GeoIP.FetchedAt}}
+        <p>Last fetched: {{.GeoIP.FetchedAt}}</p>
+        <p>Size: {{.GeoIP.SizeBytes}} bytes</p>
+        <p class="font-mono break-all">sha256: {{.GeoIP.SHA256}}</p>
+      {{else}}
+        <p class="text-slate-500 dark:text-slate-400">No database downloaded yet.</p>
+      {{end}}
+      <form method="POST" action="/admin/settings/geoip/refresh" class="mt-3">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button {{if not .GeoIP.Configured}}disabled{{end}} class="px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-600 text-sm hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed">Refresh database now</button>
+      </form>
+    </div>
   </section>
 
   <section data-settings-pane="sms" class="hpg-settings-pane hidden hpg-card">

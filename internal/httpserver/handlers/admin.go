@@ -69,6 +69,8 @@ type AdminHandlers struct {
 	Webhooks   *webhook.Service
 	// DrillJob is the backup restore drill; used for manual "run now" trigger.
 	DrillJob drillRunner
+	// GeoIPJob downloads the MaxMind DB; used for the manual "refresh now" trigger.
+	GeoIPJob geoipRefresher
 	// AdminScope enforces per-client visibility for non-super_admin roles. nil = no enforcement.
 	AdminScope *adminscope.Service
 	// WriteWGConfig rebuilds /app/wg/wg0.conf from DB peers (sidecar
@@ -2310,6 +2312,15 @@ type acmeView struct {
 	Staging bool
 }
 
+type geoipView struct {
+	// AccountID is shown back (not a secret on its own); license key is write-only.
+	AccountID  string
+	Configured bool   // both creds present
+	SHA256     string // current DB sha256 ("" if never downloaded)
+	SizeBytes  int64
+	FetchedAt  string // RFC3339 or "" if never
+}
+
 type oidcView struct {
 	Enabled               bool
 	ProviderName          string
@@ -2353,6 +2364,7 @@ type settingsData struct {
 	AppURL          string
 	SMTP            smtpView
 	ACME            acmeView
+	GeoIP           geoipView
 	OIDC            oidcView
 	Turnstile       turnstileView
 	Cloudflare      cloudflareView
@@ -2453,6 +2465,7 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			Email:   kv["acme.email"],
 			Staging: kv["acme.staging"] == "1",
 		}
+		d.GeoIP = h.loadGeoIPView(ctx, db)
 		// Fall back to wizard state / env if settings rows missing.
 		if d.SMTP.Host == "" && h.State != nil {
 			if st := h.State.Get(); st.SMTP != nil {
@@ -2604,6 +2617,91 @@ func (h *AdminHandlers) SettingsACME(w http.ResponseWriter, r *http.Request) {
 		EntityID: "acme",
 	})
 	redirectWithFlash(w, r, "/admin/settings", "ACME settings saved. Next Caddy push will use them.", "")
+}
+
+// geoipRefresher is the minimal interface the handler needs from GeoIPUpdateJob.
+type geoipRefresher interface {
+	RunOnce(ctx context.Context)
+}
+
+// loadGeoIPView reads the stored creds + DB meta for the settings page. The
+// license key is never returned (write-only); only a "configured" boolean.
+func (h *AdminHandlers) loadGeoIPView(ctx context.Context, db *sql.DB) geoipView {
+	v := geoipView{}
+	kv := h.loadSettings(ctx, db, []string{"geoip.account_id", "geoip.license_key"})
+	v.AccountID = kv["geoip.account_id"]
+	v.Configured = kv["geoip.account_id"] != "" && kv["geoip.license_key"] != ""
+	var fetchedAt sql.NullTime
+	_ = db.QueryRowContext(ctx,
+		`SELECT sha256, size_bytes, fetched_at FROM geoip_db_meta WHERE id = 1`,
+	).Scan(&v.SHA256, &v.SizeBytes, &fetchedAt)
+	if fetchedAt.Valid {
+		v.FetchedAt = fetchedAt.Time.UTC().Format(time.RFC3339)
+	}
+	return v
+}
+
+// SettingsGeoIP POST /admin/settings/geoip - stores MaxMind creds encrypted.
+// Empty license_key keeps the existing one (write-only field).
+func (h *AdminHandlers) SettingsGeoIP(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	_ = r.ParseForm()
+	accountID := strings.TrimSpace(r.FormValue("account_id"))
+	licenseKey := strings.TrimSpace(r.FormValue("license_key"))
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	encAccount, err := h.encryptSetting(accountID)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "encryption unavailable")
+		return
+	}
+	kv := map[string]string{"geoip.account_id": encAccount}
+	// Only overwrite the license key when a new one is submitted.
+	if licenseKey != "" {
+		encKey, err := h.encryptSetting(licenseKey)
+		if err != nil {
+			redirectWithFlash(w, r, "/admin/settings", "", "encryption unavailable")
+			return
+		}
+		kv["geoip.license_key"] = encKey
+	}
+	if err := h.saveSettings(ctx, db, kv, true); err != nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "save failed")
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "settings.geoip.save", Entity: "settings",
+		EntityID: "geoip", // never the creds
+	})
+	redirectWithFlash(w, r, "/admin/settings", "GeoIP credentials saved. The next refresh will download the DB.", "")
+}
+
+// SettingsGeoIPRefresh POST /admin/settings/geoip/refresh - triggers an
+// immediate download. Runs async so the admin isn't blocked on a ~6 MB fetch.
+func (h *AdminHandlers) SettingsGeoIPRefresh(w http.ResponseWriter, r *http.Request) {
+	if h.GeoIPJob == nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "GeoIP updater not wired")
+		return
+	}
+	job := h.GeoIPJob
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		job.RunOnce(ctx)
+	}()
+	sess := middleware.SessionFromContext(r.Context())
+	if db := h.DB(); db != nil {
+		audit.Write(r.Context(), db, h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess), Action: "settings.geoip.refresh", Entity: "settings", EntityID: "geoip",
+		})
+	}
+	redirectWithFlash(w, r, "/admin/settings", "GeoIP download started; refresh this page in a moment.", "")
 }
 
 // loadSettings fetches a set of keys; decrypts is_encrypted rows.
