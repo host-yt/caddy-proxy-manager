@@ -125,7 +125,7 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE users SET email = ?, password_hash = '', password_set = 0, full_name = NULL,
 		 totp_secret = NULL, totp_secret_enc = NULL, totp_enabled = 0,
-		 oidc_subject = NULL, oidc_issuer = NULL, is_active = 0
+		 is_active = 0
 		 WHERE id = ?`, mask, id); err != nil {
 		http.Error(w, "user mask failed: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -160,35 +160,35 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 func selectUser(ctx context.Context, db *sql.DB, id int64) (map[string]any, error) {
 	row := db.QueryRowContext(ctx,
 		`SELECT id, email, role, full_name, is_active, totp_enabled,
-		        oidc_subject, oidc_issuer, last_login_at, created_at, updated_at
+		        last_login_at, created_at, updated_at
 		 FROM users WHERE id = ?`, id)
 	var (
-		uid                        int64
-		email, role                string
-		fullName, oidcSub, oidcIss sql.NullString
-		isActive                   bool
-		totpEnabled                bool
-		lastLogin                  sql.NullTime
-		createdAt, updatedAt       time.Time
+		uid                  int64
+		email, role          string
+		fullName             sql.NullString
+		isActive             bool
+		totpEnabled          bool
+		lastLogin            sql.NullTime
+		createdAt, updatedAt time.Time
 	)
 	if err := row.Scan(&uid, &email, &role, &fullName, &isActive, &totpEnabled,
-		&oidcSub, &oidcIss, &lastLogin, &createdAt, &updatedAt); err != nil {
+		&lastLogin, &createdAt, &updatedAt); err != nil {
 		return nil, err
 	}
+	// Fetch linked OAuth identities for the GDPR export.
+	linkedProviders := selectRows(ctx, db,
+		`SELECT provider, issuer, subject, email, linked_at FROM oauth_identities WHERE user_id = ?`, id)
 	return map[string]any{
-		"id":        uid,
-		"email":     email,
-		"role":      role,
-		"full_name": nullToStr(fullName),
-		"is_active": isActive,
-		"totp":      totpEnabled,
-		"oidc": map[string]any{
-			"subject": nullToStr(oidcSub),
-			"issuer":  nullToStr(oidcIss),
-		},
-		"last_login_at": nullToTime(lastLogin),
-		"created_at":    createdAt,
-		"updated_at":    updatedAt,
+		"id":               uid,
+		"email":            email,
+		"role":             role,
+		"full_name":        nullToStr(fullName),
+		"is_active":        isActive,
+		"totp":             totpEnabled,
+		"linked_providers": linkedProviders,
+		"last_login_at":    nullToTime(lastLogin),
+		"created_at":       createdAt,
+		"updated_at":       updatedAt,
 	}, nil
 }
 
