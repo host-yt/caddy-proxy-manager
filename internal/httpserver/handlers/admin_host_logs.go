@@ -343,8 +343,11 @@ func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("X-Accel-Buffering", "no") // disable Nginx buffering
 
-	flusher, ok := w.(http.Flusher)
-	if !ok {
+	// Use ResponseController so we reach the underlying Flusher even when
+	// outer middleware (request logger) wraps the ResponseWriter - a direct
+	// w.(http.Flusher) cast fails through the wrapper and 500s the stream.
+	rc := http.NewResponseController(w)
+	if err := rc.Flush(); err != nil {
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
@@ -357,7 +360,7 @@ func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) 
 	defer tick.Stop()
 
 	fmt.Fprint(w, "data: connected\n\n")
-	flusher.Flush()
+	rc.Flush()
 
 	for {
 		select {
@@ -365,7 +368,7 @@ func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) 
 			return
 		case <-tick.C:
 			fmt.Fprint(w, ": heartbeat\n\n")
-			flusher.Flush()
+			rc.Flush()
 		case e, ok := <-ch:
 			if !ok {
 				return
@@ -384,7 +387,7 @@ func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) 
 				continue
 			}
 			fmt.Fprintf(w, "event: log\ndata: %s\n\n", b)
-			flusher.Flush()
+			rc.Flush()
 		}
 	}
 }
