@@ -52,6 +52,34 @@ type RemoteIPHit struct {
 	Count    int64
 }
 
+// UserAgentHit is a counted user-agent string.
+type UserAgentHit struct {
+	UserAgent string
+	Count     int64
+}
+
+// MethodHit is a counted HTTP method.
+type MethodHit struct {
+	Method string
+	Count  int64
+}
+
+// LatencyStats holds latency percentile summary over a filter window.
+// Geo/ASN/protocol/bytes breakdowns and time-rollup tables are deferred - need new columns/storage decision.
+type LatencyStats struct {
+	Avg float64
+	P50 float64
+	P95 float64
+	Max float64
+}
+
+// ErrorRatePoint is one time bucket with total and error (status>=400) counts.
+type ErrorRatePoint struct {
+	Start      time.Time
+	TotalCount int64
+	ErrorCount int64
+}
+
 // TrafficPoint is one zero-filled request-count bucket.
 type TrafficPoint struct {
 	Start time.Time
@@ -136,6 +164,148 @@ func (s *Store) TopRemoteIPs(ctx context.Context, f AnalyticsFilter, limit int) 
 	out := make([]RemoteIPHit, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, RemoteIPHit{RemoteIP: row.value, Count: row.count})
+	}
+	return out, nil
+}
+
+// TopUserAgents returns the most frequent non-empty user-agent strings.
+func (s *Store) TopUserAgents(ctx context.Context, f AnalyticsFilter, limit int) ([]UserAgentHit, error) {
+	rows, err := s.topTextValues(ctx, f, "user_agent", "user_agent <> ''", limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]UserAgentHit, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, UserAgentHit{UserAgent: row.value, Count: row.count})
+	}
+	return out, nil
+}
+
+// TopMethods returns the most frequent HTTP methods.
+func (s *Store) TopMethods(ctx context.Context, f AnalyticsFilter, limit int) ([]MethodHit, error) {
+	rows, err := s.topTextValues(ctx, f, "method", "method <> ''", limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]MethodHit, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, MethodHit{Method: row.value, Count: row.count})
+	}
+	return out, nil
+}
+
+// LatencyStats returns avg, p50, p95, and max of latency_ms.
+// p95/p50 computed via OFFSET because MariaDB window functions add complexity for no gain at 500-row cap.
+func (s *Store) LatencyStats(ctx context.Context, f AnalyticsFilter) (LatencyStats, error) {
+	db := s.db()
+	if db == nil {
+		return LatencyStats{}, nil
+	}
+
+	conds, args := analyticsWhere(f, false)
+	where := strings.Join(conds, " AND ")
+
+	// Get count, avg, max in one pass.
+	var total int64
+	var avg, max float64
+	row := db.QueryRowContext(ctx,
+		`SELECT COUNT(*), COALESCE(AVG(latency_ms), 0), COALESCE(MAX(latency_ms), 0) FROM host_access_log WHERE `+where,
+		args...)
+	if err := row.Scan(&total, &avg, &max); err != nil {
+		return LatencyStats{}, err
+	}
+	if total == 0 {
+		return LatencyStats{}, nil
+	}
+
+	percentile := func(frac float64) (float64, error) {
+		offset := int64(float64(total) * frac)
+		if offset >= total {
+			offset = total - 1
+		}
+		pArgs := append(append([]any(nil), args...), offset)
+		var v float64
+		r := db.QueryRowContext(ctx,
+			`SELECT COALESCE(latency_ms, 0) FROM host_access_log WHERE `+where+
+				` ORDER BY latency_ms ASC LIMIT 1 OFFSET ?`,
+			pArgs...)
+		return v, r.Scan(&v)
+	}
+
+	p50, err := percentile(0.50)
+	if err != nil {
+		return LatencyStats{}, err
+	}
+	p95, err := percentile(0.95)
+	if err != nil {
+		return LatencyStats{}, err
+	}
+
+	return LatencyStats{Avg: avg, P50: p50, P95: p95, Max: max}, nil
+}
+
+// ErrorRateSeries returns per-bucket total and error (status>=400) counts using
+// the same FLOOR bucketing as TrafficTimeseries.
+func (s *Store) ErrorRateSeries(ctx context.Context, f AnalyticsFilter) ([]ErrorRatePoint, error) {
+	db := s.db()
+	if db == nil {
+		return nil, nil
+	}
+	from, to := normalizeAnalyticsRange(f.From, f.To)
+	step := normalizeTrafficStep(f.Step)
+	maxWindow := time.Duration(maxTrafficBuckets) * step
+	if to.Sub(from) > maxWindow {
+		from = to.Add(-maxWindow)
+	}
+	start := from.UTC().Truncate(step)
+	last := to.UTC().Add(-time.Nanosecond).Truncate(step)
+	if last.Before(start) {
+		last = start
+	}
+	if buckets := int(last.Sub(start)/step) + 1; buckets > maxTrafficBuckets {
+		start = last.Add(-time.Duration(maxTrafficBuckets-1) * step)
+		from = start
+	}
+
+	conds, args := analyticsWhere(AnalyticsFilter{RouteID: f.RouteID, From: from, To: to}, true)
+	stepSeconds := int64(step / time.Second)
+	args = append([]any{stepSeconds, stepSeconds}, args...)
+	q := `SELECT FLOOR(UNIX_TIMESTAMP(ts) / ?) * ? AS bucket,
+		      COUNT(*) AS total,
+		      SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) AS errors
+		  FROM host_access_log
+		  WHERE ` + strings.Join(conds, " AND ") + `
+		  GROUP BY bucket
+		  ORDER BY bucket ASC`
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	type bucketRow struct {
+		total  int64
+		errors int64
+	}
+	counts := make(map[int64]bucketRow)
+	for rows.Next() {
+		var bucket, total, errors int64
+		if err := rows.Scan(&bucket, &total, &errors); err == nil {
+			counts[bucket] = bucketRow{total: total, errors: errors}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]ErrorRatePoint, 0, int(last.Sub(start)/step)+1)
+	for t := start; !t.After(last); t = t.Add(step) {
+		br := counts[t.Unix()]
+		out = append(out, ErrorRatePoint{
+			Start:      t,
+			TotalCount: br.total,
+			ErrorCount: br.errors,
+		})
 	}
 	return out, nil
 }

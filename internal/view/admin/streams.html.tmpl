@@ -18,8 +18,9 @@
           <th class="px-4 py-2.5">Proto</th>
           <th class="px-4 py-2.5">Listen</th>
           <th class="px-4 py-2.5">Backend</th>
+          <th class="px-4 py-2.5">Match</th>
+          <th class="px-4 py-2.5">LB</th>
           <th class="px-4 py-2.5">Node</th>
-          <th class="px-4 py-2.5">Tag</th>
           <th class="px-4 py-2.5">Status</th>
           <th class="px-4 py-2.5"></th>
         </tr>
@@ -30,20 +31,23 @@
           <td class="px-4 py-3 font-mono uppercase text-slate-700 dark:text-slate-200">{{.Protocol}}</td>
           <td class="px-4 py-3 font-mono">:{{.ListenPort}}</td>
           <td class="px-4 py-3 font-mono text-slate-600 dark:text-slate-300">{{.BackendIP}}:{{.UpstreamPort}}</td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">{{if .MatchMode}}{{.MatchMode}}{{else}}any{{end}}</td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">{{if .LBPolicy}}{{.LBPolicy}}{{else}}round_robin{{end}}</td>
           <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.NodeName}}</td>
-          <td class="px-4 py-3 text-slate-500 dark:text-slate-400">{{if .Tag}}{{.Tag}}{{else}}-{{end}}</td>
           <td class="px-4 py-3">
             <span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else}}hpg-pill-muted{{end}}">{{.Status}}</span>
           </td>
-          <td class="px-4 py-3 text-right">
+          <td class="px-4 py-3 text-right flex items-center gap-3 justify-end">
+            <a href="/admin/streams/{{.ID}}/edit"
+               class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">edit</a>
             <form method="POST" action="/admin/streams/{{.ID}}/delete" class="inline" data-confirm="Delete stream {{.Protocol}} :{{.ListenPort}} → {{.BackendIP}}:{{.UpstreamPort}}?">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline">delete</button>
+              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">delete</button>
             </form>
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="7" class="px-4 py-6 text-center text-slate-500">No stream forwards configured yet.</td></tr>
+        <tr><td colspan="8" class="px-4 py-6 text-center text-slate-500">No stream forwards configured yet.</td></tr>
         {{end}}
       </tbody>
     </table></div>
@@ -51,44 +55,167 @@
 
   <section class="hpg-card">
     <h3 class="font-semibold text-slate-800 dark:text-slate-100 text-sm mb-4">Add stream forward</h3>
-    <form method="POST" action="/admin/streams/new" class="grid grid-cols-1 sm:grid-cols-6 gap-3 text-sm">
+
+    <!-- Tab strip for create form -->
+    <nav class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-zinc-800 text-sm mb-4" id="hpg-create-tabs">
+      <button type="button" data-ctab="listener"  class="hpg-ctab px-3 py-1.5 -mb-px border-b-2 border-indigo-600 text-indigo-700 dark:text-indigo-400 font-medium text-xs cursor-pointer">Listener</button>
+      <button type="button" data-ctab="match"     class="hpg-ctab px-3 py-1.5 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 text-xs cursor-pointer">Match</button>
+      <button type="button" data-ctab="upstreams" class="hpg-ctab px-3 py-1.5 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 text-xs cursor-pointer">Upstreams &amp; LB</button>
+      <button type="button" data-ctab="security"  class="hpg-ctab px-3 py-1.5 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 text-xs cursor-pointer">Security</button>
+    </nav>
+
+    <form method="POST" action="/admin/streams/new" class="space-y-4 text-sm">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Protocol</label>
-        <select name="protocol" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
-          <option value="tcp"  {{if eq .Form.Protocol "tcp"}}selected{{end}}>TCP</option>
-          <option value="udp"  {{if eq .Form.Protocol "udp"}}selected{{end}}>UDP</option>
-          <option value="both" {{if eq .Form.Protocol "both"}}selected{{end}}>TCP + UDP</option>
-        </select>
+
+      <!-- Listener pane -->
+      <div data-cpane="listener" class="hpg-cpane grid grid-cols-1 sm:grid-cols-6 gap-3">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Protocol</label>
+          <select name="protocol" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
+            <option value="tcp"  {{if eq .Form.Protocol "tcp"}}selected{{end}}>TCP</option>
+            <option value="udp"  {{if eq .Form.Protocol "udp"}}selected{{end}}>UDP</option>
+            <option value="both" {{if eq .Form.Protocol "both"}}selected{{end}}>TCP + UDP</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Listen port (public)</label>
+          <input name="listen_port" type="number" min="1" max="65535" value="{{.Form.ListenPort}}" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Backend IP (primary upstream)</label>
+          <input name="backend_ip" value="{{.Form.BackendIP}}" placeholder="10.0.0.5" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Backend port</label>
+          <input name="upstream_port" type="number" min="1" max="65535" value="{{.Form.UpstreamPort}}" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Caddy node</label>
+          <select name="node_id" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
+            <option value="">-- pick --</option>
+            {{range .Nodes}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) $.Form.NodeID}}selected{{end}}>{{.Name}} ({{.Hostname}})</option>{{end}}
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Tag (optional)</label>
+          <input name="tag" value="{{.Form.Tag}}" maxlength="64" placeholder="game-1" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+        </div>
       </div>
-      <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Listen port (public)</label>
-        <input name="listen_port" type="number" min="1" max="65535" value="{{.Form.ListenPort}}" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+
+      <!-- Match pane -->
+      <div data-cpane="match" class="hpg-cpane hidden grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Match mode</label>
+          <select name="match_mode" id="hpg-create-match-mode"
+                  class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
+            <option value="any"       {{if eq .Form.MatchMode "any"}}selected{{end}}>Any (plain forward)</option>
+            <option value="sni"       {{if eq .Form.MatchMode "sni"}}selected{{end}}>SNI - experimental</option>
+            <option value="http_host" {{if eq .Form.MatchMode "http_host"}}selected{{end}}>HTTP Host - experimental</option>
+          </select>
+        </div>
+        <div id="hpg-create-match-values-wrap" class="{{if eq .Form.MatchMode "any"}}hidden{{end}}">
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Match values (comma/newline)</label>
+          <textarea name="match_values" rows="3" placeholder="db.example.com"
+                    class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-xs">{{.Form.MatchValues}}</textarea>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">PROXY protocol in - experimental</label>
+          <select name="proxy_proto_in"
+                  class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
+            <option value="none" {{if eq .Form.ProxyProtoIn "none"}}selected{{end}}>None</option>
+            <option value="v1"   {{if eq .Form.ProxyProtoIn "v1"}}selected{{end}}>PROXY v1</option>
+            <option value="v2"   {{if eq .Form.ProxyProtoIn "v2"}}selected{{end}}>PROXY v2</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">PROXY protocol out - experimental</label>
+          <select name="proxy_proto_out"
+                  class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
+            <option value="none" {{if eq .Form.ProxyProtoOut "none"}}selected{{end}}>None</option>
+            <option value="v1"   {{if eq .Form.ProxyProtoOut "v1"}}selected{{end}}>PROXY v1</option>
+            <option value="v2"   {{if eq .Form.ProxyProtoOut "v2"}}selected{{end}}>PROXY v2</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Backend IP</label>
-        <input name="backend_ip" value="{{.Form.BackendIP}}" placeholder="10.0.0.5" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+
+      <!-- Upstreams pane -->
+      <div data-cpane="upstreams" class="hpg-cpane hidden space-y-3">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Additional upstreams (one per line: host:port or host:port weight) - experimental LB</label>
+          <textarea name="upstreams_raw" rows="4" placeholder="10.0.0.2:3306 2&#10;10.0.0.3:3306 1"
+                    class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-xs">{{.Form.UpstreamsRaw}}</textarea>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Leave blank to use only the primary backend above.</p>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">LB policy - experimental</label>
+          <select name="lb_policy"
+                  class="w-full sm:w-56 px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
+            <option value="round_robin" {{if eq .Form.LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
+            <option value="random"      {{if eq .Form.LBPolicy "random"}}selected{{end}}>Random</option>
+            <option value="least_conn"  {{if eq .Form.LBPolicy "least_conn"}}selected{{end}}>Least connections</option>
+            <option value="first"       {{if eq .Form.LBPolicy "first"}}selected{{end}}>First (failover)</option>
+          </select>
+        </div>
       </div>
-      <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Backend port</label>
-        <input name="upstream_port" type="number" min="1" max="65535" value="{{.Form.UpstreamPort}}" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+
+      <!-- Security pane -->
+      <div data-cpane="security" class="hpg-cpane hidden grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3.5 w-3.5 text-rose-500 mr-1" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524L13.477 14.89zm1.414-1.414L6.524 5.11A6 6 0 0114.89 13.476zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd"/>
+            </svg>
+            Deny CIDRs (comma or newline) - experimental
+          </label>
+          <textarea name="cidr_deny" rows="3" placeholder="10.99.0.0/16"
+                    class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-xs">{{.Form.CIDRDeny}}</textarea>
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3.5 w-3.5 text-emerald-500 mr-1" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+            </svg>
+            Allow CIDRs (empty = allow all) - experimental
+          </label>
+          <textarea name="cidr_allow" rows="3" placeholder="10.0.0.0/8"
+                    class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-xs">{{.Form.CIDRAllow}}</textarea>
+        </div>
       </div>
-      <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Caddy node</label>
-        <select name="node_id" required class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
-          <option value="">-- pick --</option>
-          {{range .Nodes}}<option value="{{.ID}}" {{if eq (printf "%d" .ID) $.Form.NodeID}}selected{{end}}>{{.Name}} ({{.Hostname}})</option>{{end}}
-        </select>
-      </div>
-      <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Tag (optional)</label>
-        <input name="tag" value="{{.Form.Tag}}" maxlength="64" placeholder="game-1" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
-      </div>
-      <div class="sm:col-span-6 flex justify-end pt-1">
-        <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium">Add stream</button>
+
+      <div class="flex justify-end pt-1">
+        <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium cursor-pointer transition-colors">Add stream</button>
       </div>
     </form>
-    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-4">Ports 80, 443, 2019 are reserved (HTTPS + admin). The Caddy container must publish the listen port on the host (edit <code class="text-xs">deploy/docker-compose.yml</code> and add the port mapping before saving).</p>
+    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-4">Ports 80, 443, 2019 are reserved (HTTPS + admin). The Caddy container must publish the listen port on the host (edit <code class="text-xs">deploy/docker-compose.yml</code> and add the port mapping before saving). SNI/http_host matchers, LB, proxy-protocol, and CIDR ACL are experimental - not fixture-validated against real Caddy.</p>
   </section>
 </div>
+
+<script nonce="{{.CSPNonce}}">
+(function(){
+  // Create-form tab switching.
+  var ctabs = document.querySelectorAll('[data-ctab]');
+  var cpanes = document.querySelectorAll('[data-cpane]');
+  function showCTab(name){
+    ctabs.forEach(function(t){
+      var on = t.dataset.ctab === name;
+      t.classList.toggle('border-indigo-600', on);
+      t.classList.toggle('text-indigo-700', on);
+      t.classList.toggle('dark:text-indigo-400', on);
+      t.classList.toggle('font-medium', on);
+      t.classList.toggle('border-transparent', !on);
+      t.classList.toggle('text-slate-500', !on);
+    });
+    cpanes.forEach(function(p){p.classList.toggle('hidden', p.dataset.cpane !== name);});
+  }
+  ctabs.forEach(function(t){t.addEventListener('click', function(){showCTab(t.dataset.ctab);});});
+
+  // Match values visibility for the create form.
+  var cMode = document.getElementById('hpg-create-match-mode');
+  var cValWrap = document.getElementById('hpg-create-match-values-wrap');
+  function syncCreate(){
+    if(cMode && cValWrap) cValWrap.classList.toggle('hidden', cMode.value === 'any');
+  }
+  if(cMode) cMode.addEventListener('change', syncCreate);
+})();
+</script>
 {{end}}

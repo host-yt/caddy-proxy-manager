@@ -27,6 +27,7 @@
           <th class="px-4 py-3 font-medium">WS</th>
           <th class="px-4 py-3 font-medium">Ext proxy</th>
           <th class="px-4 py-3 font-medium">Node group</th>
+          <th class="px-4 py-3 font-medium">WG key rotation</th>
           <th class="px-4 py-3 text-right font-medium">Actions</th>
         </tr>
       </thead>
@@ -44,6 +45,7 @@
           <td class="px-4 py-3.5">{{if .WebSocket}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
           <td class="px-4 py-3.5">{{if .ExternalProxy}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
           <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.NodeGroupName}}</td>
+          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{if .WGKeyRotationDays}}{{.WGKeyRotationDays}}d{{else}}<span class="text-slate-400">inherit</span>{{end}}</td>
           <td class="px-4 py-3.5 text-right whitespace-nowrap">
             <div class="inline-flex items-center gap-3">
               <button type="button"
@@ -58,8 +60,10 @@
                 data-websocket="{{if .WebSocket}}1{{else}}0{{end}}"
                 data-wildcard="{{if .Wildcard}}1{{else}}0{{end}}"
                 data-externalproxy="{{if .ExternalProxy}}1{{else}}0{{end}}"
+                data-allowegressip="{{if .AllowEgressIP}}1{{else}}0{{end}}"
                 data-ratelimit="{{.RateLimitRPM}}"
-                data-nodegroup="{{.NodeGroupID}}">edit</button>
+                data-nodegroup="{{.NodeGroupID}}"
+                data-wgkeyrotdays="{{.WGKeyRotationDays}}">edit</button>
               <form method="POST" action="/admin/plans/{{.ID}}/delete" data-confirm="Delete plan {{.Name}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button class="text-xs font-medium text-rose-600 hover:text-rose-700 hover:underline cursor-pointer">delete</button>
               </form>
@@ -120,10 +124,15 @@
           <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="websocket" value="1" checked class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> WebSocket</label>
           <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="wildcard" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Wildcard domains</label>
           <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="external_proxy" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Allow external HTTPS upstream proxy</label>
+          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="allow_egress_ip" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Allow custom egress IP (fixed/random)</label>
         </div>
         <div>
           <label class="hpg-eyebrow block mb-1.5">Rate limit (req/min, 0 = none)</label>
           <input name="rate_limit_rpm" type="number" min="0" value="0" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+        </div>
+        <div>
+          <label class="hpg-eyebrow block mb-1.5">WG key rotation (days, 0 = inherit global)</label>
+          <input name="wg_key_rotation_days" type="number" min="0" value="0" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
         </div>
         <div>
           <label class="hpg-eyebrow block mb-1.5">Node group</label>
@@ -186,7 +195,9 @@
       setCheck("websocket", d.websocket);
       setCheck("wildcard", d.wildcard);
       setCheck("external_proxy", d.externalproxy);
+      setCheck("allow_egress_ip", d.allowegressip);
       setVal("rate_limit_rpm", d.ratelimit);
+      setVal("wg_key_rotation_days", d.wgkeyrotdays || "0");
       setVal("node_group_id", d.nodegroup);
       open();
     });

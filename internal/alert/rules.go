@@ -3,8 +3,12 @@ package alert
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
+
+	"github.com/go-sql-driver/mysql"
 )
 
 // nodeOffline fires for each enabled node that has been non-healthy and
@@ -156,7 +160,101 @@ func dbPoolSaturated(_ context.Context, db *sql.DB, cfg Config) []Alert {
 	}}
 }
 
+// drillStale fires when the most recent successful restore drill is older than
+// the configured threshold, or has never run. Threshold in days from config.
+// Skips (no alert) on first boot before the table exists (MySQL 1146).
+func drillStale(ctx context.Context, db *sql.DB, cfg Config) []Alert {
+	threshold := cfg.DrillStaleDays
+	if threshold <= 0 {
+		threshold = 7
+	}
+	var lastSuccess sql.NullTime
+	err := db.QueryRowContext(ctx,
+		`SELECT MAX(finished_at)
+		   FROM restore_drill_status
+		  WHERE success = 1
+		    AND finished_at > (NOW() - INTERVAL ? DAY)`,
+		threshold,
+	).Scan(&lastSuccess)
+	if err != nil {
+		var me *mysql.MySQLError
+		// Table not yet migrated - suppress false alert on first boot.
+		if errors.As(err, &me) && me.Number == 1146 {
+			return nil
+		}
+		// Any other DB error: suppress to avoid spurious alerts.
+		return nil
+	}
+	if lastSuccess.Valid {
+		return nil // recent success exists — no alert
+	}
+	return []Alert{{
+		RuleID:   "drill_stale",
+		Severity: SeverityWarning,
+		Title:    "Restore drill stale",
+		Detail:   fmt.Sprintf("no successful restore drill in the last %d days", threshold),
+		Labels:   map[string]string{},
+	}}
+}
+
+// wgKeyNotFetched fires for peers where a post-rotation bootstrap token
+// exists unconsumed beyond the grace window - customer never downloaded
+// the new config after a key rotation.
+func wgKeyNotFetched(ctx context.Context, db *sql.DB, cfg Config, log *slog.Logger) []Alert {
+	grace := cfg.WGRotationFetchGraceHours
+	if grace <= 0 {
+		grace = 48
+	}
+	// Fire only when: peer was rotated, the grace window has elapsed, AND a
+	// bootstrap token issued AFTER that rotation is still unconsumed.
+	// Keying off expires_at caused false positives (pre-rotation tokens or
+	// already-consumed rows could satisfy the old join condition).
+	rows, err := db.QueryContext(ctx, `
+		SELECT p.id, p.name
+		  FROM customer_wg_peer p
+		 WHERE p.last_rotated_at IS NOT NULL
+		   AND p.last_rotated_at < (NOW() - INTERVAL ? HOUR)
+		   AND (p.rotation_alert_sent_at IS NULL OR p.rotation_alert_sent_at < p.last_rotated_at)
+		   AND EXISTS (
+		         SELECT 1 FROM customer_wg_bootstrap b
+		          WHERE b.peer_id = p.id
+		            AND b.created_at > p.last_rotated_at
+		            AND b.consumed_at IS NULL
+		       )`,
+		grace)
+	if err != nil {
+		var me *mysql.MySQLError
+		// Table not yet migrated - suppress false alert on first boot.
+		if errors.As(err, &me) && me.Number == 1146 {
+			return nil
+		}
+		// Log unexpected DB errors rather than silently discarding them.
+		log.Error("wgKeyNotFetched query failed", "err", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []Alert
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			continue
+		}
+		// Mark sent to avoid re-firing until the next rotation.
+		_, _ = db.ExecContext(ctx,
+			`UPDATE customer_wg_peer SET rotation_alert_sent_at=NOW() WHERE id=?`, id)
+		out = append(out, Alert{
+			RuleID:   "wg_key_not_fetched",
+			Severity: SeverityWarning,
+			Title:    "WG key not fetched: " + name,
+			Detail:   fmt.Sprintf("bootstrap token unconsumed >%dh after rotation", grace),
+			Labels:   map[string]string{"peer_id": strconv.FormatInt(id, 10), "peer_name": name},
+		})
+	}
+	return out
+}
+
 // KnownRuleIDs is the canonical rule list used by the admin filter UI.
 func KnownRuleIDs() []string {
-	return []string{"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale", "db_pool_saturated"}
+	return []string{"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale", "db_pool_saturated", "drill_stale", "wg_key_not_fetched"}
 }

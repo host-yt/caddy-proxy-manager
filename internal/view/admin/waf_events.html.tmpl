@@ -1,0 +1,214 @@
+{{define "waf_events"}}
+<div class="space-y-4 max-w-7xl">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+        <!-- Shield icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+        </svg>
+        WAF events
+      </h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Firewall rule matches and blocked requests across all hosts</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="/admin/waf.json" target="_blank"
+        class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+        JSON
+      </a>
+      <!-- Export dropdown -->
+      <div class="relative" id="waf-export-wrap">
+        <button type="button" id="waf-btn-export"
+          class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+          Export
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+            <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
+          </svg>
+        </button>
+        <div id="waf-export-menu" class="hidden absolute right-0 mt-1 w-36 rounded-lg shadow-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 z-20 py-1">
+          <a id="waf-export-csv" href="#"
+            class="block px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+            Export CSV
+          </a>
+          <a id="waf-export-json" href="#"
+            class="block px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+            Export JSON
+          </a>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {{if .Error}}
+  <div class="hpg-alert-err text-sm">{{.Error}}</div>
+  {{end}}
+
+  <!-- Summary chips -->
+  {{if .Entries}}
+  <div class="flex flex-wrap gap-2">
+    {{range .Entries}}{{end}}<!-- count computed by JS below -->
+    <span id="waf-chip-total" class="hpg-pill hpg-pill-muted">{{len .Entries}} shown</span>
+  </div>
+  {{end}}
+
+  <!-- Filter form -->
+  <form method="GET" action="/admin/waf"
+        id="waf-filter-form"
+        class="hpg-card flex flex-wrap gap-3 items-end">
+    <!-- Severity -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Severity</label>
+      <select name="severity"
+        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 cursor-pointer transition-colors">
+        <option value="">All</option>
+        {{range $s := (slice "low" "medium" "high" "critical")}}
+        <option value="{{$s}}" {{if eq $.Filter.Severity $s}}selected{{end}}>{{$s}}</option>
+        {{end}}
+      </select>
+    </div>
+    <!-- Action -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Action</label>
+      <select name="action"
+        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 cursor-pointer transition-colors">
+        <option value="">All</option>
+        {{range $a := (slice "blocked" "detected")}}
+        <option value="{{$a}}" {{if eq $.Filter.Action $a}}selected{{end}}>{{$a}}</option>
+        {{end}}
+      </select>
+    </div>
+    <!-- Host -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Host</label>
+      <input type="text" name="host" placeholder="example.com"
+        value="{{.Filter.Host}}"
+        class="w-36 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 font-mono transition-colors">
+    </div>
+    <!-- Remote IP -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Remote IP</label>
+      <input type="text" name="remote_ip" placeholder="1.2.3.4"
+        value="{{.Filter.RemoteIP}}"
+        class="w-32 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 font-mono transition-colors">
+    </div>
+    <!-- Rule ID -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Rule ID contains</label>
+      <input type="text" name="rule_id" placeholder="rule-001"
+        value="{{.Filter.RuleID}}"
+        class="w-36 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 font-mono transition-colors">
+    </div>
+    <!-- Date from -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">From</label>
+      <input type="date" name="from"
+        value="{{if not .Filter.From.IsZero}}{{.Filter.From.Format "2006-01-02"}}{{end}}"
+        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+    </div>
+    <!-- Date to -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">To</label>
+      <input type="date" name="to"
+        value="{{if not .Filter.To.IsZero}}{{.Filter.To.Format "2006-01-02"}}{{end}}"
+        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+    </div>
+    <!-- Actions -->
+    <div class="flex items-center gap-2 ml-auto">
+      <button type="submit"
+        class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium cursor-pointer transition-colors">
+        Filter
+      </button>
+      <a href="/admin/waf"
+        class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+        Clear
+      </a>
+    </div>
+  </form>
+
+  {{if not .Entries}}
+  <div class="hpg-card text-sm text-slate-500 dark:text-slate-400 text-center py-12">
+    No WAF events yet. Events will appear here once the WAF module emits them.
+  </div>
+  {{end}}
+
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-slate-100 dark:border-zinc-800 text-left">
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">Time</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Severity</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Action</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Rule ID</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Remote IP</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Host</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">URI</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Message</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+          {{range .Entries}}
+          <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
+            <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono">{{.TS.Format "2006-01-02 15:04:05"}}</td>
+            <td class="px-4 py-2">
+              <span class="inline-block px-1.5 py-0.5 rounded text-xs font-semibold
+                {{if eq .Severity "critical"}}text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-500/10
+                {{else if eq .Severity "high"}}text-orange-700 bg-orange-50 dark:text-orange-400 dark:bg-orange-500/10
+                {{else if eq .Severity "medium"}}text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-amber-500/10
+                {{else}}text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-500/10{{end}}">
+                {{.Severity}}
+              </span>
+            </td>
+            <td class="px-4 py-2">
+              <span class="inline-block px-1.5 py-0.5 rounded text-xs font-semibold
+                {{if eq .Action "blocked"}}text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-500/10
+                {{else}}text-sky-700 bg-sky-50 dark:text-sky-400 dark:bg-sky-500/10{{end}}">
+                {{.Action}}
+              </span>
+            </td>
+            <td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-[10rem] truncate" title="{{.RuleID}}">{{.RuleID}}</td>
+            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.RemoteIP}}</td>
+            <td class="px-4 py-2 font-mono text-xs text-slate-600 dark:text-slate-300 max-w-[10rem] truncate" title="{{.Host}}">{{.Host}}</td>
+            <td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate" title="{{.URI}}">{{.URI}}</td>
+            <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate" title="{{.Message}}">{{.Message}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{if .Entries}}
+    <div class="px-4 py-2 border-t border-slate-100 dark:border-zinc-800 text-xs text-slate-400">
+      Showing {{len .Entries}} events.
+      <a href="?" class="text-indigo-500 hover:underline ml-1">Refresh</a>
+    </div>
+    {{end}}
+  </section>
+</div>
+
+<script>
+(function(){
+  var wrap = document.getElementById('waf-export-wrap');
+  var btn  = document.getElementById('waf-btn-export');
+  var menu = document.getElementById('waf-export-menu');
+  var csvLink  = document.getElementById('waf-export-csv');
+  var jsonLink = document.getElementById('waf-export-json');
+
+  function buildExportURL(fmt){
+    var q = new URLSearchParams(window.location.search);
+    q.set('format', fmt);
+    return '/admin/waf/export?' + q.toString();
+  }
+
+  btn.addEventListener('click', function(e){
+    e.stopPropagation();
+    menu.classList.toggle('hidden');
+    csvLink.href  = buildExportURL('csv');
+    jsonLink.href = buildExportURL('json');
+  });
+  document.addEventListener('click', function(){ menu.classList.add('hidden'); });
+})();
+</script>
+{{end}}

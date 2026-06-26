@@ -45,6 +45,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
+	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 	"github.com/host-yt/caddy-proxy-manager/internal/webhook"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
@@ -337,6 +338,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		},
 	}
 
+	wafStore := wafevents.New(wizard.DB)
 	adminH := &handlers.AdminHandlers{
 		DB: wizard.DB, Sessions: sessions, Templates: adminTpls, Logger: logger,
 		State: state, Mailer: mailer, OIDC: oidcSvc, Cloudflare: cfSvc, Captcha: captchaV,
@@ -347,6 +349,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		AdminScope:      adminscope.New(wizard.DB),
 		AccessLogs:      alStore,
 		AccessLogBroker: alBroker,
+		WAFEvents:       wafStore,
 	}
 
 	// Bash bootstrap script served at GET /install/node.sh.
@@ -569,13 +572,13 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	}))
 
 	// Backup restore drill — leader-only, 72h cadence.
-	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "backup-drill", func(ctx context.Context) {
-		(&jobs.BackupDrillJob{DB: wizard.DB, State: state, Logger: logger}).Run(ctx)
-	}))
+	drillJob := &jobs.BackupDrillJob{DB: wizard.DB, State: state, Logger: logger}
+	adminH.DrillJob = drillJob
+	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "backup-drill", drillJob.Run))
 
 	// WG peer key rotation — leader-only, 6h cadence.
 	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "wg-key-rotation", func(ctx context.Context) {
-		(&jobs.WGKeyRotationJob{DB: wizard.DB, Logger: logger}).Run(ctx)
+		(&jobs.WGKeyRotationJob{DB: wizard.DB, Logger: logger, Peers: wgPeerSvc}).Run(ctx)
 	}))
 
 	statusPageH := &handlers.StatusPageHandlers{

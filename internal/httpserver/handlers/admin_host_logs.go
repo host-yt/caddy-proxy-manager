@@ -22,15 +22,19 @@ var logsExportLimiter sync.Map
 // hostLogsData drives the host_logs template.
 type hostLogsData struct {
 	baseAdminData
-	RouteID        int64
-	Domain         string
-	Entries        []accesslog.Entry
-	Filter         accesslog.Filter
-	StatusBuckets  []accesslog.StatusBucket
-	TopPaths       []accesslog.PathHit
-	TopRemoteIPs   []accesslog.RemoteIPHit
-	TrafficPoints  []accesslog.TrafficPoint
-	AnalyticsTotal int64
+	RouteID         int64
+	Domain          string
+	Entries         []accesslog.Entry
+	Filter          accesslog.Filter
+	StatusBuckets   []accesslog.StatusBucket
+	TopPaths        []accesslog.PathHit
+	TopRemoteIPs    []accesslog.RemoteIPHit
+	TopUserAgents   []accesslog.UserAgentHit
+	TopMethods      []accesslog.MethodHit
+	Latency         accesslog.LatencyStats
+	ErrorRateSeries []accesslog.ErrorRatePoint
+	TrafficPoints   []accesslog.TrafficPoint
+	AnalyticsTotal  int64
 }
 
 // parseLogsFilter reads filter query params from r.
@@ -134,6 +138,37 @@ func (h *AdminHandlers) loadHostLogAnalytics(ctx context.Context, routeID int64,
 		h.Logger.Warn("host logs remote ip analytics", "id", routeID, "err", err)
 	} else {
 		d.TopRemoteIPs = topIPs
+	}
+
+	topUAs, err := h.AccessLogs.TopUserAgents(ctx, f, 5)
+	if err != nil {
+		h.Logger.Warn("host logs user agent analytics", "id", routeID, "err", err)
+	} else {
+		d.TopUserAgents = topUAs
+	}
+
+	topMethods, err := h.AccessLogs.TopMethods(ctx, f, 10)
+	if err != nil {
+		h.Logger.Warn("host logs method analytics", "id", routeID, "err", err)
+	} else {
+		d.TopMethods = topMethods
+	}
+
+	latency, err := h.AccessLogs.LatencyStats(ctx, f)
+	if err != nil {
+		h.Logger.Warn("host logs latency analytics", "id", routeID, "err", err)
+	} else {
+		d.Latency = latency
+	}
+
+	errSeries, err := h.AccessLogs.ErrorRateSeries(ctx, f)
+	if err != nil {
+		h.Logger.Warn("host logs error rate analytics", "id", routeID, "err", err)
+	} else {
+		if len(errSeries) > 12 {
+			errSeries = errSeries[len(errSeries)-12:]
+		}
+		d.ErrorRateSeries = errSeries
 	}
 
 	points, err := h.AccessLogs.TrafficTimeseries(ctx, f)
@@ -241,7 +276,7 @@ func (h *AdminHandlers) HostsLogsExport(w http.ResponseWriter, r *http.Request) 
 		cw := csv.NewWriter(w)
 		_ = cw.Write([]string{"id", "ts", "method", "uri", "status", "latency_ms", "remote_ip", "user_agent"})
 		for i, e := range entries {
-			_ = cw.Write([]string{
+			_ = cw.Write(csvSafeRow([]string{
 				strconv.FormatInt(e.ID, 10),
 				e.TS.UTC().Format(time.RFC3339Nano),
 				e.Method,
@@ -250,7 +285,7 @@ func (h *AdminHandlers) HostsLogsExport(w http.ResponseWriter, r *http.Request) 
 				strconv.Itoa(e.LatencyMS),
 				e.RemoteIP,
 				e.UserAgent,
-			})
+			}))
 			if (i+1)%100 == 0 {
 				cw.Flush()
 			}

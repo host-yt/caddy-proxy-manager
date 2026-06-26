@@ -244,8 +244,14 @@ func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// Stamp both timestamp columns so key-age UX and alerts treat manual
+	// rotation the same as job-driven rotation.
 	if _, err := s.DB.ExecContext(ctx,
-		`UPDATE customer_wg_peer SET pubkey=?, server_privkey_e2=?, status='pending' WHERE id=?`,
+		`UPDATE customer_wg_peer
+		    SET pubkey=?, server_privkey_e2=?, status='pending',
+		        last_rotated_at=NOW(), last_key_rotation_at=NOW(),
+		        rotation_alert_sent_at=NULL
+		  WHERE id=?`,
 		kp.PublicKey, []byte(encPriv), peerID); err != nil {
 		return "", err
 	}

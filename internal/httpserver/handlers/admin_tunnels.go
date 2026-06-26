@@ -3,8 +3,10 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -20,23 +22,26 @@ import (
 // ---- Customer tunnels (admin surface) -----------------------------
 
 type tunnelRow struct {
-	ID            int64
-	Name          string
-	ClientID      int64
-	ClientEmail   string
-	NodeID        int64
-	NodeName      string
-	AssignedIP    string
-	Endpoint      string // peer's observed IP:port (from wg dump), "" if none
-	Status        string
-	LastHandshake string // human-formatted, "—" if null
-	RxHuman       string // received bytes this session, human-formatted
-	TxHuman       string // transmitted bytes this session, human-formatted
-	CumRxHuman    string // lifetime received (survives rekey/restart resets)
-	CumTxHuman    string // lifetime transmitted
-	Healthy       bool   // last handshake within the staleness window
-	CreatedAt     string
-	PeerGroupID   string // non-empty when this row is part of an HA group
+	ID              int64
+	Name            string
+	ClientID        int64
+	ClientEmail     string
+	NodeID          int64
+	NodeName        string
+	AssignedIP      string
+	Endpoint        string // peer's observed IP:port (from wg dump), "" if none
+	Status          string
+	LastHandshake   string // human-formatted, "—" if null
+	RxHuman         string // received bytes this session, human-formatted
+	TxHuman         string // transmitted bytes this session, human-formatted
+	CumRxHuman      string // lifetime received (survives rekey/restart resets)
+	CumTxHuman      string // lifetime transmitted
+	Healthy         bool   // last handshake within the staleness window
+	CreatedAt       string
+	PeerGroupID     string // non-empty when this row is part of an HA group
+	LastRotatedAt   sql.NullTime
+	LastKeyRotation sql.NullTime
+	KeyAgeHuman     string // "3d ago", "never rotated", etc.
 }
 
 // wgStaleAfter: a peer is "healthy" when its last handshake is within this
@@ -44,6 +49,29 @@ type tunnelRow struct {
 // healthy tunnel's last handshake can legitimately be up to ~120s old; 180s
 // avoids false "stale" while still flagging a down tunnel promptly.
 const wgStaleAfter = 180 * time.Second
+
+// keyAgeHuman returns a human-readable key age string.
+// Uses last_rotated_at first, falls back to last_key_rotation_at.
+func keyAgeHuman(lastRotated, lastKeyRotation sql.NullTime) string {
+	t := lastRotated
+	if !t.Valid {
+		t = lastKeyRotation
+	}
+	if !t.Valid {
+		return "never rotated"
+	}
+	d := time.Since(t.Time)
+	switch {
+	case d < time.Minute:
+		return "just now"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm ago", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
+	default:
+		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
+	}
+}
 
 // formatBytes renders a byte count as a short human string (KB/MB/GB).
 func formatBytes(n int64) string {
@@ -118,7 +146,8 @@ func (h *AdminHandlers) TunnelsList(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(p.cumulative_rx_bytes,0), COALESCE(p.cumulative_tx_bytes,0),
 		        COALESCE(p.last_handshake_epoch,0),
 		        DATE_FORMAT(p.created_at,'%Y-%m-%d %H:%i'),
-		        COALESCE(p.peer_group_id,'')
+		        COALESCE(p.peer_group_id,''),
+		        p.last_rotated_at, p.last_key_rotation_at
 		 FROM customer_wg_peer p
 		 JOIN clients c ON c.id = p.client_id
 		 JOIN users u   ON u.id = c.user_id
@@ -132,7 +161,8 @@ func (h *AdminHandlers) TunnelsList(w http.ResponseWriter, r *http.Request) {
 			if err := rows.Scan(&t.ID, &t.Name, &t.ClientID, &t.ClientEmail,
 				&t.NodeID, &t.NodeName, &t.AssignedIP, &t.Endpoint, &t.Status,
 				&t.LastHandshake, &rx, &tx, &cumRx, &cumTx, &epoch,
-				&t.CreatedAt, &t.PeerGroupID); err == nil {
+				&t.CreatedAt, &t.PeerGroupID,
+				&t.LastRotatedAt, &t.LastKeyRotation); err == nil {
 				if !allClients && !allowedClients[t.ClientID] {
 					continue
 				}
@@ -146,6 +176,7 @@ func (h *AdminHandlers) TunnelsList(w http.ResponseWriter, r *http.Request) {
 				if epoch > 0 {
 					t.Healthy = time.Since(time.Unix(epoch, 0)) < wgStaleAfter
 				}
+				t.KeyAgeHuman = keyAgeHuman(t.LastRotatedAt, t.LastKeyRotation)
 				d.Tunnels = append(d.Tunnels, t)
 			}
 		}
@@ -365,6 +396,7 @@ func (h *AdminHandlers) TunnelsRotate(w http.ResponseWriter, r *http.Request) {
 		UserID: actorUserID(sess), Action: "admin.tunnel.rotate", Entity: "wg_peer",
 		EntityID: itoa64(id),
 	})
+	writeRotationLog(ctx, h.DB(), id, "manual", actorUserID(sess))
 	http.Redirect(w, r, "/admin/tunnels?created="+url.QueryEscape(token), http.StatusSeeOther)
 }
 
@@ -400,6 +432,7 @@ func (h *AdminHandlers) TunnelsReissue(w http.ResponseWriter, r *http.Request) {
 		UserID: actorUserID(sess), Action: "admin.tunnel.reissue", Entity: "wg_peer",
 		EntityID: itoa64(id),
 	})
+	writeRotationLog(ctx, h.DB(), id, "reissue", actorUserID(sess))
 	http.Redirect(w, r, "/admin/tunnels?created="+url.QueryEscape(token), http.StatusSeeOther)
 }
 
@@ -489,6 +522,201 @@ func (h *AdminHandlers) TunnelsBandwidthJSON(w http.ResponseWriter, r *http.Requ
 		"rx":     rx,
 		"tx":     tx,
 	})
+}
+
+// tunnelDetailData drives the tunnel_detail template.
+type tunnelDetailData struct {
+	baseAdminData
+	Peer         tunnelRow
+	MonthRxHuman string // total RX this calendar month
+	MonthTxHuman string // total TX this calendar month
+	PeakHour     string // "14:00" or "" if no data
+	RotationLog  []rotationLogRow
+}
+
+type rotationLogRow struct {
+	RotatedAt string
+	Source    string
+	ActorID   int64
+}
+
+// TunnelDetail renders GET /admin/tunnels/{id}.
+func (h *AdminHandlers) TunnelDetail(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
+	if id == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckPeer(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	d := tunnelDetailData{baseAdminData: h.base(r, "Tunnel detail")}
+
+	// Load peer row.
+	var t tunnelRow
+	var rx, tx, cumRx, cumTx, epoch int64
+	err := db.QueryRowContext(ctx,
+		`SELECT p.id, p.name, p.client_id, u.email, p.node_id, n.name,
+		        p.assigned_ip, COALESCE(p.endpoint,''), p.status,
+		        COALESCE(DATE_FORMAT(p.last_handshake_at,'%Y-%m-%d %H:%i'),''),
+		        COALESCE(p.rx_bytes,0), COALESCE(p.tx_bytes,0),
+		        COALESCE(p.cumulative_rx_bytes,0), COALESCE(p.cumulative_tx_bytes,0),
+		        COALESCE(p.last_handshake_epoch,0),
+		        DATE_FORMAT(p.created_at,'%Y-%m-%d %H:%i'),
+		        COALESCE(p.peer_group_id,''),
+		        p.last_rotated_at, p.last_key_rotation_at
+		 FROM customer_wg_peer p
+		 JOIN clients c ON c.id = p.client_id
+		 JOIN users u   ON u.id = c.user_id
+		 JOIN caddy_nodes n ON n.id = p.node_id
+		 WHERE p.id = ?`, id).Scan(
+		&t.ID, &t.Name, &t.ClientID, &t.ClientEmail, &t.NodeID, &t.NodeName,
+		&t.AssignedIP, &t.Endpoint, &t.Status, &t.LastHandshake,
+		&rx, &tx, &cumRx, &cumTx, &epoch, &t.CreatedAt, &t.PeerGroupID,
+		&t.LastRotatedAt, &t.LastKeyRotation)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	if t.LastHandshake == "" {
+		t.LastHandshake = "-"
+	}
+	t.RxHuman = formatBytes(rx)
+	t.TxHuman = formatBytes(tx)
+	t.CumRxHuman = formatBytes(cumRx)
+	t.CumTxHuman = formatBytes(cumTx)
+	if epoch > 0 {
+		t.Healthy = time.Since(time.Unix(epoch, 0)) < wgStaleAfter
+	}
+	t.KeyAgeHuman = keyAgeHuman(t.LastRotatedAt, t.LastKeyRotation)
+	d.Peer = t
+
+	// Monthly total (current calendar month).
+	var monthRx, monthTx int64
+	_ = db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0)
+		   FROM customer_wg_peer_usage_sample
+		  WHERE peer_id = ? AND YEAR(sampled_at)=YEAR(NOW()) AND MONTH(sampled_at)=MONTH(NOW())`,
+		id).Scan(&monthRx, &monthTx)
+	d.MonthRxHuman = formatBytes(monthRx)
+	d.MonthTxHuman = formatBytes(monthTx)
+
+	// Peak hour over last 30d (hour-of-day with highest summed bytes).
+	var peakHour sql.NullInt64
+	_ = db.QueryRowContext(ctx,
+		`SELECT HOUR(sampled_at) AS h
+		   FROM customer_wg_peer_usage_sample
+		  WHERE peer_id = ? AND sampled_at >= NOW() - INTERVAL 30 DAY
+		  GROUP BY h
+		  ORDER BY SUM(rx_delta+tx_delta) DESC
+		  LIMIT 1`, id).Scan(&peakHour)
+	if peakHour.Valid {
+		d.PeakHour = fmt.Sprintf("%02d:00", peakHour.Int64)
+	}
+
+	// Rotation history (last 20).
+	rrows, err := db.QueryContext(ctx,
+		`SELECT DATE_FORMAT(rotated_at,'%Y-%m-%d %H:%i'), source, COALESCE(actor_user_id,0)
+		   FROM wg_key_rotation_log
+		  WHERE peer_id = ?
+		  ORDER BY rotated_at DESC LIMIT 20`, id)
+	if err == nil {
+		defer rrows.Close()
+		for rrows.Next() {
+			var row rotationLogRow
+			if err := rrows.Scan(&row.RotatedAt, &row.Source, &row.ActorID); err == nil {
+				d.RotationLog = append(d.RotationLog, row)
+			}
+		}
+		_ = rrows.Err()
+	}
+
+	h.render(w, "tunnel_detail", d)
+}
+
+// TunnelsUsageCSV handles GET /admin/tunnels/{id}/usage.csv.
+// Exports raw usage samples for the given peer as CSV.
+func (h *AdminHandlers) TunnelsUsageCSV(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
+	if id == 0 {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckPeer(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if !checkLogsExportRateLimit(logsExportLimiterKey(r, sess), time.Now()) {
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT sampled_at, rx_delta, tx_delta
+		   FROM customer_wg_peer_usage_sample
+		  WHERE peer_id = ?
+		  ORDER BY sampled_at DESC LIMIT 50000`, id)
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="tunnel-%d-usage.csv"`, id))
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"sampled_at", "rx_delta", "tx_delta"})
+	var i int
+	for rows.Next() {
+		var sampledAt time.Time
+		var rxDelta, txDelta int64
+		if err := rows.Scan(&sampledAt, &rxDelta, &txDelta); err == nil {
+			_ = cw.Write(csvSafeRow([]string{
+				sampledAt.UTC().Format(time.RFC3339),
+				strconv.FormatInt(rxDelta, 10),
+				strconv.FormatInt(txDelta, 10),
+			}))
+			i++
+			if i%100 == 0 {
+				cw.Flush()
+			}
+		}
+	}
+	cw.Flush()
+	_ = rows.Err()
+}
+
+// writeRotationLog records one row in wg_key_rotation_log. Best-effort - never
+// blocks the main rotation path if the insert fails.
+func writeRotationLog(ctx context.Context, db *sql.DB, peerID int64, source string, actorID *int64) {
+	if db == nil {
+		return
+	}
+	var actor interface{}
+	if actorID != nil && *actorID > 0 {
+		actor = *actorID
+	}
+	_, _ = db.ExecContext(ctx,
+		`INSERT INTO wg_key_rotation_log (peer_id, source, actor_user_id) VALUES (?, ?, ?)`,
+		peerID, source, actor)
 }
 
 // ---- helpers ------------------------------------------------------

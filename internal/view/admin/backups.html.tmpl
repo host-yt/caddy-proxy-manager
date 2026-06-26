@@ -127,6 +127,46 @@
     </details>
   </section>
 
+  <section class="hpg-card max-w-md {{if .Drill.Stale}}ring-2 ring-rose-400 dark:ring-rose-600{{end}}">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="hpg-eyebrow">Restore drill</h2>
+      <form method="POST" action="/admin/backups/drill/run">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 cursor-pointer transition-colors">Run now</button>
+      </form>
+    </div>
+    {{if .Drill.Stale}}
+      <p class="text-xs font-medium text-rose-600 dark:text-rose-400 mb-2">
+        <svg class="inline w-4 h-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
+        {{if .Drill.HasRun}}Last successful drill is older than 7 days.{{else}}Drill has never run.{{end}}
+      </p>
+    {{end}}
+    <dl class="text-sm space-y-1">
+      {{if .Drill.HasRun}}
+        <div class="flex justify-between">
+          <dt class="text-slate-500">Status</dt>
+          <dd>{{if .Drill.Success}}<span class="hpg-pill hpg-pill-ok">ok</span>{{else}}<span class="hpg-pill hpg-pill-err">failed</span>{{end}}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-slate-500">Started</dt>
+          <dd class="text-xs text-slate-700 dark:text-slate-200">{{.Drill.StartedAt}}</dd>
+        </div>
+        <div class="flex justify-between">
+          <dt class="text-slate-500">Finished</dt>
+          <dd class="text-xs text-slate-700 dark:text-slate-200">{{.Drill.FinishedAt}}</dd>
+        </div>
+        {{if .Drill.ErrorMsg}}
+        <div class="mt-1">
+          <dt class="text-slate-500 text-xs">Error</dt>
+          <dd class="text-rose-600 text-xs break-all">{{.Drill.ErrorMsg}}</dd>
+        </div>
+        {{end}}
+      {{else}}
+        <div class="text-slate-500 text-xs">No drill has run yet. Scheduled cadence: every 72 h (leader only).</div>
+      {{end}}
+    </dl>
+  </section>
+
   <section class="hpg-card p-0 overflow-hidden">
     <div class="p-5">
       <h2 class="hpg-eyebrow">Recent jobs</h2>

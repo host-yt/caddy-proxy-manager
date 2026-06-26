@@ -23,20 +23,26 @@ type Config struct {
 	AdminEmail string // ALERT_ADMIN_EMAIL
 	// Admin phone for SMS; empty = skip SMS fanout.
 	AdminPhone string // ALERT_ADMIN_PHONE
+	// Alert when last successful restore drill is older than this many days.
+	DrillStaleDays int // ALERT_DRILL_STALE_DAYS, default 7
+	// Hours after rotation before alerting that customer never fetched new config.
+	WGRotationFetchGraceHours int // ALERT_WG_FETCH_GRACE_HOURS, default 48
 }
 
 // LoadConfig reads env with sane defaults. Invalid numerics fall back to
 // the default rather than erroring - alerting must never block boot.
 func LoadConfig() Config {
 	return Config{
-		NodeOfflineMinutes:  envInt("ALERT_NODE_OFFLINE_MIN", 5),
-		WGStaleSeconds:      envInt("ALERT_WG_STALE_SEC", 300),
-		CertStuckMinutes:    envInt("ALERT_CERT_STUCK_MIN", 30),
-		DBPoolSaturationPct: envFloat("ALERT_DB_POOL_PCT", 0.90),
-		CooldownSeconds:     envInt("ALERT_COOLDOWN_SEC", 1800),
-		RetentionDays:       envInt("ALERT_RETENTION_DAYS", 90),
-		AdminEmail:          os.Getenv("ALERT_ADMIN_EMAIL"),
-		AdminPhone:          os.Getenv("ALERT_ADMIN_PHONE"),
+		NodeOfflineMinutes:        envInt("ALERT_NODE_OFFLINE_MIN", 5),
+		WGStaleSeconds:            envInt("ALERT_WG_STALE_SEC", 300),
+		CertStuckMinutes:          envInt("ALERT_CERT_STUCK_MIN", 30),
+		DBPoolSaturationPct:       envFloat("ALERT_DB_POOL_PCT", 0.90),
+		CooldownSeconds:           envInt("ALERT_COOLDOWN_SEC", 1800),
+		RetentionDays:             envInt("ALERT_RETENTION_DAYS", 90),
+		AdminEmail:                os.Getenv("ALERT_ADMIN_EMAIL"),
+		AdminPhone:                os.Getenv("ALERT_ADMIN_PHONE"),
+		DrillStaleDays:            envInt("ALERT_DRILL_STALE_DAYS", 7),
+		WGRotationFetchGraceHours: envInt("ALERT_WG_FETCH_GRACE_HOURS", 48),
 	}
 }
 

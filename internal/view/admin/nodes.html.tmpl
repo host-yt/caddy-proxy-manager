@@ -183,6 +183,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
             </form>
             <button type="button" data-tunnel-open="{{.ID}}" data-tunnel-name="{{.Name}}" data-tunnel-host="{{.PublicHostname}}" data-tunnel-transport="{{.Transport}}" data-tunnel-wstport="{{.WstunnelPort}}" class="text-xs text-sky-700 dark:text-sky-400 hover:underline">tunnel</button>
             <a href="/admin/nodes/{{.ID}}" class="text-xs text-slate-500 dark:text-slate-400 hover:underline">detail</a>
+            <a href="/admin/nodes/{{.ID}}/edit" class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline">edit IPs</a>
             <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/decommission" data-confirm="Decommission {{.Name}}? Routes will be migrated to a peer in the same group; then the node is removed." data-confirm-type="{{.Name}}">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
               <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline">decommission</button>

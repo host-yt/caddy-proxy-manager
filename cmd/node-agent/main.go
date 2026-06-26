@@ -225,6 +225,64 @@ func dockerBridgeCIDRs() []string {
 	return out
 }
 
+// bridgeCIDRsByName returns the IPv4 CIDRs for a single named bridge interface.
+// Returns nil when the interface is missing or has no IPv4 address.
+func bridgeCIDRsByName(name string) []string {
+	iface, err := net.InterfaceByName(name)
+	if err != nil {
+		return nil
+	}
+	addrs, err := iface.Addrs()
+	if err != nil {
+		return nil
+	}
+	var out []string
+	for _, a := range addrs {
+		ipnet, ok := a.(*net.IPNet)
+		if !ok || ipnet.IP.To4() == nil {
+			continue
+		}
+		network := &net.IPNet{IP: ipnet.IP.Mask(ipnet.Mask), Mask: ipnet.Mask}
+		out = append(out, network.String())
+	}
+	return out
+}
+
+// resolveWstunnelAllowCIDRs is the single source of truth for the wstunnel
+// ingress allowlist. Precedence:
+//  1. HPG_WSTUNNEL_ALLOW_CIDR - operator-supplied, validated
+//  2. HPG_CADDY_BRIDGE - authoritative when set; fail-closed if unresolvable
+//  3. auto-detect docker0/br-* only when HPG_CADDY_BRIDGE is unset
+func resolveWstunnelAllowCIDRs(log *slog.Logger) []string {
+	if env := os.Getenv("HPG_WSTUNNEL_ALLOW_CIDR"); env != "" {
+		if s := sanitizeCIDRList(env, ""); s != "" {
+			return strings.Split(s, ", ")
+		}
+	}
+	if bridge := os.Getenv("HPG_CADDY_BRIDGE"); bridge != "" {
+		// HPG_CADDY_BRIDGE is authoritative: never fall through to auto-detect.
+		if _, _, err := net.ParseCIDR(bridge); err == nil {
+			// Explicit CIDR value - validate and return; nil on rejection.
+			if s := sanitizeCIDRList(bridge, ""); s != "" {
+				return strings.Split(s, ", ")
+			}
+			log.Warn("HPG_CADDY_BRIDGE is set but CIDR was rejected (e.g. IPv6); WSS ingress closed", "value", bridge)
+			return nil
+		}
+		// Treat as interface name; nil if not found or no usable addr.
+		if cidrs := bridgeCIDRsByName(bridge); len(cidrs) > 0 {
+			return cidrs
+		}
+		log.Warn("HPG_CADDY_BRIDGE interface not found or no IPv4 addr; WSS ingress closed", "iface", bridge)
+		return nil
+	}
+	// HPG_CADDY_BRIDGE unset - auto-detect docker/bridge networks.
+	if br := dockerBridgeCIDRs(); len(br) > 0 {
+		return br
+	}
+	return nil
+}
+
 // validIfname matches the Linux interface-name constraints.
 func validIfname(s string) bool {
 	if s == "" || len(s) > 15 {
@@ -622,19 +680,18 @@ add rule inet %s mangle_fwd iifname "%s" tcp flags syn tcp option maxseg size se
 	// LAN/VPC neighbour can't reach the raw WebSocket->WG path outside Caddy/TLS.
 	// Docker default + user-defined bridges live in 172.16/12; operators on a
 	// custom subnet (e.g. 10.x) widen it via HPG_WSTUNNEL_ALLOW_CIDR.
+	// Residual (a): kernel WireGuard always binds to 0.0.0.0 (`wg set listen-port`
+	// has no per-address bind). Per-source restriction is done via nft/iptables
+	// rules below; a precise listener bind is not feasible without replacing kernel WG.
 	if c.TunnelTransport != "udp" && c.WstunnelPort > 0 {
-		// Allowlist precedence: explicit env override (sanitized, interpolated
-		// into `nft -f` so it must be validated) > auto-detected docker bridges.
-		// If neither yields a subnet we FAIL CLOSED (loopback only): Caddy can't
-		// reach it either so WSS won't work, but the raw ws:// port is never
-		// exposed. Operator must pin HPG_WSTUNNEL_ALLOW_CIDR to Caddy's subnet.
+		// resolveWstunnelAllowCIDRs is the single allow-list source; always sanitized.
+		// Fail-closed to loopback-only when no CIDR resolves - raw ws:// stays unexposed.
 		allowSet := "127.0.0.0/8"
-		if env := os.Getenv("HPG_WSTUNNEL_ALLOW_CIDR"); env != "" {
-			allowSet = "127.0.0.0/8, " + sanitizeCIDRList(env, "127.0.0.0/8")
-		} else if br := dockerBridgeCIDRs(); len(br) > 0 {
-			allowSet = "127.0.0.0/8, " + strings.Join(br, ", ")
+		if cidrs := resolveWstunnelAllowCIDRs(log); len(cidrs) > 0 {
+			allowSet = "127.0.0.0/8, " + strings.Join(cidrs, ", ")
 		} else {
-			log.Warn("wstunnel ingress: no docker bridge detected and HPG_WSTUNNEL_ALLOW_CIDR unset - failing closed (loopback only); set the env to Caddy's subnet")
+			log.Warn("wstunnel ingress restricted to loopback only - Caddy cannot reach wstunnel; " +
+				"set HPG_CADDY_BRIDGE=<ifname|CIDR> or HPG_WSTUNNEL_ALLOW_CIDR=<CIDR> to Caddy's bridge subnet")
 		}
 		script += fmt.Sprintf(
 			"add rule inet %s input tcp dport %d ip saddr != { %s } drop comment \"wstunnel: allowlist only\"\n",
@@ -749,26 +806,13 @@ func ensureWstunnelHostInputRule(ctx context.Context, log *slog.Logger, c config
 		wstunnelIngressOK.Store(true) // n/a on UDP nodes
 		return
 	}
-	// Resolve the allowed source CIDRs first. With NONE (bridge detection
-	// failed or env sanitized empty) BOTH the nft allowlist and this rule fall
-	// closed to loopback-only, so Caddy's bridge cannot reach wstunnel - report
-	// ingress UNHEALTHY rather than advertise a WSS path Caddy can't proxy.
-	var cidrs []string
-	if env := os.Getenv("HPG_WSTUNNEL_ALLOW_CIDR"); env != "" {
-		if s := sanitizeCIDRList(env, ""); s != "" {
-			cidrs = strings.Split(s, ", ")
-		}
-	} else {
-		cidrs = dockerBridgeCIDRs()
-	}
-	usable := 0
-	for _, cc := range cidrs {
-		if strings.TrimSpace(cc) != "" {
-			usable++
-		}
-	}
-	if usable == 0 {
-		log.Warn("wstunnel ingress: no usable allow CIDR (no docker bridge / empty HPG_WSTUNNEL_ALLOW_CIDR) - Caddy can't reach wstunnel; reporting WSS unhealthy")
+	// resolveWstunnelAllowCIDRs shares logic with the nft setup site to avoid
+	// drift; nil means no usable CIDR - fail closed and mark WSS unhealthy.
+	cidrs := resolveWstunnelAllowCIDRs(log)
+	if len(cidrs) == 0 {
+		log.Warn("wstunnel ingress closed - no usable bridge CIDR; WSS is unreachable. "+
+			"Set HPG_CADDY_BRIDGE=<ifname|CIDR> or HPG_WSTUNNEL_ALLOW_CIDR=<CIDR> to allow Caddy's bridge",
+			"transport", c.TunnelTransport)
 		wstunnelIngressOK.Store(false)
 		return
 	}

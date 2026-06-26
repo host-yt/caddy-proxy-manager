@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -16,12 +17,24 @@ import (
 
 // Backups page + actions live on AdminHandlers; the field is wired from main.go.
 
+// drillRunner is the minimal interface the handler needs from BackupDrillJob.
+type drillRunner interface {
+	RunOnce(ctx context.Context)
+}
+
+// drillState guards against concurrent manual drill runs.
+var drillState struct {
+	mu       sync.Mutex
+	inFlight bool
+}
+
 type backupsViewData struct {
 	baseAdminData
 	Destinations []backupDestRow
 	Jobs         []backupJobRow
 	Schedule     backupScheduleRow
 	NewKindOpts  []string
+	Drill        drillStatusRow
 }
 
 type backupDestRow struct {
@@ -49,6 +62,18 @@ type backupScheduleRow struct {
 	IntervalHours int
 	RetentionDays int
 	EncryptByDef  bool
+}
+
+// drillStatusRow is the last completed drill result shown in the UI.
+type drillStatusRow struct {
+	HasRun       bool
+	StartedAt    string
+	FinishedAt   string
+	Success      bool
+	RowsReplayed int
+	ErrorMsg     string
+	// Stale is true when last success > 7 days ago (or never).
+	Stale bool
 }
 
 // BackupsPage GET /admin/backups.
@@ -92,6 +117,7 @@ func (h *AdminHandlers) BackupsPage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	d.Schedule = h.loadBackupSchedule(ctx)
+	d.Drill = h.loadDrillStatus(ctx)
 	h.render(w, "backups", d)
 }
 
@@ -282,6 +308,78 @@ func (h *AdminHandlers) BackupsRunNow(w http.ResponseWriter, r *http.Request) {
 		Meta:     map[string]any{"encrypt": encrypt},
 	})
 	redirectWithFlash(w, r, "/admin/backups", "backup started", "")
+}
+
+// loadDrillStatus reads the most recent restore_drill_status row.
+// Returns empty drillStatusRow (HasRun=false) if the table is empty or missing.
+func (h *AdminHandlers) loadDrillStatus(ctx context.Context) drillStatusRow {
+	db := h.DB()
+	if db == nil {
+		return drillStatusRow{Stale: true}
+	}
+	var startedAt, finishedAt time.Time
+	var successInt int
+	var rowsReplayed int
+	var errMsg string
+	err := db.QueryRowContext(ctx,
+		`SELECT started_at, finished_at, success, COALESCE(rows_replayed, 0), COALESCE(error_message, '')
+		   FROM restore_drill_status
+		  ORDER BY id DESC LIMIT 1`,
+	).Scan(&startedAt, &finishedAt, &successInt, &rowsReplayed, &errMsg)
+	if err != nil {
+		// Table may not exist yet or no rows - treat as never run.
+		return drillStatusRow{Stale: true}
+	}
+	stale := successInt == 0 || time.Since(finishedAt) > 7*24*time.Hour
+	return drillStatusRow{
+		HasRun:       true,
+		StartedAt:    startedAt.Format(time.RFC3339),
+		FinishedAt:   finishedAt.Format(time.RFC3339),
+		Success:      successInt == 1,
+		RowsReplayed: rowsReplayed,
+		ErrorMsg:     errMsg,
+		Stale:        stale,
+	}
+}
+
+// DrillRunNow POST /admin/backups/drill/run — triggers a manual restore drill.
+// Runs in a goroutine so the HTTP request returns immediately. Concurrent
+// requests are rejected with a 409 to avoid double-runs.
+func (h *AdminHandlers) DrillRunNow(w http.ResponseWriter, r *http.Request) {
+	if h.DrillJob == nil {
+		redirectWithFlash(w, r, "/admin/backups", "", "restore drill not wired")
+		return
+	}
+	drillState.mu.Lock()
+	if drillState.inFlight {
+		drillState.mu.Unlock()
+		redirectWithFlash(w, r, "/admin/backups", "", "drill already in progress")
+		return
+	}
+	drillState.inFlight = true
+	drillState.mu.Unlock()
+
+	sess := middleware.SessionFromContext(r.Context())
+	var uid int64
+	if sess != nil {
+		uid = sess.UserID
+	}
+	audit.Write(r.Context(), h.DB(), h.Logger, r, audit.Entry{
+		UserID: &uid, Action: "backup.drill.run", Entity: "restore_drill_status",
+	})
+
+	go func() {
+		defer func() {
+			drillState.mu.Lock()
+			drillState.inFlight = false
+			drillState.mu.Unlock()
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+		defer cancel()
+		h.DrillJob.RunOnce(ctx)
+	}()
+
+	redirectWithFlash(w, r, "/admin/backups", "restore drill started", "")
 }
 
 // BackupsSaveSchedule POST /admin/backups/schedule.

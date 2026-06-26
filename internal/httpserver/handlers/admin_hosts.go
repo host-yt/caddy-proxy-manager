@@ -1317,9 +1317,11 @@ type hostEditData struct {
 	HasProxySecret     bool
 	ExternalAllowlist  []string
 
-	// Outbound/egress IP. Mode "fixed" binds the upstream connection to OutboundIP.
-	OutboundIPMode string
-	OutboundIP     string
+	// Outbound/egress IP. Mode "fixed"/"random" bind the upstream connection.
+	OutboundIPMode    string
+	OutboundIP        string
+	NodeOutboundIPs   []string // inventory from caddy_nodes.outbound_ips; feeds datalist
+	PlanAllowEgressIP bool     // whether the host's plan permits non-default egress
 }
 
 // tunnelOption is the dropdown entry the host-edit form renders.
@@ -1529,6 +1531,24 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	d.SSOStrictMode = ssoStrictMode
 	d.ClientTunnels = loadClientTunnels(ctx, db, clientID)
+	// Fetch node's outbound IP inventory and plan egress flag for the egress tab.
+	var nodeOutboundIPsJSON sql.NullString
+	var planAllowEgress bool
+	_ = db.QueryRowContext(ctx,
+		`SELECT n.outbound_ips, COALESCE(p.allow_egress_ip,0)
+		   FROM routes r
+		   JOIN caddy_nodes n ON n.id = r.caddy_node_id
+		   JOIN services s ON s.id = r.service_id
+		   JOIN plans p ON p.id = s.plan_id
+		  WHERE r.id = ?`, id,
+	).Scan(&nodeOutboundIPsJSON, &planAllowEgress)
+	d.PlanAllowEgressIP = planAllowEgress
+	if nodeOutboundIPsJSON.Valid && nodeOutboundIPsJSON.String != "" {
+		var ips []string
+		if json.Unmarshal([]byte(nodeOutboundIPsJSON.String), &ips) == nil {
+			d.NodeOutboundIPs = ips
+		}
+	}
 	if headersJSON.Valid && headersJSON.String != "" {
 		var m map[string]string
 		if json.Unmarshal([]byte(headersJSON.String), &m) == nil {
@@ -1686,19 +1706,67 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// Outbound/egress IP. Only proxy routes need it; ignored for redirect/maintenance.
 	outboundIPMode := r.FormValue("outbound_ip_mode")
-	if outboundIPMode != "fixed" {
+	switch outboundIPMode {
+	case "fixed", "random":
+	default:
 		outboundIPMode = "default"
 	}
 	outboundIP := strings.TrimSpace(r.FormValue("outbound_ip"))
+	// Plan gate: check whether the plan allows non-default egress.
+	editPath := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
+	if outboundIPMode != "default" {
+		var planAllowEgress bool
+		_ = h.DB().QueryRowContext(r.Context(),
+			`SELECT COALESCE(p.allow_egress_ip,0)
+			   FROM routes r
+			   JOIN services s ON s.id = r.service_id
+			   JOIN plans p ON p.id = s.plan_id
+			  WHERE r.id = ?`, id,
+		).Scan(&planAllowEgress)
+		if !planAllowEgress {
+			redirectWithFlash(w, r, editPath, "", "egress: plan does not allow custom egress IP")
+			return
+		}
+	}
 	if outboundIPMode == "fixed" && outboundIP == "" {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "egress: IP required when mode is fixed")
+		redirectWithFlash(w, r, editPath, "", "egress: IP required when mode is fixed")
 		return
 	}
 	if outboundIP != "" && net.ParseIP(outboundIP) == nil {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "egress: invalid IP address")
+		redirectWithFlash(w, r, editPath, "", "egress: invalid IP address")
 		return
 	}
-	if outboundIPMode != "fixed" {
+	// Reject fixed IP that is not in the node's inventory (prevents source-IP spoof).
+	// If the inventory is absent/empty, skip the membership check for backward compat.
+	if outboundIPMode == "fixed" && outboundIP != "" {
+		var nodeIPsJSON sql.NullString
+		_ = h.DB().QueryRowContext(r.Context(),
+			`SELECT n.outbound_ips FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id WHERE r.id = ?`, id,
+		).Scan(&nodeIPsJSON)
+		if nodeIPsJSON.Valid && nodeIPsJSON.String != "" && nodeIPsJSON.String != "[]" {
+			var nodeIPs []string
+			if err2 := json.Unmarshal([]byte(nodeIPsJSON.String), &nodeIPs); err2 != nil || len(nodeIPs) == 0 {
+				// Corrupt or empty JSON with non-empty string - treat as non-empty inventory with no match.
+				redirectWithFlash(w, r, editPath, "", "egress: IP not in node's outbound_ips inventory")
+				return
+			}
+			found := false
+			for _, nip := range nodeIPs {
+				if nip == outboundIP {
+					found = true
+					break
+				}
+			}
+			if !found {
+				redirectWithFlash(w, r, editPath, "", "egress: IP not in node's outbound_ips inventory")
+				return
+			}
+		}
+	}
+	// random mode: clear outbound_ip (resolved at build time from node inventory).
+	if outboundIPMode == "random" {
+		outboundIP = ""
+	} else if outboundIPMode != "fixed" {
 		outboundIP = ""
 	}
 

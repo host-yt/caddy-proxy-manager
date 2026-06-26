@@ -570,8 +570,13 @@ func (h *ClientHandlers) TwoFAPage(w http.ResponseWriter, r *http.Request) {
 
 func (h *ClientHandlers) TwoFAStart(w http.ResponseWriter, r *http.Request) {
 	sess := middleware.SessionFromContext(r.Context())
+	db := h.DB()
 	if sess == nil {
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
+	if db == nil {
+		http.Error(w, "service unavailable", http.StatusServiceUnavailable)
 		return
 	}
 	_, secret, qrPNG, err := auth.GenerateTOTP("Hostyt Proxy", sess.Email)
@@ -579,10 +584,27 @@ func (h *ClientHandlers) TwoFAStart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "totp gen failed", http.StatusInternalServerError)
 		return
 	}
+	// Stash secret server-side; never round-trip it through the browser form.
+	// Encrypt at rest to match totp_secret_enc; only the page render holds plaintext.
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	stash := secret
+	if h.State != nil {
+		if enc, eerr := h.State.Encrypt(secret); eerr == nil {
+			stash = enc
+		}
+	}
+	if _, err := db.ExecContext(ctx,
+		"UPDATE users SET totp_pending_secret = ?, totp_pending_exp = DATE_ADD(NOW(), INTERVAL 10 MINUTE), totp_pending_attempts = 0 WHERE id = ?",
+		stash, sess.UserID,
+	); err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
 	d := clientTwofaData{
 		baseAppData: h.base(r, "Set up 2FA"),
 		Enrolling:   true,
-		Secret:      secret,
+		Secret:      secret, // displayed once for manual entry; NOT sent back in form
 		QRBase64:    base64.StdEncoding.EncodeToString(qrPNG),
 	}
 	h.render(w, "twofa", d)
@@ -596,14 +618,51 @@ func (h *ClientHandlers) TwoFAConfirm(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = r.ParseForm()
-	secret := strings.TrimSpace(r.FormValue("secret"))
 	code := strings.TrimSpace(r.FormValue("code"))
+	ctx, cancel := context.WithTimeout(r.Context(), 8_000_000_000)
+	defer cancel()
+	// Read secret from DB stash written by TwoFAStart; never from the form body.
+	var pendingSecret sql.NullString
+	var pendingExp sql.NullTime
+	var attempts int
+	_ = db.QueryRowContext(ctx,
+		"SELECT totp_pending_secret, totp_pending_exp, totp_pending_attempts FROM users WHERE id = ?", sess.UserID,
+	).Scan(&pendingSecret, &pendingExp, &attempts)
+	if !pendingSecret.Valid || pendingSecret.String == "" {
+		redirectWithFlash(w, r, "/app/2fa", "", "setup session expired; restart 2FA setup")
+		return
+	}
+	if !pendingExp.Valid || time.Now().After(pendingExp.Time) {
+		// Expired stash: clear it so a stale secret can never be accepted later.
+		_, _ = db.ExecContext(ctx,
+			"UPDATE users SET totp_pending_secret = NULL, totp_pending_exp = NULL, totp_pending_attempts = 0 WHERE id = ?", sess.UserID)
+		redirectWithFlash(w, r, "/app/2fa", "", "setup session expired; restart 2FA setup")
+		return
+	}
+	// Decrypt stash; fall back to raw for any pre-encryption rows.
+	secret := pendingSecret.String
+	if h.State != nil {
+		if dec, derr := h.State.Decrypt(pendingSecret.String); derr == nil {
+			secret = dec
+		}
+	}
 	if err := auth.ValidateTOTP(secret, code); err != nil {
+		// Keep the stash so the user can retry within the window, but cap guesses.
+		const maxTOTPEnrollAttempts = 5
+		if attempts+1 >= maxTOTPEnrollAttempts {
+			_, _ = db.ExecContext(ctx,
+				"UPDATE users SET totp_pending_secret = NULL, totp_pending_exp = NULL, totp_pending_attempts = 0 WHERE id = ?", sess.UserID)
+			redirectWithFlash(w, r, "/app/2fa", "", "too many attempts; restart 2FA setup")
+			return
+		}
+		_, _ = db.ExecContext(ctx,
+			"UPDATE users SET totp_pending_attempts = totp_pending_attempts + 1 WHERE id = ?", sess.UserID)
 		redirectWithFlash(w, r, "/app/2fa", "", "invalid code; try again")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 8_000_000_000)
-	defer cancel()
+	// Correct code: consume the stash so it cannot be replayed.
+	_, _ = db.ExecContext(ctx,
+		"UPDATE users SET totp_pending_secret = NULL, totp_pending_exp = NULL, totp_pending_attempts = 0 WHERE id = ?", sess.UserID)
 	codes, hashes, err := auth.GenerateRecoveryCodes(8)
 	if err != nil {
 		redirectWithFlash(w, r, "/app/2fa", "", "internal error")
@@ -634,16 +693,19 @@ func (h *ClientHandlers) TwoFAConfirm(w http.ResponseWriter, r *http.Request) {
 			secret, sess.UserID)
 	}
 	if totpErr != nil {
+		redirectWithFlash(w, r, "/app/2fa", "", "internal error")
 		return
 	}
 	_, _ = tx.ExecContext(ctx, "DELETE FROM recovery_codes WHERE user_id = ?", sess.UserID)
 	for _, h := range hashes {
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO recovery_codes (user_id, code_hash) VALUES (?, ?)", sess.UserID, h); err != nil {
+			redirectWithFlash(w, r, "/app/2fa", "", "internal error")
 			return
 		}
 	}
 	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/app/2fa", "", "internal error")
 		return
 	}
 	uid := sess.UserID

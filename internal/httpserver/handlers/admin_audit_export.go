@@ -146,7 +146,7 @@ func (h *AdminHandlers) AuditExport(w http.ResponseWriter, r *http.Request) {
 		if err := rows.Scan(&ts, &actor, &actorType, &action, &entity, &entityID, &ip, &ua, &meta); err != nil {
 			continue
 		}
-		_ = cw.Write([]string{ts, actor, actorType, action, entity, entityID, ip, ua, meta})
+		_ = cw.Write(csvSafeRow([]string{ts, actor, actorType, action, entity, entityID, ip, ua, meta}))
 	}
 	cw.Flush()
 }
