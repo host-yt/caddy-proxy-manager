@@ -1,0 +1,79 @@
+{{define "deployment"}}
+<div class="max-w-4xl space-y-6">
+
+  <!-- Current profile summary -->
+  <div class="hpg-card space-y-3">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <div class="hpg-eyebrow">Current deployment mode</div>
+        <h2 class="text-lg font-semibold text-slate-900 dark:text-white mt-1">{{.CurrentLabel}}</h2>
+        <p class="text-sm text-slate-600 dark:text-slate-400 mt-1">{{.CurrentDescription}}</p>
+      </div>
+      <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-3.5 h-3.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/></svg>
+        Active
+      </span>
+    </div>
+    <dl class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
+      <div><dt class="text-slate-500 dark:text-slate-400">UI mode</dt><dd class="font-medium text-slate-800 dark:text-slate-200">{{.CurrentUIMode}}</dd></div>
+      <div><dt class="text-slate-500 dark:text-slate-400">Tenant mode</dt><dd class="font-medium text-slate-800 dark:text-slate-200">{{.CurrentTenantMode}}</dd></div>
+      <div><dt class="text-slate-500 dark:text-slate-400">RBAC mode</dt><dd class="font-medium text-slate-800 dark:text-slate-200">{{.CurrentRBACMode}}</dd></div>
+      <div><dt class="text-slate-500 dark:text-slate-400">Database</dt><dd class="font-medium text-slate-800 dark:text-slate-200 uppercase">{{.DBDriver}}</dd></div>
+    </dl>
+  </div>
+
+  <!-- SQLite note: only MySQL is selectable today -->
+  {{if not .SQLiteAvailable}}
+  <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3 flex items-start gap-2 text-xs text-amber-800 dark:text-amber-300">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" class="w-4 h-4 shrink-0 mt-0.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>
+    <span>SQLite is not wired yet, so MySQL/MariaDB is the only available database regardless of a profile's recommendation. Lower profiles still recommend SQLite for when it lands.</span>
+  </div>
+  {{end}}
+
+  <!-- Profile cards + switch form -->
+  <form method="POST" action="/admin/deployment" class="space-y-4">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      {{range .Options}}
+      <label class="block rounded-xl ring-1 p-4 transition-colors
+        {{if .Current}}ring-indigo-300 bg-indigo-50/50 dark:ring-indigo-500/40 dark:bg-indigo-500/10{{else}}ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900{{end}}
+        {{if $.CanSwitch}}cursor-pointer hover:ring-indigo-300 dark:hover:ring-indigo-500/40{{end}}">
+        <div class="flex items-start gap-3">
+          {{if $.CanSwitch}}
+          <input type="radio" name="profile" value="{{.Value}}" {{if .Current}}checked{{end}} class="mt-1 accent-indigo-600">
+          {{end}}
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 flex-wrap">
+              <span class="font-semibold text-slate-900 dark:text-white">{{.Label}}</span>
+              {{if .Current}}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">Current</span>{{end}}
+              {{if and (not .Current) .IsUpgrade}}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300">Upgrade</span>{{end}}
+              {{if .IsDowngrade}}<span class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">Downgrade</span>{{end}}
+            </div>
+            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">{{.Description}}</p>
+            <p class="text-[11px] text-slate-500 dark:text-slate-500 mt-2">
+              Recommended DB: <span class="font-medium uppercase">{{.RecommendDB}}</span>{{if .RequireMySQL}} (required){{end}}
+            </p>
+          </div>
+        </div>
+      </label>
+      {{end}}
+    </div>
+
+    {{if .CanSwitch}}
+    <div class="rounded-xl ring-1 ring-slate-200 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900/50 p-4 space-y-3">
+      <label class="flex items-start gap-2 text-xs text-slate-700 dark:text-slate-300 cursor-pointer">
+        <input type="checkbox" name="confirm_downgrade" value="yes" class="mt-0.5 accent-amber-600">
+        <span>I understand that picking a lower (downgrade) profile <strong>hides</strong> its extra modules. No data is deleted - it is only hidden until you switch back.</span>
+      </label>
+      <div class="flex justify-end">
+        <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">Switch deployment mode</button>
+      </div>
+    </div>
+    {{else}}
+    <p class="text-xs text-slate-500 dark:text-slate-400">Read-only view. Only a super admin can change the deployment mode.</p>
+    {{end}}
+  </form>
+
+</div>
+{{end}}

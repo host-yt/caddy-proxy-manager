@@ -19,6 +19,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/deployment"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
@@ -58,6 +59,8 @@ type baseAppData struct {
 	Theme             string
 	ImpersonatorEmail string // non-empty when an admin is viewing as this client
 	Brand             Branding
+	// Features gates client nav items by install profile (e.g. tunnels, api_tokens).
+	Features deployment.Features
 }
 
 func (h *ClientHandlers) base(r *http.Request, title string) baseAppData {
@@ -81,6 +84,11 @@ func (h *ClientHandlers) base(r *http.Request, title string) baseAppData {
 	if msg := r.URL.Query().Get("err"); msg != "" {
 		d.Error = msg
 	}
+	prof := deployment.Default
+	if h.State != nil {
+		prof = deployment.Parse(h.State.Get().Profile)
+	}
+	d.Features = prof.Features()
 	return d
 }
 

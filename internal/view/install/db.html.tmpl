@@ -1,10 +1,44 @@
 {{define "db"}}
 <h2 class="text-xl font-semibold mb-1">Database</h2>
-<p class="text-sm text-slate-500 mb-5">
+<p class="text-sm text-slate-500 dark:text-slate-400 mb-3">
   Local bundled <code>mariadb</code> or any external MariaDB/MySQL. We'll test
   the connection and run migrations.
 </p>
+
+{{if .Form.ProfileName}}
+<div class="mb-4 p-3 rounded-md bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-sm">
+  <span class="font-medium text-slate-700 dark:text-slate-200">Profile:</span>
+  <span class="ml-1 text-slate-600 dark:text-slate-300 capitalize">{{.Form.ProfileName}}</span>
+  <span class="mx-2 text-slate-300 dark:text-slate-600">·</span>
+  <span class="font-medium text-slate-700 dark:text-slate-200">Recommended DB:</span>
+  <span class="ml-1 text-slate-600 dark:text-slate-300">{{.Form.RecommendDB}}</span>
+</div>
+{{end}}
+
+{{if .Form.RequireMySQL}}
+<div class="mb-4 p-3 rounded-md bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 text-sm">
+  Provider mode requires MySQL/MariaDB. SQLite is not available for this profile.
+</div>
+{{end}}
+
+<div class="mb-4">
+  <p class="text-xs font-medium text-slate-700 dark:text-slate-200 mb-2">Driver</p>
+  <div class="space-y-2">
+    <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200 cursor-pointer">
+      <input type="radio" name="db_driver" value="mysql" checked
+             class="accent-indigo-600 cursor-pointer">
+      MySQL / MariaDB
+    </label>
+    <label class="flex items-center gap-2 text-sm text-slate-400 dark:text-slate-500 cursor-not-allowed" title="SQLite support is not yet available">
+      <input type="radio" name="db_driver" value="sqlite" disabled
+             class="cursor-not-allowed">
+      SQLite <span class="ml-1 text-xs italic">(planned - not yet available)</span>
+    </label>
+  </div>
+</div>
+
 <form method="POST" action="/install/db" class="space-y-4">
+  <input type="hidden" name="db_driver" value="mysql">
   <div class="grid grid-cols-3 gap-3">
     <div class="col-span-2">
       <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Host</label>
@@ -40,8 +74,8 @@
     Use TLS to connect (for managed DBs)
   </label>
   <div class="flex justify-end pt-2">
-    <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
-      Test connection & run migrations →
+    <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
+      Test connection &amp; run migrations &rarr;
     </button>
   </div>
 </form>

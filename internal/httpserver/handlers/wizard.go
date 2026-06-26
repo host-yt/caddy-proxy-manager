@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/deployment"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -151,11 +152,14 @@ func (w *Wizard) Index(rw http.ResponseWriter, r *http.Request) {
 	switch step {
 	case installstate.StepWelcome:
 		w.renderR(rw, r, step, w.view(step, struct{}{}, ""))
+	case installstate.StepProfile:
+		w.renderR(rw, r, step, w.view(step, profileViewData(s.Profile), ""))
 	case installstate.StepDB:
 		f := dbForm{Host: "mariadb", Port: 3306, Name: "hostyt_proxy", User: "hostyt"}
 		if s.DB != nil {
 			f = dbForm{Host: s.DB.Host, Port: s.DB.Port, Name: s.DB.Name, User: s.DB.User, TLS: s.DB.TLS}
 		}
+		f = dbFormWithProfile(f, s.Profile)
 		w.renderR(rw, r, step, w.view(step, f, ""))
 	case installstate.StepAdmin:
 		f := adminForm{}
@@ -229,8 +233,78 @@ func (w *Wizard) Start(rw http.ResponseWriter, r *http.Request) {
 		})
 	}
 	s := w.State.Get()
-	s.CurrentStep = installstate.StepDB
+	s.CurrentStep = installstate.StepProfile
 	_ = w.State.Save(&s)
+	w.redirectTo(rw, r, installstate.StepProfile)
+}
+
+// --- POST /install/profile ------------------------------------------------
+
+// profileOption is the template-safe shape of a single deployment.Profile.
+// Methods are not callable from templates, so we flatten here.
+type profileOption struct {
+	Value       string
+	Label       string
+	Description string
+	RecommendDB string // "mysql" or "sqlite"
+}
+
+// profileForm carries the rendered options and the currently selected value.
+type profileForm struct {
+	Options  []profileOption
+	Selected string
+}
+
+// dbFormWithProfile attaches profile-derived DB recommendation to a dbForm.
+func dbFormWithProfile(f dbForm, profName string) dbForm {
+	p := deployment.Parse(profName)
+	db := p.DB()
+	f.ProfileName = string(p)
+	f.RecommendDB = db.Recommended
+	f.RequireMySQL = db.RequireMySQL
+	return f
+}
+
+// profileViewData builds the profile form from the current saved value.
+func profileViewData(saved string) profileForm {
+	profiles := deployment.All()
+	opts := make([]profileOption, len(profiles))
+	for i, p := range profiles {
+		opts[i] = profileOption{
+			Value:       string(p),
+			Label:       p.Label(),
+			Description: p.Description(),
+			RecommendDB: p.DB().Recommended,
+		}
+	}
+	sel := saved
+	if sel == "" {
+		sel = string(deployment.Default)
+	}
+	return profileForm{Options: opts, Selected: sel}
+}
+
+func (w *Wizard) ProfileSubmit(rw http.ResponseWriter, r *http.Request) {
+	if w.State.IsInstalled() {
+		http.NotFound(rw, r)
+		return
+	}
+	_ = r.ParseForm()
+	raw := strings.TrimSpace(r.FormValue("profile"))
+	p := deployment.Profile(raw)
+	if !p.Valid() {
+		w.renderR(rw, r, installstate.StepProfile, w.view(installstate.StepProfile,
+			profileViewData(raw), "Please select a valid deployment profile."))
+		return
+	}
+	s := w.State.Get()
+	s.Profile = string(p)
+	s.CurrentStep = installstate.StepDB
+	if err := w.State.Save(&s); err != nil {
+		w.renderR(rw, r, installstate.StepProfile, w.view(installstate.StepProfile,
+			profileViewData(raw), "Save failed."))
+		return
+	}
 	w.redirectTo(rw, r, installstate.StepDB)
 }
 
@@ -243,6 +317,10 @@ type dbForm struct {
 	User     string
 	Password string
 	TLS      bool
+	// Profile context surfaced to the template for recommendation display.
+	ProfileName  string
+	RecommendDB  string // sqlite|either|mysql
+	RequireMySQL bool
 }
 
 func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
@@ -252,6 +330,7 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 	}
 	_ = r.ParseForm()
 	port, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("port")))
+	st := w.State.Get()
 	form := dbForm{
 		Host:     strings.TrimSpace(r.FormValue("host")),
 		Port:     port,
@@ -260,6 +339,19 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 		Password: r.FormValue("password"),
 		TLS:      r.FormValue("tls") == "1",
 	}
+	form = dbFormWithProfile(form, st.Profile)
+
+	// Defensive: provider profile hard-requires MySQL; SQLite is not wired anyway.
+	driver := r.FormValue("db_driver")
+	if driver == "" {
+		driver = "mysql"
+	}
+	if driver != "mysql" && form.RequireMySQL {
+		w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form,
+			"Provider mode requires MySQL/MariaDB. SQLite is not available for this profile."))
+		return
+	}
+
 	if form.Host == "" || form.Port == 0 || form.Name == "" || form.User == "" || form.Password == "" {
 		w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "All fields are required."))
 		return
@@ -308,6 +400,7 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 
 	s := w.State.Get()
 	s.DB = &dbState
+	s.DBDriver = driver // persist driver seam; always "mysql" for now
 
 	// DR/migration: if the target DB already holds a finished installation
 	// (>=1 admin), hydrate state from it instead of forcing wizard re-entry.
@@ -664,9 +757,16 @@ func (w *Wizard) CaddySubmit(rw http.ResponseWriter, r *http.Request) {
 		Name: form.Name, APIURL: form.APIURL,
 		PublicHostname: form.PublicHostname, PublicIP: form.PublicIP,
 	}
+	// Stamp completion metadata so later migrations can detect upgrade paths.
+	if s.DBDriver == "" {
+		s.DBDriver = "mysql"
+	}
+	s.SetupVersion = deployment.SetupVersion
+	s.SetupCompletedAt = time.Now().UTC().Format(time.RFC3339)
 	s.Installed = true
 	s.CurrentStep = installstate.StepDone
 	_ = w.State.Save(&s)
+
 	w.clearInstallTokenCookie(rw, r)
 	w.Logger.Info("install: complete", "admin_email", maskEmail(s.Admin.Email))
 	w.redirectTo(rw, r, installstate.StepDone)
