@@ -41,6 +41,7 @@
     <button type="button" data-tab="headers" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Headers</button>
     <button type="button" data-tab="custom"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Custom JSON</button>
     <button type="button" data-tab="egress"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Egress IP</button>
+    <button type="button" data-tab="dns"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">DNS</button>
   </nav>
 
   <form method="POST" action="/admin/hosts/{{.RouteID}}/edit" class="space-y-4 text-sm" id="hpg-edit-form">
@@ -551,6 +552,22 @@ X-Authentik-Meta-Version</pre>
           <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Max fails</span><input type="number" name="health_max_fails" value="{{.HealthMaxFails}}" min="1" max="10" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
         </div>
       </div>
+      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
+        <p class="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">Retry behavior (requires a load-balancing policy)</p>
+        <div class="grid grid-cols-2 gap-3 text-sm">
+          <label class="block">
+            <span class="block text-[11px] text-slate-500 mb-1">Try duration (ms)</span>
+            <input type="number" name="lb_try_duration_ms" value="{{.LBTryDurationMs}}" min="100" max="300000" placeholder="5000"
+              class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+          </label>
+          <label class="block">
+            <span class="block text-[11px] text-slate-500 mb-1">Retry interval (ms)</span>
+            <input type="number" name="lb_try_interval_ms" value="{{.LBTryIntervalMs}}" min="0" max="60000" placeholder="250"
+              class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+          </label>
+        </div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Total time Caddy may spend retrying a request across backends, and delay between each attempt. Defaults: 5000 ms / 250 ms.</p>
+      </div>
     </section>
 
     <!-- Rate limit -->
@@ -656,6 +673,42 @@ X-Authentik-Meta-Version</pre>
           class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
         {{end}}
         <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Must be a bare IPv4 or IPv6 address present on the node NIC. Caddy will reject /load if the address is missing. Not compatible with connection pool reuse across routes that share an upstream.</p>
+      </div>
+    </section>
+
+    <!-- DNS controls -->
+    <section data-pane="dns" class="hpg-pane hidden hpg-card space-y-4">
+      <div>
+        <h4 class="hpg-eyebrow mb-1">DNS resolver controls</h4>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">Override how Caddy resolves the upstream hostname. Useful when the backend is only resolvable via a private DNS server (e.g. a WireGuard-connected node running dnsmasq) or when you need to force IPv4-only or IPv6-only lookups. Only applies when the upstream is a hostname, not a bare IP.</p>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Custom resolver IP</label>
+        <input type="text" name="dns_resolver_ip" value="{{.DNSResolverIP}}" placeholder="10.8.0.1 or 2001:db8::1"
+          class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Direct resolver IP (port 53). When set, the WG peer resolver below is ignored. Leave blank to use OS default.</p>
+      </div>
+
+      {{if .ClientTunnels}}
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Resolver via WG peer</label>
+        <select name="dns_resolver_via_wg_peer_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <option value="">None (use resolver IP above or OS default)</option>
+          {{range .ClientTunnels}}<option value="{{.ID}}" {{if eq .ID $.DNSResolverViaWGID}}selected{{end}}>WG tunnel #{{.ID}} - {{.Name}} ({{.AssignedIP}})</option>{{end}}
+        </select>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Pick a tunnel peer that runs a DNS server on its assigned IP:53. Ignored when a direct resolver IP is set above.</p>
+      </div>
+      {{end}}
+
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Address family</label>
+        <select name="dns_address_family" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <option value="any"  {{if or (eq .DNSAddressFamily "") (eq .DNSAddressFamily "any")}}selected{{end}}>Any (A records / IPv4)</option>
+          <option value="ipv4" {{if eq .DNSAddressFamily "ipv4"}}selected{{end}}>IPv4 only (A records)</option>
+          <option value="ipv6" {{if eq .DNSAddressFamily "ipv6"}}selected{{end}}>IPv6 only (AAAA records)</option>
+        </select>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Forces the resolver lookup type. Only takes effect when a custom resolver (IP or WG peer) is configured above.</p>
       </div>
     </section>
 

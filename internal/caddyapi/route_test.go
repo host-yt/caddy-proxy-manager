@@ -138,6 +138,29 @@ func TestBuildRouteLoadBalancing(t *testing.T) {
 	if s := mustJSON(base); strings.Contains(s, "load_balancing") {
 		t.Errorf("no policy must omit load_balancing\nfull: %s", s)
 	}
+	// Configurable retry timing: whole-second value collapses to "Xs" form.
+	custom := base
+	custom.LBPolicy = "round_robin"
+	custom.LBTryDurationMs = 10000 // 10s
+	custom.LBTryIntervalMs = 500   // 500ms (sub-second, stays "ms")
+	cs := mustJSON(custom)
+	if !strings.Contains(cs, `"try_duration":"10s"`) {
+		t.Errorf("custom try_duration 10000ms must emit 10s\nfull: %s", cs)
+	}
+	if !strings.Contains(cs, `"try_interval":"500ms"`) {
+		t.Errorf("custom try_interval 500ms must emit 500ms\nfull: %s", cs)
+	}
+	// LBTryIntervalMs=0 must emit "0s" (no delay), not the 250ms fallback.
+	zero := base
+	zero.LBPolicy = "round_robin"
+	zero.LBTryIntervalMs = 0
+	zs := mustJSON(zero)
+	if !strings.Contains(zs, `"try_interval":"0s"`) {
+		t.Errorf("LBTryIntervalMs=0 must emit try_interval:0s\nfull: %s", zs)
+	}
+	if strings.Contains(zs, `"try_interval":"250ms"`) {
+		t.Errorf("LBTryIntervalMs=0 must not fall back to 250ms\nfull: %s", zs)
+	}
 }
 
 func TestBuildRouteHealthChecks(t *testing.T) {
@@ -185,6 +208,28 @@ func TestBuildRouteLBCompositionGuards(t *testing.T) {
 	s = mustJSON(wg)
 	if !strings.Contains(s, "dynamic_upstreams") || strings.Contains(s, `"10.0.0.6:8080"`) || strings.Contains(s, "load_balancing") {
 		t.Errorf("WG resolver route must keep dynamic_upstreams only\nfull: %s", s)
+	}
+}
+
+// TestBuildRouteDNSResolverAddr verifies the per-host DNS resolver address is
+// host:port valid for both IPv4 and IPv6 literals (IPv6 must be bracketed).
+func TestBuildRouteDNSResolverAddr(t *testing.T) {
+	// IPv4 resolver, hostname upstream -> dynamic_upstreams with "ip:53".
+	v4 := Route{ID: "20", Hosts: []string{"v4.example.com"}, UpstreamIP: "backend.internal",
+		UpstreamPort: 8080, DNSResolverIP: "10.9.0.1"}
+	s := mustJSON(v4)
+	if !strings.Contains(s, "dynamic_upstreams") || !strings.Contains(s, `"10.9.0.1:53"`) {
+		t.Errorf("ipv4 resolver must emit dynamic_upstreams with 10.9.0.1:53\nfull: %s", s)
+	}
+	// IPv6 resolver must be bracketed - "[2001:db8::1]:53", never "2001:db8::1:53".
+	v6 := Route{ID: "21", Hosts: []string{"v6.example.com"}, UpstreamIP: "backend.internal",
+		UpstreamPort: 8080, DNSResolverIP: "2001:db8::1"}
+	s = mustJSON(v6)
+	if !strings.Contains(s, `"[2001:db8::1]:53"`) {
+		t.Errorf("ipv6 resolver must be bracketed [2001:db8::1]:53\nfull: %s", s)
+	}
+	if strings.Contains(s, `"2001:db8::1:53"`) {
+		t.Errorf("ipv6 resolver must not emit unbracketed ip:port\nfull: %s", s)
 	}
 }
 

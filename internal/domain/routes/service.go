@@ -1682,13 +1682,16 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.health_active_uri,''), COALESCE(r.health_active_interval,10), COALESCE(r.health_active_timeout,5),
 	        COALESCE(r.health_active_status,0), COALESCE(r.health_active_fails,3),
 	        COALESCE(r.health_passive_enabled,0), COALESCE(r.health_passive_fail_dur,30), COALESCE(r.health_passive_max_fail,3),
+	        COALESCE(r.lb_try_duration_ms,5000), COALESCE(r.lb_try_interval_ms,250),
 	        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,''),
 	        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
 	        COALESCE(r.geo_mode,'off'), COALESCE(r.geo_countries,''),
 	        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
 	        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
 	        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
-	        COALESCE(pl.allow_egress_ip, 0)
+	        COALESCE(pl.allow_egress_ip, 0),
+	        COALESCE(r.dns_resolver_ip,''), COALESCE(dns_peer.assigned_ip,''),
+	        COALESCE(r.dns_address_family,'any')
 		 FROM routes r
 		 JOIN services sv ON sv.id = r.service_id
 		 LEFT JOIN plans pl ON pl.id = sv.plan_id
@@ -1706,6 +1709,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		 LEFT JOIN customer_wg_peer sso_peer
 		   ON sso_peer.id = r.sso_via_wg_peer_id
 		      AND sso_peer.status <> 'revoked'
+		 LEFT JOIN customer_wg_peer dns_peer
+		   ON dns_peer.id = r.dns_resolver_via_wg_peer_id
+		      AND dns_peer.status <> 'revoked'
 		 WHERE r.caddy_node_id = ? AND r.status IN ('dns_ok','active','pending_ssl')
 		 ORDER BY r.id ASC`, nodeID)
 	if err != nil {
@@ -1757,6 +1763,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var hActiveInterval, hActiveTimeout, hActiveStatus, hActiveFails int
 		var hPassiveEnabled bool
 		var hPassiveFailDur, hPassiveMaxFail int
+		var lbTryDurationMs, lbTryIntervalMs int
 		var rateEnabled bool
 		var rateWindow, rateKey string
 		var rateMaxEvents int
@@ -1767,6 +1774,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var errHTML, errLogo, errBrand, errBg string
 		var outboundIPMode, outboundIP string
 		var planAllowEgress bool
+		var dnsResolverIP, dnsResolverPeerIP, dnsAddressFamily string
 		if err := rows.Scan(&id, &domain, &aliases, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
 			&tunnelResolverIP,
 			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &headersJSON,
@@ -1783,11 +1791,13 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&lbPolicy,
 			&hActiveURI, &hActiveInterval, &hActiveTimeout, &hActiveStatus, &hActiveFails,
 			&hPassiveEnabled, &hPassiveFailDur, &hPassiveMaxFail,
+			&lbTryDurationMs, &lbTryIntervalMs,
 			&rateEnabled, &rateWindow, &rateMaxEvents, &rateKey,
 			&wafEnabled, &wafBlocking, &wafDirectives,
 			&geoMode, &geoCountries,
 			&errOverride, &errHTML, &errLogo, &errBrand, &errBg,
-			&outboundIPMode, &outboundIP, &planAllowEgress); err != nil {
+			&outboundIPMode, &outboundIP, &planAllowEgress,
+			&dnsResolverIP, &dnsResolverPeerIP, &dnsAddressFamily); err != nil {
 			return nil, nil, err
 		}
 		// Re-check plan entitlement at build time so revoking the flag takes effect immediately.
@@ -1952,6 +1962,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			CompressDisabled:       compressDisabled,
 			LBPolicy:               lbPolicy,
 			WeightedLBAvailable:    s.WeightedLBAvailable,
+			LBTryDurationMs:        lbTryDurationMs,
+			LBTryIntervalMs:        lbTryIntervalMs,
 			HealthURI:              hActiveURI,
 			HealthIntervalSecs:     hActiveInterval,
 			HealthTimeoutSecs:      hActiveTimeout,
@@ -1981,6 +1993,10 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 
 			OutboundIPMode: outboundIPMode,
 			OutboundIP:     outboundIP,
+
+			DNSResolverIP:          dnsResolverIP,
+			DNSResolverViaWGPeerIP: dnsResolverPeerIP,
+			DNSAddressFamily:       dnsAddressFamily,
 		})
 		ids = append(ids, id)
 	}
