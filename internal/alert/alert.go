@@ -9,9 +9,9 @@ import (
 	"database/sql"
 	"log/slog"
 
-	"github.com/hostyt/proxy-gateway/internal/mail"
-	"github.com/hostyt/proxy-gateway/internal/sms"
-	"github.com/hostyt/proxy-gateway/internal/webhook"
+	"github.com/host-yt/caddy-proxy-manager/internal/mail"
+	"github.com/host-yt/caddy-proxy-manager/internal/sms"
+	"github.com/host-yt/caddy-proxy-manager/internal/webhook"
 )
 
 // Severity is the alert urgency, mirroring the alert_log ENUM.

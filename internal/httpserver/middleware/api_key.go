@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 )
 
 type apiKeyCtxKey int

@@ -17,10 +17,10 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/auth"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
-	"github.com/hostyt/proxy-gateway/internal/obs"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/obs"
 )
 
 // PasskeyHandlers groups WebAuthn enrollment + login. WA is nil-safe: when

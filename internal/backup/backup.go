@@ -27,7 +27,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 )
 
 // Service orchestrates building + uploading backups. Single instance per app.

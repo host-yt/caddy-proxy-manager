@@ -18,8 +18,8 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/hostyt/proxy-gateway/internal/backup"
-	"github.com/hostyt/proxy-gateway/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/backup"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 )
 
 const drillDefaultInterval = 72 * time.Hour

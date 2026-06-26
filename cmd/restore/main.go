@@ -30,7 +30,7 @@ import (
 
 	"golang.org/x/crypto/hkdf"
 
-	"github.com/hostyt/proxy-gateway/internal/backup"
+	"github.com/host-yt/caddy-proxy-manager/internal/backup"
 )
 
 func main() {

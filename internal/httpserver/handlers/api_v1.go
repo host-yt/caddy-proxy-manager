@@ -14,9 +14,9 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/domain/routes"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 // APIHandlers groups all /api/v1 endpoints. They share APIKeyAuth middleware.

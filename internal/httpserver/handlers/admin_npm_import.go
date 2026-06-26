@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/domain/routes"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 // npmBackup is the minimal shape we parse from an NPM JSON export.

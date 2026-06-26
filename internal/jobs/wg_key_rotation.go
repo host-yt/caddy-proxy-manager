@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/wireguard"
+	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
 
 // WGKeyRotationJob rotates WireGuard peer keys that have exceeded their

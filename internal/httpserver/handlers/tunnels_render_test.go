@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/hostyt/proxy-gateway/internal/view"
+	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
 func TestAdminTunnelsRenderWithNewTunnel(t *testing.T) {

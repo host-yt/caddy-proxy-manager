@@ -6,8 +6,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/hostyt/proxy-gateway/internal/mail"
-	"github.com/hostyt/proxy-gateway/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/mail"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // otpLogoURL is the default Hostyt logo used in OTP emails. Overridden by

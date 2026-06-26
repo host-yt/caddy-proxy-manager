@@ -10,8 +10,8 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/hostyt/proxy-gateway/internal/obs"
-	"github.com/hostyt/proxy-gateway/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/obs"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // AskHandler implements Caddy On-Demand TLS authorization.

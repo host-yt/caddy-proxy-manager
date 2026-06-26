@@ -17,16 +17,16 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/auth"
-	"github.com/hostyt/proxy-gateway/internal/domain/routes"
-	"github.com/hostyt/proxy-gateway/internal/domain/wgpeer"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
-	"github.com/hostyt/proxy-gateway/internal/i18n"
-	"github.com/hostyt/proxy-gateway/internal/installstate"
-	"github.com/hostyt/proxy-gateway/internal/mail"
-	"github.com/hostyt/proxy-gateway/internal/security"
-	"github.com/hostyt/proxy-gateway/internal/view"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/mail"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
 type ClientHandlers struct {

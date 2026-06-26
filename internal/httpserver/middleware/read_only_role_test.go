@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/hostyt/proxy-gateway/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 )
 
 func TestReadOnlyRoleAllowList(t *testing.T) {

@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/wireguard"
+	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
 
 // wgWstunnelClientPort is the local UDP port wstunnel client listens on

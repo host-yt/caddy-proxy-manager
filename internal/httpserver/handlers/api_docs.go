@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	mw "github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
+	mw "github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 //go:embed openapi.json

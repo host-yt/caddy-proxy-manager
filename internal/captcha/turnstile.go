@@ -18,7 +18,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/hostyt/proxy-gateway/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 )
 
 const turnstileVerifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"

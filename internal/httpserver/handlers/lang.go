@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/hostyt/proxy-gateway/internal/i18n"
+	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
 )
 
 // LangSwitch sets the language cookie and redirects to the referer (or /).

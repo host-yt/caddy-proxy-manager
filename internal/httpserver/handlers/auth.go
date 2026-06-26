@@ -26,18 +26,18 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
-	"github.com/hostyt/proxy-gateway/internal/audit"
-	"github.com/hostyt/proxy-gateway/internal/auth"
-	"github.com/hostyt/proxy-gateway/internal/captcha"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
-	"github.com/hostyt/proxy-gateway/internal/i18n"
-	"github.com/hostyt/proxy-gateway/internal/installstate"
-	"github.com/hostyt/proxy-gateway/internal/mail"
-	"github.com/hostyt/proxy-gateway/internal/obs"
-	hpgoidc "github.com/hostyt/proxy-gateway/internal/oidc"
-	"github.com/hostyt/proxy-gateway/internal/security"
-	"github.com/hostyt/proxy-gateway/internal/sms"
-	"github.com/hostyt/proxy-gateway/internal/view"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/captcha"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/mail"
+	"github.com/host-yt/caddy-proxy-manager/internal/obs"
+	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/sms"
+	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
 // Brute-force lockout window. Per-(email,IP) bucket caps in this window;

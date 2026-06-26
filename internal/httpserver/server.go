@@ -13,13 +13,13 @@ import (
 	chimw "github.com/go-chi/chi/v5/middleware"
 	"github.com/redis/go-redis/v9"
 
-	"github.com/hostyt/proxy-gateway/internal/accesslog"
-	"github.com/hostyt/proxy-gateway/internal/auth"
-	"github.com/hostyt/proxy-gateway/internal/config"
-	"github.com/hostyt/proxy-gateway/internal/httpserver/handlers"
-	mw "github.com/hostyt/proxy-gateway/internal/httpserver/middleware"
-	"github.com/hostyt/proxy-gateway/internal/installstate"
-	"github.com/hostyt/proxy-gateway/internal/obs"
+	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/config"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/handlers"
+	mw "github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/obs"
 )
 
 type Deps struct {

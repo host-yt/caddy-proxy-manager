@@ -1,6 +1,6 @@
 package handlers
 
-import "github.com/hostyt/proxy-gateway/internal/installstate"
+import "github.com/host-yt/caddy-proxy-manager/internal/installstate"
 
 func appURLFromInstallState(state *installstate.Manager) string {
 	if state == nil {
