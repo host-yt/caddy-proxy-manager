@@ -107,10 +107,13 @@ func (s *Service) LoadConfig(ctx context.Context, provider string) (Config, erro
 		c.DefaultRole = defaultRol
 	}
 	if secret.Valid && secret.String != "" {
-		if isEnc && s.State != nil {
-			// Fail closed: a secret we cannot decrypt must NOT silently become
-			// an empty secret that then sails through to a public-client token
-			// exchange. Surface the error so the caller aborts.
+		if isEnc {
+			// Fail closed: never forward an undecryptable ciphertext as the
+			// secret. Without a crypto manager we cannot decrypt, so abort
+			// rather than sail a blob through to the token exchange.
+			if s.State == nil {
+				return c, fmt.Errorf("%s client_secret is encrypted but no crypto manager available", provider)
+			}
 			pt, derr := s.State.Decrypt(secret.String)
 			if derr != nil {
 				return c, fmt.Errorf("decrypt %s client_secret: %w", provider, derr)

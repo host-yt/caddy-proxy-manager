@@ -391,6 +391,11 @@ func signClientCert(caCert *x509.Certificate, caKey *ecdsa.PrivateKey, subject s
 	}
 	now := time.Now()
 	notAfter = now.Add(validity)
+	// PKI invariant: a leaf must not outlive its issuer. Clamp to the CA's
+	// NotAfter so a short-lived CA cannot mint longer-lived client certs.
+	if notAfter.After(caCert.NotAfter) {
+		notAfter = caCert.NotAfter
+	}
 	tmpl := &x509.Certificate{
 		SerialNumber: serial,
 		Subject:      pkix.Name{CommonName: subject},
