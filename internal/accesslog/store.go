@@ -33,6 +33,16 @@ type Store struct {
 // New returns a Store backed by db.
 func New(db func() *sql.DB) *Store { return &Store{db: db} }
 
+// RollupBucket is one hourly aggregate row from log_rollups.
+type RollupBucket struct {
+	BucketStart  time.Time
+	Requests     int64
+	Errors4xx    int64
+	Errors5xx    int64
+	LatencySumMs int64
+	LatencyMaxMs int64
+}
+
 // Insert appends one entry and trims older rows beyond maxPerHost.
 // The insert and the prune run in separate statements so a transient prune
 // failure never silently discards the new log entry.
@@ -62,7 +72,72 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 		   )`,
 		e.RouteID, e.RouteID, maxPerHost,
 	)
+	// Best-effort rollup upsert into the hourly bucket; survives the prune above.
+	var e4xx, e5xx int
+	if e.Status >= 400 && e.Status <= 499 {
+		e4xx = 1
+	} else if e.Status >= 500 {
+		e5xx = 1
+	}
+	bucket := e.TS.UTC().Truncate(time.Hour)
+	_, _ = db.ExecContext(ctx,
+		`INSERT INTO log_rollups
+		     (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms)
+		 VALUES (?,?,1,?,?,?,?)
+		 ON DUPLICATE KEY UPDATE
+		     requests=requests+1,
+		     errors_4xx=errors_4xx+VALUES(errors_4xx),
+		     errors_5xx=errors_5xx+VALUES(errors_5xx),
+		     latency_sum_ms=latency_sum_ms+VALUES(latency_sum_ms),
+		     latency_max_ms=GREATEST(latency_max_ms,VALUES(latency_max_ms))`,
+		e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS,
+	)
 	return nil
+}
+
+// RollupSeries returns hourly buckets in [from,to] for one route, ascending.
+func (s *Store) RollupSeries(ctx context.Context, routeID int64, from, to time.Time) ([]RollupBucket, error) {
+	db := s.db()
+	if db == nil {
+		return nil, nil
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms
+		 FROM log_rollups
+		 WHERE route_id=? AND bucket_start>=? AND bucket_start<=?
+		 ORDER BY bucket_start ASC`,
+		routeID, from.UTC(), to.UTC(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []RollupBucket
+	for rows.Next() {
+		var b RollupBucket
+		if err := rows.Scan(&b.BucketStart, &b.Requests, &b.Errors4xx, &b.Errors5xx, &b.LatencySumMs, &b.LatencyMaxMs); err == nil {
+			out = append(out, b)
+		}
+	}
+	return out, rows.Err()
+}
+
+// RollupSummary aggregates all buckets >= since for one route.
+// Avg latency = LatencySumMs/Requests (caller computes).
+func (s *Store) RollupSummary(ctx context.Context, routeID int64, since time.Time) (RollupBucket, error) {
+	db := s.db()
+	if db == nil {
+		return RollupBucket{}, nil
+	}
+	var b RollupBucket
+	err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(requests),0),COALESCE(SUM(errors_4xx),0),COALESCE(SUM(errors_5xx),0),
+		        COALESCE(SUM(latency_sum_ms),0),COALESCE(MAX(latency_max_ms),0)
+		 FROM log_rollups
+		 WHERE route_id=? AND bucket_start>=?`,
+		routeID, since.UTC(),
+	).Scan(&b.Requests, &b.Errors4xx, &b.Errors5xx, &b.LatencySumMs, &b.LatencyMaxMs)
+	return b, err
 }
 
 // Recent returns the last n entries for a route, newest first.
