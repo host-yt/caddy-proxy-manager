@@ -1427,11 +1427,9 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// login method but can never actually authenticate (it would only match by
 	// email, which a linked second provider need not share).
 	var (
-		userID      int64
-		role        string
-		isActive    bool
-		dbOIDCSubj  sql.NullString
-		dbOIDCIssue sql.NullString
+		userID   int64
+		role     string
+		isActive bool
 	)
 	var linkedUID int64
 	linkLookupErr := db.QueryRowContext(ctx,
@@ -1454,17 +1452,13 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if linkLookupErr == nil && linkedUID > 0 {
 		// Resolve the owning user by id, not email.
 		queryErr = db.QueryRowContext(ctx,
-			"SELECT id, role, is_active, oidc_subject, oidc_issuer FROM users WHERE id = ? LIMIT 1", linkedUID,
-		).Scan(&userID, &role, &isActive, &dbOIDCSubj, &dbOIDCIssue)
+			"SELECT id, role, is_active FROM users WHERE id = ? LIMIT 1", linkedUID,
+		).Scan(&userID, &role, &isActive)
 	} else {
-		// No linked identity. Fall back to email lookup. Includes oidc_subject /
-		// oidc_issuer so we can refuse to attach an existing local row whose
-		// previously-linked IdP identity DIFFERS from this callback - email
-		// alone is a takeover vector when the panel trusts multiple IdPs or
-		// any IdP that lets users self-set the email claim.
+		// No linked identity. Fall back to email lookup.
 		queryErr = db.QueryRowContext(ctx,
-			"SELECT id, role, is_active, oidc_subject, oidc_issuer FROM users WHERE email = ? LIMIT 1", email,
-		).Scan(&userID, &role, &isActive, &dbOIDCSubj, &dbOIDCIssue)
+			"SELECT id, role, is_active FROM users WHERE email = ? LIMIT 1", email,
+		).Scan(&userID, &role, &isActive)
 	}
 	if errors.Is(queryErr, sql.ErrNoRows) {
 		if !cfg.AutoProvision {
@@ -1489,9 +1483,9 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 			full = email
 		}
 		res, ierr := db.ExecContext(ctx,
-			`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active, oidc_subject, oidc_issuer)
-			 VALUES (?, ?, 0, ?, ?, 1, ?, ?)`,
-			email, dummy, role, full, info.Subject, info.Issuer)
+			`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active)
+			 VALUES (?, ?, 0, ?, ?, 1)`,
+			email, dummy, role, full)
 		if ierr != nil {
 			h.Logger.Error("oidc auto-provision", "err", ierr)
 			http.Redirect(w, r, "/auth/login?flash=Provisioning+failed", http.StatusSeeOther)
@@ -1509,59 +1503,33 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
 	} else if linkedUID > 0 {
-		// User was resolved via an authoritative oauth_identities row
-		// (provider+issuer+subject exact match). The legacy users.oidc_subject
-		// guard below would false-positive when this is a SECOND linked provider
-		// whose subject differs from the first, so skip it - the identity table
-		// is the source of truth here.
+		// User resolved via authoritative oauth_identities row - no further checks needed.
 	} else {
-		// Existing local user. If already linked to OIDC, both subject AND
-		// issuer must match this callback - refuse takeover from a second
-		// IdP or a same-IdP subject change.
-		if dbOIDCSubj.Valid && dbOIDCSubj.String != "" {
-			if dbOIDCSubj.String != info.Subject || dbOIDCIssue.String != info.Issuer {
+		// Email-based lookup; this subject+issuer is not yet in oauth_identities.
+		// Reject if this user already has a DIFFERENT oidc identity linked -
+		// prevents email-claim takeover from a second IdP.
+		var existingSubj, existingIss sql.NullString
+		idErr := db.QueryRowContext(ctx,
+			`SELECT subject, issuer FROM oauth_identities WHERE user_id = ? AND provider = 'oidc' LIMIT 1`,
+			userID,
+		).Scan(&existingSubj, &existingIss)
+		if idErr != nil && !errors.Is(idErr, sql.ErrNoRows) {
+			h.Logger.Error("oidc identity check", "err", idErr, "user_id", userID)
+			http.Error(w, "server error", http.StatusInternalServerError)
+			return
+		}
+		if idErr == nil && existingSubj.Valid && existingSubj.String != "" {
+			// User has a different OIDC identity - deny to prevent takeover.
+			if existingSubj.String != info.Subject || existingIss.String != info.Issuer {
 				audit.Write(ctx, db, h.Logger, r, audit.Entry{
 					UserID: &userID, Action: "oidc.login.denied", Entity: "auth", EntityID: email,
-					Meta: map[string]any{"reason": "subject_issuer_mismatch", "expected_issuer": dbOIDCIssue.String, "got_issuer": info.Issuer},
+					Meta: map[string]any{"reason": "subject_issuer_mismatch", "expected_issuer": existingIss.String, "got_issuer": info.Issuer},
 				})
 				http.Redirect(w, r, "/auth/login?flash=OIDC+identity+does+not+match+the+account+previously+linked", http.StatusSeeOther)
 				return
 			}
-		} else {
-			// First-time OIDC sign-in: link now under an IS NULL guard so two
-			// concurrent callbacks from different IdPs cannot both claim the same
-			// local user. The guard is atomic, but its result MUST be checked: a
-			// loser (0 rows) would otherwise still fall through to SaveIdentity,
-			// persist its subject in oauth_identities, and become an enduring
-			// login path that bypasses this legacy guard. On a loss, re-read the
-			// committed link and deny unless it is the exact same identity.
-			res, uerr := db.ExecContext(ctx,
-				"UPDATE users SET oidc_subject = ?, oidc_issuer = ? WHERE id = ? AND (oidc_subject IS NULL OR oidc_subject = '')",
-				info.Subject, info.Issuer, userID)
-			if uerr != nil {
-				h.Logger.Error("oidc first-link update", "err", uerr, "user_id", userID)
-				http.Error(w, "server error", http.StatusInternalServerError)
-				return
-			}
-			if n, _ := res.RowsAffected(); n == 0 {
-				var curSubj, curIss sql.NullString
-				if rerr := db.QueryRowContext(ctx,
-					"SELECT oidc_subject, oidc_issuer FROM users WHERE id = ?", userID,
-				).Scan(&curSubj, &curIss); rerr != nil {
-					h.Logger.Error("oidc first-link reread", "err", rerr, "user_id", userID)
-					http.Error(w, "server error", http.StatusInternalServerError)
-					return
-				}
-				if curSubj.String != info.Subject || curIss.String != info.Issuer {
-					audit.Write(ctx, db, h.Logger, r, audit.Entry{
-						UserID: &userID, Action: "oidc.login.denied", Entity: "auth", EntityID: email,
-						Meta: map[string]any{"reason": "first_link_race", "issuer": info.Issuer},
-					})
-					http.Redirect(w, r, "/auth/login?flash=OIDC+identity+does+not+match+the+account+previously+linked", http.StatusSeeOther)
-					return
-				}
-			}
 		}
+		// First-time link: SaveIdentity below will atomically claim via unique constraint.
 	}
 
 	if !isActive {
