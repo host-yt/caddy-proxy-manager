@@ -190,6 +190,18 @@ type Route struct {
 	// local_addr to OutboundIP so the connection leaves via a specific NIC IP.
 	OutboundIPMode string
 	OutboundIP     string // bare IP present on the node NIC
+
+	// Built-in forward-auth portal. PortalProtect gates the route through the
+	// panel's own verifier (a self-hosted alternative to external SSO). The
+	// verify subrequest + login UI are dialed at PortalDial (the panel, same
+	// host:port the self-bootstrap route uses). PortalTLS selects https on
+	// that dial. Empty PortalDial disables the gate even when PortalProtect
+	// is set (fail closed: no reachable verifier => skip emission, route is
+	// NOT silently left open - see BuildRoute).
+	PortalProtect bool
+	PortalDial    string // panel host:port reachable from the node
+	PortalTLS     bool   // dial the panel over https
+	PortalSNI     string // SNI for the panel TLS handshake (panel public host)
 }
 
 // Upstream is one backend dial target plus its weighted-LB weight.
@@ -840,6 +852,16 @@ func BuildRoute(r Route) map[string]any {
 		})
 	}
 
+	// Built-in forward-auth portal. Same Caddy forward_auth mechanism as the
+	// external-SSO block above, but the verifier is the panel itself. Fail
+	// closed: when PortalProtect is on but no panel dial is reachable we skip
+	// emission rather than serve the route unprotected with a stale config -
+	// the route stays gated only if the verifier exists (callers must not set
+	// PortalProtect without PortalDial).
+	if r.PortalProtect && r.PortalDial != "" {
+		handlers = append(handlers, buildPortalForwardAuth(r)...)
+	}
+
 	// Basic auth gate: Caddy's authentication handler with http_basic
 	// provider. Returns 401 (with WWW-Authenticate) until the browser
 	// supplies matching creds. Hash is bcrypt (matches Caddy's default
@@ -1273,6 +1295,119 @@ func ssoCopyHeadersHandle(hdrs []string) []any {
 			"request": map[string]any{"set": set},
 		},
 	}
+}
+
+// buildPortalForwardAuth emits the Caddy handler chain for the built-in
+// access portal: a passthrough subroute so /hpg-portal/* (login UI + verify)
+// reaches the panel un-gated, then a forward_auth subroute that calls the
+// panel's verify endpoint on every GET/HEAD document load. The panel returns
+// 2xx when the portal session is allowed for this host, 401/302 otherwise.
+//
+// Mirrors the external-SSO emission: original Host is preserved so the panel
+// knows which protected host is being requested, and X-Forwarded-* carry the
+// original method/uri/proto for the redirect-back handshake. Static assets +
+// XHR are skipped (same rationale as SSO) so a hard refresh doesn't stampede
+// the verifier and so cross-origin XHR redirects don't break SPAs.
+func buildPortalForwardAuth(r Route) []any {
+	mkRP := func(extra map[string]any) map[string]any {
+		rp := map[string]any{
+			"handler":   "reverse_proxy",
+			"upstreams": []any{map[string]any{"dial": r.PortalDial}},
+		}
+		if r.PortalTLS {
+			tls := map[string]any{}
+			if r.PortalSNI != "" {
+				tls["server_name"] = r.PortalSNI
+			}
+			rp["transport"] = map[string]any{"protocol": "http", "tls": tls}
+		}
+		for k, v := range extra {
+			rp[k] = v
+		}
+		return rp
+	}
+	hostPreserve := map[string]any{
+		"request": map[string]any{
+			"set": map[string]any{"Host": []string{"{http.request.host}"}},
+		},
+	}
+
+	out := make([]any, 0, 3)
+	// (1) Passthrough: the panel serves /hpg-portal/* (login form, submit,
+	// verify, assets) directly without the auth gate, or the user could never
+	// reach the login page.
+	out = append(out, map[string]any{
+		"handler": "subroute",
+		"routes": []any{
+			map[string]any{
+				"match":    []any{map[string]any{"path": []string{"/hpg-portal/*"}}},
+				"handle":   []any{mkRP(map[string]any{"headers": hostPreserve})},
+				"terminal": true,
+			},
+		},
+	})
+
+	// (2) forward_auth: 2xx continues to the backend; any non-2xx (401/302)
+	// is returned to the client so the browser follows the redirect to login.
+	hr := map[string]any{"match": map[string]any{"status_code": []int{2}}}
+	fwd := mkRP(map[string]any{
+		"request_buffers": -1,
+		"headers": map[string]any{
+			"request": map[string]any{
+				"set": map[string]any{
+					"Host":               []string{"{http.request.host}"},
+					"X-Forwarded-Method": []string{"{http.request.method}"},
+					"X-Forwarded-Uri":    []string{"{http.request.orig_uri}"},
+					"X-Forwarded-Host":   []string{"{http.request.host}"},
+					"X-Forwarded-Proto":  []string{"{http.request.scheme}"},
+					"X-Real-IP":          []string{"{http.request.remote.host}"},
+				},
+				"delete": []string{"Content-Length"},
+			},
+		},
+		"handle_response": []any{hr},
+	})
+	// Gate GET/HEAD document loads only; skip static assets + XHR subresources.
+	portalMatch := map[string]any{
+		"method": []string{"GET", "HEAD"},
+		"not": []any{
+			map[string]any{"path": []string{
+				"*.js", "*.css", "*.map",
+				"*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.ico", "*.webp", "*.avif",
+				"*.woff", "*.woff2", "*.ttf", "*.eot", "*.otf",
+				"*.mp4", "*.webm", "*.mp3", "*.wav",
+				"/static/*", "/assets/*", "/_next/static/*",
+			}},
+			map[string]any{"header": map[string]any{
+				"Sec-Fetch-Dest": []string{
+					"empty", "image", "font", "audio", "video",
+					"manifest", "object", "embed", "track",
+					"script", "style", "report",
+					"worker", "serviceworker", "sharedworker",
+				},
+			}},
+		},
+	}
+	authRoute := map[string]any{
+		"match": []any{portalMatch},
+		"handle": []any{
+			map[string]any{
+				"handler": "subroute",
+				"routes": []any{
+					map[string]any{
+						"handle": []any{
+							map[string]any{"handler": "rewrite", "method": "GET", "uri": "/hpg-portal/verify"},
+							fwd,
+						},
+					},
+				},
+			},
+		},
+	}
+	out = append(out, map[string]any{"handler": "subroute", "routes": []any{authRoute}})
+	// Restore original URI so the backend proxy never sees /hpg-portal/verify.
+	out = append(out, map[string]any{"handler": "rewrite", "uri": "{http.request.orig_uri}"})
+	return out
 }
 
 // itoa avoids strconv dep in this hot path; ports are 1..65535.

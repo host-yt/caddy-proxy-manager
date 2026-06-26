@@ -1309,6 +1309,10 @@ type hostEditData struct {
 	SSOViaWGPeerID int64
 	SSOStrictMode  bool
 
+	// Built-in forward-auth portal: per-host toggle + selectable groups.
+	PortalProtect bool
+	PortalGroups  []portalGroupOption
+
 	// External HTTPS upstream (admin-only). When External, BackendIP holds the
 	// upstream FQDN (= backend_ip_override). HasProxySecret is whether an
 	// inbound bearer is set (never the plaintext). ExternalAllowlist feeds a
@@ -1539,6 +1543,10 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		d.SSOViaWGPeerID = ssoViaPeer.Int64
 	}
 	d.SSOStrictMode = ssoStrictMode
+	// Built-in portal: toggle + grantable groups for this host (additive
+	// query so the large route SELECT above stays untouched).
+	_ = db.QueryRowContext(ctx, `SELECT COALESCE(portal_protect,0) FROM routes WHERE id = ?`, id).Scan(&d.PortalProtect)
+	d.PortalGroups = h.portalGroupsForRoute(ctx, sess, id, clientID)
 	d.ClientTunnels = loadClientTunnels(ctx, db, clientID)
 	// Fetch node's outbound IP inventory and plan egress flag for the egress tab.
 	var nodeOutboundIPsJSON sql.NullString
@@ -1858,6 +1866,14 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	ssoHosts := sanitizeHostList(r.FormValue("sso_hosts"))
 	ssoViaPeerID, _ := strconv.ParseInt(r.FormValue("sso_via_wg_peer_id"), 10, 64)
 	ssoStrictMode := r.FormValue("sso_strict_mode") == "1"
+	// Built-in portal toggle + selected group IDs.
+	portalProtect := r.FormValue("portal_protect") == "1"
+	var portalGroupIDs []int64
+	for _, v := range r.Form["portal_group_ids"] {
+		if gid, perr := strconv.ParseInt(v, 10, 64); perr == nil && gid > 0 {
+			portalGroupIDs = append(portalGroupIDs, gid)
+		}
+	}
 	customCfg, err3 := sanitizeCustomConfig(r.FormValue("custom_config"))
 	if err3 != nil {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "custom config: "+sanitizeErr(err3))
@@ -2319,6 +2335,33 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			_ = tx.Commit()
 		}
 	}
+	// Built-in portal: persist the toggle + replace grants. Scope-safe -
+	// SetRouteGrants only writes group IDs the caller is allowed to reference
+	// (groups owned by the route's client, plus globals for super_admin), so a
+	// scoped admin cannot grant another tenant's group via a forged form post.
+	if h.Portal != nil {
+		if _, perr := h.DB().ExecContext(ctx,
+			`UPDATE routes SET portal_protect = ? WHERE id = ?`, portalProtect, id); perr != nil {
+			h.Logger.Warn("portal_protect update", "id", id, "err", perr)
+		}
+		var portalClientID int64
+		_ = h.DB().QueryRowContext(ctx, `SELECT client_id FROM services WHERE id = ?`, serviceID).Scan(&portalClientID)
+		includeGlobal := sess != nil && sess.Role == "super_admin"
+		visible := map[int64]bool{}
+		if grps, gerr := h.Portal.GroupsForGrant(ctx, portalClientID, includeGlobal); gerr == nil {
+			for _, g := range grps {
+				visible[g.ID] = true
+			}
+		}
+		if gerr := h.Portal.SetRouteGrants(ctx, id, portalGroupIDs, visible, false); gerr != nil {
+			h.Logger.Warn("portal grants update", "id", id, "err", gerr)
+		}
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess), Action: "portal.route.grants", Entity: "route", EntityID: itoa64(id),
+			Meta: map[string]any{"protect": portalProtect, "groups": portalGroupIDs},
+		})
+	}
+
 	go func() {
 		defer recoverBg(h.Logger, "resync")
 		ctx, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)

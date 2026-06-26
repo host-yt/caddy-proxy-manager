@@ -29,6 +29,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/captcha"
 	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
 	"github.com/host-yt/caddy-proxy-manager/internal/config"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/portal"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver"
@@ -373,6 +374,18 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		State: state, SMS: smsSvc, Mailer: mailer,
 	}
 
+	// Built-in forward-auth portal: local access groups + per-route grants +
+	// verify/login served on the protected host through Caddy. Reuses the users
+	// table for identities and the same cookie flags as the panel session.
+	portalSvc := portal.New(wizard.DB)
+	adminH.Portal = portalSvc
+	portalH := &handlers.PortalHandlers{
+		DB: wizard.DB, RDB: rdb, Logger: logger, Portal: portalSvc, Metrics: mtr,
+		Secure:   cfg.Security.SessionCookieSecure,
+		SameSite: handlers.ParseSameSite(cfg.Security.SessionCookieSameSite),
+		TTL:      sessionTTL,
+	}
+
 	// Passkey/WebAuthn (nil-safe). Requires a valid App.URL to derive RPID.
 	var passkeyH *handlers.PasskeyHandlers
 	if wa, err := auth.NewWebAuthn(cfg.App.URL, "Hostyt Proxy Gateway"); err != nil {
@@ -590,6 +603,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Auth:            authH,
 		Admin:           adminH,
 		Client:          clientH,
+		Portal:          portalH,
 		Ask:             askH,
 		API:             apiH,
 		APIDocs:         &handlers.APIDocsHandler{DB: wizard.DB},

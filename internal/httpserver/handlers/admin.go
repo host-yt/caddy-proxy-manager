@@ -29,6 +29,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/captcha"
 	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
 	"github.com/host-yt/caddy-proxy-manager/internal/deployment"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/portal"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
@@ -98,6 +99,8 @@ type AdminHandlers struct {
 	AccessLogBroker *accesslog.Broker
 	// WAFEvents reads stored WAF event records from the DB.
 	WAFEvents *wafevents.Store
+	// Portal drives the built-in forward-auth access portal (groups, grants).
+	Portal *portal.Service
 }
 
 // adminConfigRefs holds pointers admin settings handlers can flip at runtime.
@@ -150,6 +153,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"hosts_edit":         {{Label: "Traffic", URL: ""}, {Label: "Hosts", URL: "/admin/hosts"}, {Label: "Edit host", URL: ""}},
 	"host_logs":          {{Label: "Traffic", URL: ""}, {Label: "Hosts", URL: "/admin/hosts"}, {Label: "Access logs", URL: ""}},
 	"waf_events":         {{Label: "Security", URL: ""}, {Label: "WAF events", URL: ""}},
+	"access_groups":      {{Label: "Security", URL: ""}, {Label: "Access groups", URL: ""}},
 	"streams":            {{Label: "Traffic", URL: ""}, {Label: "Streams (L4)", URL: ""}},
 	"streams_edit":       {{Label: "Traffic", URL: ""}, {Label: "Streams (L4)", URL: "/admin/streams"}, {Label: "Edit stream", URL: ""}},
 	"tunnels":            {{Label: "Traffic", URL: ""}, {Label: "Tunnels (WG)", URL: ""}},
