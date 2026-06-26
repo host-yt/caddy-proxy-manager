@@ -70,10 +70,18 @@
       </div>
       {{end}}
       {{if .Node.FwdPolicyDrop.Valid}}{{if .Node.FwdPolicyDrop.Bool}}
+      {{if and .Node.FwdDockerRules.Valid .Node.FwdDockerRules.Bool}}
+      {{/* DROP exists but DOCKER-USER accept is active -> Docker-routed forward is covered. Info, not alarm. */}}
+      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2 col-span-2">
+        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Forward policy</div>
+        <div class="text-slate-600 dark:text-slate-300">Host has FORWARD policy DROP, but Docker forwarding is covered by an active DOCKER-USER accept rule. Backends reached outside Docker (bare-metal/LAN) would still need a host FORWARD accept for wg-tun0.</div>
+      </div>
+      {{else}}
       <div class="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2 col-span-2">
         <div class="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400 mb-1">Forward policy DROP</div>
-        <div class="text-amber-700 dark:text-amber-300">Host firewall drops forwarded traffic - tunnel-to-backend may be silently blackholed. Check nft/iptables FORWARD rules.</div>
+        <div class="text-amber-700 dark:text-amber-300">Host firewall drops forwarded traffic and no DOCKER-USER accept covers it - tunnel-to-backend may be silently blackholed. Add a FORWARD accept for wg-tun0 (firewalld/ufw/nft).</div>
       </div>
+      {{end}}
       {{end}}{{end}}
       {{if .Node.FwdLastSetupError.Valid}}{{if .Node.FwdLastSetupError.String}}
       <div class="rounded-lg bg-rose-50 dark:bg-rose-900/20 px-3 py-2 col-span-4">
