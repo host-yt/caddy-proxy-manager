@@ -2699,6 +2699,7 @@ type apiKeyRow struct {
 	Prefix     string
 	Scopes     string
 	LastUsedAt string
+	LastUsedIP string
 	CreatedAt  string
 	ExpiresAt  string
 	Revoked    bool
@@ -2725,6 +2726,7 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, name, key_prefix, scopes,
 		        COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i'),''),
+		        last_used_ip,
 		        DATE_FORMAT(created_at,'%Y-%m-%d'),
 		        COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d'),''),
 		        revoked_at IS NOT NULL
@@ -2733,7 +2735,7 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var k apiKeyRow
-			if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
+			if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
 				d.Keys = append(d.Keys, k)
 			}
 		}
@@ -2750,7 +2752,21 @@ func (h *AdminHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = r.ParseForm()
 	name := strings.TrimSpace(r.FormValue("name"))
-	scopes := strings.TrimSpace(r.FormValue("scopes"))
+	// Build scopes from checkboxes in a stable order.
+	knownScopes := [][2]string{
+		{"scope_services", "services"},
+		{"scope_routes", "routes"},
+		{"scope_nodes", "nodes"},
+		{"scope_admin_read", "admin:read"},
+		{"scope_admin_write", "admin:write"},
+	}
+	var scopeParts []string
+	for _, pair := range knownScopes {
+		if r.FormValue(pair[0]) == "1" {
+			scopeParts = append(scopeParts, pair[1])
+		}
+	}
+	scopes := strings.Join(scopeParts, ",")
 	expiresDays, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("expires_days")))
 	rateLimitRPM, _ := strconv.Atoi(strings.TrimSpace(r.FormValue("rate_limit_rpm")))
 	if name == "" {
@@ -2792,6 +2808,7 @@ func (h *AdminHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
 	rows, _ := db.QueryContext(ctx,
 		`SELECT id, name, key_prefix, scopes,
 		        COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i'),''),
+		        last_used_ip,
 		        DATE_FORMAT(created_at,'%Y-%m-%d'),
 		        COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d'),''),
 		        revoked_at IS NOT NULL
@@ -2800,7 +2817,7 @@ func (h *AdminHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var k apiKeyRow
-			if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
+			if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
 				d.Keys = append(d.Keys, k)
 			}
 		}

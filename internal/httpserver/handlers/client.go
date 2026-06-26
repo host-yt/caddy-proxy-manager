@@ -892,6 +892,7 @@ type clientAPIKeyRow struct {
 	Prefix     string
 	Scopes     string
 	LastUsedAt string
+	LastUsedIP string
 	CreatedAt  string
 	ExpiresAt  string
 	Revoked    bool
@@ -927,12 +928,24 @@ func (h *ClientHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/app/api-keys", "", "expires_days must be 0..3650")
 		return
 	}
+	// Build scopes from checkboxes; default both if neither is checked.
+	var clientScopes []string
+	if r.FormValue("scope_client_read") == "1" {
+		clientScopes = append(clientScopes, "client:read")
+	}
+	if r.FormValue("scope_client_write") == "1" {
+		clientScopes = append(clientScopes, "client:write")
+	}
+	scopes := strings.Join(clientScopes, ",")
+	if scopes == "" {
+		scopes = "client:read,client:write"
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	// Client-owned tokens are intentionally limited to the read+write
 	// scopes the customer routes actually accept. The admin /v1/* scopes
 	// are reserved for admin-issued keys.
-	plain, id, prefix, err := auth.CreateAPIKey(ctx, db, sess.UserID, name, "client:read,client:write")
+	plain, id, prefix, err := auth.CreateAPIKey(ctx, db, sess.UserID, name, scopes)
 	if err != nil {
 		h.Logger.Error("client api key create", "err", err)
 		redirectWithFlash(w, r, "/app/api-keys", "", "create failed")
@@ -988,6 +1001,7 @@ func (h *ClientHandlers) loadClientAPIKeys(ctx context.Context) []clientAPIKeyRo
 	rows, err := db.QueryContext(c,
 		`SELECT id, name, key_prefix, scopes,
 		        COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i'),''),
+		        last_used_ip,
 		        DATE_FORMAT(created_at,'%Y-%m-%d'),
 		        COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d'),''),
 		        revoked_at IS NOT NULL
@@ -999,7 +1013,7 @@ func (h *ClientHandlers) loadClientAPIKeys(ctx context.Context) []clientAPIKeyRo
 	var out []clientAPIKeyRow
 	for rows.Next() {
 		var k clientAPIKeyRow
-		if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
+		if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
 			out = append(out, k)
 		}
 	}

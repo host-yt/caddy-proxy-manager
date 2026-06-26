@@ -95,8 +95,9 @@ func CreateAPIKey(ctx context.Context, db *sql.DB, userID int64, name, scopes st
 }
 
 // VerifyAPIKey parses, looks up, and verifies a bearer token.
+// clientIP is recorded in last_used_ip; pass "" to leave it unchanged.
 // On success returns the owning user id + role.
-func VerifyAPIKey(ctx context.Context, db *sql.DB, token string) (userID int64, role string, err error) {
+func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (userID int64, role string, err error) {
 	token = strings.TrimSpace(token)
 	if !strings.HasPrefix(token, "hpg_") {
 		return 0, "", ErrAPIKeyInvalid
@@ -136,7 +137,7 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token string) (userID int64, 
 		want, derr := hex.DecodeString(hmacCol.String)
 		got, gerr := hex.DecodeString(hmacHex(secret))
 		if derr == nil && gerr == nil && subtle.ConstantTimeCompare(want, got) == 1 {
-			finalizeAPIKey(ctx, db, id, uid, secret, hmacCol.String)
+			finalizeAPIKey(ctx, db, id, uid, secret, hmacCol.String, clientIP)
 			role, err = lookupRole(ctx, db, uid)
 			return uid, role, err
 		}
@@ -149,13 +150,18 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token string) (userID int64, 
 	if err := VerifyPassword(hash, secret); err != nil {
 		return 0, "", ErrAPIKeyInvalid
 	}
-	finalizeAPIKey(ctx, db, id, uid, secret, "")
+	finalizeAPIKey(ctx, db, id, uid, secret, "", clientIP)
 	role, err = lookupRole(ctx, db, uid)
 	return uid, role, err
 }
 
-func finalizeAPIKey(ctx context.Context, db *sql.DB, id, uid int64, secret, existingHMAC string) {
-	_, _ = db.ExecContext(ctx, "UPDATE api_keys SET last_used_at = NOW() WHERE id = ?", id)
+func finalizeAPIKey(ctx context.Context, db *sql.DB, id, uid int64, secret, existingHMAC, clientIP string) {
+	if clientIP != "" {
+		_, _ = db.ExecContext(ctx,
+			"UPDATE api_keys SET last_used_at = NOW(), last_used_ip = ? WHERE id = ?", clientIP, id)
+	} else {
+		_, _ = db.ExecContext(ctx, "UPDATE api_keys SET last_used_at = NOW() WHERE id = ?", id)
+	}
 	if len(HMACKey) == 0 {
 		return
 	}

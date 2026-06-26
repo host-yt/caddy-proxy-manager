@@ -17,6 +17,7 @@
           <th class="px-4 py-3 font-medium">Prefix</th>
           <th class="px-4 py-3 font-medium">Scopes</th>
           <th class="px-4 py-3 font-medium">Last used</th>
+          <th class="px-4 py-3 font-medium">Last IP</th>
           <th class="px-4 py-3 font-medium">Created</th>
           <th class="px-4 py-3 font-medium">Expires</th>
           <th class="px-4 py-3"></th>
@@ -28,7 +29,8 @@
           <td class="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
           <td class="px-4 py-3"><code class="text-xs">hpg_{{.Prefix}}…</code></td>
           <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.Scopes}}</td>
-          <td class="px-4 py-3 text-xs text-slate-500">{{.LastUsedAt}}</td>
+          <td class="px-4 py-3 text-xs text-slate-500">{{if .LastUsedAt}}{{.LastUsedAt}}{{else}}-{{end}}</td>
+          <td class="px-4 py-3 text-xs text-slate-500 font-mono">{{if .LastUsedIP}}{{.LastUsedIP}}{{else}}-{{end}}</td>
           <td class="px-4 py-3 text-xs text-slate-500">{{.CreatedAt}}</td>
           <td class="px-4 py-3 text-xs text-slate-500">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}-{{end}}</td>
           <td class="px-4 py-3 text-right">
@@ -41,7 +43,7 @@
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="7" class="px-4 py-6 text-center text-slate-500">No API keys yet.</td></tr>
+        <tr><td colspan="8" class="px-4 py-6 text-center text-slate-500">No API keys yet.</td></tr>
         {{end}}
       </tbody>
     </table></div>
@@ -57,8 +59,29 @@
         <input name="name" required placeholder="fossbilling-integration" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Scopes (comma-separated)</label>
-        <input name="scopes" value="services,routes,nodes" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-2">Scopes</label>
+        <div class="space-y-1.5">
+          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+            <input type="checkbox" name="scope_services" value="1" checked class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+            services
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+            <input type="checkbox" name="scope_routes" value="1" checked class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+            routes
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+            <input type="checkbox" name="scope_nodes" value="1" checked class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+            nodes
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+            <input type="checkbox" name="scope_admin_read" value="1" class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+            admin:read
+          </label>
+          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+            <input type="checkbox" name="scope_admin_write" value="1" class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+            admin:write
+          </label>
+        </div>
         <p class="text-xs text-slate-500 mt-1">Reserved for future per-endpoint authorization.</p>
       </div>
       <div>
