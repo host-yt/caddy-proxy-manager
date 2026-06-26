@@ -128,6 +128,68 @@ func (h *AdminHandlers) ManualCertsImport(w http.ResponseWriter, r *http.Request
 	redirectWithFlash(w, r, page, "Certificate imported.", "")
 }
 
+// ManualCertsReplace POST /admin/manual-certs/{id}/replace - replace an existing
+// cert with a new PEM payload (delete old, import new in one request).
+func (h *AdminHandlers) ManualCertsReplace(w http.ResponseWriter, r *http.Request) {
+	const page = "/admin/manual-certs"
+	svc := h.manualCertsSvc()
+	if svc == nil {
+		redirectWithFlash(w, r, page, "", "crypto not configured")
+		return
+	}
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		redirectWithFlash(w, r, page, "", "invalid id")
+		return
+	}
+	if err := r.ParseForm(); err != nil {
+		redirectWithFlash(w, r, page, "", "form parse error")
+		return
+	}
+	name := r.FormValue("name")
+	certPEM := r.FormValue("cert_pem")
+	keyPEM := r.FormValue("key_pem")
+	chainPEM := r.FormValue("chain_pem")
+
+	var routeID sql.NullInt64
+	if v := r.FormValue("route_id"); v != "" {
+		if rid, err := strconv.ParseInt(v, 10, 64); err == nil && rid > 0 {
+			routeID = sql.NullInt64{Int64: rid, Valid: true}
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Import new first so a bad PEM never destroys the still-valid old cert.
+	// If Delete fails after a successful import we get a harmless duplicate row
+	// (name/CN are non-unique); log it and carry on.
+	newID, err := svc.Import(ctx, manualcerts.ImportInput{
+		Name:     name,
+		RouteID:  routeID,
+		CertPEM:  certPEM,
+		KeyPEM:   keyPEM,
+		ChainPEM: chainPEM,
+	})
+	if err != nil {
+		redirectWithFlash(w, r, page, "", "import replacement failed: "+sanitizeErr(err))
+		return
+	}
+
+	if err := svc.Delete(ctx, id); err != nil {
+		h.Logger.Warn("replace: old cert delete failed after successful import; duplicate row left",
+			"old_id", id, "new_id", newID, "err", err)
+	}
+
+	sess := middleware.SessionFromContext(r.Context())
+	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "manual_cert.replace", Entity: "manual_cert",
+		EntityID: strconv.FormatInt(newID, 10),
+		Meta:     map[string]any{"replaced_id": id, "name": name},
+	})
+	redirectWithFlash(w, r, page, "Certificate replaced.", "")
+}
+
 // ManualCertsDelete POST /admin/manual-certs/{id}/delete.
 func (h *AdminHandlers) ManualCertsDelete(w http.ResponseWriter, r *http.Request) {
 	const page = "/admin/manual-certs"
