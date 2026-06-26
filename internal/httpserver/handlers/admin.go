@@ -2570,6 +2570,8 @@ type settingsData struct {
 	// Branding fields for the Settings "Branding" tab. The tab's form still
 	// POSTs to the existing /admin/branding route (BrandingSave).
 	Branding Branding
+	// AI backs the "AI assistant" tab (provider keys + default selector).
+	AI aiView
 }
 
 func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -2668,6 +2670,7 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		}
 		d.SMS = h.LoadSMSConfigView(ctx)
 		d.CustomerFields = h.LoadCustomerFieldsView(ctx)
+		d.AI = h.loadAIView(ctx)
 	}
 	d.SSOJump = h.loadSSOJumpSettingsView(r, d.AppURL)
 	// Branding tab: pre-fill from the shared cached loader (same source as
@@ -2929,6 +2932,36 @@ func (h *AdminHandlers) loadSettings(ctx context.Context, db *sql.DB, keys []str
 			} else {
 				v = ""
 			}
+		}
+		out[k] = v
+	}
+	return out
+}
+
+// loadSettingsRaw reads settings without decrypting. Used for presence checks
+// on encrypted rows (non-empty ciphertext = configured) so we never decrypt
+// secrets just to render a "configured" badge.
+func (h *AdminHandlers) loadSettingsRaw(ctx context.Context, db *sql.DB, keys []string) map[string]string {
+	out := map[string]string{}
+	if len(keys) == 0 {
+		return out
+	}
+	args := make([]any, 0, len(keys))
+	placeholders := make([]string, 0, len(keys))
+	for _, k := range keys {
+		args = append(args, k)
+		placeholders = append(placeholders, "?")
+	}
+	q := "SELECT `key`, value FROM settings WHERE `key` IN (" + strings.Join(placeholders, ",") + ")"
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			continue
 		}
 		out[k] = v
 	}

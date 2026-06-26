@@ -522,6 +522,8 @@ func (s *Server) routes() {
 			r.Post("/sso-jump/rotate", s.deps.Admin.SettingsSSOJumpRotate)
 			r.Post("/apidocs", s.deps.Admin.SettingsAPIDocs)
 			r.Post("/require-2fa", s.deps.Admin.SettingsRequire2FA)
+			r.Post("/ai", s.deps.Admin.SettingsAI)
+			r.Post("/ai/test", s.deps.Admin.SettingsAITest)
 		})
 	})
 
