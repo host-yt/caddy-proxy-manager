@@ -55,6 +55,9 @@ type Deps struct {
 
 	// AccessLogIngest receives structured access-log JSON POSTed by Caddy nodes.
 	AccessLogIngest *accesslog.IngestHandler
+
+	// OAuthIdentity handles the linked-provider list + unlink endpoints.
+	OAuthIdentity *handlers.OAuthIdentityHandlers
 }
 
 type Server struct {
@@ -296,6 +299,7 @@ func (s *Server) routes() {
 			r.Get("/", s.deps.Admin.ManualCertsList)
 			r.Post("/import", s.deps.Admin.ManualCertsImport)
 			r.Post("/{id}/delete", s.deps.Admin.ManualCertsDelete)
+			r.Post("/{id}/replace", s.deps.Admin.ManualCertsReplace)
 		})
 		r.Get("/branding", s.deps.Admin.BrandingPage)
 		r.Post("/branding", s.deps.Admin.BrandingSave)
@@ -419,6 +423,13 @@ func (s *Server) routes() {
 		}
 		r.Get("/account", s.deps.Admin.AdminAccountPage)
 		r.Post("/account", s.deps.Admin.AdminAccountUpdate)
+		if s.deps.OAuthIdentity != nil {
+			r.Route("/oauth-identities", func(r chi.Router) {
+				r.Get("/", s.deps.OAuthIdentity.List)
+				r.Post("/{id}/unlink", s.deps.OAuthIdentity.Unlink)
+				r.Post("/link/oidc", s.deps.OAuthIdentity.LinkOIDC)
+			})
+		}
 		r.Get("/audit", s.deps.Admin.AuditList)
 		r.Get("/audit/export", s.deps.Admin.AuditExport)
 		r.Get("/search", s.deps.Admin.AdminSearch)
@@ -521,6 +532,13 @@ func (s *Server) routes() {
 		})
 		r.Get("/account", s.deps.Client.AccountPage)
 		r.Post("/account", s.deps.Client.AccountUpdate)
+		if s.deps.OAuthIdentity != nil {
+			r.Route("/oauth-identities", func(r chi.Router) {
+				r.Get("/", s.deps.OAuthIdentity.List)
+				r.Post("/{id}/unlink", s.deps.OAuthIdentity.Unlink)
+				r.Post("/link/oidc", s.deps.OAuthIdentity.LinkOIDC)
+			})
+		}
 		r.Post("/status-page/toggle", s.deps.Client.StatusPageToggle)
 	})
 

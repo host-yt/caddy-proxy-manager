@@ -561,7 +561,7 @@ func (w *Wizard) AdminSubmit(rw http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	res, err := w.DB().ExecContext(ctx,
-		"INSERT INTO users (email, password_hash, role, full_name, is_active) VALUES (?, ?, 'super_admin', ?, 1)",
+		"INSERT INTO users (email, password_hash, password_set, role, full_name, is_active) VALUES (?, ?, 1, 'super_admin', ?, 1)",
 		form.Email, hash, form.FullName,
 	)
 	if err != nil {

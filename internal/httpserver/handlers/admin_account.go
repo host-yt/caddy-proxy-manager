@@ -16,8 +16,10 @@ import (
 // flag scopes only the customer-facing /app/account view).
 type adminAccountData struct {
 	baseAdminData
-	Email string
-	Phone string
+	Email           string
+	Phone           string
+	OAuthIdentities []oauthIdentityRow // linked OAuth providers
+	OIDCEnabled     bool               // true when admin has OIDC configured
 }
 
 // AdminAccountPage renders /admin/account.
@@ -37,6 +39,9 @@ func (h *AdminHandlers) AdminAccountPage(w http.ResponseWriter, r *http.Request)
 	if phone.Valid {
 		d.Phone = phone.String
 	}
+	identities, _ := listIdentities(ctx, db, sess.UserID)
+	d.OAuthIdentities = identities
+	d.OIDCEnabled = oidcConfiguredInDB(ctx, db)
 	h.render(w, "admin_account", d)
 }
 

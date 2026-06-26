@@ -123,7 +123,7 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 	// Mask the user row (keep id for FK integrity).
 	mask := fmt.Sprintf("deleted-user-%d@hpg.invalid", id)
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE users SET email = ?, password_hash = '', full_name = NULL,
+		`UPDATE users SET email = ?, password_hash = '', password_set = 0, full_name = NULL,
 		 totp_secret = NULL, totp_secret_enc = NULL, totp_enabled = 0,
 		 oidc_subject = NULL, oidc_issuer = NULL, is_active = 0
 		 WHERE id = ?`, mask, id); err != nil {

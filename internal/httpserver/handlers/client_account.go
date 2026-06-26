@@ -21,10 +21,12 @@ type clientAccountData struct {
 
 	StatusPageURL  string // non-empty when the public status page is enabled
 	StatusPageSlug string // raw slug for display
+
+	OAuthIdentities []oauthIdentityRow // linked OAuth providers
+	OIDCEnabled     bool               // true when admin has OIDC configured
 }
 
-// AccountPage renders /app/account — user-editable profile fields.
-// Phone field only renders when admin enabled phone collection.
+// AccountPage renders /app/account - user-editable profile fields.
 func (h *ClientHandlers) AccountPage(w http.ResponseWriter, r *http.Request) {
 	d := clientAccountData{baseAppData: h.base(r, "Account")}
 	sess := middleware.SessionFromContext(r.Context())
@@ -52,6 +54,10 @@ func (h *ClientHandlers) AccountPage(w http.ResponseWriter, r *http.Request) {
 		d.StatusPageSlug = statusSlug.String
 		d.StatusPageURL = "/status/" + statusSlug.String
 	}
+	// Linked OAuth providers.
+	identities, _ := listIdentities(ctx, db, sess.UserID)
+	d.OAuthIdentities = identities
+	d.OIDCEnabled = oidcConfiguredInDB(ctx, db)
 	h.render(w, "account", d)
 }
 
@@ -67,7 +73,6 @@ func (h *ClientHandlers) AccountUpdate(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Hard refuse phone writes when admin has disabled collection.
-	// Even if the client crafted a POST directly, we never persist.
 	if !adminPhoneCollectionEnabled(ctx, db) {
 		clientRedirectFlash(w, r, "/app/account", "", "phone collection is disabled by the operator")
 		return
@@ -96,11 +101,20 @@ func (h *ClientHandlers) AccountUpdate(w http.ResponseWriter, r *http.Request) {
 	clientRedirectFlash(w, r, "/app/account", "Account updated", "")
 }
 
-// adminPhoneCollectionEnabled reads the panel-wide flag set by admin
-// in /admin/settings. Default false — admin must opt in.
+// adminPhoneCollectionEnabled reads the panel-wide flag set by admin.
 func adminPhoneCollectionEnabled(ctx context.Context, db *sql.DB) bool {
 	var v string
 	_ = db.QueryRowContext(ctx,
 		`SELECT value FROM settings WHERE `+"`key`"+` = 'customer.phone_collection_enabled'`).Scan(&v)
+	return v == "1"
+}
+
+// oidcConfiguredInDB checks whether admin has OIDC enabled in the settings
+// table. Used to show/hide the "Link OIDC" button without importing the full
+// OIDC service into the client handler.
+func oidcConfiguredInDB(ctx context.Context, db *sql.DB) bool {
+	var v string
+	_ = db.QueryRowContext(ctx,
+		`SELECT value FROM settings WHERE `+"`key`"+` = 'oidc.enabled' LIMIT 1`).Scan(&v)
 	return v == "1"
 }
