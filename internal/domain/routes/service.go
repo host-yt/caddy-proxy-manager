@@ -158,6 +158,16 @@ func (s *Service) panelRoute() *caddyapi.Route {
 	}
 }
 
+// portalDial returns the panel host:port the node's Caddy uses for the
+// built-in portal forward_auth + login passthrough. Empty when the panel
+// internal address isn't configured (portal then never emits, fail closed).
+func (s *Service) portalDial() string {
+	if s.PanelInternalHost == "" || s.PanelInternalPort == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%s:%d", s.PanelInternalHost, s.PanelInternalPort)
+}
+
 // PushMetrics is implemented by *obs.Metrics; defined as an interface so the
 // routes package does not depend on the obs package directly (avoids cycle).
 type PushMetrics interface {
@@ -1656,6 +1666,10 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		        COALESCE(r.sso_paths,''), COALESCE(r.sso_hosts,''),
 		        COALESCE(r.sso_strict_mode,0),
 		        COALESCE(sso_peer.assigned_ip, ''),
+	        -- Built-in portal: gate only when the flag is on AND >=1 grant exists,
+	        -- otherwise the route would be gated with nobody allowed (effective
+	        -- lockout). The verifier still re-checks membership per request.
+	        (COALESCE(r.portal_protect,0)=1 AND EXISTS(SELECT 1 FROM route_access_grants rag WHERE rag.route_id=r.id)),
 	        COALESCE(r.upstream_external, 0), COALESCE(r.upstream_host_header, ''), COALESCE(r.proxy_secret_enc, ''),
 	        COALESCE(r.compress_disabled, 0),
 	        COALESCE(r.lb_policy,''),
@@ -1727,6 +1741,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var ssoPathsRaw, ssoHostsRaw string
 		var ssoStrictMode bool
 		var ssoResolverIP string
+		var portalProtect bool
 		var upstreamExternal bool
 		var upstreamHostHeader, proxySecretEnc string
 		var compressDisabled bool
@@ -1754,6 +1769,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&ssoPathsRaw, &ssoHostsRaw,
 			&ssoStrictMode,
 			&ssoResolverIP,
+			&portalProtect,
 			&upstreamExternal, &upstreamHostHeader, &proxySecretEnc,
 			&compressDisabled,
 			&lbPolicy,
@@ -1910,6 +1926,13 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			// must expose the IdP port on its host network.
 			SSOResolver:   ssoResolverIP,
 			SSOStrictMode: ssoStrictMode,
+
+			// Built-in forward-auth portal. Verify + login are dialed at the
+			// panel (same internal host:port as the self-bootstrap route). Plain
+			// HTTP over the internal network; the panel sets the protected-host
+			// cookie itself. Skipped entirely when PanelInternalHost is unset.
+			PortalProtect: portalProtect && s.PanelInternalHost != "" && s.PanelInternalPort != 0,
+			PortalDial:    s.portalDial(),
 
 			// External HTTPS upstream: SNI + Host both use the stored header
 			// (falls back to the FQDN in the builder); ProxySecret gates inbound.

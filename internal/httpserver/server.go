@@ -31,6 +31,7 @@ type Deps struct {
 	Auth         *handlers.AuthHandlers
 	Admin        *handlers.AdminHandlers
 	Client       *handlers.ClientHandlers
+	Portal       *handlers.PortalHandlers
 	Ask          *handlers.AskHandler
 	API          *handlers.APIHandlers
 	APIDocs      *handlers.APIDocsHandler
@@ -219,6 +220,22 @@ func (s *Server) routes() {
 		r.Get("/sso/jump", s.deps.Auth.SSOJump)
 	})
 
+	// Built-in forward-auth portal. Public (served on the PROTECTED host via
+	// Caddy forward_auth + /hpg-portal/* passthrough), no panel session. The
+	// verify endpoint is what Caddy calls; login mints the portal cookie.
+	// CSRF middleware skips these (no panel session on this origin) - the
+	// login form relies on SameSite=Lax + the per-(email,IP) lockout, same as
+	// /auth/login.
+	if s.deps.Portal != nil {
+		r.Route("/hpg-portal", func(r chi.Router) {
+			r.Get("/verify", s.deps.Portal.Verify)
+			r.Get("/login", s.deps.Portal.LoginPage)
+			r.Post("/login", s.deps.Portal.LoginSubmit)
+			r.Post("/logout", s.deps.Portal.Logout)
+			r.Get("/logout", s.deps.Portal.Logout)
+		})
+	}
+
 	// Admin panel. Support is admitted through a strict read-only allow-list
 	// below; admin/super_admin keep the full surface.
 	r.Route("/admin", func(r chi.Router) {
@@ -294,6 +311,14 @@ func (s *Server) routes() {
 			r.Get("/{id}/logs/stream", s.deps.Admin.HostsLogsStream)
 			r.Get("/{id}/logs/export", s.deps.Admin.HostsLogsExport)
 			r.Get("/{id}/rollups.json", s.deps.Admin.HostsRollupJSON)
+		})
+		// Built-in forward-auth portal: local access groups + members.
+		r.Route("/access-groups", func(r chi.Router) {
+			r.Get("/", s.deps.Admin.AccessGroupsList)
+			r.Post("/", s.deps.Admin.AccessGroupsCreate)
+			r.Post("/{id}/delete", s.deps.Admin.AccessGroupsDelete)
+			r.Post("/{id}/members", s.deps.Admin.AccessGroupMemberAdd)
+			r.Post("/{id}/members/{uid}/delete", s.deps.Admin.AccessGroupMemberRemove)
 		})
 		r.Get("/waf", s.deps.Admin.WafEvents)
 		r.Get("/waf.json", s.deps.Admin.WafEventsJSON)

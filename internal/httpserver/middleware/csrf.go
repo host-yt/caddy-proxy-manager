@@ -35,6 +35,13 @@ func VerifyCSRF(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Built-in portal endpoints run on the protected host, not the panel
+		// origin, so there is no panel session/CSRF token to present. Same
+		// posture as /auth/login (SameSite=Lax + per-(email,IP) lockout).
+		if strings.HasPrefix(r.URL.Path, "/hpg-portal/") {
+			next.ServeHTTP(w, r)
+			return
+		}
 
 		sess := SessionFromContext(r.Context())
 		if sess == nil {

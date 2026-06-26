@@ -324,6 +324,45 @@ func TestBuildRouteWAFGated(t *testing.T) {
 	}
 }
 
+func TestBuildRoutePortalForwardAuth(t *testing.T) {
+	base := Route{ID: "55", Hosts: []string{"p.example.com"}, UpstreamIP: "10.0.0.9", UpstreamPort: 8080}
+
+	// OFF by default: no portal handlers emitted, route is a plain proxy.
+	if s := mustJSON(base); strings.Contains(s, "/hpg-portal/verify") || strings.Contains(s, "/hpg-portal/*") {
+		t.Errorf("portal must not emit when disabled\nfull: %s", s)
+	}
+
+	// Fail-closed: PortalProtect set but no dial => still no emission (we do
+	// NOT serve the route gated against a nonexistent verifier).
+	noDial := base
+	noDial.PortalProtect = true
+	if s := mustJSON(noDial); strings.Contains(s, "/hpg-portal/verify") {
+		t.Errorf("portal must not emit without a dial target\nfull: %s", s)
+	}
+
+	// ON: passthrough subroute + forward_auth to /hpg-portal/verify, with the
+	// original Host preserved so the verifier knows the protected host.
+	on := base
+	on.PortalProtect = true
+	on.PortalDial = "app:8080"
+	s := mustJSON(on)
+	for _, want := range []string{
+		`"/hpg-portal/*"`,
+		`/hpg-portal/verify`,
+		`"dial":"app:8080"`,
+		`"X-Forwarded-Uri":["{http.request.orig_uri}"]`,
+		`"Host":["{http.request.host}"]`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("portal emission missing %q\nfull: %s", want, s)
+		}
+	}
+	// Gate is GET/HEAD document loads only (skip XHR + static), mirroring SSO.
+	if !strings.Contains(s, `"method":["GET","HEAD"]`) {
+		t.Errorf("portal gate must restrict to GET/HEAD\nfull: %s", s)
+	}
+}
+
 func TestBuildRoutePathPrefix(t *testing.T) {
 	r := Route{ID: "1", Hosts: []string{"x.example.com"}, PathPrefix: "/api", UpstreamIP: "1.1.1.1", UpstreamPort: 8080}
 	m := BuildRoute(r)

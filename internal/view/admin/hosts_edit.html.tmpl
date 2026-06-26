@@ -35,6 +35,7 @@
     <button type="button" data-tab="waf"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">WAF</button>
     <button type="button" data-tab="access"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Access list</button>
     <button type="button" data-tab="sso"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">SSO</button>
+    <button type="button" data-tab="portal"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Portal</button>
     <button type="button" data-tab="maint"   class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Maintenance</button>
     <button type="button" data-tab="headers" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Headers</button>
     <button type="button" data-tab="custom"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Custom JSON</button>
@@ -415,6 +416,34 @@ X-Authentik-Meta-Provider
 X-Authentik-Meta-App
 X-Authentik-Meta-Version</pre>
       </details>
+    </section>
+
+    <!-- Built-in forward-auth portal -->
+    <section data-pane="portal" class="hpg-pane hidden hpg-card space-y-4">
+      <div>
+        <h4 class="hpg-eyebrow mb-1">Built-in access portal</h4>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400">Self-hosted login gate, an alternative to external SSO. Protected GET/HEAD page loads are gated by the panel's own verifier; unauthenticated users are redirected to a login form on this host. Members sign in with their normal email + password. Manage groups + members under <a href="/admin/access-groups" class="text-indigo-600 hover:underline">Security &rarr; Access groups</a>.</p>
+      </div>
+      <div class="flex items-start gap-2">
+        <input type="checkbox" name="portal_protect" value="1" id="portal_protect" {{if .PortalProtect}}checked{{end}} class="mt-0.5 rounded">
+        <div>
+          <label for="portal_protect" class="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">Protect with built-in portal</label>
+          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">The gate only takes effect when at least one group below is granted access. Disabling this leaves existing grants in place.</p>
+        </div>
+      </div>
+      <fieldset class="ring-1 ring-slate-200 dark:ring-zinc-800 rounded-xl p-3 space-y-2">
+        <legend class="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">Groups allowed to access this host</legend>
+        {{if .PortalGroups}}
+        {{range .PortalGroups}}
+        <label class="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200">
+          <input type="checkbox" name="portal_group_ids" value="{{.ID}}" {{if .Granted}}checked{{end}} class="rounded">
+          <span>{{.Name}} <span class="text-slate-400">({{.MemberCount}} member(s))</span></span>
+        </label>
+        {{end}}
+        {{else}}
+        <p class="text-[11px] text-slate-400">No access groups exist for this host's client yet. Create one under <a href="/admin/access-groups" class="text-indigo-600 hover:underline">Access groups</a>.</p>
+        {{end}}
+      </fieldset>
     </section>
 
     <!-- Maintenance -->
