@@ -229,6 +229,16 @@ type Route struct {
 	PortalDial    string // panel host:port reachable from the node
 	PortalTLS     bool   // dial the panel over https
 	PortalSNI     string // SNI for the panel TLS handshake (panel public host)
+
+	// mTLS client-cert enforcement. When RequireClientCert is set AND
+	// MTLSCACertPEM is non-empty, BuildNodeConfig emits a TLS connection
+	// policy (matched by this route's Hosts via SNI) that requires + verifies
+	// a client cert chaining to the given CA. Enforcement is at the TLS layer
+	// (apps.http.servers.srv0.tls_connection_policies), not a route handler.
+	// Empty PEM = no enforcement (fail open is acceptable: the CA was deleted,
+	// and we never want a missing trust anchor to brick the whole node /load).
+	RequireClientCert bool
+	MTLSCACertPEM     string // PEM bundle of the trust-anchor CA cert
 }
 
 // Upstream is one backend dial target plus its weighted-LB weight.

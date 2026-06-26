@@ -1,0 +1,45 @@
+{{define "mtls_crl"}}
+<div class="space-y-6">
+  {{if .Error}}
+  <div class="rounded-xl bg-rose-50 dark:bg-rose-950/40 ring-1 ring-rose-200 dark:ring-rose-800/60 p-3 text-sm text-rose-800 dark:text-rose-200">{{.Error}}</div>
+  {{end}}
+
+  <section class="hpg-card p-5 flex items-start justify-between gap-4">
+    <div>
+      <h2 class="font-semibold text-slate-800 dark:text-slate-100">Revocation list</h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+        Revoked client certificates for CA {{if .CAName}}<strong>{{.CAName}}</strong>{{else}}#{{.CAID}}{{end}}.
+        Caddy verifies the cert chain at the TLS handshake; revoked subjects must also be removed from the trust path where applicable.
+      </p>
+    </div>
+    <a href="/admin/mtls" class="shrink-0 text-sm text-indigo-600 dark:text-indigo-400 hover:underline">back to authorities</a>
+  </section>
+
+  <section class="hpg-card overflow-hidden p-0">
+    <table class="w-full text-sm">
+      <thead class="text-left hpg-eyebrow">
+        <tr>
+          <th class="px-4 py-2.5">Subject</th>
+          <th class="px-4 py-2.5">Serial</th>
+          <th class="px-4 py-2.5">Issued</th>
+          <th class="px-4 py-2.5">Expires</th>
+          <th class="px-4 py-2.5">Revoked</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      {{range .Revoked}}
+        <tr>
+          <td class="px-4 py-2.5 font-medium text-slate-800 dark:text-slate-100 text-xs">{{.Subject}}</td>
+          <td class="px-4 py-2.5 font-mono text-[11px] text-slate-500 dark:text-slate-400">{{.Serial}}</td>
+          <td class="px-4 py-2.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.IssuedAt}}</td>
+          <td class="px-4 py-2.5 text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.NotAfter}}</td>
+          <td class="px-4 py-2.5 text-xs text-rose-600 dark:text-rose-400 whitespace-nowrap">{{.RevokedAt}}</td>
+        </tr>
+      {{else}}
+        <tr><td colspan="5" class="px-4 py-6 text-center text-slate-400 text-xs">No revoked certificates for this CA.</td></tr>
+      {{end}}
+      </tbody>
+    </table>
+  </section>
+</div>
+{{end}}

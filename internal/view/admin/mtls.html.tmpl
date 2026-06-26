@@ -18,7 +18,7 @@
         Certificate authorities <span class="font-normal text-slate-400">({{.Total}})</span>
       </h2>
       <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5 max-w-2xl">Generate a per-tenant or operator CA, issue client certificates for mutual-TLS auth, and revoke them. CA private keys are encrypted at rest; client keys are shown only once at issue time.</p>
-      <p class="text-[11px] text-amber-600 dark:text-amber-400 mt-1.5">Scaffold: issued certs are not yet enforced on hosts/paths by the proxy.</p>
+      <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1.5">Enforce per host under the host editor's <strong>mTLS</strong> tab (Require client certificate -&gt; pick this CA).</p>
     </div>
     <button type="button" onclick="openCAModal()" class="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors cursor-pointer">
       <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
@@ -50,6 +50,8 @@
           </svg>
           issue cert
         </button>
+        <a href="/admin/mtls/ca/{{.ID}}/bundle.pem" class="text-slate-600 dark:text-slate-300 hover:underline">CA PEM</a>
+        <a href="/admin/mtls/ca/{{.ID}}/crl" class="text-slate-600 dark:text-slate-300 hover:underline">revocation list</a>
         <form method="POST" action="/admin/mtls/ca/{{.ID}}/delete" class="inline" data-confirm="Delete this CA and ALL its issued certificates?">
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
           <button class="text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">delete CA</button>

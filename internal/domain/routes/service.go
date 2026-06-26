@@ -1691,10 +1691,12 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
 	        COALESCE(pl.allow_egress_ip, 0),
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(dns_peer.assigned_ip,''),
-	        COALESCE(r.dns_address_family,'any')
+	        COALESCE(r.dns_address_family,'any'),
+	        COALESCE(r.require_client_cert,0), COALESCE(mca.cert_pem,'')
 		 FROM routes r
 		 JOIN services sv ON sv.id = r.service_id
 		 LEFT JOIN plans pl ON pl.id = sv.plan_id
+		 LEFT JOIN mtls_cas mca ON mca.id = r.mtls_ca_id AND mca.status = 'active'
 		 LEFT JOIN customer_wg_peer p_base
 		   ON p_base.id = r.via_wg_peer_id
 		 LEFT JOIN customer_wg_peer p_use ON (
@@ -1775,6 +1777,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var outboundIPMode, outboundIP string
 		var planAllowEgress bool
 		var dnsResolverIP, dnsResolverPeerIP, dnsAddressFamily string
+		var requireClientCert bool
+		var mtlsCACertPEM string
 		if err := rows.Scan(&id, &domain, &aliases, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
 			&tunnelResolverIP,
 			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &headersJSON,
@@ -1797,7 +1801,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&geoMode, &geoCountries,
 			&errOverride, &errHTML, &errLogo, &errBrand, &errBg,
 			&outboundIPMode, &outboundIP, &planAllowEgress,
-			&dnsResolverIP, &dnsResolverPeerIP, &dnsAddressFamily); err != nil {
+			&dnsResolverIP, &dnsResolverPeerIP, &dnsAddressFamily,
+			&requireClientCert, &mtlsCACertPEM); err != nil {
 			return nil, nil, err
 		}
 		// Re-check plan entitlement at build time so revoking the flag takes effect immediately.
@@ -1997,6 +2002,12 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			DNSResolverIP:          dnsResolverIP,
 			DNSResolverViaWGPeerIP: dnsResolverPeerIP,
 			DNSAddressFamily:       dnsAddressFamily,
+
+			// mTLS client-cert enforcement only over TLS, and only when the
+			// selected CA is still active (JOIN yields '' otherwise -> no policy
+			// emitted, fail open so a deleted CA can't brick the node /load).
+			RequireClientCert: requireClientCert && sslEnabled && mtlsCACertPEM != "",
+			MTLSCACertPEM:     mtlsCACertPEM,
 		})
 		ids = append(ids, id)
 	}

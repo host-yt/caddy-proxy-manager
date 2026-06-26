@@ -319,6 +319,8 @@ func (s *Server) routes() {
 			r.Post("/ca", s.deps.Admin.MTLSCreateCA)
 			r.Post("/ca/{id}/delete", s.deps.Admin.MTLSDeleteCA)
 			r.Post("/ca/{id}/issue", s.deps.Admin.MTLSIssue)
+			r.Get("/ca/{id}/bundle.pem", s.deps.Admin.MTLSCABundle)
+			r.Get("/ca/{id}/crl", s.deps.Admin.MTLSCRL)
 			r.Post("/cert/{id}/revoke", s.deps.Admin.MTLSRevoke)
 		})
 		r.Get("/branding", s.deps.Admin.BrandingPage)

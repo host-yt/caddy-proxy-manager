@@ -1,6 +1,10 @@
 package caddyapi
 
-import "fmt"
+import (
+	"encoding/base64"
+	"encoding/pem"
+	"fmt"
+)
 
 // NodeSettings carries per-node TLS + ACME knobs needed to build a full
 // Caddy JSON config.
@@ -226,6 +230,14 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		srv0["logs"] = map[string]any{}
 	}
 
+	// mTLS client-cert enforcement: emit per-host TLS connection policies that
+	// require + verify a client cert against the route's selected CA. First-match
+	// by SNI; unmatched handshakes fall back to Caddy's default zero-value policy,
+	// so non-mTLS hosts keep working. Skipped entirely when no route opts in.
+	if pols := buildMTLSConnPolicies(routes); len(pols) > 0 {
+		srv0["tls_connection_policies"] = pols
+	}
+
 	apps := map[string]any{
 		"http": map[string]any{
 			"servers": map[string]any{
@@ -350,6 +362,56 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		}
 	}
 	return root
+}
+
+// buildMTLSConnPolicies returns the tls_connection_policies array for every
+// route that requires a client cert. Schema validated against Caddy 2.11
+// (modules/caddytls): policy.match.sni = []string, client_authentication.ca is
+// an inline CA pool ({"provider":"inline","trusted_ca_certs":[<base64 DER>]}),
+// mode "require_and_verify". The inline pool decodes base64-StdEncoding DER (NOT
+// PEM), so each CA cert PEM is converted to base64 DER before emission.
+func buildMTLSConnPolicies(routes []Route) []any {
+	var out []any
+	for _, r := range routes {
+		if !r.RequireClientCert || r.MTLSCACertPEM == "" || len(r.Hosts) == 0 {
+			continue
+		}
+		ders := pemCertsToBase64DER(r.MTLSCACertPEM)
+		if len(ders) == 0 {
+			continue // unparsable trust anchor: fail open rather than brick /load
+		}
+		out = append(out, map[string]any{
+			"match": map[string]any{"sni": r.Hosts},
+			"client_authentication": map[string]any{
+				"ca": map[string]any{
+					"provider":         "inline",
+					"trusted_ca_certs": ders,
+				},
+				"mode": "require_and_verify",
+			},
+		})
+	}
+	return out
+}
+
+// pemCertsToBase64DER extracts every CERTIFICATE block from a PEM bundle and
+// returns each DER body as a base64-StdEncoding string - the form Caddy's
+// inline CA pool (tls.ca_pool.source.inline) expects in trusted_ca_certs.
+func pemCertsToBase64DER(pemBundle string) []string {
+	var out []string
+	rest := []byte(pemBundle)
+	for {
+		block, more := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		rest = more
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		out = append(out, base64.StdEncoding.EncodeToString(block.Bytes))
+	}
+	return out
 }
 
 // buildWstunnelCaddyRoute returns a raw Caddy route object that proxies
