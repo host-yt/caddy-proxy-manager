@@ -516,6 +516,12 @@ func (s *statusRecorder) Write(b []byte) (int, error) {
 	return n, err
 }
 
+// Unwrap exposes the wrapped writer so http.NewResponseController can reach
+// the underlying Flusher/Hijacker - SSE streams (live tail) need Flush.
+func (s *statusRecorder) Unwrap() http.ResponseWriter {
+	return s.ResponseWriter
+}
+
 func statusClass(code int) string {
 	switch {
 	case code < 200:
