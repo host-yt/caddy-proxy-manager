@@ -188,6 +188,89 @@ func TestBuildRouteLBCompositionGuards(t *testing.T) {
 	}
 }
 
+// TestBuildRouteUpstreamPool exercises edge cases for the multi-upstream pool:
+// 0 upstreams, 1 upstream, many upstreams, max_requests, LB policies.
+func TestBuildRouteUpstreamPool(t *testing.T) {
+	// 0 additional upstreams: falls back to single UpstreamIP:UpstreamPort dial.
+	zero := Route{ID: "20", Hosts: []string{"z.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 8080}
+	s := mustJSON(zero)
+	if !strings.Contains(s, `"10.0.0.5:8080"`) || strings.Contains(s, `"10.0.0.6`) {
+		t.Errorf("0-upstream must use single dial only\nfull: %s", s)
+	}
+
+	// 1 upstream: pool path with single element (no LB emitted without policy).
+	one := Route{ID: "21", Hosts: []string{"o.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 8080,
+		Upstreams: []Upstream{{Host: "10.0.0.6", Port: 9090}}}
+	s = mustJSON(one)
+	if !strings.Contains(s, `"10.0.0.6:9090"`) {
+		t.Errorf("1-upstream pool must dial the upstream\nfull: %s", s)
+	}
+	// No load_balancing key when no policy is chosen.
+	if strings.Contains(s, "load_balancing") {
+		t.Errorf("1-upstream + no policy must omit load_balancing\nfull: %s", s)
+	}
+
+	// Many upstreams + round_robin.
+	many := Route{ID: "22", Hosts: []string{"m.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 8080,
+		LBPolicy: "round_robin",
+		Upstreams: []Upstream{
+			{Host: "10.0.0.6", Port: 9000},
+			{Host: "10.0.0.7", Port: 9000},
+			{Host: "10.0.0.8", Port: 9000},
+		}}
+	s = mustJSON(many)
+	for _, want := range []string{`"10.0.0.6:9000"`, `"10.0.0.7:9000"`, `"10.0.0.8:9000"`, `"policy":"round_robin"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("many-upstream round_robin missing %q\nfull: %s", want, s)
+		}
+	}
+
+	// max_requests emitted only when > 0.
+	maxReq := Route{ID: "23", Hosts: []string{"mr.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 8080,
+		LBPolicy: "least_conn",
+		Upstreams: []Upstream{
+			{Host: "10.0.0.6", Port: 9000, MaxRequests: 50},
+			{Host: "10.0.0.7", Port: 9000, MaxRequests: 0}, // unlimited: omit key
+		}}
+	s = mustJSON(maxReq)
+	if !strings.Contains(s, `"max_requests":50`) {
+		t.Errorf("max_requests>0 must be emitted\nfull: %s", s)
+	}
+	// The zero-value upstream must not gain a max_requests key.
+	// Count occurrences: exactly one "max_requests" in total.
+	if strings.Count(s, `"max_requests"`) != 1 {
+		t.Errorf("zero max_requests must be omitted; got count %d\nfull: %s", strings.Count(s, `"max_requests"`), s)
+	}
+
+	// LB policy: ip_hash.
+	ih := Route{ID: "24", Hosts: []string{"ih.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 8080,
+		LBPolicy:  "ip_hash",
+		Upstreams: []Upstream{{Host: "10.0.0.6", Port: 9000}}}
+	if s := mustJSON(ih); !strings.Contains(s, `"policy":"ip_hash"`) {
+		t.Errorf("ip_hash policy missing\nfull: %s", s)
+	}
+
+	// LB policy: least_conn.
+	lc := Route{ID: "25", Hosts: []string{"lc.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 8080,
+		LBPolicy:  "least_conn",
+		Upstreams: []Upstream{{Host: "10.0.0.6", Port: 9000}}}
+	if s := mustJSON(lc); !strings.Contains(s, `"policy":"least_conn"`) {
+		t.Errorf("least_conn policy missing\nfull: %s", s)
+	}
+
+	// Weighted + gate ON: weights ordered correctly.
+	wgt := Route{ID: "26", Hosts: []string{"wg.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 8080,
+		LBPolicy: "weighted_round_robin", WeightedLBAvailable: true,
+		Upstreams: []Upstream{
+			{Host: "10.0.0.6", Port: 9000, Weight: 5},
+			{Host: "10.0.0.7", Port: 9000, Weight: 2},
+		}}
+	s = mustJSON(wgt)
+	if !strings.Contains(s, `"weights":[5,2]`) {
+		t.Errorf("weighted must emit [5,2]\nfull: %s", s)
+	}
+}
+
 func mustJSON(r Route) string {
 	b, _ := json.Marshal(BuildRoute(r))
 	return string(b)
