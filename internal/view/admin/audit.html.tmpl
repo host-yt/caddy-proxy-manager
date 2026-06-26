@@ -11,8 +11,12 @@
   <a href="/admin/audit?entity=settings" class="px-3 py-1 rounded-full {{if eq .Filter "settings"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-700{{end}}">Settings</a>
 </div>
 
-<form method="GET" action="/admin/audit" class="hpg-card mb-4 grid grid-cols-1 sm:grid-cols-4 gap-3 text-sm">
+<form method="GET" action="/admin/audit" class="hpg-card mb-4 grid grid-cols-1 sm:grid-cols-5 gap-3 text-sm">
   <input type="hidden" name="entity" value="{{.Filter}}">
+  <div>
+    <label class="hpg-eyebrow block mb-1">Search</label>
+    <input name="q" value="{{.Q}}" placeholder="action, entity, actor..." class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+  </div>
   <div>
     <label class="hpg-eyebrow block mb-1">Action contains</label>
     <input name="action" value="{{.ActionLike}}" placeholder="impersonate" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
@@ -26,17 +30,46 @@
     <input name="since" type="date" value="{{.Since}}" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
   </div>
   <div class="flex items-end gap-2">
-    <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700">Filter</button>
+    <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 cursor-pointer transition-colors">Filter</button>
     <a href="/admin/audit{{if .Filter}}?entity={{.Filter}}{{end}}" class="px-4 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800">Reset</a>
   </div>
 </form>
+
+{{if .SavedFilters}}
+<div class="hpg-card mb-4 text-sm">
+  <p class="hpg-eyebrow mb-2">Saved filters</p>
+  <div class="flex flex-wrap gap-2">
+    {{range .SavedFilters}}
+    <div class="flex items-center gap-1">
+      <a href="/admin/audit?saved_filter={{.ID}}" class="px-3 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-800/40 transition-colors cursor-pointer text-xs">
+        {{.Name}}
+      </a>
+      <form method="POST" action="/admin/saved-filters/audit/{{.ID}}/delete" class="inline">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <button type="submit" class="text-slate-400 hover:text-rose-500 text-xs cursor-pointer" title="Delete filter">&times;</button>
+      </form>
+    </div>
+    {{end}}
+  </div>
+</div>
+{{end}}
 
 <div class="hpg-card overflow-x-auto p-0">
   <table class="w-full text-sm">
     <thead class="hpg-eyebrow text-left bg-slate-50/60 dark:bg-zinc-800/40">
       <tr>
-        <th class="px-4 py-3 font-medium">When</th>
-        <th class="px-4 py-3 font-medium">Actor</th>
+        <th class="px-4 py-3 font-medium">
+          <a href="/admin/audit?entity={{.Filter}}&action={{.ActionLike}}&actor={{.ActorLike}}&since={{.Since}}&q={{.Q}}&sort=created_at&dir={{if and (eq .Sort "created_at") (eq .Dir "desc")}}asc{{else}}desc{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            When
+            {{if eq .Sort "created_at"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
+          </a>
+        </th>
+        <th class="px-4 py-3 font-medium">
+          <a href="/admin/audit?entity={{.Filter}}&action={{.ActionLike}}&actor={{.ActorLike}}&since={{.Since}}&q={{.Q}}&sort=actor&dir={{if and (eq .Sort "actor") (eq .Dir "asc")}}desc{{else}}asc{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
+            Actor
+            {{if eq .Sort "actor"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
+          </a>
+        </th>
         <th class="px-4 py-3 font-medium">Action</th>
         <th class="px-4 py-3 font-medium">Entity</th>
         <th class="px-4 py-3 font-medium">ID</th>
@@ -45,7 +78,7 @@
     </thead>
     <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
       {{range .Entries}}
-      <tr>
+      <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
         <td class="px-4 py-3 text-xs font-mono text-slate-700 dark:text-slate-200 whitespace-nowrap">{{.CreatedAt}}</td>
         <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.ActorLabel}}</td>
         <td class="px-4 py-3"><code class="text-xs">{{.Action}}</code></td>
@@ -54,13 +87,15 @@
         <td class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 font-mono">{{.IP}}</td>
       </tr>
       {{else}}
-      <tr><td colspan="6" class="px-4 py-8 text-center text-slate-500 dark:text-slate-400">No audit entries yet.</td></tr>
+      <tr><td colspan="6" class="px-4 py-8 text-center text-slate-500 dark:text-slate-400">No audit entries match your filter.</td></tr>
       {{end}}
     </tbody>
   </table>
 </div>
-<div class="mt-3 flex items-center gap-3">
-  <p class="text-xs text-slate-500">Showing last {{.Limit}} entries.</p>
+
+{{template "pagination" (dict "Total" .Total "TotalPgs" .TotalPgs "Page" .Page "PrevURL" .PrevURL "NextURL" .NextURL "Size" .Size)}}
+
+<div class="mt-3 flex flex-wrap items-center gap-3">
   <a href="/admin/audit/export?entity={{.Filter}}&action={{.ActionLike}}&actor={{.ActorLike}}&since={{.Since}}&format=csv"
      class="text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800">
     Export CSV
@@ -69,5 +104,50 @@
      class="text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800">
     Export JSON
   </a>
+  <button type="button" id="audit-save-filter-btn"
+    class="text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 cursor-pointer transition-colors">
+    Save filter
+  </button>
 </div>
+
+<!-- Save filter modal -->
+<div id="audit-save-modal" class="fixed inset-0 z-50 hidden">
+  <div class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm" id="audit-modal-overlay"></div>
+  <div class="absolute inset-0 flex items-center justify-center p-4">
+    <div class="hpg-card rounded-2xl shadow-xl w-full max-w-sm" role="dialog" aria-modal="true">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-semibold text-slate-800 dark:text-slate-100">Save filter</h3>
+        <button type="button" id="audit-modal-close" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">&times;</button>
+      </div>
+      <form method="POST" action="/admin/saved-filters/audit" class="space-y-3 text-sm">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="query_json" value="{{.QueryValues}}">
+        <div>
+          <label class="hpg-eyebrow block mb-1">Filter name</label>
+          <input name="filter_name" required placeholder="e.g. Auth events today" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        </div>
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" id="audit-modal-cancel" class="px-3.5 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer">Cancel</button>
+          <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer transition-colors">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<script nonce="{{.CSPNonce}}">
+(function(){
+  var btn = document.getElementById("audit-save-filter-btn");
+  var modal = document.getElementById("audit-save-modal");
+  var overlay = document.getElementById("audit-modal-overlay");
+  var closeBtn = document.getElementById("audit-modal-close");
+  var cancelBtn = document.getElementById("audit-modal-cancel");
+  if (!btn || !modal) return;
+  btn.addEventListener("click", function(){ modal.classList.remove("hidden"); });
+  function close(){ modal.classList.add("hidden"); }
+  if (closeBtn) closeBtn.addEventListener("click", close);
+  if (cancelBtn) cancelBtn.addEventListener("click", close);
+  if (overlay) overlay.addEventListener("click", close);
+  document.addEventListener("keydown", function(e){ if (e.key==="Escape") close(); });
+})();
+</script>
 {{end}}
