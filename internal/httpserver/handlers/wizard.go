@@ -37,6 +37,11 @@ type Wizard struct {
 	// their public domain immediately, without manually adding a host.
 	ResyncNode func(ctx context.Context, nodeID int64) error
 
+	// OnDBReady fires the moment the pool is connected (boot or mid-wizard) so
+	// services wired with a nil pool at startup get the live DB synchronously,
+	// before the operator reaches later steps (e.g. the Caddy self-bootstrap push).
+	OnDBReady func(*sql.DB)
+
 	mu sync.Mutex
 	db *sql.DB // opened after DB step
 }
@@ -67,6 +72,9 @@ func (w *Wizard) Connect(ctx context.Context) error {
 	w.mu.Lock()
 	w.db = db
 	w.mu.Unlock()
+	if w.OnDBReady != nil {
+		w.OnDBReady(db)
+	}
 	return nil
 }
 
@@ -397,6 +405,11 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 	}
 	w.db = pool
 	w.mu.Unlock()
+	// Push the live pool into services wired with nil at startup, now - before
+	// the operator advances to the Caddy step that needs routesSvc.DB.
+	if w.OnDBReady != nil {
+		w.OnDBReady(pool)
+	}
 
 	s := w.State.Get()
 	s.DB = &dbState
@@ -745,10 +758,21 @@ func (w *Wizard) CaddySubmit(rw http.ResponseWriter, r *http.Request) {
 	// drift reconciler will catch up within a few minutes.
 	if w.ResyncNode != nil && newNodeID > 0 {
 		pushCtx, pushCancel := context.WithTimeout(r.Context(), 10*time.Second)
-		if perr := w.ResyncNode(pushCtx, newNodeID); perr != nil {
-			w.Logger.Warn("wizard: initial caddy push failed (will retry via drift reconciler)",
-				"node_id", newNodeID, "err", perr)
-		}
+		// Recover too: a panic in the push (e.g. routes.Service not fully wired
+		// mid-install) must not abort install completion - the drift reconciler
+		// retries once the app is fully up.
+		func() {
+			defer func() {
+				if rec := recover(); rec != nil {
+					w.Logger.Warn("wizard: initial caddy push panicked (will retry via drift reconciler)",
+						"node_id", newNodeID, "panic", rec)
+				}
+			}()
+			if perr := w.ResyncNode(pushCtx, newNodeID); perr != nil {
+				w.Logger.Warn("wizard: initial caddy push failed (will retry via drift reconciler)",
+					"node_id", newNodeID, "err", perr)
+			}
+		}()
 		pushCancel()
 	}
 

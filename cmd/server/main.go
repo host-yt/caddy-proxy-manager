@@ -185,28 +185,23 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		// Env: ACCESS_LOG_URL (e.g. "http://app:8080/internal/access-log").
 		AccessLogURL: os.Getenv("ACCESS_LOG_URL"),
 	}
-	// bindDBWhenReady binds the live pool once, then returns. Stops on
-	// shutdown instead of spinning forever (old loops ignored rootCtx).
+	// bindDBWhenReady binds the live pool to a service. If the pool already
+	// exists (already-installed boot) it binds now; otherwise it queues the
+	// binder and the wizard fires it synchronously the moment it connects the
+	// pool mid-install (OnDBReady) - a poll would race a fast install and leave
+	// e.g. routesSvc.DB nil when the Caddy step pushes config.
+	var dbBinders []func(*sql.DB)
 	bindDBWhenReady := func(assign func(*sql.DB)) {
 		if db := wizard.DB(); db != nil {
 			assign(db)
 			return
 		}
-		go func() {
-			t := time.NewTicker(time.Second)
-			defer t.Stop()
-			for {
-				select {
-				case <-rootCtx.Done():
-					return
-				case <-t.C:
-					if db := wizard.DB(); db != nil {
-						assign(db)
-						return
-					}
-				}
-			}
-		}()
+		dbBinders = append(dbBinders, assign)
+	}
+	wizard.OnDBReady = func(db *sql.DB) {
+		for _, b := range dbBinders {
+			b(db)
+		}
 	}
 
 	// If DB wasn't ready at boot, swap it in once available.
