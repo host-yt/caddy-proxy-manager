@@ -155,6 +155,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"tunnels":            {{Label: "Traffic", URL: ""}, {Label: "Tunnels (WG)", URL: ""}},
 	"tunnel_detail":      {{Label: "Traffic", URL: ""}, {Label: "Tunnels (WG)", URL: "/admin/tunnels"}, {Label: "Tunnel", URL: ""}},
 	"certs":              {{Label: "Traffic", URL: ""}, {Label: "Certificates", URL: ""}},
+	"manual_certs":       {{Label: "Traffic", URL: ""}, {Label: "Manual Certificates", URL: ""}},
 	"nodes":              {{Label: "Fleet", URL: ""}, {Label: "Caddy nodes", URL: ""}},
 	"node_detail":        {{Label: "Fleet", URL: ""}, {Label: "Caddy nodes", URL: "/admin/nodes"}, {Label: "Node", URL: ""}},
 	"clients":            {{Label: "Customers", URL: ""}, {Label: "Clients", URL: ""}},
