@@ -560,15 +560,20 @@ func (s *Server) routes() {
 		r.Group(func(r chi.Router) {
 			r.Use(mw.APIKeyAuth(s.deps.Wizard.DB))
 			r.Use(mw.APIQuota(s.deps.RDB, s.deps.Wizard.DB))
+			// Idempotency replay for POST provisioning calls.
+			r.Use(mw.Idempotency(s.deps.Wizard.DB))
 			r.Route("/services", func(r chi.Router) {
+				r.Get("/", s.deps.API.ServicesList)
 				r.Post("/", s.deps.API.ServiceCreate)
 				r.Get("/{id}", s.deps.API.ServiceGet)
 				r.Patch("/{id}", s.deps.API.ServiceUpdate)
+				r.Delete("/{id}", s.deps.API.ServiceDelete)
 				r.Post("/{id}/ports", s.deps.API.ServicePorts)
 				r.Get("/{id}/routes", s.deps.API.ServiceRoutes)
 			})
 			r.Route("/routes", func(r chi.Router) {
 				r.Post("/", s.deps.API.RouteCreate)
+				r.Get("/{id}", s.deps.API.RouteGet)
 				r.Delete("/{id}", s.deps.API.RouteDelete)
 				r.Post("/{id}/verify-dns", s.deps.API.RouteVerifyDNS)
 				r.Post("/{id}/retry-ssl", s.deps.API.RouteRetrySSL)
@@ -577,6 +582,27 @@ func (s *Server) routes() {
 				r.Get("/", s.deps.API.NodesList)
 				r.Post("/", s.deps.API.NodeCreate)
 				r.Post("/{id}/resync", s.deps.API.NodeResync)
+			})
+			r.Route("/node-pools", func(r chi.Router) {
+				r.Get("/", s.deps.API.NodePoolsList)
+				r.Post("/", s.deps.API.NodePoolCreate)
+				r.Get("/{id}", s.deps.API.NodePoolGet)
+				r.Patch("/{id}", s.deps.API.NodePoolUpdate)
+				r.Delete("/{id}", s.deps.API.NodePoolDelete)
+			})
+			r.Route("/plans", func(r chi.Router) {
+				r.Get("/", s.deps.API.PlansList)
+				r.Post("/", s.deps.API.PlanCreate)
+				r.Get("/{id}", s.deps.API.PlanGet)
+				r.Patch("/{id}", s.deps.API.PlanUpdate)
+				r.Delete("/{id}", s.deps.API.PlanDelete)
+			})
+			r.Route("/clients", func(r chi.Router) {
+				r.Get("/", s.deps.API.ClientsList)
+				r.Post("/", s.deps.API.ClientCreate)
+				r.Get("/{id}", s.deps.API.ClientGet)
+				r.Patch("/{id}", s.deps.API.ClientUpdate)
+				r.Delete("/{id}", s.deps.API.ClientDelete)
 			})
 			if s.deps.FOSSBilling != nil {
 				r.Route("/provisioning", func(r chi.Router) {
