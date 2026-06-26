@@ -33,6 +33,7 @@
     <button type="button" data-tab="lb"      class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Load balancing</button>
     <button type="button" data-tab="ratelimit" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Rate limit</button>
     <button type="button" data-tab="waf"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">WAF</button>
+    <button type="button" data-tab="geo"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Geo</button>
     <button type="button" data-tab="access"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Access list</button>
     <button type="button" data-tab="sso"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">SSO</button>
     <button type="button" data-tab="portal"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Portal</button>
@@ -595,6 +596,26 @@ X-Authentik-Meta-Version</pre>
           <span class="text-[11px] text-slate-500">Applied before the CRS include. 16 KiB max. Start in detection-only and watch logs before enabling blocking.</span>
         </label>
       </div>
+    </section>
+
+    <!-- Geo blocking -->
+    <section data-pane="geo" class="hpg-pane hidden hpg-card space-y-4">
+      {{if not .GeoModuleAvailable}}
+      <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 text-xs text-amber-800 dark:text-amber-300">
+        <strong>Module not available.</strong> Needs Caddy built with the maxmind geolocation module + <code>GEOIP_AVAILABLE=1</code>. Saving works, but no geo rule is pushed until the gate is on fleet-wide.
+      </div>
+      {{end}}
+      <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Mode</span>
+        <select name="geo_mode" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <option value="off"   {{if eq .GeoMode "off"}}selected{{end}}>Off (no geo rule)</option>
+          <option value="allow" {{if eq .GeoMode "allow"}}selected{{end}}>Allow only listed countries</option>
+          <option value="deny"  {{if eq .GeoMode "deny"}}selected{{end}}>Deny listed countries</option>
+        </select>
+      </label>
+      <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Countries</span>
+        <input type="text" name="geo_countries" value="{{.GeoCountries}}" placeholder="PL,DE,US" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+        <span class="text-[11px] text-slate-500">Comma-separated ISO country codes (alpha-2). Blocked requests get 403 before reaching the upstream.</span>
+      </label>
     </section>
 
     <!-- Custom JSON -->
