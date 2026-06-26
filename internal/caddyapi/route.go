@@ -194,9 +194,10 @@ type Route struct {
 
 // Upstream is one backend dial target plus its weighted-LB weight.
 type Upstream struct {
-	Host   string
-	Port   int
-	Weight int // only consumed by weighted_round_robin
+	Host        string
+	Port        int
+	Weight      int // only consumed by weighted_round_robin
+	MaxRequests int // Caddy max_requests per upstream (0 = unlimited)
 }
 
 // LocationRule is a first-class path override inside one host route.
@@ -341,7 +342,12 @@ func BuildRoute(r Route) map[string]any {
 			// significant: weighted_round_robin weights map 1:1 positionally.
 			ups := make([]any, 0, len(r.Upstreams))
 			for _, u := range r.Upstreams {
-				ups = append(ups, map[string]any{"dial": dial(u.Host, u.Port)})
+				ue := map[string]any{"dial": dial(u.Host, u.Port)}
+				// max_requests caps concurrent upstream connections (0 = omit = unlimited).
+				if u.MaxRequests > 0 {
+					ue["max_requests"] = u.MaxRequests
+				}
+				ups = append(ups, ue)
 			}
 			primary["upstreams"] = ups
 		} else {

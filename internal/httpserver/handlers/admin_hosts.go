@@ -1188,9 +1188,11 @@ func (h *AdminHandlers) CertsList(w http.ResponseWriter, r *http.Request) {
 
 // upstreamRow is one additional backend in the host-edit "Load balancing" tab.
 type upstreamRow struct {
-	Host   string
-	Port   int
-	Weight int
+	Host        string
+	Port        int
+	Weight      int
+	MaxRequests int  // Caddy upstream max concurrent requests (0 = unlimited)
+	Enabled     bool // soft-disable without removing from pool
 }
 
 type locationRuleRow struct {
@@ -1444,10 +1446,11 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	// Additional backends for the Load balancing tab (best-effort).
 	if urows, uerr := db.QueryContext(ctx,
-		`SELECT host, port, weight FROM route_upstreams WHERE route_id = ? ORDER BY sort_order ASC, id ASC`, id); uerr == nil {
+		`SELECT host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1)
+		   FROM route_upstreams WHERE route_id = ? ORDER BY sort_order ASC, id ASC`, id); uerr == nil {
 		for urows.Next() {
 			var ur upstreamRow
-			if urows.Scan(&ur.Host, &ur.Port, &ur.Weight) == nil {
+			if urows.Scan(&ur.Host, &ur.Port, &ur.Weight, &ur.MaxRequests, &ur.Enabled) == nil {
 				d.Upstreams = append(d.Upstreams, ur)
 			}
 		}
@@ -1644,6 +1647,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	upHosts := r.Form["upstream_host[]"]
 	upPorts := r.Form["upstream_port[]"]
 	upWeights := r.Form["upstream_weight[]"]
+	upMaxReqs := r.Form["upstream_max_requests[]"]
+	upEnabled := r.Form["upstream_enabled[]"] // checkbox: present = enabled
 	var newUpstreams []upstreamRow
 	for i := range upHosts {
 		host := strings.TrimSpace(upHosts[i])
@@ -1661,7 +1666,16 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		if i < len(upWeights) {
 			weight = clampInt(atoiDefault(upWeights[i], 1), 1, 100)
 		}
-		newUpstreams = append(newUpstreams, upstreamRow{Host: host, Port: port, Weight: weight})
+		maxReq := 0
+		if i < len(upMaxReqs) {
+			maxReq = clampInt(atoiDefault(upMaxReqs[i], 0), 0, 100000)
+		}
+		// Checkboxes only submit when ticked; presence of index in enabled slice signals enabled.
+		enabled := true
+		if i < len(upEnabled) {
+			enabled = upEnabled[i] == "1"
+		}
+		newUpstreams = append(newUpstreams, upstreamRow{Host: host, Port: port, Weight: weight, MaxRequests: maxReq, Enabled: enabled})
 	}
 	newLocationRules, locErr := sanitizeLocationRules(r.Form)
 	if locErr != nil {
@@ -2276,9 +2290,13 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		_, e1 := tx.ExecContext(ctx, `DELETE FROM route_upstreams WHERE route_id = ?`, id)
 		var e2 error
 		for i, u := range newUpstreams {
+			enInt := 0
+			if u.Enabled {
+				enInt = 1
+			}
 			if _, e2 = tx.ExecContext(ctx,
-				`INSERT INTO route_upstreams (route_id, host, port, weight, sort_order) VALUES (?, ?, ?, ?, ?)`,
-				id, u.Host, u.Port, u.Weight, i); e2 != nil {
+				`INSERT INTO route_upstreams (route_id, host, port, weight, max_requests, enabled, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				id, u.Host, u.Port, u.Weight, u.MaxRequests, enInt, i); e2 != nil {
 				break
 			}
 		}

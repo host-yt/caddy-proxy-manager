@@ -474,15 +474,21 @@ X-Authentik-Meta-Version</pre>
         <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">The primary backend (Target tab) is always upstream #1. Add more here to load-balance across a pool. Ignored for External and WG-tunnel routes.</p>
         <div id="hpg-upstreams" class="space-y-2">
           {{range .Upstreams}}
-          <div class="hpg-upstream-row flex items-center gap-2">
-            <input type="text" name="upstream_host[]" value="{{.Host}}" placeholder="10.0.0.6 or host.internal" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+          <div class="hpg-upstream-row flex flex-wrap items-center gap-2">
+            <input type="text" name="upstream_host[]" value="{{.Host}}" placeholder="10.0.0.6 or host.internal" class="flex-1 min-w-32 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
             <input type="number" name="upstream_port[]" value="{{.Port}}" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
             <input type="number" name="upstream_weight[]" value="{{.Weight}}" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-            <button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700">remove</button>
+            <input type="number" name="upstream_max_requests[]" value="{{.MaxRequests}}" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+            <input type="hidden" name="upstream_enabled[]" value="{{if .Enabled}}1{{else}}0{{end}}">
+            <label class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
+              <input type="checkbox" class="hpg-upstream-enabled" {{if .Enabled}}checked{{end}}> on
+            </label>
+            <button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>
           </div>
           {{end}}
         </div>
-        <button type="button" id="hpg-upstream-add" class="mt-2 text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800">+ Add backend</button>
+        <button type="button" id="hpg-upstream-add" class="mt-2 text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">+ Add backend</button>
+        <p class="text-[11px] text-slate-400 mt-1">host - port - weight - max req (0=unlimited) - on/off</p>
       </div>
       <div class="grid grid-cols-2 gap-3 text-sm">
         <label class="block">
@@ -734,12 +740,15 @@ X-Authentik-Meta-Version</pre>
     var upAdd  = document.getElementById('hpg-upstream-add');
     function upRow(){
       var div = document.createElement('div');
-      div.className = 'hpg-upstream-row flex items-center gap-2';
+      div.className = 'hpg-upstream-row flex flex-wrap items-center gap-2';
       div.innerHTML =
-        '<input type="text" name="upstream_host[]" placeholder="10.0.0.6 or host.internal" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+        '<input type="text" name="upstream_host[]" placeholder="10.0.0.6 or host.internal" class="flex-1 min-w-32 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
         '<input type="number" name="upstream_port[]" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
         '<input type="number" name="upstream_weight[]" value="1" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
-        '<button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700">remove</button>';
+        '<input type="number" name="upstream_max_requests[]" value="0" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+        '<input type="hidden" name="upstream_enabled[]" value="1">' +
+        '<label class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer"><input type="checkbox" class="hpg-upstream-enabled" checked> on</label>' +
+        '<button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>';
       return div;
     }
     if (upAdd && upWrap) upAdd.addEventListener('click', function(){ upWrap.appendChild(upRow()); });
@@ -747,6 +756,15 @@ X-Authentik-Meta-Version</pre>
       if (e.target && e.target.classList.contains('hpg-upstream-del')) {
         var row = e.target.closest('.hpg-upstream-row');
         if (row) row.remove();
+      }
+    });
+    // Sync enabled checkbox -> hidden input for each upstream row.
+    if (upWrap) upWrap.addEventListener('change', function(e){
+      if (e.target && e.target.classList.contains('hpg-upstream-enabled')) {
+        var row = e.target.closest('.hpg-upstream-row');
+        if (!row) return;
+        var hidden = row.querySelector('input[name="upstream_enabled[]"]');
+        if (hidden) hidden.value = e.target.checked ? '1' : '0';
       }
     });
 

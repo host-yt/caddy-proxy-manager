@@ -1973,7 +1973,7 @@ func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Rou
 		args[i] = id
 	}
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT route_id, host, port, weight FROM route_upstreams
+		`SELECT route_id, host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1) FROM route_upstreams
 		 WHERE route_id IN (`+strings.Join(ph, ",")+`)
 		 ORDER BY route_id, sort_order ASC, id ASC`, args...)
 	if err != nil {
@@ -1986,12 +1986,19 @@ func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Rou
 	for rows.Next() {
 		var rid int64
 		var host string
-		var port, weight int
-		if err := rows.Scan(&rid, &host, &port, &weight); err != nil {
+		var port, weight, maxReq int
+		var enabled bool
+		if err := rows.Scan(&rid, &host, &port, &weight, &maxReq, &enabled); err != nil {
+			continue
+		}
+		// Soft-disabled upstreams are excluded from the emitted pool.
+		if !enabled {
 			continue
 		}
 		if i, ok := idx[rid]; ok {
-			built[i].Upstreams = append(built[i].Upstreams, caddyapi.Upstream{Host: host, Port: port, Weight: weight})
+			built[i].Upstreams = append(built[i].Upstreams, caddyapi.Upstream{
+				Host: host, Port: port, Weight: weight, MaxRequests: maxReq,
+			})
 		}
 	}
 }
