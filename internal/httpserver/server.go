@@ -292,6 +292,9 @@ func (s *Server) routes() {
 		r.Get("/waf", s.deps.Admin.WafEvents)
 		r.Get("/waf.json", s.deps.Admin.WafEventsJSON)
 		r.Get("/waf/export", s.deps.Admin.WafEventsExport)
+		r.Post("/waf/suppress", s.deps.Admin.WAFSuppressRule)
+		r.Post("/waf/suppressions/{id}/delete", s.deps.Admin.WAFDeleteSuppression)
+		r.Post("/waf/events/{id}/ack", s.deps.Admin.WAFAckEvent)
 		r.Route("/streams", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.StreamsList)
 			r.Post("/new", s.deps.Admin.StreamsCreate)

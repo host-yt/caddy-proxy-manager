@@ -45,12 +45,17 @@
   {{if .Error}}
   <div class="hpg-alert-err text-sm">{{.Error}}</div>
   {{end}}
+  {{if .Flash}}
+  <div class="hpg-alert-ok text-sm">{{.Flash}}</div>
+  {{end}}
 
   <!-- Summary chips -->
   {{if .Entries}}
   <div class="flex flex-wrap gap-2">
-    {{range .Entries}}{{end}}<!-- count computed by JS below -->
     <span id="waf-chip-total" class="hpg-pill hpg-pill-muted">{{len .Entries}} shown</span>
+    {{if .Suppressions}}
+    <span class="hpg-pill hpg-pill-muted">{{len .Suppressions}} active suppression{{if gt (len .Suppressions) 1}}s{{end}}</span>
+    {{end}}
   </div>
   {{end}}
 
@@ -134,6 +139,7 @@
   </div>
   {{end}}
 
+  <!-- Events table -->
   <section class="hpg-card !p-0 overflow-hidden">
     <div class="overflow-x-auto">
       <table class="w-full text-sm">
@@ -147,11 +153,13 @@
             <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Host</th>
             <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">URI</th>
             <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Message</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Status</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
           {{range .Entries}}
-          <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
+          <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors{{if .Suppressed}} opacity-50{{end}}">
             <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono">{{.TS.Format "2006-01-02 15:04:05"}}</td>
             <td class="px-4 py-2">
               <span class="inline-block px-1.5 py-0.5 rounded text-xs font-semibold
@@ -174,6 +182,43 @@
             <td class="px-4 py-2 font-mono text-xs text-slate-600 dark:text-slate-300 max-w-[10rem] truncate" title="{{.Host}}">{{.Host}}</td>
             <td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate" title="{{.URI}}">{{.URI}}</td>
             <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate" title="{{.Message}}">{{.Message}}</td>
+            <td class="px-4 py-2 whitespace-nowrap">
+              {{if .Suppressed}}
+              <span class="hpg-pill hpg-pill-muted text-xs">suppressed</span>
+              {{else if .AcknowledgedAt.Valid}}
+              <span class="hpg-pill hpg-pill-muted text-xs">acked</span>
+              {{end}}
+            </td>
+            <td class="px-4 py-2 whitespace-nowrap">
+              <div class="flex items-center gap-2">
+                {{if not .AcknowledgedAt.Valid}}
+                <!-- Acknowledge event -->
+                <form method="POST" action="/admin/waf/events/{{.ID}}/ack" class="inline">
+                  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                  <button type="submit" title="Acknowledge"
+                    class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors text-slate-600 dark:text-slate-300">
+                    <!-- Check icon -->
+                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    Ack
+                  </button>
+                </form>
+                {{end}}
+                {{if not .Suppressed}}
+                <!-- Suppress this rule (opens inline form) -->
+                <button type="button" title="Suppress rule"
+                  onclick="wafShowSuppress('{{.RuleID}}', {{if .RouteID.Valid}}{{.RouteID.Int64}}{{else}}0{{end}})"
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs ring-1 ring-amber-200 dark:ring-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer transition-colors text-amber-700 dark:text-amber-400">
+                  <!-- Ban icon -->
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+                  </svg>
+                  Suppress
+                </button>
+                {{end}}
+              </div>
+            </td>
           </tr>
           {{end}}
         </tbody>
@@ -186,6 +231,108 @@
     </div>
     {{end}}
   </section>
+
+  <!-- Active suppressions -->
+  {{if .Suppressions}}
+  <section class="hpg-card space-y-3">
+    <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+      <!-- Ban icon -->
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+      </svg>
+      Active rule suppressions
+    </h3>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs">
+        <thead>
+          <tr class="border-b border-slate-100 dark:border-zinc-800 text-left">
+            <th class="px-3 py-2 font-medium text-slate-500 dark:text-slate-400">Rule ID</th>
+            <th class="px-3 py-2 font-medium text-slate-500 dark:text-slate-400">Scope</th>
+            <th class="px-3 py-2 font-medium text-slate-500 dark:text-slate-400">Reason</th>
+            <th class="px-3 py-2 font-medium text-slate-500 dark:text-slate-400">Expires</th>
+            <th class="px-3 py-2 font-medium text-slate-500 dark:text-slate-400">Created</th>
+            <th class="px-3 py-2 font-medium text-slate-500 dark:text-slate-400"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+          {{range .Suppressions}}
+          <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
+            <td class="px-3 py-2 font-mono text-slate-700 dark:text-slate-300 max-w-[12rem] truncate" title="{{.RuleID}}">{{.RuleID}}</td>
+            <td class="px-3 py-2 text-slate-500 dark:text-slate-400">
+              {{if .RouteID.Valid}}route {{.RouteID.Int64}}{{else}}<span class="hpg-pill hpg-pill-muted">global</span>{{end}}
+            </td>
+            <td class="px-3 py-2 text-slate-500 dark:text-slate-400 max-w-xs truncate" title="{{.Reason}}">{{if .Reason}}{{.Reason}}{{else}}-{{end}}</td>
+            <td class="px-3 py-2 text-slate-500 dark:text-slate-400 whitespace-nowrap">
+              {{if .ExpiresAt.Valid}}{{.ExpiresAt.Time.Format "2006-01-02"}}{{else}}permanent{{end}}
+            </td>
+            <td class="px-3 py-2 text-slate-400 whitespace-nowrap font-mono">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td class="px-3 py-2">
+              <form method="POST" action="/admin/waf/suppressions/{{.ID}}/delete" class="inline">
+                <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                {{if .RouteID.Valid}}<input type="hidden" name="route_id" value="{{.RouteID.Int64}}">{{end}}
+                <button type="submit"
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs ring-1 ring-rose-200 dark:ring-rose-700 hover:bg-rose-50 dark:hover:bg-rose-900/20 cursor-pointer transition-colors text-rose-600 dark:text-rose-400"
+                  onclick="return confirm('Delete this suppression?')">
+                  <!-- Trash icon -->
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+                  </svg>
+                  Delete
+                </button>
+              </form>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {{end}}
+
+  <!-- Suppress rule modal (shown via JS) -->
+  <div id="waf-suppress-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl ring-1 ring-slate-200 dark:ring-zinc-700 p-6 w-full max-w-md space-y-4">
+      <h3 class="text-sm font-semibold text-slate-800 dark:text-slate-200 flex items-center gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
+        </svg>
+        Suppress WAF rule
+      </h3>
+      <form method="POST" action="/admin/waf/suppress" class="space-y-3">
+        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Rule ID</label>
+          <input type="text" name="rule_id" id="waf-suppress-rule-id" required
+            class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:ring-indigo-400 transition-colors">
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Route ID (leave blank for global)</label>
+          <input type="number" name="route_id" id="waf-suppress-route-id" min="0"
+            class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 font-mono focus:outline-none focus:ring-indigo-400 transition-colors">
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Reason</label>
+          <input type="text" name="reason" maxlength="255" placeholder="False positive - internal scanner"
+            class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+        </div>
+        <div class="flex flex-col gap-1">
+          <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Expires (blank = permanent)</label>
+          <input type="date" name="expires_at"
+            class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+        </div>
+        <div class="flex justify-end gap-2 pt-1">
+          <button type="button" onclick="wafHideSuppress()"
+            class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors">
+            Cancel
+          </button>
+          <button type="submit"
+            class="px-3 py-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white text-xs font-medium cursor-pointer transition-colors">
+            Suppress rule
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -210,5 +357,19 @@
   });
   document.addEventListener('click', function(){ menu.classList.add('hidden'); });
 })();
+
+function wafShowSuppress(ruleID, routeID) {
+  document.getElementById('waf-suppress-rule-id').value = ruleID;
+  var rid = document.getElementById('waf-suppress-route-id');
+  rid.value = routeID > 0 ? routeID : '';
+  document.getElementById('waf-suppress-modal').classList.remove('hidden');
+}
+function wafHideSuppress() {
+  document.getElementById('waf-suppress-modal').classList.add('hidden');
+}
+// Close modal on backdrop click.
+document.getElementById('waf-suppress-modal').addEventListener('click', function(e){
+  if (e.target === this) { wafHideSuppress(); }
+});
 </script>
 {{end}}
