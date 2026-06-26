@@ -140,6 +140,44 @@ services:
       # (host-gateway points at 172.17.0.1 which a user bridge can't route to).
       - "host.docker.internal:172.18.0.1"
 
+  # Node-agent for the CENTRAL host: tails Caddy's access log and forwards
+  # it to the panel (so the access-log dashboard fills in), and runs the
+  # customer-tunnel WireGuard (wg-tun0). Without this service the access-log
+  # file is written but nobody ships it - dashboard stays empty.
+  # Needs a one-shot node token + WG key from the panel tunnel-enable flash.
+  hpg-node-agent:
+    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:latest}
+    pull_policy: ${IMAGE_PULL_POLICY:-always}
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      HPG_PANEL_URL: ${APP_URL}
+      HPG_NODE_TOKEN: ${HPG_NODE_TOKEN}
+      HPG_WG_PRIVATE_KEY: ${HPG_WG_PRIVATE_KEY}
+      HPG_WG_GATEWAY_IP: ${HPG_WG_GATEWAY_IP:-100.96.0.1/16}
+      HPG_WG_LISTEN_PORT: ${HPG_WG_LISTEN_PORT:-51821}
+      HPG_WG_INTERFACE: ${HPG_WG_INTERFACE:-wg-tun0}
+      HPG_POLL_INTERVAL: ${HPG_POLL_INTERVAL:-30s}
+      HPG_TUNNEL_TRANSPORT: ${HPG_TUNNEL_TRANSPORT:-auto}
+      HPG_WSTUNNEL_PORT: ${HPG_WSTUNNEL_PORT:-51823}
+      HPG_CADDY_ACCESS_LOG: /var/log/caddy/access.log
+    volumes:
+      # Same named volume caddy writes to; agent reads it (:ro).
+      - caddy_logs:/var/log/caddy:ro
+    healthcheck:
+      test: ["CMD", "pgrep", "hpg-node-agent"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    profiles:
+      # Skipped by default (needs node token); enable with:
+      # `docker compose --profile node up -d` after the panel tunnel flash.
+      - node
+
   # WireGuard sidecar - brings up wg0 on the manager host from the
   # config file the app writes into the shared volume. Auto-applies
   # changes (peer add/remove) via `wg syncconf` every 10 s.
