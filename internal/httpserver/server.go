@@ -47,7 +47,10 @@ type Deps struct {
 	// the binary is self-contained (works regardless of CWD). nil falls back
 	// to reading web/static from disk.
 	StaticFS fs.FS
-	DB       func() *http.Request // unused; kept type-compatible if needed
+	// WorldSVGSubFS is the sub-FS rooted at web/static/ used to load the
+	// world map SVG for inline embedding (bypasses object-src CSP block).
+	WorldSVGSubFS fs.FS
+	DB            func() *http.Request // unused; kept type-compatible if needed
 	// StatusPage serves the public per-client status page (no auth).
 	StatusPage *handlers.StatusPageHandlers
 	// FOSSBilling drives the /api/v1/provisioning/* endpoints called by FOSSBilling.
@@ -92,6 +95,12 @@ func (s *Server) admin2FARequired() bool {
 }
 
 func (s *Server) routes() {
+	// Wire the world SVG FS so the worldmap handler can inline the SVG.
+	// Must happen before any request; routes() is called from New() at startup.
+	if s.deps.WorldSVGSubFS != nil {
+		handlers.WorldSVGFS = s.deps.WorldSVGSubFS
+	}
+
 	r := s.mux
 
 	r.Use(chimw.RequestID)
@@ -264,6 +273,7 @@ func (s *Server) routes() {
 		r.Use(mw.RequireRole("super_admin", "admin", "support"))
 		r.Use(mw.ReadOnlyRoleAllowList("support", []string{
 			"/admin/map",
+			"/admin/worldmap",
 			"/admin/tunnels",
 			"/admin/tunnels/*/bandwidth.json",
 			"/admin/hosts/*/logs",
@@ -286,6 +296,7 @@ func (s *Server) routes() {
 		r.Get("/2fa/required", s.deps.Admin.TwoFARequired)
 		r.Get("/", s.deps.Admin.Dashboard)
 		r.Get("/map", s.deps.Admin.AdminMap)
+		r.Get("/worldmap", s.deps.Admin.AdminWorldMap)
 		r.Get("/stats", s.deps.Admin.Stats)
 		// Deployment mode (install profile). View is read-only for any admin;
 		// the POST handler enforces super_admin internally.
@@ -518,6 +529,7 @@ func (s *Server) routes() {
 	r.Route("/app", func(r chi.Router) {
 		r.Use(mw.RequireRole("client"))
 		r.Get("/", s.deps.Client.Dashboard)
+		r.Get("/worldmap", s.deps.Client.ClientWorldMap)
 		r.Get("/services", s.deps.Client.Services)
 		r.Post("/services/{id}/edit", s.deps.Client.ServiceEdit)
 		r.Route("/routes", func(r chi.Router) {

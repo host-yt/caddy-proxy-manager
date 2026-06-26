@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -660,6 +661,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Health:          health,
 		RDB:             rdb,
 		StaticFS:        proxygateway.StaticFS,
+		WorldSVGSubFS:   mustSubFS(proxygateway.StaticFS, "web/static"),
 		StatusPage:      statusPageH,
 		AccessLogIngest: alIngest,
 		FOSSBilling: &handlers.FOSSBillingHandlers{
@@ -866,4 +868,14 @@ func newLogger(level string) *slog.Logger {
 		lvl = slog.LevelInfo
 	}
 	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl}))
+}
+
+// mustSubFS returns a sub-FS rooted at dir, panicking on error.
+// Used at startup only; a bad embedded FS is a programming error.
+func mustSubFS(fsys fs.FS, dir string) fs.FS {
+	sub, err := fs.Sub(fsys, dir)
+	if err != nil {
+		panic("mustSubFS: " + err.Error())
+	}
+	return sub
 }

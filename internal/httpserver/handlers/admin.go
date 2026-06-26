@@ -182,6 +182,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"twofa":              {{Label: "System", URL: ""}, {Label: "Account", URL: "/admin/account"}, {Label: "Two-factor auth", URL: ""}},
 	"admin_account":      {{Label: "System", URL: ""}, {Label: "Account", URL: ""}},
 	"npm_import":         {{Label: "Tools", URL: ""}, {Label: "NPM import", URL: ""}},
+	"worldmap":           {{Label: "Fleet", URL: ""}, {Label: "World map", URL: ""}},
 }
 
 func (h *AdminHandlers) base(r *http.Request, title string) baseAdminData {
