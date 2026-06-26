@@ -68,6 +68,10 @@ type Service struct {
 	WAFModuleAvailable       bool
 	DNS01ModuleAvailable     bool
 
+	// GeoModuleAvailable gates per-route geo blocking (caddy-maxmind-geolocation).
+	// Env GEOIP_AVAILABLE=1; same never-flip-early footgun as WAF/DNS01.
+	GeoModuleAvailable bool
+
 	// PanelPublicHost / PanelInternalHost / PanelInternalPort drive the
 	// self-bootstrap route prepended to every node's Caddy config. When
 	// PanelPublicHost is empty the bootstrap route is skipped (e.g. APP_URL
@@ -1356,6 +1360,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		Layer4ModuleAvailable:    s.Layer4ModuleAvailable,
 		RateLimitModuleAvailable: s.RateLimitModuleAvailable,
 		WAFModuleAvailable:       s.WAFModuleAvailable,
+		GeoModuleAvailable:       s.GeoModuleAvailable,
 		DNS01ModuleAvailable:     s.DNS01ModuleAvailable,
 		WildcardPolicies:         s.buildWildcardPolicies(ctx, nodeID),
 		StreamRoutes:             streams,
@@ -1450,6 +1455,7 @@ func (s *Service) buildOneRoute(ctx context.Context, nodeID, routeID int64) (cad
 			r.CacheModuleAvailable = s.CacheModuleAvailable
 			r.RateLimitModuleAvailable = s.RateLimitModuleAvailable
 			r.WAFModuleAvailable = s.WAFModuleAvailable
+			r.GeoModuleAvailable = s.GeoModuleAvailable
 			return r, true, nil
 		}
 	}
@@ -1678,6 +1684,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.health_passive_enabled,0), COALESCE(r.health_passive_fail_dur,30), COALESCE(r.health_passive_max_fail,3),
 	        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,''),
 	        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
+	        COALESCE(r.geo_mode,'off'), COALESCE(r.geo_countries,''),
 	        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
 	        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
 	        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
@@ -1755,6 +1762,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var rateMaxEvents int
 		var wafEnabled, wafBlocking bool
 		var wafDirectives string
+		var geoMode, geoCountries string
 		var errOverride bool
 		var errHTML, errLogo, errBrand, errBg string
 		var outboundIPMode, outboundIP string
@@ -1777,6 +1785,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&hPassiveEnabled, &hPassiveFailDur, &hPassiveMaxFail,
 			&rateEnabled, &rateWindow, &rateMaxEvents, &rateKey,
 			&wafEnabled, &wafBlocking, &wafDirectives,
+			&geoMode, &geoCountries,
 			&errOverride, &errHTML, &errLogo, &errBrand, &errBg,
 			&outboundIPMode, &outboundIP, &planAllowEgress); err != nil {
 			return nil, nil, err
@@ -1961,6 +1970,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			WAFBlocking:              wafBlocking,
 			WAFDirectives:            wafDirectives,
 			WAFModuleAvailable:       s.WAFModuleAvailable,
+			GeoMode:                  geoMode,
+			GeoCountries:             geoCountries,
+			GeoModuleAvailable:       s.GeoModuleAvailable,
 
 			// Per-route error/maintenance page override (else node-wide branding).
 			CustomErrorOverride: errOverride,

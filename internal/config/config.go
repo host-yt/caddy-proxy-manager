@@ -91,6 +91,10 @@ type CaddyConfig struct {
 	// DNS01Available gates wildcard DNS-01 automation policies (caddy-dns).
 	// Env: DNS01_AVAILABLE=1. Needs the xcaddy DNS provider module on every node.
 	DNS01Available bool
+	// GeoIPAvailable gates the per-route geoip2 country matcher + geo blocking
+	// handler. Env: GEOIP_AVAILABLE=1. Needs the maxmind/caddy-maxmind-geolocation
+	// module on every node, else stock Caddy rejects the entire /load.
+	GeoIPAvailable bool
 }
 
 type SMTPConfig struct {
@@ -189,6 +193,7 @@ func Load() (*Config, error) {
 			RateLimitAvailable:    envBool("RATE_LIMIT_AVAILABLE", false),
 			WAFModuleAvailable:    envBool("WAF_MODULE_AVAILABLE", false),
 			DNS01Available:        envBool("DNS01_AVAILABLE", false),
+			GeoIPAvailable:        envBool("GEOIP_AVAILABLE", false),
 		},
 		SMTP: SMTPConfig{
 			Host:       os.Getenv("SMTP_HOST"),

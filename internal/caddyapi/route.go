@@ -186,6 +186,15 @@ type Route struct {
 	WAFDirectives      string // extra SecLang appended after the core ruleset
 	WAFModuleAvailable bool
 
+	// Geo blocking (maxmind/caddy-maxmind-geolocation, non-stock). GeoMode is
+	// "off" | "allow" | "deny"; GeoCountries is a CSV of ISO alpha-2 codes.
+	// Emitted only when GeoMode!=off AND GeoCountries non-empty AND
+	// GeoModuleAvailable, else stock Caddy rejects the matcher and the node
+	// goes offline.
+	GeoMode            string
+	GeoCountries       string
+	GeoModuleAvailable bool
+
 	// OutboundIPMode: "default" = OS picks; "fixed"/"random" = bind transport
 	// local_addr to OutboundIP so the connection leaves via a specific NIC IP.
 	OutboundIPMode string
@@ -431,6 +440,12 @@ func BuildRoute(r Route) map[string]any {
 	}
 
 	handlers := []any{}
+	// Geo blocking (maxmind/caddy-maxmind-geolocation, non-stock). Emitted FIRST
+	// so a disallowed country gets 403 before reaching the upstream. Module-gated:
+	// without it stock Caddy rejects the unknown matcher and the node goes offline.
+	if geoH := buildGeoBlock(r); geoH != nil {
+		handlers = append(handlers, geoH)
+	}
 	// WAF (corazawaf/coraza-caddy, non-stock). Runs first so a malicious
 	// request is rejected before any other handler. Module-gated; without it
 	// stock Caddy rejects the unknown handler and the node goes offline.
@@ -1198,6 +1213,80 @@ func locationPathMatchers(path string) []string {
 // is chosen (Caddy then uses its random default). weighted_round_robin is
 // downgraded to round_robin when the module isn't guaranteed available so a
 // stock node never rejects the /load.
+// caddy-maxmind-geolocation module identifiers. DOUBLE-CHECK these field names
+// against the actual module before flipping GEOIP_AVAILABLE in prod: matcher name
+// "maxmind_geolocation", config keys "db_path" / "allow_countries" /
+// "deny_countries". Centralised so a rename is a one-line edit.
+const (
+	geoMatcherName = "maxmind_geolocation"
+	geoFieldDBPath = "db_path"
+	geoFieldAllow  = "allow_countries"
+	geoFieldDeny   = "deny_countries"
+	geoDBPath      = "/data/geoip/GeoLite2-Country.mmdb"
+)
+
+// buildGeoBlock returns a subroute handler that 403s requests from disallowed
+// countries, or nil when geo blocking is off / no countries / module absent.
+//
+// deny mode: matcher uses deny_countries=[list] (matches requests FROM those
+// countries) -> the matched request is the blocked one, so handle 403 directly.
+// allow mode: matcher uses allow_countries=[list] (matches requests FROM allowed
+// countries); wrap in `not` so the handler fires for the NON-allowed set -> 403.
+func buildGeoBlock(r Route) map[string]any {
+	mode := strings.ToLower(strings.TrimSpace(r.GeoMode))
+	if mode != "allow" && mode != "deny" {
+		return nil
+	}
+	if !r.GeoModuleAvailable {
+		return nil
+	}
+	var countries []string
+	for _, c := range strings.Split(r.GeoCountries, ",") {
+		if c = strings.ToUpper(strings.TrimSpace(c)); c != "" {
+			countries = append(countries, c)
+		}
+	}
+	if len(countries) == 0 {
+		return nil
+	}
+
+	deny403 := map[string]any{
+		"handler":     "static_response",
+		"status_code": 403,
+		"body":        "Forbidden\n",
+	}
+	var match map[string]any
+	if mode == "deny" {
+		// Matcher fires for the blocked countries -> abort directly.
+		match = map[string]any{
+			geoMatcherName: map[string]any{
+				geoFieldDBPath: geoDBPath,
+				geoFieldDeny:   countries,
+			},
+		}
+	} else {
+		// allow: matcher fires for allowed countries; negate so the handler
+		// runs for everyone else (and requests with no/unknown country).
+		match = map[string]any{
+			"not": []any{map[string]any{
+				geoMatcherName: map[string]any{
+					geoFieldDBPath: geoDBPath,
+					geoFieldAllow:  countries,
+				},
+			}},
+		}
+	}
+	// Subroute wrapper: the 403 short-circuits before any later handler/upstream.
+	return map[string]any{
+		"handler": "subroute",
+		"routes": []any{map[string]any{
+			"match":    []any{match},
+			"handle":   []any{deny403},
+			"terminal": true,
+		}},
+	}
+}
+
 func buildLoadBalancing(r Route) map[string]any {
 	policy := r.LBPolicy
 	if policy == "weighted_round_robin" && !r.WeightedLBAvailable {

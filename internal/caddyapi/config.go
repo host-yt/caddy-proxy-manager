@@ -43,6 +43,11 @@ type NodeSettings struct {
 	// WAF_MODULE_AVAILABLE=1. Non-stock (corazawaf/coraza-caddy).
 	WAFModuleAvailable bool
 
+	// GeoModuleAvailable gates the per-route maxmind_geolocation matcher + geo
+	// blocking. Env: GEOIP_AVAILABLE=1 (config.GeoIPAvailable). Non-stock
+	// (maxmind/caddy-maxmind-geolocation); stock Caddy rejects the whole /load.
+	GeoModuleAvailable bool
+
 	// DNS01ModuleAvailable gates emission of DNS-01 wildcard automation
 	// policies (the caddy-dns provider issuer). Stock Caddy rejects an
 	// unknown DNS provider module and fails the whole /load, same footgun as
@@ -135,6 +140,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		pr.CacheModuleAvailable = s.CacheModuleAvailable
 		pr.RateLimitModuleAvailable = s.RateLimitModuleAvailable
 		pr.WAFModuleAvailable = s.WAFModuleAvailable
+		pr.GeoModuleAvailable = s.GeoModuleAvailable
 		out = append(out, BuildRoute(pr))
 	}
 	if wr := s.WstunnelRoute; wr != nil && wr.Hostname != "" && wr.Port > 0 {
@@ -144,6 +150,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		r.CacheModuleAvailable = s.CacheModuleAvailable
 		r.RateLimitModuleAvailable = s.RateLimitModuleAvailable
 		r.WAFModuleAvailable = s.WAFModuleAvailable
+		r.GeoModuleAvailable = s.GeoModuleAvailable
 		out = append(out, BuildRoute(r))
 	}
 

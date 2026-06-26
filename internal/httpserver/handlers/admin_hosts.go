@@ -23,6 +23,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
+	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
@@ -1280,6 +1281,10 @@ type hostEditData struct {
 	WAFBlocking        bool
 	WAFDirectives      string
 	WAFModuleAvailable bool
+	// Geo blocking (gated). Mode off/allow/deny; countries = CSV ISO alpha-2.
+	GeoMode            string
+	GeoCountries       string
+	GeoModuleAvailable bool
 
 	// Wildcard DNS-01 (B1, gated). WildcardZones = datalist of dns_providers.
 	WildcardEnabled bool
@@ -1397,6 +1402,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(r.health_passive_enabled,0), COALESCE(r.health_passive_fail_dur,30), COALESCE(r.health_passive_max_fail,3),
 		        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,''),
 		        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
+		        COALESCE(r.geo_mode,'off'), COALESCE(r.geo_countries,''),
 		        COALESCE(r.wildcard_enabled,0), COALESCE(r.wildcard_zone,''),
 		        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
 		        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
@@ -1427,6 +1433,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.HealthPassive, &d.HealthFailDur, &d.HealthMaxFails,
 		&d.RateLimitEnabled, &d.RateLimitWindow, &d.RateLimitMaxEvents, &d.RateLimitKey,
 		&d.WAFEnabled, &d.WAFBlocking, &d.WAFDirectives,
+		&d.GeoMode, &d.GeoCountries,
 		&d.WildcardEnabled, &d.WildcardZone,
 		&d.ErrorOverride, &d.ErrorHTML, &d.ErrorLogoURL, &d.ErrorBrand, &d.ErrorBgColor,
 		&d.OutboundIPMode, &d.OutboundIP)
@@ -1438,6 +1445,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	d.WeightedLBAvail = h.Routes.WeightedLBAvailable
 	d.RateLimitModuleAvailable = h.Routes.RateLimitModuleAvailable
 	d.WAFModuleAvailable = h.Routes.WAFModuleAvailable
+	d.GeoModuleAvailable = h.Routes.GeoModuleAvailable
 	// Wildcard zones datalist (best-effort).
 	if zr, zerr := db.QueryContext(ctx, "SELECT name FROM dns_providers ORDER BY name ASC"); zerr == nil {
 		for zr.Next() {
@@ -1726,6 +1734,12 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "WAF: custom directives too long (16 KiB max)")
 		return
 	}
+	// Geo blocking. Normalize codes (uppercase, dedupe, drop junk); off when no mode.
+	geoMode := strings.ToLower(strings.TrimSpace(r.FormValue("geo_mode")))
+	if geoMode != "allow" && geoMode != "deny" {
+		geoMode = "off"
+	}
+	geoCountries := geoip.NormalizeCountries(r.FormValue("geo_countries"))
 	// Wildcard DNS-01 (B1). Zone must cover the route domain when enabled.
 	wildcardEnabled := r.FormValue("wildcard_enabled") == "1"
 	wildcardZone := strings.ToLower(strings.TrimSpace(r.FormValue("wildcard_zone")))
@@ -2191,6 +2205,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   health_passive_enabled = ?, health_passive_fail_dur = ?, health_passive_max_fail = ?,
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
+			   geo_mode = ?, geo_countries = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
 			   maintenance_mode = ?, maintenance_message = ?,
@@ -2219,6 +2234,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			healthPassive, healthFailDur, healthMaxFails,
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
+			geoMode, geoCountries,
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,
 			maintenanceMode, maintMsgVal,
@@ -2249,6 +2265,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   health_passive_enabled = ?, health_passive_fail_dur = ?, health_passive_max_fail = ?,
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
+			   geo_mode = ?, geo_countries = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
 			   maintenance_mode = ?, maintenance_message = ?,
@@ -2277,6 +2294,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			healthPassive, healthFailDur, healthMaxFails,
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
+			geoMode, geoCountries,
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,
 			maintenanceMode, maintMsgVal,

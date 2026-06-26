@@ -169,6 +169,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		WeightedLBAvailable:      cfg.Caddy.WeightedLBAvailable,
 		RateLimitModuleAvailable: cfg.Caddy.RateLimitAvailable,
 		WAFModuleAvailable:       cfg.Caddy.WAFModuleAvailable,
+		GeoModuleAvailable:       cfg.Caddy.GeoIPAvailable,
 		DNS01ModuleAvailable:     cfg.Caddy.DNS01Available,
 		// External-HTTPS-upstream routes: at-rest secret crypto + host allowlist.
 		EncryptSecret:             state.Encrypt,
