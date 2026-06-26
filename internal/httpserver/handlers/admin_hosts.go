@@ -1264,6 +1264,8 @@ type hostEditData struct {
 	LocationRules   []locationRuleRow
 	LBPolicy        string
 	WeightedLBAvail bool
+	LBTryDurationMs int // total retry budget in ms (0 = default 5000)
+	LBTryIntervalMs int // delay between retries in ms (0 = no delay)
 	HealthURI       string
 	HealthInterval  int
 	HealthTimeout   int
@@ -1336,6 +1338,11 @@ type hostEditData struct {
 	OutboundIP        string
 	NodeOutboundIPs   []string // inventory from caddy_nodes.outbound_ips; feeds datalist
 	PlanAllowEgressIP bool     // whether the host's plan permits non-default egress
+
+	// DNS controls per host. ResolverIP takes priority over ResolverViaWGPeerID.
+	DNSResolverIP      string
+	DNSResolverViaWGID int64  // WG peer whose assigned_ip is used as resolver
+	DNSAddressFamily   string // "any" | "ipv4" | "ipv6"
 }
 
 // tunnelOption is the dropdown entry the host-edit form renders.
@@ -1403,13 +1410,16 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(r.health_active_uri,''), COALESCE(r.health_active_interval,10), COALESCE(r.health_active_timeout,5),
 		        COALESCE(r.health_active_status,0), COALESCE(r.health_active_fails,3),
 		        COALESCE(r.health_passive_enabled,0), COALESCE(r.health_passive_fail_dur,30), COALESCE(r.health_passive_max_fail,3),
+		        COALESCE(r.lb_try_duration_ms,5000), COALESCE(r.lb_try_interval_ms,250),
 		        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,''),
 		        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
 		        COALESCE(r.geo_mode,'off'), COALESCE(r.geo_countries,''),
 		        COALESCE(r.wildcard_enabled,0), COALESCE(r.wildcard_zone,''),
 		        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
 		        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
-		        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,'')
+		        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
+	        COALESCE(r.dns_resolver_ip,''), COALESCE(r.dns_resolver_via_wg_peer_id,0),
+	        COALESCE(r.dns_address_family,'any')
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
@@ -1434,12 +1444,14 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.LBPolicy,
 		&d.HealthURI, &d.HealthInterval, &d.HealthTimeout, &d.HealthStatus, &d.HealthFails,
 		&d.HealthPassive, &d.HealthFailDur, &d.HealthMaxFails,
+		&d.LBTryDurationMs, &d.LBTryIntervalMs,
 		&d.RateLimitEnabled, &d.RateLimitWindow, &d.RateLimitMaxEvents, &d.RateLimitKey,
 		&d.WAFEnabled, &d.WAFBlocking, &d.WAFDirectives,
 		&d.GeoMode, &d.GeoCountries,
 		&d.WildcardEnabled, &d.WildcardZone,
 		&d.ErrorOverride, &d.ErrorHTML, &d.ErrorLogoURL, &d.ErrorBrand, &d.ErrorBgColor,
-		&d.OutboundIPMode, &d.OutboundIP)
+		&d.OutboundIPMode, &d.OutboundIP,
+		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily)
 	if err != nil {
 		d.Error = "host not found"
 		h.render(w, "hosts_edit", d)
@@ -1661,6 +1673,10 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	healthPassive := r.FormValue("health_passive") == "1"
 	healthFailDur := clampInt(atoiDefault(r.FormValue("health_fail_dur"), 30), 1, 600)
 	healthMaxFails := clampInt(atoiDefault(r.FormValue("health_max_fails"), 3), 1, 10)
+	// Retry timing: total budget (0 = default 5000ms) and per-attempt delay
+	// (0 = no inter-attempt delay). Clamped: duration 100-300000ms, interval 0-60000ms.
+	lbTryDurationMs := clampInt(atoiDefault(r.FormValue("lb_try_duration_ms"), 5000), 100, 300000)
+	lbTryIntervalMs := clampInt(atoiDefault(r.FormValue("lb_try_interval_ms"), 250), 0, 60000)
 	// Additional backends arrive as parallel arrays. Admin-only internal
 	// targets (same trust level as backend_ip) so the host validator suffices.
 	upHosts := r.Form["upstream_host[]"]
@@ -1818,6 +1834,24 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		outboundIP = ""
 	} else if outboundIPMode != "fixed" {
 		outboundIP = ""
+	}
+
+	// DNS controls: optional custom resolver IP or WG peer, plus address-family.
+	dnsResolverIP := strings.TrimSpace(r.FormValue("dns_resolver_ip"))
+	if dnsResolverIP != "" && net.ParseIP(dnsResolverIP) == nil {
+		redirectWithFlash(w, r, editPath, "", "DNS resolver: must be a valid IP address (IPv4 or IPv6)")
+		return
+	}
+	dnsResolverViaWGID, _ := strconv.ParseInt(r.FormValue("dns_resolver_via_wg_peer_id"), 10, 64)
+	// Mutual exclusion: direct IP beats peer; clear peer when IP is set.
+	if dnsResolverIP != "" {
+		dnsResolverViaWGID = 0
+	}
+	dnsAddressFamily := r.FormValue("dns_address_family")
+	switch dnsAddressFamily {
+	case "ipv4", "ipv6":
+	default:
+		dnsAddressFamily = "any"
 	}
 
 	cacheTTL, _ := strconv.Atoi(r.FormValue("cache_ttl_secs"))
@@ -2057,6 +2091,25 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// IDOR guard: DNS resolver peer must belong to the same client/node as this route.
+	if dnsResolverViaWGID > 0 {
+		gctx, gcancel := context.WithTimeout(r.Context(), 2*time.Second)
+		var owns int
+		_ = h.DB().QueryRowContext(gctx,
+			`SELECT COUNT(*) FROM customer_wg_peer p
+			   JOIN routes r ON r.id = ?
+			   JOIN services s ON s.id = r.service_id
+			  WHERE p.id = ?
+			    AND p.client_id = s.client_id
+			    AND p.node_id   = r.caddy_node_id
+			    AND p.status <> 'revoked'`,
+			id, dnsResolverViaWGID).Scan(&owns)
+		gcancel()
+		if owns == 0 {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "selected DNS tunnel must belong to this route's client AND its assigned Caddy node")
+			return
+		}
+	}
 	if kind == "redirect" && redirectURL == "" {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "redirect URL required for redirect route")
 		return
@@ -2206,6 +2259,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   health_active_uri = ?, health_active_interval = ?, health_active_timeout = ?,
 			   health_active_status = ?, health_active_fails = ?,
 			   health_passive_enabled = ?, health_passive_fail_dur = ?, health_passive_max_fail = ?,
+			   lb_try_duration_ms = ?, lb_try_interval_ms = ?,
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
 			   geo_mode = ?, geo_countries = ?,
@@ -2221,6 +2275,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   sso_provider_url = ?, sso_copy_headers = ?, sso_trusted_proxies = ?,
 			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
 			   outbound_ip_mode = ?, outbound_ip = ?,
+			   dns_resolver_ip = ?, dns_resolver_via_wg_peer_id = ?, dns_address_family = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -2235,6 +2290,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			healthURI, healthInterval, healthTimeout,
 			healthStatus, healthFails,
 			healthPassive, healthFailDur, healthMaxFails,
+			lbTryDurationMs, lbTryIntervalMs,
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
 			geoMode, geoCountries,
@@ -2250,6 +2306,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			ssoProviderURLVal, ssoCopyHeadersVal, ssoTrustedProxiesVal,
 			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
 			outboundIPMode, nullableString(outboundIP),
+			nullableString(dnsResolverIP), nullableInt64(dnsResolverViaWGID), dnsAddressFamily,
 			id)
 	} else {
 		_, err = h.DB().ExecContext(ctx,
@@ -2266,6 +2323,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   health_active_uri = ?, health_active_interval = ?, health_active_timeout = ?,
 			   health_active_status = ?, health_active_fails = ?,
 			   health_passive_enabled = ?, health_passive_fail_dur = ?, health_passive_max_fail = ?,
+			   lb_try_duration_ms = ?, lb_try_interval_ms = ?,
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
 			   geo_mode = ?, geo_countries = ?,
@@ -2281,6 +2339,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   sso_provider_url = ?, sso_copy_headers = ?, sso_trusted_proxies = ?,
 			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
 			   outbound_ip_mode = ?, outbound_ip = ?,
+			   dns_resolver_ip = ?, dns_resolver_via_wg_peer_id = ?, dns_address_family = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -2295,6 +2354,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			healthURI, healthInterval, healthTimeout,
 			healthStatus, healthFails,
 			healthPassive, healthFailDur, healthMaxFails,
+			lbTryDurationMs, lbTryIntervalMs,
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
 			geoMode, geoCountries,
@@ -2310,6 +2370,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			ssoProviderURLVal, ssoCopyHeadersVal, ssoTrustedProxiesVal,
 			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
 			outboundIPMode, nullableString(outboundIP),
+			nullableString(dnsResolverIP), nullableInt64(dnsResolverViaWGID), dnsAddressFamily,
 			id)
 	}
 	if err != nil {

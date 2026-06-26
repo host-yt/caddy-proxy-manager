@@ -2,6 +2,7 @@ package caddyapi
 
 import (
 	"encoding/json"
+	"net"
 	"strings"
 )
 
@@ -158,6 +159,11 @@ type Route struct {
 	// When false and LBPolicy=="weighted_round_robin" the builder downgrades
 	// to round_robin so stock Caddy never rejects the /load.
 	WeightedLBAvailable bool
+	// LBTryDurationMs: total time (ms) Caddy may spend retrying across all
+	// upstreams. 0 falls back to the 5s default.
+	LBTryDurationMs int
+	// LBTryIntervalMs: delay (ms) between retry attempts. 0 = no inter-attempt delay.
+	LBTryIntervalMs int
 
 	// Active health check; HealthURI=="" disables it.
 	HealthURI          string
@@ -199,6 +205,18 @@ type Route struct {
 	// local_addr to OutboundIP so the connection leaves via a specific NIC IP.
 	OutboundIPMode string
 	OutboundIP     string // bare IP present on the node NIC
+
+	// DNSResolverIP: when set, upstream hostname resolution uses this custom
+	// resolver (e.g. a private dnsmasq or CoreDNS IP). Emitted into
+	// dynamic_upstreams.resolver.addresses (port 53). Takes priority over
+	// DNSResolverViaWGPeerID when both are non-empty.
+	DNSResolverIP string
+	// DNSResolverViaWGPeerID: resolved at build time to a WG peer's assigned_ip;
+	// used as the DNS resolver for dynamic_upstreams when DNSResolverIP is empty.
+	DNSResolverViaWGPeerIP string
+	// DNSAddressFamily: "any"/"ipv4" -> Caddy source "a" (A/IPv4 only), "ipv6" -> "aaaa".
+	// "any" and "ipv4" both emit A records; there is no mixed A+AAAA source in Caddy.
+	DNSAddressFamily string
 
 	// Built-in forward-auth portal. PortalProtect gates the route through the
 	// panel's own verifier (a self-hosted alternative to external SSO). The
@@ -342,6 +360,8 @@ func BuildRoute(r Route) map[string]any {
 		// streaming / long-poll upstreams reach the client immediately
 		// instead of appearing to hang until Caddy's buffer fills.
 		primary["flush_interval"] = -1
+		// dnsResolver picks the effective resolver IP: direct IP beats peer IP.
+		dnsResolver := firstNonEmpty(r.DNSResolverIP, r.DNSResolverViaWGPeerIP)
 		if r.BackendResolver != "" {
 			// Resolve the backend name via the peer-side resolver (A records).
 			// Note: Caddy reverse_proxy uses EITHER dynamic_upstreams OR a
@@ -355,7 +375,27 @@ func BuildRoute(r Route) map[string]any {
 				"port":    itoa(r.UpstreamPort),
 				"refresh": "30s",
 				"resolver": map[string]any{
-					"addresses": []string{r.BackendResolver + ":53"},
+					// JoinHostPort brackets IPv6 literals; bare "ip:53" breaks them.
+					"addresses": []string{net.JoinHostPort(r.BackendResolver, "53")},
+				},
+			}
+		} else if dnsResolver != "" && net.ParseIP(r.UpstreamIP) == nil {
+			// Custom DNS resolver: upstream host is a name, resolve via the
+			// given DNS server. Source "aaaa" for ipv6-only, "a" for all others
+			// (ipv4-only and any both use A records; AAAA-only stacks that need
+			// "aaaa" source are rare and must explicitly opt in).
+			src := "a"
+			if r.DNSAddressFamily == "ipv6" {
+				src = "aaaa"
+			}
+			primary["dynamic_upstreams"] = map[string]any{
+				"source":  src,
+				"name":    r.UpstreamIP,
+				"port":    itoa(r.UpstreamPort),
+				"refresh": "30s",
+				"resolver": map[string]any{
+					// JoinHostPort brackets IPv6 literals; bare "ip:53" breaks them.
+					"addresses": []string{net.JoinHostPort(dnsResolver, "53")},
 				},
 			}
 		} else if !r.External && len(r.Upstreams) > 0 {
@@ -427,9 +467,10 @@ func BuildRoute(r Route) map[string]any {
 			primary["headers"] = map[string]any{"request": request}
 		}
 		// Load balancing + health checks apply only to a plain internal proxy
-		// pool. External (single FQDN) and the WG dynamic_upstreams resolver
-		// keep their single-source behaviour (Caddy forbids mixing).
-		if !r.External && r.BackendResolver == "" {
+		// pool. External, WG resolver, and custom DNS resolver routes use
+		// dynamic_upstreams which forbids mixing with LB selection_policy.
+		hasDynUpstreams := r.BackendResolver != "" || (firstNonEmpty(r.DNSResolverIP, r.DNSResolverViaWGPeerIP) != "" && net.ParseIP(r.UpstreamIP) == nil)
+		if !r.External && !hasDynUpstreams {
 			if lb := buildLoadBalancing(r); lb != nil {
 				primary["load_balancing"] = lb
 			}
@@ -1312,10 +1353,15 @@ func buildLoadBalancing(r Route) map[string]any {
 		}
 		sel["weights"] = weights
 	}
+	// Interval=0 means no delay between attempts; bypass the msDur default path.
+	tryInterval := "0s"
+	if r.LBTryIntervalMs > 0 {
+		tryInterval = msDur(r.LBTryIntervalMs, 250)
+	}
 	return map[string]any{
 		"selection_policy": sel,
-		"try_duration":     "5s",
-		"try_interval":     "250ms",
+		"try_duration":     msDur(r.LBTryDurationMs, 5000),
+		"try_interval":     tryInterval,
 	}
 }
 
@@ -1362,6 +1408,17 @@ func secs(n, def int) string {
 		n = def
 	}
 	return itoa(n) + "s"
+}
+
+// msDur formats N milliseconds as a Caddy duration string, falling back to defMs.
+func msDur(n, defMs int) string {
+	if n <= 0 {
+		n = defMs
+	}
+	if n%1000 == 0 {
+		return itoa(n/1000) + "s"
+	}
+	return itoa(n) + "ms"
 }
 
 // ssoCopyHeadersHandle returns the JSON form Caddy accepts for copying
