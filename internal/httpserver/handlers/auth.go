@@ -1068,7 +1068,8 @@ func (h *AuthHandlers) ResetSubmit(w http.ResponseWriter, r *http.Request) {
 		h.renderReset(w, http.StatusInternalServerError, h.stampReset(r, resetViewData{Token: token, Error: "Server error."}))
 		return
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET password_hash = ? WHERE id = ?", hash, userID); err != nil {
+	// password_set=1 marks this as a real usable password (not an OIDC dummy hash).
+	if _, err := db.ExecContext(ctx, "UPDATE users SET password_hash = ?, password_set = 1 WHERE id = ?", hash, userID); err != nil {
 		h.renderReset(w, http.StatusInternalServerError, h.stampReset(r, resetViewData{Token: token, Error: "Server error."}))
 		return
 	}
@@ -1281,6 +1282,8 @@ const oidcStateTTL = 10 * time.Minute
 // OIDCStart redirects the browser to the IdP authorization endpoint.
 // State + nonce are stored in Redis with a short TTL and a matching
 // cookie so the callback can verify CSRF + replay.
+// When ?link=1 is present and user is already logged in, embeds
+// link_user_id into the state payload so OIDCCallback does link-not-login.
 func (h *AuthHandlers) OIDCStart(w http.ResponseWriter, r *http.Request) {
 	if h.OIDC == nil {
 		http.Error(w, "oidc not wired", http.StatusServiceUnavailable)
@@ -1296,8 +1299,15 @@ func (h *AuthHandlers) OIDCStart(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/auth/login?flash=SSO+unavailable%3A+"+url.QueryEscape(sanitizeErr(err)), http.StatusSeeOther)
 		return
 	}
-	// Persist nonce + PKCE verifier in Redis keyed by state token.
-	payload, _ := json.Marshal(map[string]string{"nonce": nonce, "verifier": verifier})
+	// For link flow: embed the current user's ID so the callback links
+	// instead of logging in. Only valid when user is already authenticated.
+	statePayload := map[string]string{"nonce": nonce, "verifier": verifier}
+	if r.URL.Query().Get("link") == "1" {
+		if sess, _ := h.Sessions.Load(ctx, r); sess != nil {
+			statePayload["link_user_id"] = strconv.FormatInt(sess.UserID, 10)
+		}
+	}
+	payload, _ := json.Marshal(statePayload)
 	_ = h.RDB.Set(ctx, "hpg:oidc:"+state, payload, oidcStateTTL).Err()
 	// Cookie keeps the state value so the callback can look it up.
 	http.SetCookie(w, &http.Cookie{
@@ -1341,8 +1351,9 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = h.RDB.Del(ctx, "hpg:oidc:"+state).Err()
 	var s struct {
-		Nonce    string `json:"nonce"`
-		Verifier string `json:"verifier"`
+		Nonce      string `json:"nonce"`
+		Verifier   string `json:"verifier"`
+		LinkUserID string `json:"link_user_id,omitempty"`
 	}
 	_ = json.Unmarshal(stored, &s)
 
@@ -1359,6 +1370,32 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// Latin A, full-width letters) don't create sibling-admin accounts.
 	email := strings.ToLower(xnorm.NFKC.String(info.Email))
 
+	// Link flow: user is already logged in and wants to add this OIDC
+	// provider as an additional login method.
+	if s.LinkUserID != "" {
+		http.SetCookie(w, &http.Cookie{Name: "hpg_oidc_state", Value: "", Path: "/", MaxAge: -1})
+		linkUID, linkErr := strconv.ParseInt(s.LinkUserID, 10, 64)
+		if linkErr != nil {
+			http.Error(w, "invalid link state", http.StatusBadRequest)
+			return
+		}
+		// Re-validate at callback: the state alone is not authority to link. The
+		// caller must STILL be logged in as that same user. Blocks linking onto a
+		// victim via a stale/shared-browser state, a forged ?link=1 start, or an
+		// IdP-session mixup - any of which would otherwise add a login path.
+		sess, _ := h.Sessions.Load(ctx, r)
+		if sess == nil || sess.UserID != linkUID {
+			audit.Write(ctx, db, h.Logger, r, audit.Entry{
+				Action: "oauth.link.denied", Entity: "user", EntityID: s.LinkUserID,
+				Meta: map[string]any{"reason": "session_mismatch", "issuer": info.Issuer},
+			})
+			http.Redirect(w, r, "/auth/login?flash=Please+sign+in+again+to+link+a+provider", http.StatusSeeOther)
+			return
+		}
+		h.oidcLinkIdentity(ctx, w, r, db, linkUID, info, cfg.AllowUnverifiedEmail)
+		return
+	}
+
 	// Refuse OIDC sign-in when the IdP says the email isn't verified. Without
 	// this gate a public-signup IdP (Authentik with self-registration, Google
 	// Workspace test tenant, generic OIDC) lets anyone register
@@ -1373,11 +1410,11 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Find or auto-provision local user. Lookup includes oidc_subject /
-	// oidc_issuer so we can refuse to attach an existing local row whose
-	// previously-linked IdP identity DIFFERS from this callback - email
-	// alone is a takeover vector when the panel trusts multiple IdPs or
-	// any IdP that lets users self-set the email claim.
+	// Authoritative identity lookup: an explicitly linked provider+issuer+subject
+	// in oauth_identities owns the account, even if its email differs from this
+	// callback's email claim. Without this a linked identity is counted as a
+	// login method but can never actually authenticate (it would only match by
+	// email, which a linked second provider need not share).
 	var (
 		userID      int64
 		role        string
@@ -1385,9 +1422,39 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		dbOIDCSubj  sql.NullString
 		dbOIDCIssue sql.NullString
 	)
-	queryErr := db.QueryRowContext(ctx,
-		"SELECT id, role, is_active, oidc_subject, oidc_issuer FROM users WHERE email = ? LIMIT 1", email,
-	).Scan(&userID, &role, &isActive, &dbOIDCSubj, &dbOIDCIssue)
+	var linkedUID int64
+	linkLookupErr := db.QueryRowContext(ctx,
+		`SELECT user_id FROM oauth_identities WHERE provider = 'oidc' AND issuer = ? AND subject = ? LIMIT 1`,
+		info.Issuer, info.Subject,
+	).Scan(&linkedUID)
+	// Fail closed: a real error on the authoritative identity table (schema drift,
+	// transient DB) must NOT degrade to email-based login - that would bypass
+	// linked-provider ownership. Only a clean "no such row" may fall back to email.
+	if linkLookupErr != nil && !errors.Is(linkLookupErr, sql.ErrNoRows) {
+		h.Logger.Error("oidc identity lookup", "err", linkLookupErr, "issuer", info.Issuer)
+		audit.Write(ctx, db, h.Logger, r, audit.Entry{
+			Action: "oidc.login.denied", Entity: "auth", EntityID: email,
+			Meta: map[string]any{"reason": "identity_lookup_error", "issuer": info.Issuer},
+		})
+		http.Redirect(w, r, "/auth/login?flash=SSO+temporarily+unavailable", http.StatusSeeOther)
+		return
+	}
+	var queryErr error
+	if linkLookupErr == nil && linkedUID > 0 {
+		// Resolve the owning user by id, not email.
+		queryErr = db.QueryRowContext(ctx,
+			"SELECT id, role, is_active, oidc_subject, oidc_issuer FROM users WHERE id = ? LIMIT 1", linkedUID,
+		).Scan(&userID, &role, &isActive, &dbOIDCSubj, &dbOIDCIssue)
+	} else {
+		// No linked identity. Fall back to email lookup. Includes oidc_subject /
+		// oidc_issuer so we can refuse to attach an existing local row whose
+		// previously-linked IdP identity DIFFERS from this callback - email
+		// alone is a takeover vector when the panel trusts multiple IdPs or
+		// any IdP that lets users self-set the email claim.
+		queryErr = db.QueryRowContext(ctx,
+			"SELECT id, role, is_active, oidc_subject, oidc_issuer FROM users WHERE email = ? LIMIT 1", email,
+		).Scan(&userID, &role, &isActive, &dbOIDCSubj, &dbOIDCIssue)
+	}
 	if errors.Is(queryErr, sql.ErrNoRows) {
 		if !cfg.AutoProvision {
 			audit.Write(ctx, db, h.Logger, r, audit.Entry{
@@ -1411,8 +1478,8 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 			full = email
 		}
 		res, ierr := db.ExecContext(ctx,
-			`INSERT INTO users (email, password_hash, role, full_name, is_active, oidc_subject, oidc_issuer)
-			 VALUES (?, ?, ?, ?, 1, ?, ?)`,
+			`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active, oidc_subject, oidc_issuer)
+			 VALUES (?, ?, 0, ?, ?, 1, ?, ?)`,
 			email, dummy, role, full, info.Subject, info.Issuer)
 		if ierr != nil {
 			h.Logger.Error("oidc auto-provision", "err", ierr)
@@ -1430,6 +1497,12 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Error("oidc user lookup", "err", queryErr)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
+	} else if linkedUID > 0 {
+		// User was resolved via an authoritative oauth_identities row
+		// (provider+issuer+subject exact match). The legacy users.oidc_subject
+		// guard below would false-positive when this is a SECOND linked provider
+		// whose subject differs from the first, so skip it - the identity table
+		// is the source of truth here.
 	} else {
 		// Existing local user. If already linked to OIDC, both subject AND
 		// issuer must match this callback - refuse takeover from a second
@@ -1444,12 +1517,39 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
-			// First-time OIDC sign-in: link now BUT keep the IS NULL guard
-			// so two concurrent callbacks from different IdPs cannot race
-			// to claim the same local user (last writer wins = takeover).
-			_, _ = db.ExecContext(ctx,
+			// First-time OIDC sign-in: link now under an IS NULL guard so two
+			// concurrent callbacks from different IdPs cannot both claim the same
+			// local user. The guard is atomic, but its result MUST be checked: a
+			// loser (0 rows) would otherwise still fall through to SaveIdentity,
+			// persist its subject in oauth_identities, and become an enduring
+			// login path that bypasses this legacy guard. On a loss, re-read the
+			// committed link and deny unless it is the exact same identity.
+			res, uerr := db.ExecContext(ctx,
 				"UPDATE users SET oidc_subject = ?, oidc_issuer = ? WHERE id = ? AND (oidc_subject IS NULL OR oidc_subject = '')",
 				info.Subject, info.Issuer, userID)
+			if uerr != nil {
+				h.Logger.Error("oidc first-link update", "err", uerr, "user_id", userID)
+				http.Error(w, "server error", http.StatusInternalServerError)
+				return
+			}
+			if n, _ := res.RowsAffected(); n == 0 {
+				var curSubj, curIss sql.NullString
+				if rerr := db.QueryRowContext(ctx,
+					"SELECT oidc_subject, oidc_issuer FROM users WHERE id = ?", userID,
+				).Scan(&curSubj, &curIss); rerr != nil {
+					h.Logger.Error("oidc first-link reread", "err", rerr, "user_id", userID)
+					http.Error(w, "server error", http.StatusInternalServerError)
+					return
+				}
+				if curSubj.String != info.Subject || curIss.String != info.Issuer {
+					audit.Write(ctx, db, h.Logger, r, audit.Entry{
+						UserID: &userID, Action: "oidc.login.denied", Entity: "auth", EntityID: email,
+						Meta: map[string]any{"reason": "first_link_race", "issuer": info.Issuer},
+					})
+					http.Redirect(w, r, "/auth/login?flash=OIDC+identity+does+not+match+the+account+previously+linked", http.StatusSeeOther)
+					return
+				}
+			}
 		}
 	}
 
@@ -1467,6 +1567,22 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		_ = db.QueryRowContext(ctx, "SELECT id FROM clients WHERE user_id = ?", userID).Scan(&clientID)
 	}
 
+	// Populate oauth_identities so real SSO users have something to view/unlink.
+	// A plain write error is best-effort (doesn't block login), but if this
+	// subject is already owned by a DIFFERENT user the login itself is a
+	// takeover attempt and must be denied.
+	if saveErr := SaveIdentity(ctx, db, userID, "oidc", info.Subject, info.Email, info.Issuer); saveErr != nil {
+		if errors.Is(saveErr, ErrIdentityOwnedByOther) {
+			audit.Write(ctx, db, h.Logger, r, audit.Entry{
+				UserID: &userID, Action: "oidc.login.denied", Entity: "auth", EntityID: email,
+				Meta: map[string]any{"reason": "identity_owned_by_other", "issuer": info.Issuer},
+			})
+			http.Redirect(w, r, "/auth/login?flash=OIDC+identity+belongs+to+another+account", http.StatusSeeOther)
+			return
+		}
+		h.Logger.Warn("oidc login: save identity", "err", saveErr, "user_id", userID)
+	}
+
 	// Clear the state cookie now that we're done with it.
 	http.SetCookie(w, &http.Cookie{Name: "hpg_oidc_state", Value: "", Path: "/", MaxAge: -1})
 
@@ -1477,6 +1593,85 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		Meta: map[string]any{"issuer": info.Issuer, "role": role},
 	})
 	h.finalizeLogin(ctx, w, r, userID, email, role, clientID, "oidc", "sso")
+}
+
+// oidcLinkIdentity handles the account-linking branch of OIDCCallback. The
+// user is already authenticated (linkUID came from their session); we add the
+// OIDC subject to oauth_identities and redirect back to their account page.
+func (h *AuthHandlers) oidcLinkIdentity(
+	ctx context.Context,
+	w http.ResponseWriter,
+	r *http.Request,
+	db *sql.DB,
+	linkUID int64,
+	info hpgoidc.UserInfo,
+	allowUnverified bool,
+) {
+	// Email verification gate - same as the normal login flow.
+	if !info.EmailVerified && !allowUnverified {
+		audit.Write(ctx, db, h.Logger, r, audit.Entry{
+			UserID: &linkUID, Action: "oauth.link.denied", Entity: "user",
+			EntityID: fmt.Sprintf("%d", linkUID),
+			Meta:     map[string]any{"reason": "email_unverified", "provider": "oidc", "issuer": info.Issuer},
+		})
+		returnURL := oidcLinkReturnURL(r, linkUID)
+		http.Redirect(w, r, returnURL+"?err=Email+not+verified+at+identity+provider", http.StatusSeeOther)
+		return
+	}
+
+	// Refuse if this subject+issuer pair is already linked to a DIFFERENT user.
+	var existingUID int64
+	err := db.QueryRowContext(ctx,
+		`SELECT user_id FROM oauth_identities WHERE provider = 'oidc' AND issuer = ? AND subject = ? LIMIT 1`,
+		info.Issuer, info.Subject,
+	).Scan(&existingUID)
+	if err == nil && existingUID != linkUID {
+		audit.Write(ctx, db, h.Logger, r, audit.Entry{
+			UserID: &linkUID, Action: "oauth.link.denied", Entity: "user",
+			EntityID: fmt.Sprintf("%d", linkUID),
+			Meta:     map[string]any{"reason": "subject_taken", "provider": "oidc", "issuer": info.Issuer},
+		})
+		returnURL := oidcLinkReturnURL(r, linkUID)
+		http.Redirect(w, r, returnURL+"?err=This+OIDC+account+is+already+linked+to+another+user", http.StatusSeeOther)
+		return
+	}
+
+	if linkErr := SaveIdentity(ctx, db, linkUID, "oidc", info.Subject, info.Email, info.Issuer); linkErr != nil {
+		h.Logger.Error("oauth link save", "err", linkErr, "user_id", linkUID)
+		returnURL := oidcLinkReturnURL(r, linkUID)
+		// A concurrent link can take the subject between the precheck above and
+		// this write; SaveIdentity refuses to steal it and reports the conflict.
+		msg := "Link+failed"
+		if errors.Is(linkErr, ErrIdentityOwnedByOther) {
+			msg = "This+OIDC+account+is+already+linked+to+another+user"
+		}
+		http.Redirect(w, r, returnURL+"?err="+msg, http.StatusSeeOther)
+		return
+	}
+
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: &linkUID, Action: "oauth.link", Entity: "user",
+		EntityID: fmt.Sprintf("%d", linkUID),
+		Meta: map[string]any{
+			"provider": "oidc",
+			"issuer":   info.Issuer,
+			"email":    info.Email,
+		},
+	})
+	returnURL := oidcLinkReturnURL(r, linkUID)
+	http.Redirect(w, r, returnURL+"?flash=OIDC+provider+linked", http.StatusSeeOther)
+}
+
+// oidcLinkReturnURL picks the correct account page based on the session role.
+// Falls back to /admin/account when role cannot be determined.
+func oidcLinkReturnURL(r *http.Request, _ int64) string {
+	// Session role is available from the middleware context.
+	if sess := middleware.SessionFromContext(r.Context()); sess != nil {
+		if sess.Role == "client" {
+			return "/app/account"
+		}
+	}
+	return "/admin/account"
 }
 
 // SSOJump handles GET /auth/sso/jump - signed jump-login from external systems

@@ -1413,7 +1413,7 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback() //nolint:errcheck
 
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO users (email, password_hash, role, full_name, is_active) VALUES (?, ?, 'client', ?, 1)",
+		"INSERT INTO users (email, password_hash, password_set, role, full_name, is_active) VALUES (?, ?, 1, 'client', ?, 1)",
 		email, hash, displayName)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
@@ -1905,7 +1905,7 @@ func (h *AdminHandlers) UsersUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		_, execErr = db.ExecContext(ctx,
-			"UPDATE users SET full_name = ?, email = ?, role = ?, is_active = ?, password_hash = ? WHERE id = ?",
+			"UPDATE users SET full_name = ?, email = ?, role = ?, is_active = ?, password_hash = ?, password_set = 1 WHERE id = ?",
 			fullName, email, role, isActive, hash, id)
 	} else {
 		_, execErr = db.ExecContext(ctx,
@@ -1974,7 +1974,7 @@ func (h *AdminHandlers) UsersCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
 	res, err := db.ExecContext(ctx,
-		"INSERT INTO users (email, password_hash, role, full_name, is_active) VALUES (?, ?, ?, ?, 1)",
+		"INSERT INTO users (email, password_hash, password_set, role, full_name, is_active) VALUES (?, ?, 1, ?, ?, 1)",
 		email, hash, role, fullName)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {

@@ -631,6 +631,10 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 			DB:     wizard.DB,
 			Routes: routesSvc,
 		},
+		OAuthIdentity: &handlers.OAuthIdentityHandlers{
+			DB:     wizard.DB,
+			Logger: logger,
+		},
 	})
 
 	httpSrv := &http.Server{

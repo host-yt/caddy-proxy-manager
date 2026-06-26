@@ -97,7 +97,7 @@ func (h *FOSSBillingHandlers) ProvisionClient(w http.ResponseWriter, r *http.Req
 	defer tx.Rollback() //nolint:errcheck
 
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO users (email, password_hash, role, full_name, is_active) VALUES (?, ?, 'client', ?, 1)",
+		"INSERT INTO users (email, password_hash, password_set, role, full_name, is_active) VALUES (?, ?, 1, 'client', ?, 1)",
 		in.Email, hash, in.Name)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") || strings.Contains(err.Error(), "UNIQUE constraint") {
