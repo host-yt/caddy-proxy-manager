@@ -38,6 +38,7 @@ type Deps struct {
 	Passkey      *handlers.PasskeyHandlers
 	NodeJoin     *handlers.NodeJoinHandler
 	WGBoot       *handlers.WGBootstrapHandler
+	NodeGeoIP    *handlers.NodeGeoIPHandler
 	TrustCFIP    func() bool // returns true when CF-Connecting-IP should be honoured
 	Metrics      *obs.Metrics
 	Health       *obs.Health
@@ -177,6 +178,12 @@ func (s *Server) routes() {
 		r.Get("/api/node/wg/peers", s.deps.WGBoot.NodePeersPull)
 		r.Post("/api/node/wg/handshakes", s.deps.WGBoot.NodeHandshakeReport)
 		r.Post("/api/node/wg/stats", s.deps.WGBoot.NodePeerStatsReport)
+	}
+
+	// GeoIP DB distribution: node-agents pull the central mmdb over the tunnel.
+	if s.deps.NodeGeoIP != nil {
+		r.Get("/api/node/geoip/meta", s.deps.NodeGeoIP.Meta)
+		r.Get("/api/node/geoip/mmdb", s.deps.NodeGeoIP.MMDB)
 	}
 
 	// Install wizard. State-changing routes go through InstallGuard.
@@ -450,6 +457,8 @@ func (s *Server) routes() {
 			r.Post("/external-allowlist/{id}/delete", s.deps.Admin.ExternalAllowlistDelete)
 			r.Post("/smtp", s.deps.Admin.SettingsSMTP)
 			r.Post("/acme", s.deps.Admin.SettingsACME)
+			r.Post("/geoip", s.deps.Admin.SettingsGeoIP)
+			r.Post("/geoip/refresh", s.deps.Admin.SettingsGeoIPRefresh)
 			r.Post("/oidc", s.deps.Admin.SettingsOIDC)
 			r.Post("/oidc/test", s.deps.Admin.SettingsOIDCTestDiscovery)
 			r.Post("/turnstile", s.deps.Admin.SettingsTurnstile)

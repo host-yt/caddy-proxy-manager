@@ -590,6 +590,14 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		(&jobs.WGKeyRotationJob{DB: wizard.DB, Logger: logger, Peers: wgPeerSvc}).Run(ctx)
 	}))
 
+	// GeoIP DB central download — leader-only, daily (HPG_GEOIP_INTERVAL override).
+	geoipJob := &jobs.GeoIPUpdateJob{
+		DB: wizard.DB, State: state, Logger: logger,
+		Interval: envDurationOr("HPG_GEOIP_INTERVAL", 24*time.Hour),
+	}
+	adminH.GeoIPJob = geoipJob
+	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "geoip-update", geoipJob.Run))
+
 	statusPageH := &handlers.StatusPageHandlers{
 		DB:        wizard.DB,
 		Templates: statusTpls,
@@ -611,6 +619,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Passkey:         passkeyH,
 		NodeJoin:        joinH,
 		WGBoot:          wgBootH,
+		NodeGeoIP:       &handlers.NodeGeoIPHandler{DB: wizard.DB, Logger: logger},
 		TrustCFIP:       cfSvc.TrustConnectingIP,
 		Metrics:         mtr,
 		Health:          health,
@@ -667,6 +676,16 @@ func guard(logger *slog.Logger, name string, fn func(context.Context)) func(cont
 		}()
 		fn(ctx)
 	}
+}
+
+// envDurationOr parses a Go duration env var, falling back to def on empty/invalid.
+func envDurationOr(key string, def time.Duration) time.Duration {
+	if v := os.Getenv(key); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return def
 }
 
 // runTicker fires fn on every interval tick, but only when leaderElec says
