@@ -58,6 +58,9 @@ type Deps struct {
 
 	// OAuthIdentity handles the linked-provider list + unlink endpoints.
 	OAuthIdentity *handlers.OAuthIdentityHandlers
+
+	// NodeWAFIngest receives WAF event batches POSTed by node-local Caddy WAF modules.
+	NodeWAFIngest *handlers.NodeWAFIngestHandler
 }
 
 type Server struct {
@@ -187,6 +190,11 @@ func (s *Server) routes() {
 	if s.deps.NodeGeoIP != nil {
 		r.Get("/api/node/geoip/meta", s.deps.NodeGeoIP.Meta)
 		r.Get("/api/node/geoip/mmdb", s.deps.NodeGeoIP.MMDB)
+	}
+
+	// WAF event ingest: custom Caddy WAF module ships batches to the panel.
+	if s.deps.NodeWAFIngest != nil {
+		r.Post("/api/node/waf/events", s.deps.NodeWAFIngest.Ingest)
 	}
 
 	// Install wizard. State-changing routes go through InstallGuard.
