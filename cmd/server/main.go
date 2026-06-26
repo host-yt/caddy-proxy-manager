@@ -41,6 +41,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/metrics"
 	"github.com/host-yt/caddy-proxy-manager/internal/nodejoin"
 	"github.com/host-yt/caddy-proxy-manager/internal/notify"
+	"github.com/host-yt/caddy-proxy-manager/internal/oauth2x"
 	"github.com/host-yt/caddy-proxy-manager/internal/obs"
 	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
@@ -230,6 +231,10 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// Bind DB lazily if pool not ready yet.
 	bindDBWhenReady(func(db *sql.DB) { oidcSvc.DB = db })
 
+	// Social-login (GitHub, Google) provider service. DB resolved lazily via
+	// the same wizard.DB accessor the handlers use.
+	oauth2xSvc := &oauth2x.Service{DB: wizard.DB, State: state}
+
 	wgSvc := &wireguard.Service{DB: wizard.DB, State: state}
 	wgCW := &wireguard.ConfigWriter{Dir: "/app/wg"}
 	writeWG := func(ctx context.Context) error {
@@ -264,7 +269,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 
 	authH := &handlers.AuthHandlers{
 		DB: wizard.DB, Sessions: sessions, Templates: authTpls, Logger: logger,
-		RDB: rdb, Mailer: mailer, Captcha: captchaV, OIDC: oidcSvc, AppURL: cfg.App.URL,
+		RDB: rdb, Mailer: mailer, Captcha: captchaV, OIDC: oidcSvc, OAuth2X: oauth2xSvc, AppURL: cfg.App.URL,
 		State: state, Metrics: mtr,
 		// SMS wired after smsSvc is declared below; see lazy assignment.
 	}

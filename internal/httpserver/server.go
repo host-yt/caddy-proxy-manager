@@ -235,6 +235,10 @@ func (s *Server) routes() {
 		}
 		r.Get("/oidc/start", s.deps.Auth.OIDCStart)
 		r.Get("/oidc/callback", s.deps.Auth.OIDCCallback)
+		// Social login (GitHub, Google) alongside OIDC. Provider in the path;
+		// handlers reject unsupported slugs with 404.
+		r.Get("/{provider}/start", s.deps.Auth.OAuth2Start)
+		r.Get("/{provider}/callback", s.deps.Auth.OAuth2Callback)
 		r.Get("/sso/jump", s.deps.Auth.SSOJump)
 	})
 
@@ -445,6 +449,7 @@ func (s *Server) routes() {
 				r.Get("/", s.deps.OAuthIdentity.List)
 				r.Post("/{id}/unlink", s.deps.OAuthIdentity.Unlink)
 				r.Post("/link/oidc", s.deps.OAuthIdentity.LinkOIDC)
+				r.Post("/link/{provider}", s.deps.OAuthIdentity.LinkProvider)
 			})
 		}
 		r.Get("/audit", s.deps.Admin.AuditList)
@@ -493,6 +498,7 @@ func (s *Server) routes() {
 			r.Post("/geoip/refresh", s.deps.Admin.SettingsGeoIPRefresh)
 			r.Post("/oidc", s.deps.Admin.SettingsOIDC)
 			r.Post("/oidc/test", s.deps.Admin.SettingsOIDCTestDiscovery)
+			r.Post("/oauth-provider/{provider}", s.deps.Admin.SettingsOAuthProvider)
 			r.Post("/turnstile", s.deps.Admin.SettingsTurnstile)
 			r.Post("/cloudflare", s.deps.Admin.SettingsCloudflare)
 			r.Post("/wireguard", s.deps.Admin.SettingsWireguard)
@@ -558,6 +564,7 @@ func (s *Server) routes() {
 				r.Get("/", s.deps.OAuthIdentity.List)
 				r.Post("/{id}/unlink", s.deps.OAuthIdentity.Unlink)
 				r.Post("/link/oidc", s.deps.OAuthIdentity.LinkOIDC)
+				r.Post("/link/{provider}", s.deps.OAuthIdentity.LinkProvider)
 			})
 		}
 		r.Post("/status-page/toggle", s.deps.Client.StatusPageToggle)

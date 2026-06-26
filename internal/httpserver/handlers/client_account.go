@@ -24,6 +24,8 @@ type clientAccountData struct {
 
 	OAuthIdentities []oauthIdentityRow // linked OAuth providers
 	OIDCEnabled     bool               // true when admin has OIDC configured
+	GitHubEnabled   bool               // GitHub social-login configured + enabled
+	GoogleEnabled   bool               // Google social-login configured + enabled
 }
 
 // AccountPage renders /app/account - user-editable profile fields.
@@ -58,6 +60,8 @@ func (h *ClientHandlers) AccountPage(w http.ResponseWriter, r *http.Request) {
 	identities, _ := listIdentities(ctx, db, sess.UserID)
 	d.OAuthIdentities = identities
 	d.OIDCEnabled = oidcConfiguredInDB(ctx, db)
+	d.GitHubEnabled = oauthProviderEnabledInDB(ctx, db, "github")
+	d.GoogleEnabled = oauthProviderEnabledInDB(ctx, db, "google")
 	h.render(w, "account", d)
 }
 
@@ -117,4 +121,15 @@ func oidcConfiguredInDB(ctx context.Context, db *sql.DB) bool {
 	_ = db.QueryRowContext(ctx,
 		`SELECT value FROM settings WHERE `+"`key`"+` = 'oidc.enabled' LIMIT 1`).Scan(&v)
 	return v == "1"
+}
+
+// oauthProviderEnabledInDB reports whether a social-login provider is enabled
+// and has a client_id - used to decide whether to render its link button.
+func oauthProviderEnabledInDB(ctx context.Context, db *sql.DB, provider string) bool {
+	var enabled bool
+	var clientID string
+	_ = db.QueryRowContext(ctx,
+		`SELECT enabled, client_id FROM oauth_providers WHERE provider = ? LIMIT 1`, provider,
+	).Scan(&enabled, &clientID)
+	return enabled && clientID != ""
 }

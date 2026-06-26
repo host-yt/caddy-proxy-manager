@@ -20,6 +20,8 @@ type adminAccountData struct {
 	Phone           string
 	OAuthIdentities []oauthIdentityRow // linked OAuth providers
 	OIDCEnabled     bool               // true when admin has OIDC configured
+	GitHubEnabled   bool               // GitHub social-login configured + enabled
+	GoogleEnabled   bool               // Google social-login configured + enabled
 }
 
 // AdminAccountPage renders /admin/account.
@@ -42,6 +44,8 @@ func (h *AdminHandlers) AdminAccountPage(w http.ResponseWriter, r *http.Request)
 	identities, _ := listIdentities(ctx, db, sess.UserID)
 	d.OAuthIdentities = identities
 	d.OIDCEnabled = oidcConfiguredInDB(ctx, db)
+	d.GitHubEnabled = oauthProviderEnabledInDB(ctx, db, "github")
+	d.GoogleEnabled = oauthProviderEnabledInDB(ctx, db, "google")
 	h.render(w, "admin_account", d)
 }
 

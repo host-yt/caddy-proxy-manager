@@ -33,6 +33,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/mail"
+	"github.com/host-yt/caddy-proxy-manager/internal/oauth2x"
 	"github.com/host-yt/caddy-proxy-manager/internal/obs"
 	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
@@ -61,7 +62,10 @@ type AuthHandlers struct {
 	Mailer    *mail.Mailer
 	Captcha   *captcha.Verifier
 	OIDC      *hpgoidc.Service
-	SMS       *sms.Sender
+	// OAuth2X drives the social-login providers (GitHub, Google) that run
+	// alongside OIDC. nil disables their start/callback routes.
+	OAuth2X *oauth2x.Service
+	SMS     *sms.Sender
 	// PasskeyEnabled controls the "Sign in with passkey" button visibility
 	// on /auth/login. Wired from main.go when the WebAuthn service is
 	// available (App.URL valid).
@@ -154,6 +158,8 @@ type loginViewData struct {
 	CaptchaSiteKey        string
 	OIDCEnabled           bool
 	OIDCProviderName      string
+	GitHubEnabled         bool
+	GoogleEnabled         bool
 	PasswordLoginDisabled bool
 	PasskeyEnabled        bool
 	CSPNonce              string
@@ -220,6 +226,11 @@ func (h *AuthHandlers) renderLogin(w http.ResponseWriter, status int, data login
 			"SELECT value FROM settings WHERE `key` = 'oidc.password_login_disabled' LIMIT 1",
 		).Scan(&v)
 		data.PasswordLoginDisabled = v == "1"
+	}
+	// Social-login button visibility - nil-safe, never errors.
+	if h.OAuth2X != nil {
+		data.GitHubEnabled = h.OAuth2X.Enabled(ctx, "github")
+		data.GoogleEnabled = h.OAuth2X.Enabled(ctx, "google")
 	}
 	data.PasskeyEnabled = h.PasskeyEnabled
 	if h.Captcha != nil && h.Captcha.Enabled() {
