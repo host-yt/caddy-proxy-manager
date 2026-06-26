@@ -2504,6 +2504,19 @@ type oidcView struct {
 	AllowUnverifiedEmail  bool
 }
 
+// oauthProviderView drives one social-login (GitHub/Google) config form.
+type oauthProviderView struct {
+	Provider        string // slug: "github" | "google"
+	Label           string // display name
+	Enabled         bool
+	ClientID        string
+	HasSecret       bool
+	Scopes          string
+	AutoProvision   bool
+	DefaultRole     string
+	DefaultRedirect string // computed callback URL to whitelist on the provider
+}
+
 type turnstileView struct {
 	Enabled   bool
 	SiteKey   string
@@ -2534,6 +2547,7 @@ type settingsData struct {
 	ACME            acmeView
 	GeoIP           geoipView
 	OIDC            oidcView
+	OAuthProviders  []oauthProviderView // social-login (GitHub, Google)
 	Turnstile       turnstileView
 	Cloudflare      cloudflareView
 	WireGuard       wireguardView
@@ -2592,6 +2606,7 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			PasswordLoginDisabled: kv["oidc.password_login_disabled"] == "1",
 			AllowUnverifiedEmail:  kv["oidc.allow_unverified_email"] == "1",
 		}
+		d.OAuthProviders = h.loadOAuthProviderViews(ctx, db, d.AppURL)
 		d.SMSOTPAvailable = kv["sms_otp_available"] == "1"
 		d.APIDocsPublic = kv["apidocs.public_enabled"] != "0"
 		d.Require2FAEnvForced = h.Enforce2FAEnv
