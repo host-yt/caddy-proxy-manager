@@ -1342,6 +1342,12 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
+	// Scoped admins must not view hosts outside their client scope (edit form leaks node IP inventory).
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	var (
 		headersJSON  sql.NullString
 		redirectURL  sql.NullString
@@ -1574,6 +1580,11 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sess := middleware.SessionFromContext(r.Context())
+	// Scoped admins must not update hosts outside their client scope.
+	if !h.scopeCheckRoute(r.Context(), sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	_ = r.ParseForm()
 	domain := strings.TrimSpace(strings.ToLower(r.FormValue("domain")))
 	pathPrefix := strings.TrimSpace(r.FormValue("path_prefix"))

@@ -44,6 +44,12 @@ func SessionFromContext(ctx context.Context) *auth.Session {
 	return v
 }
 
+// ContextWithSession attaches a session to ctx using the same key SessionFromContext reads.
+// Exported so other packages (e.g. handler tests) can build authenticated requests.
+func ContextWithSession(ctx context.Context, sess *auth.Session) context.Context {
+	return context.WithValue(ctx, sessionCtxKey, sess)
+}
+
 // RequireRole forces a logged-in user whose role is in allowed.
 // Unauthenticated -> redirect to /auth/login (for browser routes).
 // Wrong role      -> 403.
