@@ -944,6 +944,96 @@ func (h *AdminHandlers) HostsCheckDNS(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, http.StatusOK, resp)
 }
 
+// HostsDNSTest performs a real DNS lookup through the resolver configured for
+// a route (dns_resolver_ip or the WG peer's assigned_ip) and returns latency +
+// resolved addresses. Used by the "Test resolver" button on the DNS tab.
+func (h *AdminHandlers) HostsDNSTest(w http.ResponseWriter, r *http.Request) {
+	idStr := chi.URLParam(r, "id")
+	id, _ := strconv.ParseInt(idStr, 10, 64)
+	resp := map[string]any{"route_id": id}
+	if id == 0 {
+		apiJSON(w, http.StatusBadRequest, map[string]any{"error": "bad route id"})
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		apiJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "db unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	var resolverIP, resolverPeerIP, upstreamHost, addressFamily string
+	err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(r.dns_resolver_ip,''), COALESCE(dns_peer.assigned_ip,''),
+		        COALESCE(NULLIF(r.backend_ip_override,''), s.backend_ip),
+		        COALESCE(r.dns_address_family,'any')
+		   FROM routes r
+		   JOIN services s ON s.id = r.service_id
+		   LEFT JOIN customer_wg_peer dns_peer
+		     ON dns_peer.id = r.dns_resolver_via_wg_peer_id AND dns_peer.status <> 'revoked'
+		  WHERE r.id = ?`, id,
+	).Scan(&resolverIP, &resolverPeerIP, &upstreamHost, &addressFamily)
+	if err != nil {
+		apiJSON(w, http.StatusNotFound, map[string]any{"error": "route not found"})
+		return
+	}
+	// Pick effective resolver: direct IP wins over peer IP.
+	effectiveResolver := resolverIP
+	if effectiveResolver == "" {
+		effectiveResolver = resolverPeerIP
+	}
+	resp["resolver"] = effectiveResolver
+	resp["host"] = upstreamHost
+	resp["address_family"] = addressFamily
+	// When upstream is already a bare IP, there is nothing to resolve.
+	if net.ParseIP(upstreamHost) != nil {
+		resp["resolved"] = []string{upstreamHost}
+		resp["latency_ms"] = 0
+		resp["ok"] = true
+		resp["note"] = "upstream is a bare IP, no DNS lookup needed"
+		apiJSON(w, http.StatusOK, resp)
+		return
+	}
+	// Build a resolver pointed at the configured DNS server.
+	resolver := net.DefaultResolver
+	if effectiveResolver != "" {
+		dialAddr := net.JoinHostPort(effectiveResolver, "53")
+		resolver = &net.Resolver{
+			PreferGo: true,
+			Dial: func(ctx context.Context, network, _ string) (net.Conn, error) {
+				d := net.Dialer{}
+				return d.DialContext(ctx, "udp", dialAddr)
+			},
+		}
+	}
+	start := time.Now()
+	network := "ip4"
+	if addressFamily == "ipv6" {
+		network = "ip6"
+	}
+	addrs, lookupErr := resolver.LookupNetIP(ctx, network, upstreamHost)
+	latencyMs := time.Since(start).Milliseconds()
+	resp["latency_ms"] = latencyMs
+	if lookupErr != nil {
+		if h.Logger != nil {
+			h.Logger.Warn("dns resolver test failed", "route_id", id, "host", upstreamHost,
+				"resolver", effectiveResolver, "err", lookupErr)
+		}
+		resp["ok"] = false
+		resp["error"] = lookupErr.Error()
+		resp["resolved"] = []string{}
+		apiJSON(w, http.StatusOK, resp)
+		return
+	}
+	strs := make([]string, 0, len(addrs))
+	for _, a := range addrs {
+		strs = append(strs, a.String())
+	}
+	resp["resolved"] = strs
+	resp["ok"] = len(strs) > 0
+	apiJSON(w, http.StatusOK, resp)
+}
+
 // HostsRetry re-runs the DNS check on a single route and re-pushes the
 // node config. Surfaces "force a renewal" semantically - Caddy's on-
 // demand TLS issues / renews certs as part of evaluating the pushed
@@ -1197,6 +1287,12 @@ type upstreamRow struct {
 	Weight      int
 	MaxRequests int  // Caddy upstream max concurrent requests (0 = unlimited)
 	Enabled     bool // soft-disable without removing from pool
+	// Per-upstream passive health override (migration 00086).
+	// When HealthOverride is true, MaxFails and FailDurSecs replace the
+	// pool-level settings for this specific upstream.
+	HealthOverride    bool
+	HealthMaxFails    int
+	HealthFailDurSecs int
 }
 
 type locationRuleRow struct {
@@ -1473,11 +1569,13 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	// Additional backends for the Load balancing tab (best-effort).
 	if urows, uerr := db.QueryContext(ctx,
-		`SELECT host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1)
+		`SELECT host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1),
+		        COALESCE(health_override,0), COALESCE(health_max_fails,0), COALESCE(health_fail_dur_secs,0)
 		   FROM route_upstreams WHERE route_id = ? ORDER BY sort_order ASC, id ASC`, id); uerr == nil {
 		for urows.Next() {
 			var ur upstreamRow
-			if urows.Scan(&ur.Host, &ur.Port, &ur.Weight, &ur.MaxRequests, &ur.Enabled) == nil {
+			if urows.Scan(&ur.Host, &ur.Port, &ur.Weight, &ur.MaxRequests, &ur.Enabled,
+				&ur.HealthOverride, &ur.HealthMaxFails, &ur.HealthFailDurSecs) == nil {
 				d.Upstreams = append(d.Upstreams, ur)
 			}
 		}
@@ -1683,7 +1781,10 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	upPorts := r.Form["upstream_port[]"]
 	upWeights := r.Form["upstream_weight[]"]
 	upMaxReqs := r.Form["upstream_max_requests[]"]
-	upEnabled := r.Form["upstream_enabled[]"] // checkbox: present = enabled
+	upEnabled := r.Form["upstream_enabled[]"]           // checkbox: present = enabled
+	upHealthOvr := r.Form["upstream_health_override[]"] // checkbox: 1 = enable override
+	upHealthMF := r.Form["upstream_health_max_fails[]"]
+	upHealthFD := r.Form["upstream_health_fail_dur[]"]
 	var newUpstreams []upstreamRow
 	for i := range upHosts {
 		host := strings.TrimSpace(upHosts[i])
@@ -1710,7 +1811,22 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		if i < len(upEnabled) {
 			enabled = upEnabled[i] == "1"
 		}
-		newUpstreams = append(newUpstreams, upstreamRow{Host: host, Port: port, Weight: weight, MaxRequests: maxReq, Enabled: enabled})
+		healthOvr := false
+		if i < len(upHealthOvr) {
+			healthOvr = upHealthOvr[i] == "1"
+		}
+		healthMF := 0
+		if i < len(upHealthMF) {
+			healthMF = clampInt(atoiDefault(upHealthMF[i], 0), 0, 100)
+		}
+		healthFD := 0
+		if i < len(upHealthFD) {
+			healthFD = clampInt(atoiDefault(upHealthFD[i], 0), 0, 3600)
+		}
+		newUpstreams = append(newUpstreams, upstreamRow{
+			Host: host, Port: port, Weight: weight, MaxRequests: maxReq, Enabled: enabled,
+			HealthOverride: healthOvr, HealthMaxFails: healthMF, HealthFailDurSecs: healthFD,
+		})
 	}
 	newLocationRules, locErr := sanitizeLocationRules(r.Form)
 	if locErr != nil {
@@ -2392,9 +2508,25 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			if u.Enabled {
 				enInt = 1
 			}
+			var hoInt *int
+			if u.HealthOverride {
+				v := 1
+				hoInt = &v
+			}
+			var hmf, hfd *int
+			if u.HealthOverride && u.HealthMaxFails > 0 {
+				hmf = &u.HealthMaxFails
+			}
+			if u.HealthOverride && u.HealthFailDurSecs > 0 {
+				hfd = &u.HealthFailDurSecs
+			}
 			if _, e2 = tx.ExecContext(ctx,
-				`INSERT INTO route_upstreams (route_id, host, port, weight, max_requests, enabled, sort_order) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-				id, u.Host, u.Port, u.Weight, u.MaxRequests, enInt, i); e2 != nil {
+				`INSERT INTO route_upstreams
+				 (route_id, host, port, weight, max_requests, enabled, sort_order,
+				  health_override, health_max_fails, health_fail_dur_secs)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+				id, u.Host, u.Port, u.Weight, u.MaxRequests, enInt, i,
+				hoInt, hmf, hfd); e2 != nil {
 				break
 			}
 		}

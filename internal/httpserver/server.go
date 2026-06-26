@@ -330,6 +330,7 @@ func (s *Server) routes() {
 			r.Get("/{id}/logs/stream", s.deps.Admin.HostsLogsStream)
 			r.Get("/{id}/logs/export", s.deps.Admin.HostsLogsExport)
 			r.Get("/{id}/rollups.json", s.deps.Admin.HostsRollupJSON)
+			r.Post("/{id}/dns/test", s.deps.Admin.HostsDNSTest)
 		})
 		// Built-in forward-auth portal: local access groups + members.
 		r.Route("/access-groups", func(r chi.Router) {

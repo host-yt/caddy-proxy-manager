@@ -2024,9 +2024,11 @@ func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Rou
 		args[i] = id
 	}
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT route_id, host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1) FROM route_upstreams
-		 WHERE route_id IN (`+strings.Join(ph, ",")+`)
-		 ORDER BY route_id, sort_order ASC, id ASC`, args...)
+		`SELECT route_id, host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1),
+		        COALESCE(health_override,0), COALESCE(health_max_fails,0), COALESCE(health_fail_dur_secs,0)
+		   FROM route_upstreams
+		  WHERE route_id IN (`+strings.Join(ph, ",")+`)
+		  ORDER BY route_id, sort_order ASC, id ASC`, args...)
 	if err != nil {
 		if s.Logger != nil {
 			s.Logger.Warn("route_upstreams load failed; routes stay single-dial", "err", err)
@@ -2038,8 +2040,10 @@ func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Rou
 		var rid int64
 		var host string
 		var port, weight, maxReq int
-		var enabled bool
-		if err := rows.Scan(&rid, &host, &port, &weight, &maxReq, &enabled); err != nil {
+		var enabled, healthOverride bool
+		var healthMaxFails, healthFailDurSecs int
+		if err := rows.Scan(&rid, &host, &port, &weight, &maxReq, &enabled,
+			&healthOverride, &healthMaxFails, &healthFailDurSecs); err != nil {
 			continue
 		}
 		// Soft-disabled upstreams are excluded from the emitted pool.
@@ -2048,7 +2052,13 @@ func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Rou
 		}
 		if i, ok := idx[rid]; ok {
 			built[i].Upstreams = append(built[i].Upstreams, caddyapi.Upstream{
-				Host: host, Port: port, Weight: weight, MaxRequests: maxReq,
+				Host:              host,
+				Port:              port,
+				Weight:            weight,
+				MaxRequests:       maxReq,
+				HealthOverride:    healthOverride,
+				HealthMaxFails:    healthMaxFails,
+				HealthFailDurSecs: healthFailDurSecs,
 			})
 		}
 	}
