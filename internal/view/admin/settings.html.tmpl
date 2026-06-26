@@ -52,6 +52,7 @@
         <p class="hpg-eyebrow mb-2">Developer</p>
         <div class="grid gap-1">
           <button type="button" data-settings-tab="apidocs" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">API docs</button>
+          <button type="button" data-settings-tab="ai" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">AI assistant</button>
         </div>
       </div>
     </div>
@@ -509,6 +510,54 @@
       </div>
       <div class="sm:col-span-2 flex justify-end pt-2">
         <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Verify token &amp; save</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-settings-pane="ai" class="hpg-settings-pane hidden hpg-card">
+    <div class="flex items-center gap-2 mb-1">
+      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+      </span>
+      <h2 class="font-semibold text-slate-800 dark:text-slate-100">AI assistant</h2>
+    </div>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Configure an LLM provider for the in-app assistant. API keys are stored AES-256-GCM encrypted at rest and never shown again - leave a field blank to keep the existing key. Use <strong>Test</strong> to verify a saved key with a minimal request.</p>
+    <form method="POST" action="/admin/settings/ai" class="space-y-4 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div>
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Default provider</label>
+        <select name="default_provider" class="w-full sm:w-72 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <option value="" {{if eq .AI.DefaultProvider ""}}selected{{end}}>- none -</option>
+          {{range .AI.Providers}}
+          <option value="{{.ID}}" {{if eq $.AI.DefaultProvider .ID}}selected{{end}}>{{.Label}}</option>
+          {{end}}
+        </select>
+        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">The assistant uses this provider's key unless overridden.</p>
+      </div>
+
+      <div class="grid grid-cols-1 gap-3">
+        {{range .AI.Providers}}
+        <div class="rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-800 p-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="font-medium text-slate-700 dark:text-slate-200">{{.Label}}</span>
+            {{if .Configured}}
+            <span class="text-[11px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">Key configured</span>
+            {{else}}
+            <span class="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-slate-400">Not set</span>
+            {{end}}
+          </div>
+          <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+            <input name="key_{{.ID}}" type="password" autocomplete="new-password" placeholder="{{if .Configured}}leave blank to keep{{else}}paste API key{{end}}" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+            <button type="button" data-ai-test="{{.ID}}" class="px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-600 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors whitespace-nowrap">Test key</button>
+          </div>
+          {{if .Configured}}<label class="flex items-center gap-2 mt-2 text-xs text-rose-700 dark:text-rose-400"><input type="checkbox" name="clear_{{.ID}}" value="1"> Remove stored key on save</label>{{end}}
+          <p data-ai-test-result="{{.ID}}" class="hidden mt-2 text-xs"></p>
+        </div>
+        {{end}}
+      </div>
+
+      <div class="flex justify-end pt-1">
+        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm cursor-pointer transition-colors">Save AI settings</button>
       </div>
     </form>
   </section>
@@ -994,6 +1043,50 @@
         });
     });
   }
+
+  // AI assistant: per-provider "Test key" buttons. POSTs the provider id to
+  // /admin/settings/ai/test; the server verifies the SAVED key (save first to
+  // test a freshly pasted key). Response is JSON {ok,error}; never the key.
+  (function(){
+    var aiForm = document.querySelector('form[action="/admin/settings/ai"]');
+    document.querySelectorAll('[data-ai-test]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var provider = btn.dataset.aiTest;
+        var result = document.querySelector('[data-ai-test-result="'+provider+'"]');
+        var csrf = aiForm ? aiForm.querySelector('[name=csrf_token]') : null;
+        btn.disabled = true;
+        var prev = btn.textContent;
+        btn.textContent = 'Testing…';
+        if (result){ result.classList.remove('hidden'); result.className = 'mt-2 text-xs text-slate-500 dark:text-slate-400'; result.textContent = 'Contacting provider…'; }
+        var body = new URLSearchParams();
+        body.set('provider', provider);
+        if (csrf) body.set('csrf_token', csrf.value);
+        fetch('/admin/settings/ai/test', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json'},
+          body: body.toString()
+        }).then(function(r){ return r.json().catch(function(){ return {ok:false,error:'invalid JSON response'}; }); })
+          .then(function(j){
+            btn.disabled = false; btn.textContent = prev;
+            if (!result) return;
+            if (j && j.ok){
+              result.className = 'mt-2 text-xs p-2 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200';
+              result.textContent = 'OK - key works.';
+            } else {
+              result.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
+              result.textContent = 'Failed: ' + ((j && j.error) || 'unknown error');
+            }
+          })
+          .catch(function(err){
+            btn.disabled = false; btn.textContent = prev;
+            if (!result) return;
+            result.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
+            result.textContent = 'Network error: ' + (err && err.message || err);
+          });
+      });
+    });
+  })();
 
   // SSO Jump: copy button + close modal for one-shot secret display.
   (function(){
