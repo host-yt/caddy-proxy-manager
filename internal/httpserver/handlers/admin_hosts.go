@@ -774,6 +774,7 @@ type nodeDetailRow struct {
 	WstunnelHealthy    sql.NullBool
 	FwdIPForward       sql.NullBool
 	FwdPolicyDrop      sql.NullBool
+	FwdDockerRules     sql.NullBool // DOCKER-USER accept active -> Docker-routed forward is covered
 	FwdFirewallBackend sql.NullString
 	FwdLastSetupError  sql.NullString
 	FwdReportedAt      sql.NullString
@@ -807,6 +808,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(n.tunnel_enabled,0),
 		        n.fwd_mtu, n.tunnel_wstunnel_healthy,
 		        n.fwd_ip_forward_enabled, n.fwd_policy_drop_detected,
+		        n.fwd_docker_rules_installed,
 		        n.fwd_firewall_backend, n.fwd_last_setup_error,
 		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),'')
 		 FROM caddy_nodes n JOIN node_groups ng ON ng.id = n.node_group_id
@@ -817,6 +819,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		&d.Node.TunnelEnabled,
 		&d.Node.TunnelMTU, &d.Node.WstunnelHealthy,
 		&d.Node.FwdIPForward, &d.Node.FwdPolicyDrop,
+		&d.Node.FwdDockerRules,
 		&d.Node.FwdFirewallBackend, &d.Node.FwdLastSetupError,
 		&d.Node.FwdReportedAt)
 	if err != nil {
