@@ -13,7 +13,9 @@ FROM caddy:2.11.3-builder AS builder
 # Souin cache-handler (per-route real cache) + caddy-l4 (TCP/UDP stream
 # proxy used by the Streams admin page) + caddy-ratelimit (per-route
 # rate_limit handler, gated by RATE_LIMIT_AVAILABLE) + coraza WAF (per-route
-# OWASP CRS, gated by WAF_MODULE_AVAILABLE). cache-handler uses v0.x.x - no
+# OWASP CRS, gated by WAF_MODULE_AVAILABLE) + maxmind-geolocation (per-route
+# country allow/deny matcher, gated by GEOIP_AVAILABLE; needs the mmdb at
+# /data/geoip auto-distributed by the panel). cache-handler uses v0.x.x - no
 # v2.x exists. caddy-l4/caddy-ratelimit have no stable tag, latest commit on
 # master is what xcaddy resolves with no @ pin.
 # DNS-01 wildcard providers. This caddy-dns/<module> list is kept in sync by
@@ -25,6 +27,7 @@ RUN xcaddy build \
       --with github.com/mholt/caddy-l4 \
       --with github.com/mholt/caddy-ratelimit \
       --with github.com/corazawaf/coraza-caddy/v2 \
+      --with github.com/porech/caddy-maxmind-geolocation \
       --with github.com/caddy-dns/cloudflare \
       --with github.com/caddy-dns/route53 \
       --with github.com/caddy-dns/googleclouddns \
