@@ -625,6 +625,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		NodeJoin:        joinH,
 		WGBoot:          wgBootH,
 		NodeGeoIP:       &handlers.NodeGeoIPHandler{DB: wizard.DB, Logger: logger},
+		NodeWAFIngest:   &handlers.NodeWAFIngestHandler{DB: wizard.DB, WAFEvents: wafStore, Logger: logger},
 		TrustCFIP:       cfSvc.TrustConnectingIP,
 		Metrics:         mtr,
 		Health:          health,
