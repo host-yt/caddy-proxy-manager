@@ -15,10 +15,10 @@ BEGIN
             cert_pem     MEDIUMTEXT      NOT NULL,
             -- private key encrypted at rest via installstate AES-256-GCM
             key_pem_enc  MEDIUMTEXT      NOT NULL,
-            chain_pem    MEDIUMTEXT      NOT NULL DEFAULT '',
+            chain_pem    MEDIUMTEXT      NOT NULL,
             common_name  VARCHAR(255)    NOT NULL DEFAULT '',
             -- JSON array of SAN strings, e.g. '["example.com","www.example.com"]'
-            sans         TEXT            NOT NULL DEFAULT '[]',
+            sans         TEXT            NOT NULL,
             not_before   DATETIME        NOT NULL,
             not_after    DATETIME        NOT NULL,
             created_at   TIMESTAMP       NOT NULL DEFAULT CURRENT_TIMESTAMP,
