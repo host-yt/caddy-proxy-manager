@@ -11,6 +11,9 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
+// mapStaleAfter mirrors wgStaleAfter from admin_tunnels for map health badges.
+const mapStaleAfter = 180 * time.Second
+
 const (
 	adminMapClientLimit  = 40
 	adminMapServiceLimit = 160
@@ -98,6 +101,7 @@ type adminMapNode struct {
 	TunnelEnabled  bool
 	TunnelEndpoint string
 	TunnelSubnet   string
+	TunnelMTU      int // 0 means not set / legacy node
 	CurrentRoutes  int
 	MaxRoutes      int
 	RoutesShown    int
@@ -106,15 +110,18 @@ type adminMapNode struct {
 }
 
 type adminMapTunnel struct {
-	ID            int64
-	ClientID      int64
-	NodeID        int64
-	NodeName      string
-	Name          string
-	AssignedIP    string
-	Status        string
-	LastHandshake string
-	PeerGroupID   string
+	ID              int64
+	ClientID        int64
+	NodeID          int64
+	NodeName        string
+	Name            string
+	AssignedIP      string
+	Status          string
+	LastHandshake   string
+	PeerGroupID     string
+	Healthy         bool   // true when last handshake is within mapStaleAfter
+	KeyAgeHuman     string // "3d ago" or "never rotated"
+	LastHandshakeAt string // formatted date string for display
 }
 
 // AdminMap renders the read-only admin infrastructure topology page.
@@ -317,7 +324,10 @@ func (h *AdminHandlers) loadAdminMapTunnels(ctx context.Context, db *sql.DB, cli
 		return nil
 	}
 	q := `SELECT p.id, p.client_id, p.node_id, n.name, p.name, p.assigned_ip, p.status,
-		        COALESCE(DATE_FORMAT(p.last_handshake_at,'%Y-%m-%d %H:%i'),''), COALESCE(p.peer_group_id,'')
+		        COALESCE(DATE_FORMAT(p.last_handshake_at,'%Y-%m-%d %H:%i'),''),
+		        COALESCE(p.peer_group_id,''),
+		        COALESCE(p.last_handshake_epoch,0),
+		        p.last_rotated_at, p.last_key_rotation_at
 		 FROM customer_wg_peer p
 		 JOIN caddy_nodes n ON n.id = p.node_id
 		 WHERE p.client_id IN (` + adminMapPlaceholders(len(clientIDs)) + `)
@@ -331,10 +341,18 @@ func (h *AdminHandlers) loadAdminMapTunnels(ctx context.Context, db *sql.DB, cli
 	var out []*adminMapTunnel
 	for rows.Next() {
 		var t adminMapTunnel
-		if err := rows.Scan(&t.ID, &t.ClientID, &t.NodeID, &t.NodeName, &t.Name, &t.AssignedIP, &t.Status, &t.LastHandshake, &t.PeerGroupID); err == nil {
-			if t.LastHandshake == "" {
-				t.LastHandshake = "no handshake"
+		var epoch int64
+		var lastRotated, lastKeyRotation sql.NullTime
+		if err := rows.Scan(&t.ID, &t.ClientID, &t.NodeID, &t.NodeName, &t.Name, &t.AssignedIP, &t.Status,
+			&t.LastHandshakeAt, &t.PeerGroupID, &epoch, &lastRotated, &lastKeyRotation); err == nil {
+			if t.LastHandshakeAt == "" {
+				t.LastHandshakeAt = "no handshake"
 			}
+			if epoch > 0 {
+				t.Healthy = time.Since(time.Unix(epoch, 0)) < mapStaleAfter
+			}
+			t.KeyAgeHuman = keyAgeHuman(lastRotated, lastKeyRotation)
+			t.LastHandshake = t.LastHandshakeAt
 			out = append(out, &t)
 		}
 	}
@@ -353,7 +371,7 @@ func (h *AdminHandlers) loadAdminMapNodes(ctx context.Context, db *sql.DB, allCl
 	}
 	q := `SELECT id, name, COALESCE(public_hostname,''), COALESCE(public_ip,''), COALESCE(wg_ip,''),
 		        health_status, is_enabled, COALESCE(tunnel_enabled,0), COALESCE(tunnel_endpoint,''), COALESCE(tunnel_subnet,''),
-		        current_routes, max_routes
+		        current_routes, max_routes, COALESCE(tunnel_mtu,0)
 		 FROM caddy_nodes` + where + `
 		 ORDER BY is_enabled DESC, FIELD(health_status,'healthy','degraded','unknown','down'), priority DESC, id DESC LIMIT ?`
 	args = append(args, adminMapNodeLimit)
@@ -366,7 +384,7 @@ func (h *AdminHandlers) loadAdminMapNodes(ctx context.Context, db *sql.DB, allCl
 	for rows.Next() {
 		var n adminMapNode
 		if err := rows.Scan(&n.ID, &n.Name, &n.PublicHostname, &n.PublicIP, &n.WGIP, &n.HealthStatus, &n.Enabled,
-			&n.TunnelEnabled, &n.TunnelEndpoint, &n.TunnelSubnet, &n.CurrentRoutes, &n.MaxRoutes); err == nil {
+			&n.TunnelEnabled, &n.TunnelEndpoint, &n.TunnelSubnet, &n.CurrentRoutes, &n.MaxRoutes, &n.TunnelMTU); err == nil {
 			out = append(out, &n)
 		}
 	}
