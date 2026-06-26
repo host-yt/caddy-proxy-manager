@@ -27,6 +27,8 @@ type Config struct {
 	DrillStaleDays int // ALERT_DRILL_STALE_DAYS, default 7
 	// Hours after rotation before alerting that customer never fetched new config.
 	WGRotationFetchGraceHours int // ALERT_WG_FETCH_GRACE_HOURS, default 48
+	// Days before expiry to alert for manually imported certs.
+	ManualCertDaysWarn int // ALERT_MANUAL_CERT_DAYS_WARN, default 30
 }
 
 // LoadConfig reads env with sane defaults. Invalid numerics fall back to
@@ -43,6 +45,7 @@ func LoadConfig() Config {
 		AdminPhone:                os.Getenv("ALERT_ADMIN_PHONE"),
 		DrillStaleDays:            envInt("ALERT_DRILL_STALE_DAYS", 7),
 		WGRotationFetchGraceHours: envInt("ALERT_WG_FETCH_GRACE_HOURS", 48),
+		ManualCertDaysWarn:        envInt("ALERT_MANUAL_CERT_DAYS_WARN", 30),
 	}
 }
 

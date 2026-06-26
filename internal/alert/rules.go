@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"github.com/go-sql-driver/mysql"
 )
@@ -254,7 +255,108 @@ func wgKeyNotFetched(ctx context.Context, db *sql.DB, cfg Config, log *slog.Logg
 	return out
 }
 
+// manualCertExpiry fires for manually imported certs nearing expiry or already
+// expired. Severity escalates to Critical when the cert is past its NotAfter.
+// Phase label ("warn"/"expired") is included so Warning->Critical escalation
+// gets a distinct dedupe key and is not suppressed by the cooldown window.
+func manualCertExpiry(ctx context.Context, db *sql.DB, cfg Config, log *slog.Logger) []Alert {
+	threshold := cfg.ManualCertDaysWarn
+	if threshold <= 0 {
+		threshold = 30
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT id, name, common_name, route_id, not_after,
+		       TIMESTAMPDIFF(DAY, NOW(), not_after) AS days_left
+		  FROM manual_certs
+		 WHERE not_after < (NOW() + INTERVAL ? DAY)`,
+		threshold)
+	if err != nil {
+		var me *mysql.MySQLError
+		// Table not yet migrated - suppress false alert on first boot.
+		if errors.As(err, &me) && me.Number == 1146 {
+			return nil
+		}
+		// Any other error (schema drift, timeout, permissions) must NOT silently
+		// disable expiry monitoring - that is the exact failure this rule exists
+		// to prevent. Surface it as a degraded-monitoring alert so operators know
+		// they are flying blind on cert expiry.
+		return []Alert{degradedMonitorAlert(log, "manual cert expiry query failed", err)}
+	}
+	defer rows.Close()
+	var out []Alert
+	for rows.Next() {
+		var id int64
+		var name, cn string
+		var routeID sql.NullInt64
+		var notAfter time.Time
+		var daysLeft int
+		if err := rows.Scan(&id, &name, &cn, &routeID, &notAfter, &daysLeft); err != nil {
+			if log != nil {
+				log.Error("manual cert expiry row scan", "err", err)
+			}
+			continue
+		}
+		label := name
+		if label == "" {
+			label = cn
+		}
+		severity, phase, detail := classifyManualCert(time.Now(), notAfter, daysLeft)
+		labels := map[string]string{
+			"cert_id": strconv.FormatInt(id, 10),
+			"cn":      cn,
+			// Phase differentiates warn vs expired so the cooldown does not
+			// suppress a Critical escalation that follows a Warning fire.
+			"phase": phase,
+		}
+		if routeID.Valid {
+			labels["route_id"] = strconv.FormatInt(routeID.Int64, 10)
+		}
+		out = append(out, Alert{
+			RuleID:   "manual_cert_expiry",
+			Severity: severity,
+			Title:    "Manual cert expiring: " + label,
+			Detail:   detail,
+			Labels:   labels,
+		})
+	}
+	// A mid-iteration error leaves partial data; surface it instead of acting on
+	// a possibly-incomplete set (a specific expiring cert could be hidden).
+	if err := rows.Err(); err != nil {
+		out = append(out, degradedMonitorAlert(log, "manual cert expiry iteration failed", err))
+	}
+	return out
+}
+
+// degradedMonitorAlert builds a stable Critical alert signalling that a
+// monitoring rule itself failed. Stable dedupe labels (phase=monitor_degraded)
+// keep it from spamming while the fault persists.
+func degradedMonitorAlert(log *slog.Logger, msg string, err error) Alert {
+	if log != nil {
+		log.Error(msg, "err", err)
+	}
+	return Alert{
+		RuleID:   "manual_cert_expiry",
+		Severity: SeverityCritical,
+		Title:    "Manual cert expiry monitoring degraded",
+		Detail:   "expiry checks are failing - certs may expire unnoticed until this is fixed",
+		Labels:   map[string]string{"phase": "monitor_degraded"},
+	}
+}
+
+// classifyManualCert returns the severity, phase label, and detail string for a
+// cert row. Extracted for unit testing without a DB dependency.
+// now is injected so tests can fix the reference time.
+func classifyManualCert(now time.Time, notAfter time.Time, daysLeft int) (Severity, string, string) {
+	if now.After(notAfter) {
+		daysAgo := int(now.Sub(notAfter).Hours() / 24)
+		detail := fmt.Sprintf("expired %d days ago (%s)", daysAgo, notAfter.UTC().Format("2006-01-02"))
+		return SeverityCritical, "expired", detail
+	}
+	detail := fmt.Sprintf("expires in %d days (%s)", daysLeft, notAfter.UTC().Format("2006-01-02"))
+	return SeverityWarning, "warn", detail
+}
+
 // KnownRuleIDs is the canonical rule list used by the admin filter UI.
 func KnownRuleIDs() []string {
-	return []string{"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale", "db_pool_saturated", "drill_stale", "wg_key_not_fetched"}
+	return []string{"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale", "db_pool_saturated", "drill_stale", "wg_key_not_fetched", "manual_cert_expiry"}
 }
