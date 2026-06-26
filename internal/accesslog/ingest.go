@@ -28,8 +28,14 @@ type caddyLogLine struct {
 }
 
 type caddyLogReq struct {
-	Method     string              `json:"method"`
-	URI        string              `json:"uri"`
+	Method string `json:"method"`
+	URI    string `json:"uri"`
+	// Caddy logs the request host and client IP as top-level fields on
+	// "request", NOT inside headers. client_ip is the real client (after
+	// trusted-proxy resolution); remote_ip is the raw socket peer.
+	Host       string              `json:"host"`
+	ClientIP   string              `json:"client_ip"`
+	RemoteIP   string              `json:"remote_ip"`
 	RemoteAddr string              `json:"remote_addr"`
 	Headers    map[string][]string `json:"headers"`
 }
@@ -87,10 +93,13 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *IngestHandler) ingest(ctx context.Context, line caddyLogLine) {
-	// Resolve host from the recorded request headers.
-	host := ""
-	if vals := line.Request.Headers["Host"]; len(vals) > 0 {
-		host = stripPort(vals[0])
+	// Caddy logs the host as request.host (top-level), not in headers.
+	// Fall back to the Host header only for non-Caddy producers.
+	host := stripPort(line.Request.Host)
+	if host == "" {
+		if vals := line.Request.Headers["Host"]; len(vals) > 0 {
+			host = stripPort(vals[0])
+		}
 	}
 	if host == "" {
 		return
@@ -112,7 +121,16 @@ func (h *IngestHandler) ingest(ctx context.Context, line caddyLogLine) {
 		uri = uri[:2048]
 	}
 	latencyMS := int(line.Duration * 1000)
-	remote := stripPort(line.Request.RemoteAddr)
+	// Prefer client_ip (real client after trusted-proxy resolution), then
+	// remote_ip, then remote_addr - Caddy emits client_ip/remote_ip, not remote_addr.
+	remote := line.Request.ClientIP
+	if remote == "" {
+		remote = line.Request.RemoteIP
+	}
+	if remote == "" {
+		remote = line.Request.RemoteAddr
+	}
+	remote = stripPort(remote)
 
 	e := Entry{
 		RouteID:   routeID,
