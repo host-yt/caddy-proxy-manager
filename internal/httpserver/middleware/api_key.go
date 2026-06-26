@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 type apiKeyCtxKey int
@@ -45,8 +47,20 @@ func APIKeyAuth(db func() *sql.DB) func(http.Handler) http.Handler {
 			// bearer. 3s is ample for two indexed lookups.
 			authCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 			defer cancel()
-			uid, role, err := auth.VerifyAPIKey(authCtx, d, token)
+			clientIP := security.ClientIP(r)
+			uid, role, err := auth.VerifyAPIKey(authCtx, d, token, clientIP)
 			if err != nil {
+				// Audit failed attempts for hpg_-prefixed tokens only; garbage
+				// or absent headers are too noisy to be actionable.
+				if strings.HasPrefix(token, "hpg_") && len(token) > 12 {
+					prefix := token[4:12] // 8-char prefix after "hpg_"
+					audit.Write(authCtx, d, nil, r, audit.Entry{
+						ActorType: audit.ActorAPI,
+						Action:    "api_key.auth_failure",
+						Entity:    "api_key",
+						Meta:      map[string]any{"prefix": prefix},
+					})
+				}
 				writeJSONErr(w, http.StatusUnauthorized, "invalid token")
 				return
 			}
