@@ -441,6 +441,10 @@ func (s *Server) routes() {
 		}
 		r.Get("/audit", s.deps.Admin.AuditList)
 		r.Get("/audit/export", s.deps.Admin.AuditExport)
+		r.Route("/saved-filters", func(r chi.Router) {
+			r.Post("/{view}", s.deps.Admin.SavedFilterSave)
+			r.Post("/{view}/{id}/delete", s.deps.Admin.SavedFilterDelete)
+		})
 		r.Get("/search", s.deps.Admin.AdminSearch)
 		r.Get("/alerts", s.deps.Admin.AlertsPage)
 		r.Route("/backups", func(r chi.Router) {

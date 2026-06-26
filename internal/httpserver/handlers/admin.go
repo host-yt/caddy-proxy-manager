@@ -1282,32 +1282,112 @@ type clientRow struct {
 type clientsData struct {
 	baseAdminData
 	Clients []clientRow
+	// Pagination/sort/search.
+	Page         int
+	Size         int
+	Total        int
+	TotalPgs     int
+	Sort         string
+	Dir          string
+	Q            string
+	PrevURL      string
+	NextURL      string
+	QueryValues  string
+	SavedFilters []savedFilter
 }
 
 func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
-	d := clientsData{baseAdminData: h.base(r, "Clients")}
+	lp := parseListParams(r, []string{"id", "display_name", "email", "created_at"},
+		"id", "desc", 50)
+	d := clientsData{
+		baseAdminData: h.base(r, "Clients"),
+		Page:          lp.Page,
+		Size:          lp.Size,
+		Sort:          lp.Sort,
+		Dir:           lp.Dir,
+		Q:             lp.Q,
+	}
 	db := h.DB()
-	if db != nil {
-		ctx, cancel := context.WithTimeout(r.Context(), 3_000_000_000)
-		defer cancel()
-		rows, err := db.QueryContext(ctx,
-			`SELECT c.id, COALESCE(c.display_name, u.full_name, u.email), COALESCE(c.display_name, ''), u.email,
-			        COALESCE(c.external_ref, ''),
-			        (SELECT COUNT(*) FROM services s WHERE s.client_id = c.id),
-			        DATE_FORMAT(c.created_at, '%Y-%m-%d')
-			 FROM clients c JOIN users u ON u.id = c.user_id
-			 ORDER BY c.id DESC`)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var c clientRow
-				if err := rows.Scan(&c.ID, &c.DisplayName, &c.EditDisplayName, &c.Email, &c.ExternalRef, &c.ServiceCount, &c.CreatedAt); err == nil {
-					d.Clients = append(d.Clients, c)
-				}
+	if db == nil {
+		h.render(w, "clients", d)
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	where := "1=1"
+	var args []any
+	if lp.Q != "" {
+		like := "%" + lp.Q + "%"
+		where = "(u.email LIKE ? OR c.display_name LIKE ? OR u.full_name LIKE ? OR c.external_ref LIKE ?)"
+		args = []any{like, like, like, like}
+	}
+
+	orderCol := clientsSortCol(lp.Sort)
+	dir := lp.Dir
+	if dir != "asc" {
+		dir = "desc"
+	}
+
+	baseFrom := `FROM clients c JOIN users u ON u.id = c.user_id WHERE ` + where
+
+	var total int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) "+baseFrom, args...).Scan(&total)
+
+	selectSQL := `SELECT c.id, COALESCE(c.display_name, u.full_name, u.email), COALESCE(c.display_name, ''), u.email,
+	        COALESCE(c.external_ref, ''),
+	        (SELECT COUNT(*) FROM services s WHERE s.client_id = c.id),
+	        DATE_FORMAT(c.created_at, '%Y-%m-%d')
+	 ` + baseFrom + ` ORDER BY ` + orderCol + ` ` + dir + ` LIMIT ? OFFSET ?`
+	queryArgs := append(args, lp.Size, lp.Offset())
+
+	rows, err := db.QueryContext(ctx, selectSQL, queryArgs...)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var c clientRow
+			if err := rows.Scan(&c.ID, &c.DisplayName, &c.EditDisplayName, &c.Email, &c.ExternalRef, &c.ServiceCount, &c.CreatedAt); err == nil {
+				d.Clients = append(d.Clients, c)
 			}
 		}
 	}
+
+	d.Total = total
+	d.TotalPgs = (total + lp.Size - 1) / lp.Size
+	if d.TotalPgs < 1 {
+		d.TotalPgs = 1
+	}
+	q := r.URL.Query()
+	if lp.Page > 1 {
+		d.PrevURL = buildPageURL(q, lp.Page-1)
+	}
+	if lp.Page < d.TotalPgs {
+		d.NextURL = buildPageURL(q, lp.Page+1)
+	}
+	d.QueryValues = clientsQueryJSON(lp.Q, lp.Sort, lp.Dir)
+	if sess != nil {
+		d.SavedFilters = h.savedFiltersForView(ctx, sess.UserID, "clients")
+	}
 	h.render(w, "clients", d)
+}
+
+func clientsSortCol(s string) string {
+	switch s {
+	case "display_name":
+		return "COALESCE(c.display_name, u.full_name, u.email)"
+	case "email":
+		return "u.email"
+	case "created_at":
+		return "c.created_at"
+	default:
+		return "c.id"
+	}
+}
+
+func clientsQueryJSON(q, sort, dir string) string {
+	b, _ := json.Marshal(map[string]string{"q": q, "sort": sort, "dir": dir})
+	return string(b)
 }
 
 // ClientsUpdate edits a client's display name, login email, and external
@@ -2235,23 +2315,45 @@ type auditData struct {
 	ActorLike  string
 	Since      string // YYYY-MM-DD
 	Limit      int
+	// Pagination/sort/search fields added for server-side control.
+	Page         int
+	Size         int
+	Total        int
+	TotalPgs     int
+	Sort         string
+	Dir          string
+	Q            string
+	PrevURL      string
+	NextURL      string
+	QueryValues  string // JSON-encoded current query for saved filters
+	SavedFilters []savedFilter
 }
 
 func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
+
+	lp := parseListParams(r, []string{"id", "created_at", "actor", "action", "entity"},
+		"id", "desc", 50)
+
 	d := auditData{
 		baseAdminData: h.base(r, "Audit log"),
 		Filter:        strings.TrimSpace(q.Get("entity")),
 		ActionLike:    strings.TrimSpace(q.Get("action")),
 		ActorLike:     strings.TrimSpace(q.Get("actor")),
 		Since:         strings.TrimSpace(q.Get("since")),
-		Limit:         200,
+		Limit:         lp.Size,
+		Page:          lp.Page,
+		Size:          lp.Size,
+		Sort:          lp.Sort,
+		Dir:           lp.Dir,
+		Q:             lp.Q,
 	}
 	db := h.DB()
 	if db == nil {
 		h.render(w, "audit", d)
 		return
 	}
+	sess := middleware.SessionFromContext(r.Context())
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
@@ -2273,14 +2375,31 @@ func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
 		where = append(where, "a.created_at >= ?")
 		args = append(args, d.Since)
 	}
+	if d.Q != "" {
+		where = append(where, "(a.action LIKE ? OR a.entity LIKE ? OR u.email LIKE ?)")
+		like := "%" + d.Q + "%"
+		args = append(args, like, like, like)
+	}
 
-	sqlStr := `SELECT DATE_FORMAT(a.created_at, '%Y-%m-%d %H:%i:%s'),
+	// Validate sort column; map friendly names to SQL expressions.
+	orderCol := auditSortCol(lp.Sort)
+	dir := lp.Dir
+	if dir != "asc" {
+		dir = "desc"
+	}
+
+	baseFrom := `FROM audit_log a LEFT JOIN users u ON u.id = a.user_id WHERE ` + strings.Join(where, " AND ")
+
+	var total int
+	countArgs := make([]any, len(args))
+	copy(countArgs, args)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) "+baseFrom, countArgs...).Scan(&total)
+
+	sqlStr := `SELECT DATE_FORMAT(a.created_at, '%Y-%m-%dT%H:%i:%sZ'),
 	                  COALESCE(u.email, a.actor_type) AS actor,
 	                  a.action, a.entity, COALESCE(a.entity_id, ''), COALESCE(a.ip, '')
-	           FROM audit_log a LEFT JOIN users u ON u.id = a.user_id
-	           WHERE ` + strings.Join(where, " AND ") + `
-	           ORDER BY a.id DESC LIMIT ?`
-	args = append(args, d.Limit)
+	           ` + baseFrom + ` ORDER BY ` + orderCol + ` ` + dir + ` LIMIT ? OFFSET ?`
+	args = append(args, lp.Size, lp.Offset())
 
 	rows, err := db.QueryContext(ctx, sqlStr, args...)
 	if err == nil {
@@ -2292,7 +2411,53 @@ func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	d.Total = total
+	d.TotalPgs = (total + lp.Size - 1) / lp.Size
+	if d.TotalPgs < 1 {
+		d.TotalPgs = 1
+	}
+	if lp.Page > 1 {
+		d.PrevURL = buildPageURL(q, lp.Page-1)
+	}
+	if lp.Page < d.TotalPgs {
+		d.NextURL = buildPageURL(q, lp.Page+1)
+	}
+
+	// Build query_json for save-filter form (only the filter fields, not page).
+	d.QueryValues = auditQueryJSON(d.Filter, d.ActionLike, d.ActorLike, d.Since, d.Q, d.Sort, d.Dir)
+
+	if sess != nil {
+		d.SavedFilters = h.savedFiltersForView(ctx, sess.UserID, "audit")
+	}
+
 	h.render(w, "audit", d)
+}
+
+// auditSortCol maps a friendly sort key to a safe SQL expression.
+func auditSortCol(s string) string {
+	switch s {
+	case "created_at":
+		return "a.created_at"
+	case "actor":
+		return "actor"
+	case "action":
+		return "a.action"
+	case "entity":
+		return "a.entity"
+	default:
+		return "a.id"
+	}
+}
+
+// auditQueryJSON encodes audit filter state as a JSON string for saved filters.
+func auditQueryJSON(entity, action, actor, since, q, sort, dir string) string {
+	m := map[string]string{
+		"entity": entity, "action": action, "actor": actor,
+		"since": since, "q": q, "sort": sort, "dir": dir,
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
 }
 
 // ---- Settings ----------------------------------------------------------
@@ -2814,28 +2979,69 @@ type apiKeysData struct {
 	baseAdminData
 	Keys     []apiKeyRow
 	NewPlain string // shown ONCE after creation
+	// Pagination/sort/search.
+	Page         int
+	Size         int
+	Total        int
+	TotalPgs     int
+	Sort         string
+	Dir          string
+	Q            string
+	PrevURL      string
+	NextURL      string
+	QueryValues  string
+	SavedFilters []savedFilter
 }
 
 func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
-	d := apiKeysData{baseAdminData: h.base(r, "API keys")}
 	// NOTE: plain key is never delivered via URL (it would land in browser
 	// history + access logs). It is rendered inline by APIKeysCreate.
 	sess := middleware.SessionFromContext(r.Context())
+	lp := parseListParams(r, []string{"id", "name", "created_at", "last_used_at"},
+		"id", "desc", 50)
+	d := apiKeysData{
+		baseAdminData: h.base(r, "API keys"),
+		Page:          lp.Page,
+		Size:          lp.Size,
+		Sort:          lp.Sort,
+		Dir:           lp.Dir,
+		Q:             lp.Q,
+	}
 	db := h.DB()
 	if db == nil || sess == nil {
 		h.render(w, "api_keys", d)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3_000_000_000)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	rows, err := db.QueryContext(ctx,
-		`SELECT id, name, key_prefix, scopes,
+
+	where := "user_id = ?"
+	args := []any{sess.UserID}
+	if lp.Q != "" {
+		like := "%" + lp.Q + "%"
+		where += " AND (name LIKE ? OR key_prefix LIKE ? OR scopes LIKE ?)"
+		args = append(args, like, like, like)
+	}
+
+	orderCol := apiKeysSortCol(lp.Sort)
+	dir := lp.Dir
+	if dir != "asc" {
+		dir = "desc"
+	}
+
+	var total int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM api_keys WHERE "+where, args...).Scan(&total)
+
+	selectSQL := `SELECT id, name, key_prefix, scopes,
 		        COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i'),''),
 		        last_used_ip,
 		        DATE_FORMAT(created_at,'%Y-%m-%d'),
 		        COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d'),''),
 		        revoked_at IS NOT NULL
-		 FROM api_keys WHERE user_id = ? ORDER BY id DESC`, sess.UserID)
+		 FROM api_keys WHERE ` + where + ` ORDER BY ` + orderCol + ` ` + dir + ` LIMIT ? OFFSET ?`
+	queryArgs := append(args, lp.Size, lp.Offset())
+
+	rows, err := db.QueryContext(ctx, selectSQL, queryArgs...)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
@@ -2845,7 +3051,40 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	d.Total = total
+	d.TotalPgs = (total + lp.Size - 1) / lp.Size
+	if d.TotalPgs < 1 {
+		d.TotalPgs = 1
+	}
+	q := r.URL.Query()
+	if lp.Page > 1 {
+		d.PrevURL = buildPageURL(q, lp.Page-1)
+	}
+	if lp.Page < d.TotalPgs {
+		d.NextURL = buildPageURL(q, lp.Page+1)
+	}
+	d.QueryValues = apiKeysQueryJSON(lp.Q, lp.Sort, lp.Dir)
+	d.SavedFilters = h.savedFiltersForView(ctx, sess.UserID, "api_keys")
 	h.render(w, "api_keys", d)
+}
+
+func apiKeysSortCol(s string) string {
+	switch s {
+	case "name":
+		return "name"
+	case "created_at":
+		return "created_at"
+	case "last_used_at":
+		return "last_used_at"
+	default:
+		return "id"
+	}
+}
+
+func apiKeysQueryJSON(q, sort, dir string) string {
+	b, _ := json.Marshal(map[string]string{"q": q, "sort": sort, "dir": dir})
+	return string(b)
 }
 
 func (h *AdminHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
