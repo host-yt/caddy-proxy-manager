@@ -1613,9 +1613,27 @@ func (s *Service) loadErrorBranding(ctx context.Context) caddyapi.ErrorBranding 
 	return b
 }
 
+// resolveRandomEgressIP picks a stable IP for a route from the node's inventory.
+// Uses route ID mod len(ips) so the same route always maps to the same IP across rebuilds.
+func resolveRandomEgressIP(ips []string, routeID int64) string {
+	if len(ips) == 0 {
+		return ""
+	}
+	return ips[int(routeID)%len(ips)]
+}
+
 // buildRoutesForNode collects every active/dns_ok/pending_ssl route placed on
 // the given node, applies plan overrides, and returns Caddy route structs.
 func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddyapi.Route, []int64, error) {
+	// Fetch node's outbound IP inventory for 'random' egress mode resolution.
+	var nodeOutboundIPsJSON sql.NullString
+	_ = s.DB.QueryRowContext(ctx,
+		`SELECT outbound_ips FROM caddy_nodes WHERE id = ?`, nodeID,
+	).Scan(&nodeOutboundIPsJSON)
+	var nodeOutboundIPs []string
+	if nodeOutboundIPsJSON.Valid && nodeOutboundIPsJSON.String != "" {
+		_ = json.Unmarshal([]byte(nodeOutboundIPsJSON.String), &nodeOutboundIPs)
+	}
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT r.id, r.domain, COALESCE(r.aliases,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
 		        r.websocket, r.force_https,
@@ -1648,9 +1666,11 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
 	        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
 	        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
-	        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,'')
+	        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
+	        COALESCE(pl.allow_egress_ip, 0)
 		 FROM routes r
 		 JOIN services sv ON sv.id = r.service_id
+		 LEFT JOIN plans pl ON pl.id = sv.plan_id
 		 LEFT JOIN customer_wg_peer p_base
 		   ON p_base.id = r.via_wg_peer_id
 		 LEFT JOIN customer_wg_peer p_use ON (
@@ -1723,6 +1743,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var errOverride bool
 		var errHTML, errLogo, errBrand, errBg string
 		var outboundIPMode, outboundIP string
+		var planAllowEgress bool
 		if err := rows.Scan(&id, &domain, &aliases, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
 			&tunnelResolverIP,
 			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &headersJSON,
@@ -1741,8 +1762,13 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&rateEnabled, &rateWindow, &rateMaxEvents, &rateKey,
 			&wafEnabled, &wafBlocking, &wafDirectives,
 			&errOverride, &errHTML, &errLogo, &errBrand, &errBg,
-			&outboundIPMode, &outboundIP); err != nil {
+			&outboundIPMode, &outboundIP, &planAllowEgress); err != nil {
 			return nil, nil, err
+		}
+		// Re-check plan entitlement at build time so revoking the flag takes effect immediately.
+		if !planAllowEgress {
+			outboundIPMode = "default"
+			outboundIP = ""
 		}
 		var ssoCopyHeaders []string
 		for _, h := range strings.FieldsFunc(ssoCopyHeadersRaw, func(r rune) bool { return r == '\n' || r == '\r' || r == ',' }) {
@@ -1754,6 +1780,14 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		for _, p := range strings.FieldsFunc(ssoTrustedProxies, func(r rune) bool { return r == ',' || r == ' ' || r == '\t' }) {
 			if v := strings.TrimSpace(p); v != "" {
 				ssoTrusted = append(ssoTrusted, v)
+			}
+		}
+		// Resolve 'random' egress to a stable concrete IP so static Caddy config can use it.
+		if outboundIPMode == "random" {
+			if picked := resolveRandomEgressIP(nodeOutboundIPs, id); picked != "" {
+				outboundIP = picked
+			} else {
+				outboundIPMode = "default"
 			}
 		}
 		// Skip routes pointing at a missing or revoked tunnel rather than
@@ -2002,11 +2036,19 @@ func (s *Service) attachLocationRules(ctx context.Context, built []caddyapi.Rout
 
 // buildStreamsForNode reads the stream_routes table for one node and
 // returns caddyapi.StreamRoute values ready for the L4 builder. Joins on
-// services for the backend_ip (admin-only field - stream routes never
-// expose this to the customer).
+// services for the backend_ip (admin-only; stream routes never expose this
+// to the customer). Also loads stream_upstreams and advanced columns added
+// in migration 00061.
 func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) []caddyapi.StreamRoute {
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port, sv.backend_ip
+		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port, sv.backend_ip,
+		        COALESCE(sr.match_mode,'any'),
+		        COALESCE(sr.match_values,''),
+		        COALESCE(sr.lb_policy,'round_robin'),
+		        COALESCE(sr.proxy_proto_in,'none'),
+		        COALESCE(sr.proxy_proto_out,'none'),
+		        COALESCE(sr.cidr_allow,''),
+		        COALESCE(sr.cidr_deny,'')
 		 FROM stream_routes sr JOIN services sv ON sv.id = sr.service_id
 		 WHERE sr.caddy_node_id = ? AND sr.status = 'active'
 		 ORDER BY sr.listen_port ASC`, nodeID)
@@ -2017,8 +2059,83 @@ func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) []caddy
 	var out []caddyapi.StreamRoute
 	for rows.Next() {
 		var r caddyapi.StreamRoute
-		if err := rows.Scan(&r.ID, &r.Protocol, &r.ListenPort, &r.UpstreamPort, &r.UpstreamIP); err == nil {
-			out = append(out, r)
+		var matchValuesCSV, cidrAllow, cidrDeny string
+		if err := rows.Scan(
+			&r.ID, &r.Protocol, &r.ListenPort, &r.UpstreamPort, &r.UpstreamIP,
+			&r.MatchMode, &matchValuesCSV, &r.LBPolicy,
+			&r.ProxyProtoIn, &r.ProxyProtoOut,
+			&cidrAllow, &cidrDeny,
+		); err != nil {
+			continue
+		}
+		r.MatchValues = splitCSV(matchValuesCSV)
+		r.CIDRAllow = splitCSV(cidrAllow)
+		r.CIDRDeny = splitCSV(cidrDeny)
+		out = append(out, r)
+	}
+	if len(out) == 0 {
+		return out
+	}
+	// Attach multi-upstreams; routes without rows keep the legacy single-upstream.
+	s.attachStreamUpstreams(ctx, out)
+	return out
+}
+
+// attachStreamUpstreams loads stream_upstreams rows and maps them onto the
+// built StreamRoute slice by ID. Routes without upstream rows use the
+// legacy UpstreamIP:UpstreamPort path.
+func (s *Service) attachStreamUpstreams(ctx context.Context, built []caddyapi.StreamRoute) {
+	if len(built) == 0 {
+		return
+	}
+	// Collect IDs for IN(...) query - avoids N+1.
+	ids := make([]int64, len(built))
+	idx := make(map[int64]int, len(built))
+	for i, r := range built {
+		ids[i] = r.ID
+		idx[r.ID] = i
+	}
+
+	// Build parameterized IN clause.
+	placeholders := strings.Repeat("?,", len(ids))
+	placeholders = placeholders[:len(placeholders)-1]
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT stream_route_id, address, weight
+		 FROM stream_upstreams
+		 WHERE stream_route_id IN (`+placeholders+`)
+		 ORDER BY stream_route_id ASC, sort_order ASC, id ASC`, args...)
+	if err != nil {
+		s.Logger.Warn("stream_upstreams load failed; routes stay single-dial", "err", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var routeID int64
+		var u caddyapi.StreamUpstream
+		if err := rows.Scan(&routeID, &u.Address, &u.Weight); err != nil {
+			continue
+		}
+		if i, ok := idx[routeID]; ok {
+			built[i].Upstreams = append(built[i].Upstreams, u)
+		}
+	}
+}
+
+// splitCSV splits a comma-separated string into trimmed non-empty tokens.
+func splitCSV(s string) []string {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if t := strings.TrimSpace(p); t != "" {
+			out = append(out, t)
 		}
 	}
 	return out

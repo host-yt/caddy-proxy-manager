@@ -43,6 +43,7 @@
             <th class="px-4 py-3">Private IP</th>
             <th class="px-4 py-3">State</th>
             <th class="px-4 py-3">Handshake</th>
+            <th class="px-4 py-3">Traffic</th>
             <th class="px-4 py-3 text-right">Actions</th>
           </tr>
         </thead>
@@ -64,8 +65,15 @@
               </div>
             </td>
             <td class="px-4 py-3 text-xs font-mono text-slate-500 dark:text-slate-400">{{.LastHandshake}}</td>
+            <td class="px-4 py-3 text-xs font-mono text-slate-500 dark:text-slate-400">
+              <span class="flex flex-col gap-0.5 tabular-nums">
+                <span><span class="text-emerald-500">↓</span> {{.RxHuman}}</span>
+                <span><span class="text-sky-500">↑</span> {{.TxHuman}}</span>
+              </span>
+            </td>
             <td class="px-4 py-3 text-right">
               {{if ne .Status "revoked"}}
+              <button type="button" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-violet-700 dark:text-violet-300 ring-1 ring-violet-200 dark:ring-violet-500/30 hover:bg-violet-50 dark:hover:bg-violet-500/10 cursor-pointer" data-cln-bw-toggle="{{.ID}}">Charts</button>
               <form method="POST" action="/app/tunnels/{{.ID}}/revoke" class="inline" data-confirm="Revoke {{.Name}}? Your tunnel will stop within about 30 seconds.">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-700 dark:text-rose-300 ring-1 ring-rose-200 dark:ring-rose-500/30 hover:bg-rose-50 dark:hover:bg-rose-500/10">Revoke</button>
@@ -73,9 +81,31 @@
               {{end}}
             </td>
           </tr>
+          <tr id="hpg-cln-bw-row-{{.ID}}" class="hidden">
+            <td colspan="7" class="px-4 py-4 bg-slate-50/60 dark:bg-zinc-900/50">
+              <div class="flex items-center justify-between mb-3 gap-3">
+                <span class="text-xs font-medium text-slate-700 dark:text-slate-200">Bandwidth &middot; <span class="font-mono">{{.Name}}</span></span>
+                <div class="flex gap-1" data-cln-bw-periods="{{.ID}}">
+                  <button type="button" data-period="24h" class="hpg-cln-bw-btn px-2.5 py-1 rounded-md text-xs bg-indigo-600 text-white cursor-pointer transition">24h</button>
+                  <button type="button" data-period="7d"  class="hpg-cln-bw-btn px-2.5 py-1 rounded-md text-xs bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-700 cursor-pointer transition">7d</button>
+                  <button type="button" data-period="30d" class="hpg-cln-bw-btn px-2.5 py-1 rounded-md text-xs bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-700 cursor-pointer transition">30d</button>
+                </div>
+              </div>
+              <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <div class="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mb-1">RX (received)</div>
+                  <canvas id="hpg-cln-bw-rx-{{.ID}}" height="100"></canvas>
+                </div>
+                <div>
+                  <div class="text-[11px] text-sky-600 dark:text-sky-400 font-medium mb-1">TX (transmitted)</div>
+                  <canvas id="hpg-cln-bw-tx-{{.ID}}" height="100"></canvas>
+                </div>
+              </div>
+            </td>
+          </tr>
         {{else}}
           <tr>
-            <td colspan="6" class="px-4 py-14 text-center">
+            <td colspan="7" class="px-4 py-14 text-center">
               <div class="mx-auto h-12 w-12 rounded-2xl bg-slate-100 dark:bg-zinc-800 grid place-items-center text-slate-400">
                 <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
               </div>
@@ -116,6 +146,91 @@
   </form>
 </div>
 
+<script src="/static/js/chart.umd.min.js" nonce="{{.CSPNonce}}"></script>
+<script nonce="{{.CSPNonce}}">
+(function(){
+  if (!window.Chart) return;
+  var dark = document.documentElement.classList.contains('dark');
+  Chart.defaults.color = dark ? '#94a3b8' : '#475569';
+  Chart.defaults.borderColor = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+  var clnCharts = {};
+
+  function fmtBytes(n) {
+    if (n >= 1073741824) return (n/1073741824).toFixed(1)+' GB';
+    if (n >= 1048576)    return (n/1048576).toFixed(1)+' MB';
+    if (n >= 1024)       return (n/1024).toFixed(1)+' KB';
+    return n+' B';
+  }
+
+  function makeChart(id, label, color, labels, data) {
+    var el = document.getElementById(id);
+    if (!el) return null;
+    return new Chart(el, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{ label: label, data: data,
+          borderColor: color,
+          backgroundColor: color.replace(')',',0.12)').replace('rgb','rgba'),
+          fill: true, tension: 0.3, pointRadius: data.length > 30 ? 0 : 2 }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { callback: function(v){ return fmtBytes(v); } } } }
+      }
+    });
+  }
+
+  function loadBW(peerId, period) {
+    if (clnCharts[peerId]) {
+      clnCharts[peerId].forEach(function(c){ if(c) c.destroy(); });
+    }
+    fetch('/app/tunnels/' + peerId + '/bandwidth.json?period=' + period)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        clnCharts[peerId] = [
+          makeChart('hpg-cln-bw-rx-'+peerId, 'RX', 'rgb(16,185,129)', d.labels, d.rx),
+          makeChart('hpg-cln-bw-tx-'+peerId, 'TX', 'rgb(14,165,233)', d.labels, d.tx)
+        ];
+      })
+      .catch(function(e){ console.warn('bandwidth fetch', e); });
+  }
+
+  document.querySelectorAll('[data-cln-bw-toggle]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var id = btn.getAttribute('data-cln-bw-toggle');
+      var row = document.getElementById('hpg-cln-bw-row-' + id);
+      if (!row) return;
+      var wasHidden = row.classList.contains('hidden');
+      row.classList.toggle('hidden', !wasHidden);
+      if (wasHidden && !clnCharts[id]) loadBW(id, '24h');
+    });
+  });
+
+  document.querySelectorAll('[data-cln-bw-periods]').forEach(function(bar){
+    var id = bar.getAttribute('data-cln-bw-periods');
+    bar.querySelectorAll('.hpg-cln-bw-btn').forEach(function(b){
+      b.addEventListener('click', function(){
+        var period = b.getAttribute('data-period');
+        bar.querySelectorAll('.hpg-cln-bw-btn').forEach(function(x){
+          var active = x === b;
+          x.classList.toggle('bg-indigo-600', active);
+          x.classList.toggle('text-white', active);
+          x.classList.toggle('bg-white', !active);
+          x.classList.toggle('dark:bg-zinc-800', !active);
+          x.classList.toggle('ring-1', !active);
+          x.classList.toggle('ring-slate-200', !active);
+          x.classList.toggle('dark:ring-zinc-700', !active);
+          x.classList.toggle('text-slate-600', !active);
+          x.classList.toggle('dark:text-slate-300', !active);
+        });
+        loadBW(id, period);
+      });
+    });
+  });
+})();
+</script>
 <script nonce="{{.CSPNonce}}">
 (function(){
   var m = document.getElementById('hpg-cln-modal');

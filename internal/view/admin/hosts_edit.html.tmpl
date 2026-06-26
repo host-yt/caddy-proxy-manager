@@ -573,16 +573,32 @@ X-Authentik-Meta-Version</pre>
     <section data-pane="egress" class="hpg-pane hidden hpg-card space-y-4">
       <h3 class="hpg-eyebrow">Outbound / Egress IP</h3>
       <p class="text-[11px] text-slate-500 dark:text-slate-400">Controls which source IP the node uses when opening connections to the upstream. Useful when a node has multiple NICs or secondary IPs and the upstream allowlists a specific one.</p>
+      {{if not .PlanAllowEgressIP}}
+      <div class="rounded-lg bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-700 px-4 py-3 text-xs text-amber-800 dark:text-amber-300">
+        Egress IP control is not enabled on this plan. Ask an admin to enable it in the plan settings.
+      </div>
+      {{end}}
       <div>
         <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Mode</label>
-        <select name="outbound_ip_mode" id="hpg-egress-mode" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-          <option value="default" {{if ne .OutboundIPMode "fixed"}}selected{{end}}>Default (OS picks source IP)</option>
+        <select name="outbound_ip_mode" id="hpg-egress-mode" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500" {{if not .PlanAllowEgressIP}}disabled{{end}}>
+          <option value="default" {{if eq .OutboundIPMode "default"}}selected{{end}}>Default (OS picks source IP)</option>
           <option value="fixed" {{if eq .OutboundIPMode "fixed"}}selected{{end}}>Fixed IP</option>
+          <option value="random" {{if eq .OutboundIPMode "random"}}selected{{end}}>Random from node inventory (stable per route)</option>
         </select>
       </div>
       <div id="hpg-egress-ip-row" class="{{if ne .OutboundIPMode "fixed"}}hidden{{end}}">
         <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Egress IP</label>
-        <input type="text" name="outbound_ip" id="hpg-egress-ip" value="{{.OutboundIP}}" placeholder="203.0.113.5" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        {{if .NodeOutboundIPs}}
+        <datalist id="hpg-egress-ip-list">
+          {{range .NodeOutboundIPs}}<option value="{{.}}">{{end}}
+        </datalist>
+        <input type="text" name="outbound_ip" id="hpg-egress-ip" value="{{.OutboundIP}}" placeholder="203.0.113.5"
+          list="hpg-egress-ip-list"
+          class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        {{else}}
+        <input type="text" name="outbound_ip" id="hpg-egress-ip" value="{{.OutboundIP}}" placeholder="203.0.113.5"
+          class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+        {{end}}
         <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Must be a bare IPv4 or IPv6 address present on the node NIC. Caddy will reject /load if the address is missing. Not compatible with connection pool reuse across routes that share an upstream.</p>
       </div>
     </section>
@@ -771,7 +787,7 @@ X-Authentik-Meta-Version</pre>
     var wafTg = document.getElementById('hpg-waf-toggle'), wafFl = document.getElementById('hpg-waf-fields');
     if (wafTg && wafFl) wafTg.addEventListener('change', function(){ wafFl.classList.toggle('hidden', !wafTg.checked); });
 
-    // Egress IP: show fixed-IP input only when mode=fixed.
+    // Egress IP: show fixed-IP input only when mode=fixed (random resolves at build time).
     var egressMode = document.getElementById('hpg-egress-mode');
     var egressRow  = document.getElementById('hpg-egress-ip-row');
     if (egressMode && egressRow) {

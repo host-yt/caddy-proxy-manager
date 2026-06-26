@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 )
 
 // WGKeyRotationJob rotates WireGuard peer keys that have exceeded their
@@ -16,6 +16,9 @@ type WGKeyRotationJob struct {
 	DB       func() *sql.DB
 	Logger   *slog.Logger
 	Interval time.Duration // default 6h
+	// Peers delegates actual rotation so the job shares key-encrypt +
+	// bootstrap-token issuance with the manual RotateKey path.
+	Peers *wgpeer.Service
 }
 
 type rotationCandidate struct {
@@ -116,21 +119,13 @@ func (j *WGKeyRotationJob) tick(ctx context.Context) {
 }
 
 func (j *WGKeyRotationJob) rotatePeer(ctx context.Context, db *sql.DB, peerID int64) error {
-	kp, err := wireguard.GenerateKeypair()
-	if err != nil {
+	// Delegate to the service so privkey encryption + bootstrap token issuance
+	// follow the exact same path as a manual key rotation.
+	if _, err := j.Peers.RotateKey(ctx, peerID); err != nil {
 		return err
 	}
-	// Store pubkey; privkey management requires Encryptor — callers that need
-	// encrypted storage should embed an Encryptor and extend this method.
-	// Both timestamp columns are updated so admin-reissue and job-rotation share one clock.
-	_, err = db.ExecContext(ctx,
-		`UPDATE customer_wg_peer
-		    SET pubkey = ?,
-		        last_rotated_at = NOW(),
-		        last_key_rotation_at = NOW(),
-		        rotation_alert_sent_at = NULL,
-		        status = 'pending'
-		  WHERE id = ?`,
-		kp.PublicKey, peerID)
-	return err
+	// Record in audit log; best-effort.
+	_, _ = db.ExecContext(ctx,
+		`INSERT INTO wg_key_rotation_log (peer_id, source) VALUES (?, 'job')`, peerID)
+	return nil
 }

@@ -1,0 +1,179 @@
+{{define "streams_edit"}}
+<div class="max-w-3xl space-y-4">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <a href="/admin/streams" class="text-xs text-slate-500 hover:text-indigo-600 cursor-pointer">← all streams</a>
+      <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1">
+        {{.Stream.Protocol | printf "%s"}} :{{.Stream.ListenPort}} → {{.Stream.BackendIP}}:{{.Stream.UpstreamPort}}
+        · node {{.Stream.NodeName}} · status: {{.Stream.Status}}
+      </p>
+    </div>
+  </div>
+
+  <!-- Tab strip -->
+  <nav class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-zinc-800 text-sm" id="hpg-tabs">
+    <button type="button" data-tab="match"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-indigo-600 text-indigo-700 dark:text-indigo-400 font-medium cursor-pointer">Match</button>
+    <button type="button" data-tab="upstream" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 cursor-pointer">Upstreams &amp; LB</button>
+    <button type="button" data-tab="security" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 cursor-pointer">Security (CIDR)</button>
+  </nav>
+
+  <form method="POST" action="/admin/streams/{{.Stream.ID}}/edit" class="space-y-4 text-sm" id="hpg-edit-form">
+    <input type="hidden" name="active_tab" id="hpg-active-tab" value="match">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+
+    <!-- Match pane -->
+    <section data-pane="match" class="hpg-pane hpg-card space-y-4">
+      <div>
+        <p class="hpg-eyebrow">Match mode</p>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+          Controls which connections on this port are routed. "Any" is plain TCP/UDP forward.
+          SNI and HTTP host require the caddy-l4 match modules (experimental - see gating list).
+        </p>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Match mode</label>
+          <select name="match_mode" id="hpg-match-mode"
+                  class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+            <option value="any"       {{if eq .Stream.MatchMode "any"}}selected{{end}}>Any (plain forward)</option>
+            <option value="sni"       {{if eq .Stream.MatchMode "sni"}}selected{{end}}>SNI (TLS server name) - experimental</option>
+            <option value="http_host" {{if eq .Stream.MatchMode "http_host"}}selected{{end}}>HTTP Host header - experimental</option>
+          </select>
+        </div>
+        <div id="hpg-match-values-wrap" class="{{if eq .Stream.MatchMode "any"}}hidden{{end}}">
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Match values (comma or newline separated)</label>
+          <textarea name="match_values" rows="3" placeholder="db.example.com, db2.example.com"
+                    class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.Stream.MatchValues}}</textarea>
+        </div>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">PROXY protocol in (listener wrapper) - experimental</label>
+          <select name="proxy_proto_in"
+                  class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+            <option value="none" {{if eq .Stream.ProxyProtoIn "none"}}selected{{end}}>None</option>
+            <option value="v1"   {{if eq .Stream.ProxyProtoIn "v1"}}selected{{end}}>PROXY v1</option>
+            <option value="v2"   {{if eq .Stream.ProxyProtoIn "v2"}}selected{{end}}>PROXY v2</option>
+          </select>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">PROXY protocol out (upstream) - experimental</label>
+          <select name="proxy_proto_out"
+                  class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+            <option value="none" {{if eq .Stream.ProxyProtoOut "none"}}selected{{end}}>None</option>
+            <option value="v1"   {{if eq .Stream.ProxyProtoOut "v1"}}selected{{end}}>PROXY v1</option>
+            <option value="v2"   {{if eq .Stream.ProxyProtoOut "v2"}}selected{{end}}>PROXY v2</option>
+          </select>
+        </div>
+      </div>
+    </section>
+
+    <!-- Upstreams & LB pane -->
+    <section data-pane="upstream" class="hpg-pane hidden hpg-card space-y-4">
+      <div>
+        <p class="hpg-eyebrow">Upstreams</p>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+          One upstream per line: <code class="text-xs">host:port</code> or <code class="text-xs">host:port weight</code>.
+          Weight defaults to 1. Leave empty to use the legacy single-upstream (backend IP from the create form).
+        </p>
+      </div>
+      {{if .Upstreams}}
+      <div class="text-xs text-slate-500 dark:text-slate-400 font-mono space-y-0.5">
+        <p class="font-semibold text-slate-600 dark:text-slate-300 mb-1">Current upstreams:</p>
+        {{range .Upstreams}}
+        <p>{{.Address}} (weight {{.Weight}})</p>
+        {{end}}
+      </div>
+      {{end}}
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Replace upstreams (one per line)</label>
+        <textarea name="upstreams_raw" rows="5"
+                  placeholder="10.0.0.1:3306 2&#10;10.0.0.2:3306 1"
+                  class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></textarea>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Saving with an empty textarea removes all additional upstreams (falls back to single-upstream).</p>
+      </div>
+      <div>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">LB policy (used when multiple upstreams) - experimental</label>
+        <select name="lb_policy"
+                class="w-full sm:w-64 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+          <option value="round_robin" {{if eq .Stream.LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
+          <option value="random"      {{if eq .Stream.LBPolicy "random"}}selected{{end}}>Random</option>
+          <option value="least_conn"  {{if eq .Stream.LBPolicy "least_conn"}}selected{{end}}>Least connections</option>
+          <option value="first"       {{if eq .Stream.LBPolicy "first"}}selected{{end}}>First (failover)</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Security pane -->
+    <section data-pane="security" class="hpg-pane hidden hpg-card space-y-4">
+      <div>
+        <p class="hpg-eyebrow">CIDR access control</p>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
+          Deny is evaluated first and short-circuits. Allow (if non-empty) permits only matching sources.
+          Empty allow = allow all not denied. Uses caddy-l4 remote_ip handler (experimental).
+        </p>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3.5 w-3.5 text-rose-500 mr-1" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524L13.477 14.89zm1.414-1.414L6.524 5.11A6 6 0 0114.89 13.476zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd"/>
+            </svg>
+            Deny CIDRs (comma or newline)
+          </label>
+          <textarea name="cidr_deny" rows="4" placeholder="10.99.0.0/16&#10;192.0.2.0/24"
+                    class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></textarea>
+        </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+            <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3.5 w-3.5 text-emerald-500 mr-1" viewBox="0 0 20 20" fill="currentColor">
+              <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+            </svg>
+            Allow CIDRs (comma or newline; empty = allow all)
+          </label>
+          <textarea name="cidr_allow" rows="4" placeholder="10.0.0.0/8&#10;172.16.0.0/12"
+                    class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></textarea>
+        </div>
+      </div>
+    </section>
+
+    <div class="flex items-center justify-end gap-3 pt-2">
+      <a href="/admin/streams" class="px-4 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 text-sm hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer">Cancel</a>
+      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm font-medium transition-colors cursor-pointer">Save changes</button>
+    </div>
+  </form>
+</div>
+
+<script nonce="{{.CSPNonce}}">
+(function(){
+  // Tab switching - same pattern as hosts_edit.
+  var tabs = document.querySelectorAll('[data-tab]');
+  var panes = document.querySelectorAll('[data-pane]');
+  var activeInput = document.getElementById('hpg-active-tab');
+  function showTab(name){
+    tabs.forEach(function(t){
+      var on = t.dataset.tab === name;
+      t.classList.toggle('border-indigo-600', on);
+      t.classList.toggle('text-indigo-700', on);
+      t.classList.toggle('dark:text-indigo-400', on);
+      t.classList.toggle('font-medium', on);
+      t.classList.toggle('border-transparent', !on);
+      t.classList.toggle('text-slate-500', !on);
+    });
+    panes.forEach(function(p){p.classList.toggle('hidden', p.dataset.pane !== name);});
+    if(activeInput) activeInput.value = name;
+  }
+  tabs.forEach(function(t){t.addEventListener('click', function(){showTab(t.dataset.tab);});});
+
+  // Show/hide match values textarea based on mode selection.
+  var modeSelect = document.getElementById('hpg-match-mode');
+  var valWrap = document.getElementById('hpg-match-values-wrap');
+  function syncMatchValues(){
+    if(modeSelect && valWrap){
+      valWrap.classList.toggle('hidden', modeSelect.value === 'any');
+    }
+  }
+  if(modeSelect) modeSelect.addEventListener('change', syncMatchValues);
+})();
+</script>
+{{end}}

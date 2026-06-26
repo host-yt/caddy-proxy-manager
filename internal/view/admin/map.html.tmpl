@@ -49,13 +49,139 @@
   </div>
   {{end}}
 
+  <section class="hpg-topology-shell">
+    <div class="hpg-topology-head">
+      <div class="min-w-0">
+        <p class="hpg-eyebrow">Live topology</p>
+        <h2>Traffic path from customer to edge</h2>
+        <p>Each lane shows how a client reaches services, public hosts, edge nodes, and private WG peers.</p>
+      </div>
+      <div class="hpg-topology-tools">
+        <label class="hpg-topology-search">
+          <span class="sr-only">Search topology</span>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
+          <input id="hpg-topology-search" type="search" placeholder="Search clients, hosts, nodes, WG IPs">
+        </label>
+        <div class="hpg-topology-filters" aria-label="Topology filters">
+          <button type="button" data-topology-filter="all" class="is-active"><i class="hpg-dot"></i>all</button>
+          <button type="button" data-topology-filter="ok"><i class="hpg-dot hpg-dot-ok"></i>active</button>
+          <button type="button" data-topology-filter="warn"><i class="hpg-dot hpg-dot-warn"></i>pending</button>
+          <button type="button" data-topology-filter="err"><i class="hpg-dot hpg-dot-err"></i>failed</button>
+        </div>
+      </div>
+    </div>
+
+    {{if .Clients}}
+    <div class="hpg-topology-scroll">
+      <div class="hpg-topology-grid hpg-topology-labels" aria-hidden="true">
+        <span>Client</span>
+        <span>Services</span>
+        <span>Routes</span>
+        <span>Edge / tunnel</span>
+      </div>
+      <div class="hpg-topology-lanes">
+        {{range .Clients}}
+        <article class="hpg-topology-grid hpg-topology-lane" data-topology-lane>
+          <div class="hpg-map-node hpg-map-node-client" tabindex="0" data-map-card data-map-type="Client" data-map-title="{{.Name}}" data-map-status="visible" data-map-meta="{{.ServiceCount}} services · {{.RouteCount}} routes · {{.TunnelCount}} WG peers">
+            <div class="hpg-map-avatar">{{firstRune .Name}}</div>
+            <div class="min-w-0">
+              <h3>{{.Name}}</h3>
+              <p>{{.Email}}</p>
+              <div class="hpg-map-meta">
+                <span>{{.ServiceCount}} services</span>
+                <span>{{.RouteCount}} routes</span>
+                <span>{{.TunnelCount}} WG</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="hpg-map-stack">
+            {{range .Services}}
+            <div class="hpg-map-node hpg-map-node-service" tabindex="0" data-map-card data-map-type="Service" data-map-title="{{.Name}}" data-map-status="{{.Status}}" data-map-meta="{{.BackendIP}} · ports {{.PortStart}}-{{.PortEnd}}">
+              <div class="min-w-0">
+                <div class="hpg-map-row">
+                  <strong>{{.Name}}</strong>
+                  <span class="hpg-state {{if eq .Status "active"}}is-ok{{else if eq .Status "suspended"}}is-warn{{else}}is-err{{end}}">{{.Status}}</span>
+                </div>
+                <p><span class="font-mono">{{.BackendIP}}</span> ports {{.PortStart}}-{{.PortEnd}}</p>
+              </div>
+            </div>
+            {{else}}
+            <div class="hpg-map-empty">No services</div>
+            {{end}}
+          </div>
+
+          <div class="hpg-map-stack">
+            {{range .Services}}
+              {{range .Routes}}
+              <a href="/admin/hosts/{{.ID}}/edit" class="hpg-map-node hpg-map-node-route" data-map-card data-map-type="Route" data-map-title="{{.Domain}}" data-map-status="{{.Status}}" data-map-meta="{{if .PathPrefix}}{{.PathPrefix}}{{else}}root path{{end}} -> :{{.UpstreamPort}}" data-map-href="/admin/hosts/{{.ID}}/edit">
+                <div class="hpg-map-row">
+                  <strong>{{.Domain}}</strong>
+                  <span class="hpg-state {{if eq .Status "active"}}is-ok{{else if or (eq .Status "pending_dns") (eq .Status "pending_ssl") (eq .Status "dns_ok")}}is-warn{{else}}is-err{{end}}">{{.Status}}</span>
+                </div>
+                <p>{{if .PathPrefix}}<span class="font-mono">{{.PathPrefix}}</span>{{else}}root path{{end}} -> :{{.UpstreamPort}}</p>
+              </a>
+              {{end}}
+            {{end}}
+            {{if .Tunnels}}
+            <div class="hpg-map-tunnel-strip">
+              {{range .Tunnels}}
+              <span class="hpg-map-tunnel {{if eq .Status "active"}}is-ok{{else if eq .Status "pending"}}is-warn{{else}}is-err{{end}}" tabindex="0" data-map-card data-map-type="WG peer" data-map-title="{{.Name}}" data-map-status="{{.Status}}" data-map-meta="{{.AssignedIP}} on {{.NodeName}}">
+                <span>{{.Name}}</span>
+                <code>{{.AssignedIP}}</code>
+              </span>
+              {{end}}
+            </div>
+            {{end}}
+          </div>
+
+          <div class="hpg-map-stack">
+            {{range .Services}}
+              {{range .Routes}}
+              <a href="/admin/nodes/{{.NodeID}}" class="hpg-map-node hpg-map-node-edge" data-map-card data-map-type="Edge node" data-map-title="{{.NodeName}}" data-map-status="{{.NodeHealth}}" data-map-meta="{{if .WGPeerID}}via WG {{.WGPeerIP}}{{else}}direct upstream{{end}}" data-map-href="/admin/nodes/{{.NodeID}}">
+                <div class="hpg-map-row">
+                  <strong>{{.NodeName}}</strong>
+                  <span class="hpg-state {{if and .NodeEnabled (eq .NodeHealth "healthy")}}is-ok{{else if eq .NodeHealth "down"}}is-err{{else}}is-warn{{end}}">{{.NodeHealth}}</span>
+                </div>
+                {{if .WGPeerID}}
+                <p>via WG <span class="font-mono">{{.WGPeerIP}}</span></p>
+                {{else}}
+                <p>direct upstream</p>
+                {{end}}
+              </a>
+              {{end}}
+            {{end}}
+          </div>
+        </article>
+        {{end}}
+      </div>
+    </div>
+    <div class="hpg-topology-inspector" id="hpg-topology-inspector">
+      <div>
+        <p class="hpg-eyebrow">Inspector</p>
+        <strong id="hpg-inspector-title">Hover or focus an object</strong>
+        <span id="hpg-inspector-meta">Use search and status filters to isolate a client path.</span>
+      </div>
+      <div class="hpg-inspector-actions">
+        <span id="hpg-visible-count">{{len .Clients}} clients visible</span>
+        <a id="hpg-inspector-link" href="#" class="hidden">Open</a>
+      </div>
+    </div>
+    {{else}}
+    <div class="hpg-topology-empty">
+      <p>No visible topology yet.</p>
+      <span>Create clients, services, hosts, or WG tunnels to populate this map.</span>
+    </div>
+    {{end}}
+  </section>
+
   <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_23rem]">
     <section class="hpg-card !p-0 overflow-hidden">
       <div class="border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div class="min-w-0">
-            <p class="hpg-eyebrow">Topology</p>
-            <h2 class="mt-1 text-base font-semibold text-slate-900 dark:text-white">Client -> service -> route -> node -> WG peer</h2>
+            <p class="hpg-eyebrow">Detailed inventory</p>
+            <h2 class="mt-1 text-base font-semibold text-slate-900 dark:text-white">Clients, services, routes, nodes, and WG peers</h2>
           </div>
           <div class="flex flex-wrap gap-2 text-xs">
             <span class="hpg-pill hpg-pill-muted">showing {{.Limits.Clients}} newest clients</span>
@@ -251,4 +377,74 @@
   </div>
   {{end}}
 </div>
+<script nonce="{{.CSPNonce}}">
+(function(){
+  var shell = document.querySelector('.hpg-topology-shell');
+  if (!shell) return;
+  var lanes = Array.prototype.slice.call(shell.querySelectorAll('[data-topology-lane]'));
+  var cards = Array.prototype.slice.call(shell.querySelectorAll('[data-map-card]'));
+  var search = document.getElementById('hpg-topology-search');
+  var filterButtons = Array.prototype.slice.call(shell.querySelectorAll('[data-topology-filter]'));
+  var title = document.getElementById('hpg-inspector-title');
+  var meta = document.getElementById('hpg-inspector-meta');
+  var count = document.getElementById('hpg-visible-count');
+  var link = document.getElementById('hpg-inspector-link');
+  var activeFilter = 'all';
+
+  function cardTone(card) {
+    if (card.querySelector('.is-err') || card.classList.contains('is-err')) return 'err';
+    if (card.querySelector('.is-warn') || card.classList.contains('is-warn')) return 'warn';
+    if (card.querySelector('.is-ok') || card.classList.contains('is-ok')) return 'ok';
+    return 'ok';
+  }
+
+  function laneTone(lane) {
+    if (lane.querySelector('.is-err')) return 'err';
+    if (lane.querySelector('.is-warn')) return 'warn';
+    return 'ok';
+  }
+
+  function selectCard(card) {
+    cards.forEach(function(c){ c.classList.toggle('is-selected', c === card); });
+    var lane = card.closest('[data-topology-lane]');
+    lanes.forEach(function(l){ l.classList.toggle('is-selected', l === lane); });
+    if (title) title.textContent = (card.dataset.mapType || 'Object') + ': ' + (card.dataset.mapTitle || '');
+    if (meta) meta.textContent = (card.dataset.mapStatus ? card.dataset.mapStatus + ' · ' : '') + (card.dataset.mapMeta || '');
+    if (link) {
+      var href = card.dataset.mapHref || card.getAttribute('href') || '';
+      link.classList.toggle('hidden', !href);
+      if (href) link.setAttribute('href', href);
+    }
+  }
+
+  function applyFilters() {
+    var q = search ? search.value.trim().toLowerCase() : '';
+    var visible = 0;
+    lanes.forEach(function(lane) {
+      var textMatch = !q || lane.textContent.toLowerCase().indexOf(q) !== -1;
+      var toneMatch = activeFilter === 'all' || laneTone(lane) === activeFilter;
+      var show = textMatch && toneMatch;
+      lane.classList.toggle('is-filtered-out', !show);
+      if (show) visible++;
+    });
+    if (count) count.textContent = visible + (visible === 1 ? ' client visible' : ' clients visible');
+  }
+
+  cards.forEach(function(card) {
+    card.dataset.mapTone = cardTone(card);
+    card.addEventListener('mouseenter', function(){ selectCard(card); });
+    card.addEventListener('focus', function(){ selectCard(card); });
+    card.addEventListener('click', function(){ selectCard(card); });
+  });
+  filterButtons.forEach(function(btn) {
+    btn.addEventListener('click', function() {
+      activeFilter = btn.dataset.topologyFilter || 'all';
+      filterButtons.forEach(function(b){ b.classList.toggle('is-active', b === btn); });
+      applyFilters();
+    });
+  });
+  if (search) search.addEventListener('input', applyFilters);
+  applyFilters();
+})();
+</script>
 {{end}}

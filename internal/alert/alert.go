@@ -66,5 +66,7 @@ func (e *Evaluator) evaluate(ctx context.Context, db *sql.DB) []Alert {
 	out = append(out, certFailing(ctx, db, e.Cfg)...)
 	out = append(out, wgTunnelStale(ctx, db, e.Cfg)...)
 	out = append(out, dbPoolSaturated(ctx, db, e.Cfg)...)
+	out = append(out, drillStale(ctx, db, e.Cfg)...)
+	out = append(out, wgKeyNotFetched(ctx, db, e.Cfg, e.Logger)...)
 	return out
 }

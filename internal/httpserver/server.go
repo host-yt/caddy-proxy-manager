@@ -230,6 +230,9 @@ func (s *Server) routes() {
 			"/admin/hosts/*/logs.json",
 			"/admin/hosts/*/logs/stream",
 			"/admin/hosts/*/logs/export",
+			"/admin/waf",
+			"/admin/waf.json",
+			"/admin/waf/export",
 		}))
 		// Enforce 2FA enrollment for admins when REQUIRE_ADMIN_2FA (env) or the
 		// security.require_admin_2fa settings row is on. Bypasses enrollment +
@@ -247,6 +250,8 @@ func (s *Server) routes() {
 		r.Route("/nodes", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.Nodes)
 			r.Get("/{id}", s.deps.Admin.NodeDetail)
+			r.Get("/{id}/edit", s.deps.Admin.NodesEdit)
+			r.Post("/{id}/edit", s.deps.Admin.NodesUpdate)
 			r.Post("/", s.deps.Admin.NodesCreate)
 			r.Post("/join-token", s.deps.Admin.NodesJoinToken)
 			r.Post("/apply-wg", s.deps.Admin.NodesApplyWG)
@@ -279,15 +284,22 @@ func (s *Server) routes() {
 			r.Get("/{id}/logs/stream", s.deps.Admin.HostsLogsStream)
 			r.Get("/{id}/logs/export", s.deps.Admin.HostsLogsExport)
 		})
+		r.Get("/waf", s.deps.Admin.WafEvents)
+		r.Get("/waf.json", s.deps.Admin.WafEventsJSON)
+		r.Get("/waf/export", s.deps.Admin.WafEventsExport)
 		r.Route("/streams", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.StreamsList)
 			r.Post("/new", s.deps.Admin.StreamsCreate)
+			r.Get("/{id}/edit", s.deps.Admin.StreamsEdit)
+			r.Post("/{id}/edit", s.deps.Admin.StreamsUpdate)
 			r.Post("/{id}/delete", s.deps.Admin.StreamsDelete)
 		})
 		r.Route("/tunnels", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.TunnelsList)
 			r.Post("/", s.deps.Admin.TunnelsCreate)
+			r.Get("/{id}", s.deps.Admin.TunnelDetail)
 			r.Get("/{id}/bandwidth.json", s.deps.Admin.TunnelsBandwidthJSON)
+			r.Get("/{id}/usage.csv", s.deps.Admin.TunnelsUsageCSV)
 			r.Post("/{id}/revoke", s.deps.Admin.TunnelsRevoke)
 			r.Post("/{id}/rotate", s.deps.Admin.TunnelsRotate)
 			r.Post("/{id}/reissue", s.deps.Admin.TunnelsReissue)
@@ -373,6 +385,7 @@ func (s *Server) routes() {
 			r.Post("/destinations/{id}/verify", s.deps.Admin.BackupsVerify)
 			r.Post("/run-now", s.deps.Admin.BackupsRunNow)
 			r.Post("/schedule", s.deps.Admin.BackupsSaveSchedule)
+			r.Post("/drill/run", s.deps.Admin.DrillRunNow)
 		})
 		r.Route("/webhooks", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.WebhooksPage)
@@ -456,6 +469,7 @@ func (s *Server) routes() {
 			r.Get("/", s.deps.Client.ClientTunnelsList)
 			r.Post("/", s.deps.Client.ClientTunnelsCreate)
 			r.Post("/{id}/revoke", s.deps.Client.ClientTunnelsRevoke)
+			r.Get("/{id}/bandwidth.json", s.deps.Client.ClientTunnelsBandwidthJSON)
 		})
 		r.Get("/account", s.deps.Client.AccountPage)
 		r.Post("/account", s.deps.Client.AccountUpdate)

@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -205,4 +206,104 @@ func (h *ClientHandlers) lookupClientNewTunnel(ctx context.Context, db *sql.DB, 
 // client package (kept close to the handlers so wiring stays obvious).
 func clientRedirectFlash(w http.ResponseWriter, r *http.Request, base, flash, err string) {
 	redirectWithFlash(w, r, base, flash, err)
+}
+
+// ClientTunnelsBandwidthJSON handles GET /app/tunnels/{id}/bandwidth.json.
+// Same response shape as admin bandwidth.json but scoped to the session client.
+func (h *ClientHandlers) ClientTunnelsBandwidthJSON(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
+	if id == 0 {
+		http.Error(w, "missing id", http.StatusBadRequest)
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Verify peer belongs to this client - same ownership check as ClientTunnelsRevoke.
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		http.Error(w, "no client account", http.StatusForbidden)
+		return
+	}
+	var ownerID int64
+	if err := db.QueryRowContext(ctx,
+		`SELECT client_id FROM customer_wg_peer WHERE id = ?`, id).Scan(&ownerID); err != nil || ownerID != clientID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	period := r.URL.Query().Get("period")
+	if period != "7d" && period != "30d" {
+		period = "24h"
+	}
+
+	var query string
+	switch period {
+	case "7d":
+		query = `SELECT DATE_FORMAT(sampled_at,'%Y-%m-%d') AS label,
+			         COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0)
+			  FROM customer_wg_peer_usage_sample
+			  WHERE peer_id = ? AND sampled_at >= NOW() - INTERVAL 7 DAY
+			  GROUP BY DATE(sampled_at)
+			  ORDER BY DATE(sampled_at)`
+	case "30d":
+		query = `SELECT DATE_FORMAT(sampled_at,'%Y-%m-%d') AS label,
+			         COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0)
+			  FROM customer_wg_peer_usage_sample
+			  WHERE peer_id = ? AND sampled_at >= NOW() - INTERVAL 30 DAY
+			  GROUP BY DATE(sampled_at)
+			  ORDER BY DATE(sampled_at)`
+	default:
+		query = `SELECT DATE_FORMAT(sampled_at,'%m-%d %H:00') AS label,
+			         COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0)
+			  FROM customer_wg_peer_usage_sample
+			  WHERE peer_id = ? AND sampled_at >= NOW() - INTERVAL 24 HOUR
+			  GROUP BY DATE(sampled_at), HOUR(sampled_at)
+			  ORDER BY DATE(sampled_at), HOUR(sampled_at)`
+	}
+
+	rows, err := db.QueryContext(ctx, query, id)
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	var labels []string
+	var rx, tx []int64
+	for rows.Next() {
+		var label string
+		var rxV, txV int64
+		if err := rows.Scan(&label, &rxV, &txV); err == nil {
+			labels = append(labels, label)
+			rx = append(rx, rxV)
+			tx = append(tx, txV)
+		}
+	}
+	if rErr := rows.Err(); rErr != nil {
+		h.Logger.Error("client bandwidth query rows", "peer_id", id, "err", rErr)
+	}
+	if labels == nil {
+		labels = []string{}
+		rx = []int64{}
+		tx = []int64{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"labels": labels,
+		"rx":     rx,
+		"tx":     tx,
+	})
 }

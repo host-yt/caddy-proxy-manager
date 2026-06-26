@@ -50,6 +50,58 @@ func (j *BackupDrillJob) interval() time.Duration {
 	return drillDefaultInterval
 }
 
+// advisoryLockName is the MySQL advisory lock name used to serialize drills cluster-wide.
+const advisoryLockName = "hpg_restore_drill"
+
+// acquireAdvisoryLock tries to get a MySQL GET_LOCK on a dedicated connection.
+// Returns the conn (must be closed by caller) and true if the lock was acquired.
+// Returns nil, false if the lock is held elsewhere or on any error.
+func (j *BackupDrillJob) acquireAdvisoryLock(ctx context.Context) (*sql.Conn, bool) {
+	db := j.DB()
+	if db == nil {
+		return nil, false
+	}
+	// GET_LOCK/RELEASE_LOCK must run on the same physical connection.
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		j.Logger.Warn("backup-drill: advisory lock: get conn", "err", err)
+		return nil, false
+	}
+	var result sql.NullInt64
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, 0)", advisoryLockName).Scan(&result); err != nil {
+		j.Logger.Warn("backup-drill: advisory lock: GET_LOCK error", "err", err)
+		_ = conn.Close()
+		return nil, false
+	}
+	if !result.Valid || result.Int64 != 1 {
+		j.Logger.Info("backup-drill: advisory lock already held, skipping run")
+		_ = conn.Close()
+		return nil, false
+	}
+	return conn, true
+}
+
+// releaseAdvisoryLock releases the GET_LOCK on the provided connection and closes it.
+func (j *BackupDrillJob) releaseAdvisoryLock(conn *sql.Conn) {
+	releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := conn.ExecContext(releaseCtx, "SELECT RELEASE_LOCK(?)", advisoryLockName); err != nil {
+		j.Logger.Warn("backup-drill: advisory lock: RELEASE_LOCK error", "err", err)
+	}
+	_ = conn.Close()
+}
+
+// RunOnce executes a single drill immediately; used for manual UI triggers.
+func (j *BackupDrillJob) RunOnce(ctx context.Context) {
+	// Advisory lock serializes against scheduled runs and other replicas.
+	conn, ok := j.acquireAdvisoryLock(ctx)
+	if !ok {
+		return
+	}
+	defer j.releaseAdvisoryLock(conn)
+	j.tick(ctx)
+}
+
 // Run blocks until ctx is cancelled, firing a drill on each interval tick.
 func (j *BackupDrillJob) Run(ctx context.Context) {
 	t := time.NewTimer(j.interval())
@@ -60,30 +112,39 @@ func (j *BackupDrillJob) Run(ctx context.Context) {
 			return
 		case <-t.C:
 		}
-		j.tick(ctx)
+		// Advisory lock ensures only one replica runs at a time.
+		if conn, ok := j.acquireAdvisoryLock(ctx); ok {
+			j.tick(ctx)
+			j.releaseAdvisoryLock(conn)
+		}
 		t.Reset(j.interval())
 	}
 }
 
 func (j *BackupDrillJob) tick(ctx context.Context) {
+	started := time.Now().UTC()
 	defer func() {
 		if r := recover(); r != nil {
 			j.Logger.Error("backup-drill: panic", "panic", r)
 		}
 	}()
-	if err := j.runDrill(ctx); err != nil {
+	rows, err := j.runDrill(ctx)
+	if err != nil {
 		j.Logger.Error("backup-drill: failed", "err", err)
-		j.writeResult(ctx, "failed: "+drillTruncate(err.Error(), 200))
+		msg := drillTruncate(err.Error(), 200)
+		j.writeResult(ctx, "failed: "+msg)
+		j.writeDrillRow(ctx, started, false, 0, msg)
 		return
 	}
-	j.Logger.Info("backup-drill: ok")
+	j.Logger.Info("backup-drill: ok", "rows_replayed", rows)
 	j.writeResult(ctx, "ok")
+	j.writeDrillRow(ctx, started, true, rows, "")
 }
 
-func (j *BackupDrillJob) runDrill(ctx context.Context) error {
+func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	db := j.DB()
 	if db == nil {
-		return errors.New("db not ready")
+		return 0, errors.New("db not ready")
 	}
 
 	// 1. Find latest succeeded backup job with an artifact.
@@ -97,7 +158,7 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) error {
 		 ORDER BY id DESC LIMIT 1`,
 	).Scan(&jobID, &destID, &artifactKey, &encInt)
 	if err != nil {
-		return fmt.Errorf("no succeeded backup found: %w", err)
+		return 0, fmt.Errorf("no succeeded backup found: %w", err)
 	}
 	encrypted := encInt == 1
 	j.Logger.Info("backup-drill: using backup", "job_id", jobID, "artifact", artifactKey)
@@ -106,46 +167,46 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) error {
 	svc := &backup.Service{DB: j.DB, State: j.State, Logger: j.Logger}
 	dest, err := svc.GetDestination(ctx, destID)
 	if err != nil {
-		return fmt.Errorf("load destination: %w", err)
+		return 0, fmt.Errorf("load destination: %w", err)
 	}
 	if dest.Kind != backup.KindLocal {
 		j.Logger.Warn("backup-drill: skipped — drill only supports 'local' destinations",
 			"kind", dest.Kind)
-		return fmt.Errorf("drill not implemented for destination kind %q (only 'local' supported)", dest.Kind)
+		return 0, fmt.Errorf("drill not implemented for destination kind %q (only 'local' supported)", dest.Kind)
 	}
 
 	// 3. Read artifact from local filesystem (cap at 500 MB to avoid OOM).
 	root := strings.TrimSpace(dest.Config["path"])
 	if root == "" {
-		return errors.New("local destination path not configured")
+		return 0, errors.New("local destination path not configured")
 	}
 	artifactPath := filepath.Join(root, artifactKey)
 	const maxArtifactBytes = 500 << 20
 	fi, err := os.Stat(artifactPath)
 	if err != nil {
-		return fmt.Errorf("stat artifact %s: %w", artifactPath, err)
+		return 0, fmt.Errorf("stat artifact %s: %w", artifactPath, err)
 	}
 	if fi.Size() > maxArtifactBytes {
-		return fmt.Errorf("artifact %s too large (%d bytes; limit %d)", artifactPath, fi.Size(), maxArtifactBytes)
+		return 0, fmt.Errorf("artifact %s too large (%d bytes; limit %d)", artifactPath, fi.Size(), maxArtifactBytes)
 	}
 	raw, err := os.ReadFile(artifactPath)
 	if err != nil {
-		return fmt.Errorf("read artifact %s: %w", artifactPath, err)
+		return 0, fmt.Errorf("read artifact %s: %w", artifactPath, err)
 	}
 
 	// 4. Decrypt if needed.
 	src := io.Reader(bytes.NewReader(raw))
 	if encrypted {
 		if j.State == nil {
-			return errors.New("encrypted artifact but State not wired")
+			return 0, errors.New("encrypted artifact but State not wired")
 		}
 		key, err := j.State.DeriveBackupKey()
 		if err != nil {
-			return fmt.Errorf("derive backup key: %w", err)
+			return 0, fmt.Errorf("derive backup key: %w", err)
 		}
 		var dec bytes.Buffer
 		if err := backup.StreamDecrypt(bytes.NewReader(raw), &dec, key); err != nil {
-			return fmt.Errorf("decrypt artifact: %w", err)
+			return 0, fmt.Errorf("decrypt artifact: %w", err)
 		}
 		src = &dec
 	}
@@ -153,7 +214,7 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) error {
 	// 5. Extract dump.sql from tar.gz.
 	dumpSQL, err := extractDumpSQL(src)
 	if err != nil {
-		return fmt.Errorf("extract dump.sql: %w", err)
+		return 0, fmt.Errorf("extract dump.sql: %w", err)
 	}
 
 	// 6. Open side-connection to the same MariaDB server, targeting the drill schema.
@@ -161,11 +222,11 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) error {
 	drillSchema := "hpg_drill_" + time.Now().UTC().Format("20060102_150405")
 	drillDSN, err := j.drillDSN(drillSchema)
 	if err != nil {
-		return fmt.Errorf("build drill dsn: %w", err)
+		return 0, fmt.Errorf("build drill dsn: %w", err)
 	}
 	drillDB, err := sql.Open("mysql", drillDSN)
 	if err != nil {
-		return fmt.Errorf("open drill db: %w", err)
+		return 0, fmt.Errorf("open drill db: %w", err)
 	}
 	defer drillDB.Close()
 	drillDB.SetMaxOpenConns(1)
@@ -173,7 +234,7 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) error {
 
 	// 7. Create temp schema — fail gracefully if the DB user lacks CREATE privilege.
 	if _, err := drillDB.ExecContext(ctx, "CREATE DATABASE IF NOT EXISTS `"+drillSchema+"`"); err != nil {
-		return fmt.Errorf("CREATE DATABASE %s: %w (ensure DB user has CREATE privilege)", drillSchema, err)
+		return 0, fmt.Errorf("CREATE DATABASE %s: %w (ensure DB user has CREATE privilege)", drillSchema, err)
 	}
 	j.Logger.Debug("backup-drill: schema created", "schema", drillSchema)
 
@@ -190,18 +251,18 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) error {
 	// 8. Replay dump.
 	restoreCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	j.replaySQL(restoreCtx, drillDB, dumpSQL)
+	rowsReplayed := j.replaySQL(restoreCtx, drillDB, dumpSQL)
 
 	// 9. Verify core tables — use restoreCtx so it doesn't time out after replay.
 	found, err := j.countCoreTables(restoreCtx, drillDB)
 	if err != nil {
-		return fmt.Errorf("verify tables: %w", err)
+		return 0, fmt.Errorf("verify tables: %w", err)
 	}
 	if found < minTableCount {
-		return fmt.Errorf("only %d/%d core tables present after restore", found, minTableCount)
+		return 0, fmt.Errorf("only %d/%d core tables present after restore", found, minTableCount)
 	}
 	j.Logger.Info("backup-drill: tables verified", "found", found, "required", minTableCount)
-	return nil
+	return rowsReplayed, nil
 }
 
 // maxDumpSQLBytes caps the decompressed dump.sql to prevent OOM when a
@@ -243,8 +304,10 @@ func extractDumpSQL(src io.Reader) (string, error) {
 // logged but non-fatal — the table-count verify step catches real failures.
 // Statements that could affect the production server (USE, DROP DATABASE,
 // GRANT, CREATE/DROP USER, REVOKE) are skipped entirely.
-func (j *BackupDrillJob) replaySQL(ctx context.Context, db *sql.DB, dump string) {
+// Returns the count of statements that executed without error.
+func (j *BackupDrillJob) replaySQL(ctx context.Context, db *sql.DB, dump string) int {
 	stmts := strings.Split(dump, ";\n")
+	var ok int
 	for _, stmt := range stmts {
 		stmt = strings.TrimSpace(stmt)
 		if stmt == "" || strings.HasPrefix(stmt, "--") {
@@ -257,8 +320,11 @@ func (j *BackupDrillJob) replaySQL(ctx context.Context, db *sql.DB, dump string)
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
 			j.Logger.Debug("backup-drill: stmt error (non-fatal)",
 				"err", err, "stmt_prefix", drillTruncate(stmt, 80))
+		} else {
+			ok++
 		}
 	}
+	return ok
 }
 
 // isDangerousSQL reports whether a SQL statement should never execute in the
@@ -318,6 +384,33 @@ func (j *BackupDrillJob) drillDSN(schema string) (string, error) {
 		"%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC&charset=utf8mb4%s",
 		s.DB.User, pw, s.DB.Host, s.DB.Port, schema, tls,
 	), nil
+}
+
+// writeDrillRow appends one row to restore_drill_status for history and UI.
+// rows parameter is 0 when not meaningful (error path or future extension).
+func (j *BackupDrillJob) writeDrillRow(ctx context.Context, started time.Time, success bool, rows int, errMsg string) {
+	db := j.DB()
+	if db == nil {
+		return
+	}
+	finished := time.Now().UTC()
+	var errVal interface{} = nil
+	if errMsg != "" {
+		errVal = errMsg
+	}
+	var rowsVal interface{} = nil
+	if rows > 0 {
+		rowsVal = rows
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO restore_drill_status (started_at, finished_at, success, rows_replayed, error_message)
+		 VALUES (?, ?, ?, ?, ?)`,
+		started.Format("2006-01-02 15:04:05"),
+		finished.Format("2006-01-02 15:04:05"),
+		success, rowsVal, errVal,
+	); err != nil {
+		j.Logger.Warn("backup-drill: persist row failed", "err", err)
+	}
 }
 
 // writeResult upserts drill outcome into the settings table.

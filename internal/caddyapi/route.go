@@ -186,10 +186,10 @@ type Route struct {
 	WAFDirectives      string // extra SecLang appended after the core ruleset
 	WAFModuleAvailable bool
 
-	// OutboundIPMode: "default" = OS picks egress IP; "fixed" = bind transport
+	// OutboundIPMode: "default" = OS picks; "fixed"/"random" = bind transport
 	// local_addr to OutboundIP so the connection leaves via a specific NIC IP.
 	OutboundIPMode string
-	OutboundIP     string // must be a bare IP present on the node NIC
+	OutboundIP     string // bare IP present on the node NIC
 }
 
 // Upstream is one backend dial target plus its weighted-LB weight.
@@ -368,10 +368,9 @@ func BuildRoute(r Route) map[string]any {
 			}
 			transport["tls"] = tlsBlock
 		}
-		// Fixed egress IP: bind the outgoing connection to a specific NIC address
-		// so the upstream sees a predictable source IP. The IP must be present on
-		// the node's network interface; Caddy rejects /load if it is missing.
-		if r.OutboundIPMode == "fixed" && r.OutboundIP != "" {
+		// "random" is resolved to a concrete IP at build time (static Caddy config
+		// cannot do true per-request random; we pin one node IP per route).
+		if (r.OutboundIPMode == "fixed" || r.OutboundIPMode == "random") && r.OutboundIP != "" {
 			transport["local_addr"] = r.OutboundIP
 		}
 		primary["transport"] = transport

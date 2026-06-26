@@ -1,0 +1,209 @@
+{{define "tunnel_detail"}}
+<div class="space-y-6">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <a href="/admin/tunnels" class="text-xs text-slate-500 hover:text-indigo-600">← all tunnels</a>
+      <h2 class="mt-1 text-xl font-semibold text-slate-900 dark:text-white">{{.Peer.Name}}</h2>
+      <p class="text-xs text-slate-500 dark:text-slate-400 font-mono">{{.Peer.AssignedIP}} &middot; {{.Peer.NodeName}} &middot; client {{.Peer.ClientEmail}}</p>
+    </div>
+    <div class="flex items-center gap-2 text-sm">
+      {{if ne .Role "support"}}
+      {{if ne .Peer.Status "revoked"}}
+      <form method="POST" action="/admin/tunnels/{{.Peer.ID}}/reissue" data-confirm="Re-issue config for {{.Peer.Name}}?">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="px-3 py-1.5 rounded-lg text-xs font-medium text-sky-600 dark:text-sky-400 ring-1 ring-sky-200 dark:ring-sky-500/30 hover:bg-sky-50 dark:hover:bg-sky-500/10 cursor-pointer">Reissue config</button>
+      </form>
+      <form method="POST" action="/admin/tunnels/{{.Peer.ID}}/rotate" data-confirm="Rotate key for {{.Peer.Name}}? Customer must re-run install.">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="px-3 py-1.5 rounded-lg text-xs font-medium text-indigo-600 dark:text-indigo-400 ring-1 ring-indigo-200 dark:ring-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 cursor-pointer">Rotate key</button>
+      </form>
+      {{end}}
+      {{end}}
+      <a href="/admin/tunnels/{{.Peer.ID}}/usage.csv" class="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer">Export CSV</a>
+    </div>
+  </div>
+
+  <!-- Stat cards -->
+  <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="hpg-card">
+      <div class="hpg-eyebrow">Status</div>
+      <div class="mt-2">
+        {{if eq .Peer.Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>{{end}}
+        {{if eq .Peer.Status "pending"}}<span class="hpg-pill hpg-pill-warn">pending install</span>{{end}}
+        {{if eq .Peer.Status "revoked"}}<span class="hpg-pill hpg-pill-muted">revoked</span>{{end}}
+      </div>
+      <div class="text-xs text-slate-500 mt-1">since {{.Peer.CreatedAt}}</div>
+    </div>
+    <div class="hpg-card">
+      <div class="hpg-eyebrow">Health</div>
+      <div class="mt-2">
+        {{if .Peer.Healthy}}<span class="hpg-pill hpg-pill-ok">connected</span>
+        {{else if eq .Peer.Status "active"}}<span class="hpg-pill hpg-pill-warn">stale</span>
+        {{else}}<span class="text-slate-400 text-sm">-</span>{{end}}
+      </div>
+      <div class="text-xs text-slate-500 mt-1">last handshake {{.Peer.LastHandshake}}</div>
+    </div>
+    <div class="hpg-card">
+      <div class="hpg-eyebrow">This month</div>
+      <div class="hpg-stat-num mt-1 text-base">{{.MonthRxHuman}}</div>
+      <div class="text-xs text-slate-500 mt-0.5">RX &middot; TX {{.MonthTxHuman}}</div>
+    </div>
+    <div class="hpg-card">
+      <div class="hpg-eyebrow">Key age</div>
+      <div class="hpg-stat-num mt-1 text-base">{{.Peer.KeyAgeHuman}}</div>
+      {{if .PeakHour}}<div class="text-xs text-slate-500 mt-0.5">peak hour {{.PeakHour}} (30d)</div>{{end}}
+    </div>
+  </div>
+
+  <!-- Bandwidth charts -->
+  <section class="hpg-card space-y-4">
+    <div class="flex items-center justify-between gap-3">
+      <span class="text-sm font-medium text-slate-700 dark:text-slate-200">Bandwidth history</span>
+      <div class="flex gap-1" id="hpg-detail-periods">
+        <button type="button" data-period="24h" class="hpg-bw-period-btn px-2.5 py-1 rounded-md text-xs bg-indigo-600 text-white cursor-pointer transition">24h</button>
+        <button type="button" data-period="7d"  class="hpg-bw-period-btn px-2.5 py-1 rounded-md text-xs bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-700 cursor-pointer transition">7d</button>
+        <button type="button" data-period="30d" class="hpg-bw-period-btn px-2.5 py-1 rounded-md text-xs bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-700 cursor-pointer transition">30d</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div>
+        <div class="text-[11px] text-emerald-600 dark:text-emerald-400 font-medium mb-1">RX (received)</div>
+        <canvas id="hpg-detail-rx" height="100"></canvas>
+      </div>
+      <div>
+        <div class="text-[11px] text-sky-600 dark:text-sky-400 font-medium mb-1">TX (transmitted)</div>
+        <canvas id="hpg-detail-tx" height="100"></canvas>
+      </div>
+    </div>
+    <div class="grid grid-cols-3 gap-4 pt-2 border-t border-slate-100 dark:border-zinc-800">
+      <div>
+        <div class="hpg-eyebrow">Session RX</div>
+        <div class="text-sm font-mono text-slate-700 dark:text-slate-200 mt-0.5">{{.Peer.RxHuman}}</div>
+      </div>
+      <div>
+        <div class="hpg-eyebrow">Session TX</div>
+        <div class="text-sm font-mono text-slate-700 dark:text-slate-200 mt-0.5">{{.Peer.TxHuman}}</div>
+      </div>
+      <div>
+        <div class="hpg-eyebrow">Lifetime</div>
+        <div class="text-sm font-mono text-slate-700 dark:text-slate-200 mt-0.5">{{.Peer.CumRxHuman}} / {{.Peer.CumTxHuman}}</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Rotation history -->
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="px-5 py-3 border-b border-slate-100 dark:border-zinc-800">
+      <h3 class="text-sm font-medium text-slate-700 dark:text-slate-200">Key rotation history</h3>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+          <tr>
+            <th class="px-4 py-2.5">Time</th>
+            <th class="px-4 py-2.5">Source</th>
+            <th class="px-4 py-2.5">Actor</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .RotationLog}}
+          <tr>
+            <td class="px-4 py-3 font-mono text-xs text-slate-600 dark:text-slate-300">{{.RotatedAt}}</td>
+            <td class="px-4 py-3">
+              {{if eq .Source "manual"}}<span class="hpg-pill bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">manual</span>
+              {{else if eq .Source "job"}}<span class="hpg-pill hpg-pill-muted">scheduled</span>
+              {{else if eq .Source "reissue"}}<span class="hpg-pill bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">reissue</span>
+              {{else}}<span class="hpg-pill hpg-pill-muted">{{.Source}}</span>{{end}}
+            </td>
+            <td class="px-4 py-3 text-xs font-mono text-slate-500 dark:text-slate-400">
+              {{if .ActorID}}user #{{.ActorID}}{{else}}-{{end}}
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="3" class="px-4 py-8 text-center text-slate-400 text-sm">No rotation events recorded yet.</td></tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>
+
+<script src="/static/js/chart.umd.min.js" nonce="{{.CSPNonce}}"></script>
+<script nonce="{{.CSPNonce}}">
+(function(){
+  if (!window.Chart) return;
+  var dark = document.documentElement.classList.contains('dark');
+  var gridColor = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+  var tickColor = dark ? '#94a3b8' : '#475569';
+  Chart.defaults.color = tickColor;
+  Chart.defaults.borderColor = gridColor;
+
+  var peerId = {{.Peer.ID}};
+  var charts = [];
+
+  function fmtBytes(n) {
+    if (n >= 1073741824) return (n/1073741824).toFixed(1)+' GB';
+    if (n >= 1048576)    return (n/1048576).toFixed(1)+' MB';
+    if (n >= 1024)       return (n/1024).toFixed(1)+' KB';
+    return n+' B';
+  }
+
+  function makeChart(id, label, color, labels, data) {
+    var el = document.getElementById(id);
+    if (!el) return null;
+    return new Chart(el, {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: label, data: data,
+          borderColor: color,
+          backgroundColor: color.replace(')',',0.12)').replace('rgb','rgba'),
+          fill: true, tension: 0.3,
+          pointRadius: data.length > 30 ? 0 : 2
+        }]
+      },
+      options: {
+        plugins: { legend: { display: false } },
+        scales: { y: { beginAtZero: true, ticks: { callback: function(v){ return fmtBytes(v); } } } }
+      }
+    });
+  }
+
+  function load(period) {
+    charts.forEach(function(c){ if(c) c.destroy(); });
+    charts = [];
+    fetch('/admin/tunnels/' + peerId + '/bandwidth.json?period=' + period)
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        charts.push(makeChart('hpg-detail-rx', 'RX', 'rgb(16,185,129)', d.labels, d.rx));
+        charts.push(makeChart('hpg-detail-tx', 'TX', 'rgb(14,165,233)', d.labels, d.tx));
+      })
+      .catch(function(e){ console.warn('bandwidth fetch failed', e); });
+  }
+
+  var bar = document.getElementById('hpg-detail-periods');
+  if (bar) {
+    bar.querySelectorAll('.hpg-bw-period-btn').forEach(function(b){
+      b.addEventListener('click', function(){
+        bar.querySelectorAll('.hpg-bw-period-btn').forEach(function(x){
+          var active = x === b;
+          x.classList.toggle('bg-indigo-600', active);
+          x.classList.toggle('text-white', active);
+          x.classList.toggle('bg-white', !active);
+          x.classList.toggle('dark:bg-zinc-800', !active);
+          x.classList.toggle('ring-1', !active);
+          x.classList.toggle('ring-slate-200', !active);
+          x.classList.toggle('dark:ring-zinc-700', !active);
+          x.classList.toggle('text-slate-600', !active);
+          x.classList.toggle('dark:text-slate-300', !active);
+        });
+        load(b.getAttribute('data-period'));
+      });
+    });
+  }
+
+  load('24h');
+})();
+</script>
+{{end}}

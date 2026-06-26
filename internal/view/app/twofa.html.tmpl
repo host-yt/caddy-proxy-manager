@@ -22,7 +22,6 @@
     </div>
     <form method="POST" action="/app/2fa/confirm" class="mt-4 space-y-3">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <input type="hidden" name="secret" value="{{.Secret}}">
       <div>
         <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">6-digit code</label>
         <input name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autofocus

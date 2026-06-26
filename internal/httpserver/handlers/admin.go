@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net"
@@ -39,6 +40,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
+	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 	"github.com/host-yt/caddy-proxy-manager/internal/webhook"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
@@ -63,6 +65,8 @@ type AdminHandlers struct {
 	WG         *wireguard.Service
 	Backups    *backup.Service
 	Webhooks   *webhook.Service
+	// DrillJob is the backup restore drill; used for manual "run now" trigger.
+	DrillJob drillRunner
 	// AdminScope enforces per-client visibility for non-super_admin roles. nil = no enforcement.
 	AdminScope *adminscope.Service
 	// WriteWGConfig rebuilds /app/wg/wg0.conf from DB peers (sidecar
@@ -91,6 +95,8 @@ type AdminHandlers struct {
 	AccessLogs *accesslog.Store
 	// AccessLogBroker fans out live log entries to SSE subscribers.
 	AccessLogBroker *accesslog.Broker
+	// WAFEvents reads stored WAF event records from the DB.
+	WAFEvents *wafevents.Store
 }
 
 // adminConfigRefs holds pointers admin settings handlers can flip at runtime.
@@ -138,8 +144,11 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"hosts_new":          {{Label: "Traffic", URL: ""}, {Label: "Hosts", URL: "/admin/hosts"}, {Label: "Add host", URL: ""}},
 	"hosts_edit":         {{Label: "Traffic", URL: ""}, {Label: "Hosts", URL: "/admin/hosts"}, {Label: "Edit host", URL: ""}},
 	"host_logs":          {{Label: "Traffic", URL: ""}, {Label: "Hosts", URL: "/admin/hosts"}, {Label: "Access logs", URL: ""}},
+	"waf_events":         {{Label: "Security", URL: ""}, {Label: "WAF events", URL: ""}},
 	"streams":            {{Label: "Traffic", URL: ""}, {Label: "Streams (L4)", URL: ""}},
+	"streams_edit":       {{Label: "Traffic", URL: ""}, {Label: "Streams (L4)", URL: "/admin/streams"}, {Label: "Edit stream", URL: ""}},
 	"tunnels":            {{Label: "Traffic", URL: ""}, {Label: "Tunnels (WG)", URL: ""}},
+	"tunnel_detail":      {{Label: "Traffic", URL: ""}, {Label: "Tunnels (WG)", URL: "/admin/tunnels"}, {Label: "Tunnel", URL: ""}},
 	"certs":              {{Label: "Traffic", URL: ""}, {Label: "Certificates", URL: ""}},
 	"nodes":              {{Label: "Fleet", URL: ""}, {Label: "Caddy nodes", URL: ""}},
 	"node_detail":        {{Label: "Fleet", URL: ""}, {Label: "Caddy nodes", URL: "/admin/nodes"}, {Label: "Node", URL: ""}},
@@ -594,6 +603,92 @@ func (h *AdminHandlers) NodesCreate(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/nodes", "Node added. Click resync if it already has routes.", "")
 }
 
+type nodeEditData struct {
+	baseAdminData
+	NodeID         int64
+	Name           string
+	APIURL         string
+	PublicHostname string
+	PublicIP       string
+	OutboundIPs    string // newline-separated for the textarea
+	Error          string
+}
+
+// NodesEdit renders GET /admin/nodes/{id}/edit.
+func (h *AdminHandlers) NodesEdit(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	d := nodeEditData{baseAdminData: h.base(r, "Edit node"), NodeID: id}
+	db := h.DB()
+	if db == nil || id == 0 {
+		h.render(w, "node_edit", d)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	var outboundIPsJSON sql.NullString
+	if err := db.QueryRowContext(ctx,
+		`SELECT name, api_url, COALESCE(public_hostname,''), COALESCE(public_ip,''), outbound_ips
+		   FROM caddy_nodes WHERE id = ?`, id,
+	).Scan(&d.Name, &d.APIURL, &d.PublicHostname, &d.PublicIP, &outboundIPsJSON); err != nil {
+		d.Error = "node not found"
+		h.render(w, "node_edit", d)
+		return
+	}
+	if outboundIPsJSON.Valid && outboundIPsJSON.String != "" {
+		var ips []string
+		if json.Unmarshal([]byte(outboundIPsJSON.String), &ips) == nil {
+			d.OutboundIPs = strings.Join(ips, "\n")
+		}
+	}
+	h.render(w, "node_edit", d)
+}
+
+// NodesUpdate handles POST /admin/nodes/{id}/edit. Updates outbound_ips inventory.
+func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	_ = r.ParseForm()
+	editPath := "/admin/nodes/" + strconv.FormatInt(id, 10) + "/edit"
+
+	// Parse and validate the outbound IPs textarea (one IP per line).
+	raw := strings.TrimSpace(r.FormValue("outbound_ips"))
+	var ips []string
+	for _, line := range strings.Split(raw, "\n") {
+		ip := strings.TrimSpace(line)
+		if ip == "" {
+			continue
+		}
+		if net.ParseIP(ip) == nil {
+			redirectWithFlash(w, r, editPath, "", "outbound IPs: invalid IP address: "+ip)
+			return
+		}
+		ips = append(ips, ip)
+	}
+	var outboundIPsVal sql.NullString
+	if len(ips) > 0 {
+		b, _ := json.Marshal(ips)
+		outboundIPsVal = sql.NullString{String: string(b), Valid: true}
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if _, err := db.ExecContext(ctx,
+		`UPDATE caddy_nodes SET outbound_ips = ? WHERE id = ?`, outboundIPsVal, id); err != nil {
+		redirectWithFlash(w, r, editPath, "", "update failed: "+sanitizeErr(err))
+		return
+	}
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
+		Action: "node.update", Entity: "node", EntityID: fmt.Sprintf("%d", id),
+		Meta: map[string]any{"outbound_ips": ips},
+	})
+	redirectWithFlash(w, r, "/admin/nodes", "Node outbound IPs updated", "")
+}
+
 func (h *AdminHandlers) NodesToggle(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	if db == nil {
@@ -914,19 +1009,21 @@ func (h *AdminHandlers) NodesResync(w http.ResponseWriter, r *http.Request) {
 // ---- Plans --------------------------------------------------------------
 
 type planRow struct {
-	ID            int64
-	Name          string
-	Kind          string // 'restricted' | 'npm'
-	MaxDomains    int
-	MaxPorts      int
-	SSL           bool
-	PathRouting   bool
-	WebSocket     bool
-	Wildcard      bool
-	ExternalProxy bool
-	RateLimitRPM  int   // 0 => no limit; carried for the edit modal
-	NodeGroupID   int64 // carried for the edit modal preselect
-	NodeGroupName string
+	ID                int64
+	Name              string
+	Kind              string // 'restricted' | 'npm'
+	MaxDomains        int
+	MaxPorts          int
+	SSL               bool
+	PathRouting       bool
+	WebSocket         bool
+	Wildcard          bool
+	ExternalProxy     bool
+	AllowEgressIP     bool  // allow fixed/random egress IP on routes under this plan
+	RateLimitRPM      int   // 0 => no limit; carried for the edit modal
+	WGKeyRotationDays int   // 0 => no rotation; carried for the edit modal
+	NodeGroupID       int64 // carried for the edit modal preselect
+	NodeGroupName     string
 }
 
 type nodeGroup struct {
@@ -953,19 +1050,23 @@ func (h *AdminHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT p.id, p.name, p.kind, p.max_domains, p.max_ports, p.ssl_enabled,
 		        p.path_routing_enabled, p.websocket_enabled, p.wildcard_enabled,
-		        p.external_proxy_enabled, p.rate_limit_rpm, p.node_group_id, ng.name
+		        p.external_proxy_enabled, COALESCE(p.allow_egress_ip,0), p.rate_limit_rpm,
+		        p.wg_key_rotation_days, p.node_group_id, ng.name
 		 FROM plans p JOIN node_groups ng ON ng.id = p.node_group_id
 		 ORDER BY p.id DESC`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var p planRow
-			var rl sql.NullInt32
+			var rl, wgDays sql.NullInt32
 			if err := rows.Scan(&p.ID, &p.Name, &p.Kind, &p.MaxDomains, &p.MaxPorts,
 				&p.SSL, &p.PathRouting, &p.WebSocket, &p.Wildcard, &p.ExternalProxy,
-				&rl, &p.NodeGroupID, &p.NodeGroupName); err == nil {
+				&p.AllowEgressIP, &rl, &wgDays, &p.NodeGroupID, &p.NodeGroupName); err == nil {
 				if rl.Valid {
 					p.RateLimitRPM = int(rl.Int32)
+				}
+				if wgDays.Valid {
+					p.WGKeyRotationDays = int(wgDays.Int32)
 				}
 				d.Plans = append(d.Plans, p)
 			}
@@ -1010,6 +1111,8 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 	websocket := r.FormValue("websocket") == "1"
 	wildcard := r.FormValue("wildcard") == "1"
 	externalProxy := r.FormValue("external_proxy") == "1"
+	allowEgressIP := r.FormValue("allow_egress_ip") == "1"
+	wgKeyRotDays, _ := strconv.Atoi(r.FormValue("wg_key_rotation_days"))
 
 	if name == "" || maxDomains <= 0 || maxPorts <= 0 || groupID == 0 {
 		redirectWithFlash(w, r, "/admin/plans", "", "name, limits, and node group are required")
@@ -1022,13 +1125,17 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 	if rateLimit > 0 {
 		rateLimitVal = sql.NullInt32{Int32: int32(rateLimit), Valid: true}
 	}
+	var wgRotDaysVal sql.NullInt32
+	if wgKeyRotDays > 0 {
+		wgRotDaysVal = sql.NullInt32{Int32: int32(wgKeyRotDays), Valid: true}
+	}
 	res, err := db.ExecContext(ctx,
 		`UPDATE plans SET name=?, kind=?, max_domains=?, max_ports=?, ssl_enabled=?,
 		   path_routing_enabled=?, wildcard_enabled=?, websocket_enabled=?,
-		   external_proxy_enabled=?, rate_limit_rpm=?, node_group_id=?
+		   external_proxy_enabled=?, allow_egress_ip=?, rate_limit_rpm=?, wg_key_rotation_days=?, node_group_id=?
 		 WHERE id=?`,
 		name, kind, maxDomains, maxPorts, ssl, pathRouting, wildcard, websocket,
-		externalProxy, rateLimitVal, groupID, id)
+		externalProxy, allowEgressIP, rateLimitVal, wgRotDaysVal, groupID, id)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			redirectWithFlash(w, r, "/admin/plans", "", "plan name already exists")
@@ -1076,6 +1183,8 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 	websocket := r.FormValue("websocket") == "1"
 	wildcard := r.FormValue("wildcard") == "1"
 	externalProxy := r.FormValue("external_proxy") == "1"
+	allowEgressIP := r.FormValue("allow_egress_ip") == "1"
+	wgKeyRotDays, _ := strconv.Atoi(r.FormValue("wg_key_rotation_days"))
 
 	if name == "" || maxDomains <= 0 || maxPorts <= 0 || groupID == 0 {
 		redirectWithFlash(w, r, "/admin/plans", "", "name, limits, and node group are required")
@@ -1088,11 +1197,15 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 	if rateLimit > 0 {
 		rateLimitVal = sql.NullInt32{Int32: int32(rateLimit), Valid: true}
 	}
+	var wgRotDaysVal sql.NullInt32
+	if wgKeyRotDays > 0 {
+		wgRotDaysVal = sql.NullInt32{Int32: int32(wgKeyRotDays), Valid: true}
+	}
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO plans (name, kind, max_domains, max_ports, ssl_enabled, path_routing_enabled,
-		   wildcard_enabled, websocket_enabled, external_proxy_enabled, rate_limit_rpm, node_group_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		name, kind, maxDomains, maxPorts, ssl, pathRouting, wildcard, websocket, externalProxy, rateLimitVal, groupID)
+		   wildcard_enabled, websocket_enabled, external_proxy_enabled, allow_egress_ip, rate_limit_rpm, wg_key_rotation_days, node_group_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		name, kind, maxDomains, maxPorts, ssl, pathRouting, wildcard, websocket, externalProxy, allowEgressIP, rateLimitVal, wgRotDaysVal, groupID)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			redirectWithFlash(w, r, "/admin/plans", "", "plan name already exists")
