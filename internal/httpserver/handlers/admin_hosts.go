@@ -25,6 +25,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // bcryptHash returns a bcrypt hash of pw with the default cost (Caddy's
@@ -997,6 +998,14 @@ func (h *AdminHandlers) HostsDNSTest(w http.ResponseWriter, r *http.Request) {
 	// Build a resolver pointed at the configured DNS server.
 	resolver := net.DefaultResolver
 	if effectiveResolver != "" {
+		// Refuse loopback/link-local/unspecified resolvers (SSRF guard, also
+		// covers legacy rows saved before save-time validation existed).
+		if ip := net.ParseIP(effectiveResolver); ip == nil || security.IsDangerousProxyBackend(ip) {
+			resp["ok"] = false
+			resp["error"] = "resolver address not allowed"
+			apiJSON(w, http.StatusOK, resp)
+			return
+		}
 		dialAddr := net.JoinHostPort(effectiveResolver, "53")
 		resolver = &net.Resolver{
 			PreferGo: true,
@@ -1020,7 +1029,9 @@ func (h *AdminHandlers) HostsDNSTest(w http.ResponseWriter, r *http.Request) {
 				"resolver", effectiveResolver, "err", lookupErr)
 		}
 		resp["ok"] = false
-		resp["error"] = lookupErr.Error()
+		// Return a sanitized category, not the raw resolver error (which can
+		// leak internal addresses/ports); full detail goes to the log above.
+		resp["error"] = dnsTestErrorCategory(lookupErr)
 		resp["resolved"] = []string{}
 		apiJSON(w, http.StatusOK, resp)
 		return
@@ -1032,6 +1043,28 @@ func (h *AdminHandlers) HostsDNSTest(w http.ResponseWriter, r *http.Request) {
 	resp["resolved"] = strs
 	resp["ok"] = len(strs) > 0
 	apiJSON(w, http.StatusOK, resp)
+}
+
+// dnsTestErrorCategory maps a resolver error to a coarse, non-leaky label so
+// the test endpoint never echoes raw internal addresses or ports to the admin.
+func dnsTestErrorCategory(err error) string {
+	if err == nil {
+		return ""
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
+		switch {
+		case dnsErr.IsTimeout:
+			return "resolver timed out"
+		case dnsErr.IsNotFound:
+			return "name not found (NXDOMAIN)"
+		}
+		return "resolver query failed"
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return "resolver timed out"
+	}
+	return "DNS lookup failed"
 }
 
 // HostsRetry re-runs the DNS check on a single route and re-pushes the
@@ -1287,12 +1320,8 @@ type upstreamRow struct {
 	Weight      int
 	MaxRequests int  // Caddy upstream max concurrent requests (0 = unlimited)
 	Enabled     bool // soft-disable without removing from pool
-	// Per-upstream passive health override (migration 00086).
-	// When HealthOverride is true, MaxFails and FailDurSecs replace the
-	// pool-level settings for this specific upstream.
-	HealthOverride    bool
-	HealthMaxFails    int
-	HealthFailDurSecs int
+	// No per-upstream passive health fields: stock Caddy cannot honor them
+	// (unknown key fails the whole /load); passive health stays pool-level.
 }
 
 type locationRuleRow struct {
@@ -1569,13 +1598,11 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	// Additional backends for the Load balancing tab (best-effort).
 	if urows, uerr := db.QueryContext(ctx,
-		`SELECT host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1),
-		        COALESCE(health_override,0), COALESCE(health_max_fails,0), COALESCE(health_fail_dur_secs,0)
+		`SELECT host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1)
 		   FROM route_upstreams WHERE route_id = ? ORDER BY sort_order ASC, id ASC`, id); uerr == nil {
 		for urows.Next() {
 			var ur upstreamRow
-			if urows.Scan(&ur.Host, &ur.Port, &ur.Weight, &ur.MaxRequests, &ur.Enabled,
-				&ur.HealthOverride, &ur.HealthMaxFails, &ur.HealthFailDurSecs) == nil {
+			if urows.Scan(&ur.Host, &ur.Port, &ur.Weight, &ur.MaxRequests, &ur.Enabled) == nil {
 				d.Upstreams = append(d.Upstreams, ur)
 			}
 		}
@@ -1781,10 +1808,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	upPorts := r.Form["upstream_port[]"]
 	upWeights := r.Form["upstream_weight[]"]
 	upMaxReqs := r.Form["upstream_max_requests[]"]
-	upEnabled := r.Form["upstream_enabled[]"]           // checkbox: present = enabled
-	upHealthOvr := r.Form["upstream_health_override[]"] // checkbox: 1 = enable override
-	upHealthMF := r.Form["upstream_health_max_fails[]"]
-	upHealthFD := r.Form["upstream_health_fail_dur[]"]
+	upEnabled := r.Form["upstream_enabled[]"] // checkbox: present = enabled
 	var newUpstreams []upstreamRow
 	for i := range upHosts {
 		host := strings.TrimSpace(upHosts[i])
@@ -1811,21 +1835,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		if i < len(upEnabled) {
 			enabled = upEnabled[i] == "1"
 		}
-		healthOvr := false
-		if i < len(upHealthOvr) {
-			healthOvr = upHealthOvr[i] == "1"
-		}
-		healthMF := 0
-		if i < len(upHealthMF) {
-			healthMF = clampInt(atoiDefault(upHealthMF[i], 0), 0, 100)
-		}
-		healthFD := 0
-		if i < len(upHealthFD) {
-			healthFD = clampInt(atoiDefault(upHealthFD[i], 0), 0, 3600)
-		}
 		newUpstreams = append(newUpstreams, upstreamRow{
 			Host: host, Port: port, Weight: weight, MaxRequests: maxReq, Enabled: enabled,
-			HealthOverride: healthOvr, HealthMaxFails: healthMF, HealthFailDurSecs: healthFD,
 		})
 	}
 	newLocationRules, locErr := sanitizeLocationRules(r.Form)
@@ -1954,9 +1965,18 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 
 	// DNS controls: optional custom resolver IP or WG peer, plus address-family.
 	dnsResolverIP := strings.TrimSpace(r.FormValue("dns_resolver_ip"))
-	if dnsResolverIP != "" && net.ParseIP(dnsResolverIP) == nil {
-		redirectWithFlash(w, r, editPath, "", "DNS resolver: must be a valid IP address (IPv4 or IPv6)")
-		return
+	if dnsResolverIP != "" {
+		ip := net.ParseIP(dnsResolverIP)
+		if ip == nil {
+			redirectWithFlash(w, r, editPath, "", "DNS resolver: must be a valid IP address (IPv4 or IPv6)")
+			return
+		}
+		// Block loopback/link-local/unspecified to limit SSRF via the test
+		// endpoint; RFC1918 stays allowed (resolvers live on the WG mesh).
+		if security.IsDangerousProxyBackend(ip) {
+			redirectWithFlash(w, r, editPath, "", "DNS resolver: loopback, link-local and unspecified addresses are not allowed")
+			return
+		}
 	}
 	dnsResolverViaWGID, _ := strconv.ParseInt(r.FormValue("dns_resolver_via_wg_peer_id"), 10, 64)
 	// Mutual exclusion: direct IP beats peer; clear peer when IP is set.
@@ -2508,25 +2528,13 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			if u.Enabled {
 				enInt = 1
 			}
-			var hoInt *int
-			if u.HealthOverride {
-				v := 1
-				hoInt = &v
-			}
-			var hmf, hfd *int
-			if u.HealthOverride && u.HealthMaxFails > 0 {
-				hmf = &u.HealthMaxFails
-			}
-			if u.HealthOverride && u.HealthFailDurSecs > 0 {
-				hfd = &u.HealthFailDurSecs
-			}
+			// Per-upstream passive health columns are left at their defaults:
+			// stock Caddy cannot honor them, so the UI no longer sets them.
 			if _, e2 = tx.ExecContext(ctx,
 				`INSERT INTO route_upstreams
-				 (route_id, host, port, weight, max_requests, enabled, sort_order,
-				  health_override, health_max_fails, health_fail_dur_secs)
-				 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-				id, u.Host, u.Port, u.Weight, u.MaxRequests, enInt, i,
-				hoInt, hmf, hfd); e2 != nil {
+				 (route_id, host, port, weight, max_requests, enabled, sort_order)
+				 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+				id, u.Host, u.Port, u.Weight, u.MaxRequests, enInt, i); e2 != nil {
 				break
 			}
 		}

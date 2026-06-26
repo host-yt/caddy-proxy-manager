@@ -517,26 +517,11 @@ X-Authentik-Meta-Version</pre>
               </label>
               <button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>
             </div>
-            <!-- Per-upstream passive health override -->
-            <div class="flex flex-wrap items-center gap-2 pl-1">
-              <input type="hidden" name="upstream_health_override[]" value="{{if .HealthOverride}}1{{else}}0{{end}}">
-              <label class="flex items-center gap-1 text-[11px] text-slate-500 cursor-pointer">
-                <input type="checkbox" class="hpg-upstream-health-ovr" {{if .HealthOverride}}checked{{end}}> override passive health
-              </label>
-              <span class="hpg-upstream-health-fields {{if not .HealthOverride}}hidden{{end}} flex items-center gap-2">
-                <label class="text-[11px] text-slate-500">max fails
-                  <input type="number" name="upstream_health_max_fails[]" value="{{.HealthMaxFails}}" min="0" max="100" placeholder="pool" class="ml-1 w-16 px-2 py-1 rounded ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
-                </label>
-                <label class="text-[11px] text-slate-500">window (s)
-                  <input type="number" name="upstream_health_fail_dur[]" value="{{.HealthFailDurSecs}}" min="0" max="3600" placeholder="pool" class="ml-1 w-16 px-2 py-1 rounded ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
-                </label>
-              </span>
-            </div>
           </div>
           {{end}}
         </div>
         <button type="button" id="hpg-upstream-add" class="mt-2 text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">+ Add backend</button>
-        <p class="text-[11px] text-slate-400 mt-1">host - port - weight - max req (0=unlimited) - on/off - optional per-upstream passive health override</p>
+        <p class="text-[11px] text-slate-400 mt-1">host - port - weight - max req (0=unlimited) - on/off. Passive health is configured pool-wide below (stock Caddy has no per-upstream override).</p>
       </div>
       <div class="grid grid-cols-2 gap-3 text-sm">
         <label class="block">
@@ -884,14 +869,6 @@ X-Authentik-Meta-Version</pre>
           '<input type="hidden" name="upstream_enabled[]" value="1">' +
           '<label class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer"><input type="checkbox" class="hpg-upstream-enabled" checked> on</label>' +
           '<button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>' +
-        '</div>' +
-        '<div class="flex flex-wrap items-center gap-2 pl-1">' +
-          '<input type="hidden" name="upstream_health_override[]" value="0">' +
-          '<label class="flex items-center gap-1 text-[11px] text-slate-500 cursor-pointer"><input type="checkbox" class="hpg-upstream-health-ovr"> override passive health</label>' +
-          '<span class="hpg-upstream-health-fields hidden flex items-center gap-2">' +
-            '<label class="text-[11px] text-slate-500">max fails<input type="number" name="upstream_health_max_fails[]" value="0" min="0" max="100" placeholder="pool" class="ml-1 w-16 px-2 py-1 rounded ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"></label>' +
-            '<label class="text-[11px] text-slate-500">window (s)<input type="number" name="upstream_health_fail_dur[]" value="0" min="0" max="3600" placeholder="pool" class="ml-1 w-16 px-2 py-1 rounded ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"></label>' +
-          '</span>' +
         '</div>';
       return div;
     }
@@ -902,21 +879,13 @@ X-Authentik-Meta-Version</pre>
         if (row) row.remove();
       }
     });
-    // Sync enabled checkbox -> hidden input and health override checkbox -> hidden + field reveal.
+    // Sync enabled checkbox -> hidden input (pool stays in sync without JS state).
     if (upWrap) upWrap.addEventListener('change', function(e){
       if (e.target && e.target.classList.contains('hpg-upstream-enabled')) {
         var row = e.target.closest('.hpg-upstream-row');
         if (!row) return;
         var hidden = row.querySelector('input[name="upstream_enabled[]"]');
         if (hidden) hidden.value = e.target.checked ? '1' : '0';
-      }
-      if (e.target && e.target.classList.contains('hpg-upstream-health-ovr')) {
-        var row = e.target.closest('.hpg-upstream-row');
-        if (!row) return;
-        var hidden = row.querySelector('input[name="upstream_health_override[]"]');
-        if (hidden) hidden.value = e.target.checked ? '1' : '0';
-        var fields = row.querySelector('.hpg-upstream-health-fields');
-        if (fields) fields.classList.toggle('hidden', !e.target.checked);
       }
     });
 
