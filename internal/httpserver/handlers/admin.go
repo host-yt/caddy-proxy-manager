@@ -1298,6 +1298,9 @@ type clientsData struct {
 }
 
 func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
+	if h.maybeApplySavedFilter(w, r, "clients") {
+		return
+	}
 	lp := parseListParams(r, []string{"id", "display_name", "email", "created_at"},
 		"id", "desc", 50)
 	d := clientsData{
@@ -1320,8 +1323,8 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	where := "1=1"
 	var args []any
 	if lp.Q != "" {
-		like := "%" + lp.Q + "%"
-		where = "(u.email LIKE ? OR c.display_name LIKE ? OR u.full_name LIKE ? OR c.external_ref LIKE ?)"
+		like := likeContains(lp.Q)
+		where = `(u.email LIKE ? ESCAPE '\\' OR c.display_name LIKE ? ESCAPE '\\' OR u.full_name LIKE ? ESCAPE '\\' OR c.external_ref LIKE ? ESCAPE '\\')`
 		args = []any{like, like, like, like}
 	}
 
@@ -2331,6 +2334,9 @@ type auditData struct {
 }
 
 func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
+	if h.maybeApplySavedFilter(w, r, "audit") {
+		return
+	}
 	q := r.URL.Query()
 
 	lp := parseListParams(r, []string{"id", "created_at", "actor", "action", "entity"},
@@ -2377,8 +2383,8 @@ func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
 		args = append(args, d.Since)
 	}
 	if d.Q != "" {
-		where = append(where, "(a.action LIKE ? OR a.entity LIKE ? OR u.email LIKE ?)")
-		like := "%" + d.Q + "%"
+		where = append(where, `(a.action LIKE ? ESCAPE '\\' OR a.entity LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')`)
+		like := likeContains(d.Q)
 		args = append(args, like, like, like)
 	}
 
@@ -3012,6 +3018,9 @@ type apiKeysData struct {
 func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 	// NOTE: plain key is never delivered via URL (it would land in browser
 	// history + access logs). It is rendered inline by APIKeysCreate.
+	if h.maybeApplySavedFilter(w, r, "api_keys") {
+		return
+	}
 	sess := middleware.SessionFromContext(r.Context())
 	lp := parseListParams(r, []string{"id", "name", "created_at", "last_used_at"},
 		"id", "desc", 50)
@@ -3034,8 +3043,8 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 	where := "user_id = ?"
 	args := []any{sess.UserID}
 	if lp.Q != "" {
-		like := "%" + lp.Q + "%"
-		where += " AND (name LIKE ? OR key_prefix LIKE ? OR scopes LIKE ?)"
+		like := likeContains(lp.Q)
+		where += ` AND (name LIKE ? ESCAPE '\\' OR key_prefix LIKE ? ESCAPE '\\' OR scopes LIKE ? ESCAPE '\\')`
 		args = append(args, like, like, like)
 	}
 

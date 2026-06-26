@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -11,6 +12,65 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
+
+// savedFilterKeys lists the query params a saved filter may carry per view.
+// Used as an allow-list when expanding a stored filter into a list URL so
+// we never reflect arbitrary stored keys back into the redirect.
+var savedFilterKeys = map[string][]string{
+	"audit":    {"entity", "action", "actor", "since", "q", "sort", "dir"},
+	"clients":  {"q", "sort", "dir"},
+	"api_keys": {"q", "sort", "dir"},
+}
+
+// maybeApplySavedFilter handles ?saved_filter=ID on a list page: it loads the
+// current user's stored filter and 303-redirects to the same list with the
+// saved query params expanded. Returns true if it issued a redirect.
+func (h *AdminHandlers) maybeApplySavedFilter(w http.ResponseWriter, r *http.Request, viewKey string) bool {
+	idStr := strings.TrimSpace(r.URL.Query().Get("saved_filter"))
+	if idStr == "" {
+		return false
+	}
+	back := savedFilterBack(viewKey)
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || id <= 0 {
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return true
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	db := h.DB()
+	if db == nil || sess == nil {
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return true
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	// Ownership: only the owner's filter for this view is loadable.
+	var raw string
+	err = db.QueryRowContext(ctx,
+		`SELECT query_json FROM saved_filters WHERE id=? AND user_id=? AND view_key=?`,
+		id, sess.UserID, viewKey).Scan(&raw)
+	if err != nil {
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return true
+	}
+	var fields map[string]string
+	if json.Unmarshal([]byte(raw), &fields) != nil {
+		http.Redirect(w, r, back, http.StatusSeeOther)
+		return true
+	}
+	q := url.Values{}
+	for _, k := range savedFilterKeys[viewKey] {
+		if v := strings.TrimSpace(fields[k]); v != "" {
+			q.Set(k, v)
+		}
+	}
+	target := back
+	if enc := q.Encode(); enc != "" {
+		target += "?" + enc
+	}
+	http.Redirect(w, r, target, http.StatusSeeOther)
+	return true
+}
 
 // savedFilter is a single saved filter row.
 type savedFilter struct {
