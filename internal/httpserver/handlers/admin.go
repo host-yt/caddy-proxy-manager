@@ -2314,11 +2314,13 @@ type acmeView struct {
 
 type geoipView struct {
 	// AccountID is shown back (not a secret on its own); license key is write-only.
-	AccountID  string
-	Configured bool   // both creds present
-	SHA256     string // current DB sha256 ("" if never downloaded)
-	SizeBytes  int64
-	FetchedAt  string // RFC3339 or "" if never
+	AccountID   string
+	Configured  bool   // both creds present
+	SHA256      string // current DB sha256 ("" if never downloaded)
+	SizeBytes   int64
+	FetchedAt   string // RFC3339 or "" if never
+	LastError   string // last refresh failure ("" if last attempt ok / none)
+	LastAttempt string // RFC3339 of last attempt or ""
 }
 
 type oidcView struct {
@@ -2631,13 +2633,18 @@ func (h *AdminHandlers) loadGeoIPView(ctx context.Context, db *sql.DB) geoipView
 	kv := h.loadSettings(ctx, db, []string{"geoip.account_id", "geoip.license_key"})
 	v.AccountID = kv["geoip.account_id"]
 	v.Configured = kv["geoip.account_id"] != "" && kv["geoip.license_key"] != ""
-	var fetchedAt sql.NullTime
+	var fetchedAt, lastAttempt sql.NullTime
+	var lastError sql.NullString
 	_ = db.QueryRowContext(ctx,
-		`SELECT sha256, size_bytes, fetched_at FROM geoip_db_meta WHERE id = 1`,
-	).Scan(&v.SHA256, &v.SizeBytes, &fetchedAt)
+		`SELECT sha256, size_bytes, fetched_at, last_error, last_attempt_at FROM geoip_db_meta WHERE id = 1`,
+	).Scan(&v.SHA256, &v.SizeBytes, &fetchedAt, &lastError, &lastAttempt)
 	if fetchedAt.Valid {
 		v.FetchedAt = fetchedAt.Time.UTC().Format(time.RFC3339)
 	}
+	if lastAttempt.Valid {
+		v.LastAttempt = lastAttempt.Time.UTC().Format(time.RFC3339)
+	}
+	v.LastError = lastError.String
 	return v
 }
 

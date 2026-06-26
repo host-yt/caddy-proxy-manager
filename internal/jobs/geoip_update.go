@@ -58,8 +58,14 @@ func (j *GeoIPUpdateJob) RunOnce(ctx context.Context) {
 			j.Logger.Error("geoip: panic", "panic", r)
 		}
 	}()
-	if err := j.refresh(ctx); err != nil {
+	err := j.refresh(ctx)
+	if err != nil {
 		j.Logger.Warn("geoip: refresh failed", "err", err)
+	}
+	// Persist the outcome so the UI can show why a refresh failed (or clear it
+	// on success) instead of a silent "no database".
+	if db := j.DB(); db != nil {
+		j.recordOutcome(ctx, db, err)
 	}
 }
 
@@ -145,6 +151,26 @@ func (j *GeoIPUpdateJob) writeMeta(ctx context.Context, db *sql.DB, sha string, 
 		 ON DUPLICATE KEY UPDATE sha256=VALUES(sha256), size_bytes=VALUES(size_bytes), fetched_at=VALUES(fetched_at)`,
 		sha, size, now); err != nil {
 		j.Logger.Warn("geoip: persist meta failed", "err", err)
+	}
+}
+
+// recordOutcome stamps the last attempt time and either the error text (on
+// failure) or clears it (on success). Truncates to the column width.
+func (j *GeoIPUpdateJob) recordOutcome(ctx context.Context, db *sql.DB, err error) {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+		if len(msg) > 500 {
+			msg = msg[:500]
+		}
+	}
+	now := time.Now().UTC().Format("2006-01-02 15:04:05")
+	if _, e := db.ExecContext(ctx,
+		`INSERT INTO geoip_db_meta (id, last_error, last_attempt_at)
+		 VALUES (1, ?, ?)
+		 ON DUPLICATE KEY UPDATE last_error=VALUES(last_error), last_attempt_at=VALUES(last_attempt_at)`,
+		msg, now); e != nil {
+		j.Logger.Warn("geoip: persist outcome failed", "err", e)
 	}
 }
 

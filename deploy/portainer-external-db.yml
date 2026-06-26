@@ -7,6 +7,16 @@
 # HPG_WG_PRIVATE_KEY.
 
 services:
+  # One-shot: chown the shared GeoIP volume to the app UID (65532, non-root)
+  # before app/caddy start, else the non-root app gets EACCES writing the mmdb
+  # onto a root-owned volume dir. Idempotent; runs on every up.
+  geoip-init:
+    image: busybox:1.36
+    command: ["sh", "-c", "mkdir -p /data/geoip && chown -R 65532:65532 /data/geoip"]
+    volumes:
+      - geoip_data:/data/geoip
+    restart: "no"
+
   app:
     image: ghcr.io/host-yt/caddy-proxy-manager:latest
     pull_policy: always
@@ -32,12 +42,17 @@ services:
       ACCESS_LOG_URL: http://app:8080/internal/access-log
       CACHE_HANDLER_AVAILABLE: ${CACHE_HANDLER_AVAILABLE:-1}
       LAYER4_AVAILABLE: ${LAYER4_AVAILABLE:-1}
+      GEOIP_AVAILABLE: ${GEOIP_AVAILABLE:-1}
     depends_on:
       redis:
         condition: service_healthy
+      geoip-init:
+        condition: service_completed_successfully
     volumes:
       - app_data:/app/data
       - wg_config:/app/wg
+      # Shared with caddy: app downloads the MaxMind mmdb here, caddy reads it.
+      - geoip_data:/data/geoip
     networks:
       - internal
 
@@ -69,10 +84,15 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"
+    depends_on:
+      geoip-init:
+        condition: service_completed_successfully
     volumes:
       - caddy_data:/data
       - caddy_config:/config
       - caddy_logs:/var/log/caddy
+      # GeoIP mmdb the app downloads; caddy's maxmind_geolocation matcher reads it.
+      - geoip_data:/data/geoip
     environment:
       ASK_ENDPOINT_URL: http://app:8080/internal/ask
       ACME_EMAIL: ${CADDY_ACME_EMAIL}
@@ -114,6 +134,7 @@ volumes:
   caddy_config:
   caddy_logs:
   wg_config:
+  geoip_data:
 
 networks:
   internal:
