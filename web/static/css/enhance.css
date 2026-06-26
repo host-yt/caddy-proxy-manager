@@ -617,6 +617,21 @@
 }
 .hpg-inspector-actions a:hover { background: #4338ca; }
 
+/* SVG edge overlay drawn behind node cards inside each lane. */
+.hpg-topology-edges {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 0;
+}
+/* Ensure node cards sit above the edge SVG. */
+.hpg-map-stack,
+.hpg-map-node {
+  position: relative;
+  z-index: 1;
+}
+
 @media (max-width: 767px) {
   .hpg-topology-head {
     flex-direction: column;
@@ -635,6 +650,8 @@
   .hpg-topology-labels { display: none; }
   .hpg-topology-lanes { padding: 1rem; }
   .hpg-topology-lane::before { display: none; }
+  /* Hide edges on single-column mobile layout - cards stack vertically. */
+  .hpg-topology-edges { display: none; }
   .hpg-topology-inspector {
     align-items: flex-start;
     flex-direction: column;

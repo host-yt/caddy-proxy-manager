@@ -564,4 +564,186 @@
   });
 })();
 </script>
+<script nonce="{{.CSPNonce}}">
+/* Topology edge overlay - draws bezier curves connecting related node cards. */
+(function(){
+  var shell = document.querySelector('.hpg-topology-shell');
+  if (!shell) return;
+
+  /* Color palette matching the design system accent colours. */
+  var EDGE_COLOR = {
+    'client-service': 'rgba(56,189,248,0.45)',   /* sky-400 */
+    'service-route':  'rgba(99,102,241,0.38)',    /* indigo-500 */
+    'route-edge':     'rgba(16,185,129,0.40)',    /* emerald-500 */
+  };
+  var EDGE_COLOR_DARK = {
+    'client-service': 'rgba(125,211,252,0.35)',
+    'service-route':  'rgba(165,180,252,0.32)',
+    'route-edge':     'rgba(52,211,153,0.32)',
+  };
+  var STROKE_W = 1.5;
+
+  function isDark() {
+    return document.documentElement.classList.contains('dark');
+  }
+
+  /* Get bounding rect relative to a positioned ancestor (the lane). */
+  function relRect(el, ancestor) {
+    var er = el.getBoundingClientRect();
+    var ar = ancestor.getBoundingClientRect();
+    return {
+      left:   er.left   - ar.left,
+      top:    er.top    - ar.top,
+      right:  er.right  - ar.left,
+      bottom: er.bottom - ar.top,
+      midY:   (er.top + er.bottom) / 2 - ar.top,
+    };
+  }
+
+  /* Draw a cubic bezier from (x1,y1) to (x2,y2) with horizontal control handles. */
+  function curvePath(x1, y1, x2, y2) {
+    var cx = (x1 + x2) / 2;
+    return 'M' + x1 + ',' + y1 + ' C' + cx + ',' + y1 + ' ' + cx + ',' + y2 + ' ' + x2 + ',' + y2;
+  }
+
+  /* Collect one connection from the right-mid of src to left-mid of dst. */
+  function edgePath(src, dst, lane) {
+    if (!src || !dst) return null;
+    var s = relRect(src, lane);
+    var d = relRect(dst, lane);
+    return curvePath(s.right, s.midY, d.left, d.midY);
+  }
+
+  function buildEdgesForLane(lane) {
+    var colors = isDark() ? EDGE_COLOR_DARK : EDGE_COLOR;
+    var paths = [];
+
+    /* Client card (first column). */
+    var clientCard = lane.querySelector('.hpg-map-node-client');
+    /* Service cards (second column). */
+    var serviceCards = Array.prototype.slice.call(lane.querySelectorAll('.hpg-map-node-service'));
+    /* Route cards (third column). */
+    var routeCards = Array.prototype.slice.call(lane.querySelectorAll('.hpg-map-node-route'));
+    /* Edge node cards (fourth column). */
+    var edgeCards = Array.prototype.slice.call(lane.querySelectorAll('.hpg-map-node-edge'));
+
+    /* client -> each service. */
+    if (clientCard) {
+      serviceCards.forEach(function(svc) {
+        var p = edgePath(clientCard, svc, lane);
+        if (p) paths.push({ d: p, type: 'client-service' });
+      });
+      /* client -> tunnel strip (treat strip as one target). */
+      var tunnelStrip = lane.querySelector('.hpg-map-tunnel-strip');
+      if (tunnelStrip && serviceCards.length === 0) {
+        var p = edgePath(clientCard, tunnelStrip, lane);
+        if (p) paths.push({ d: p, type: 'client-service' });
+      }
+    }
+
+    /* service -> route: match by DOM order (routes appear under each service). */
+    /* We pair them by index since serviceCards[i] owns routeCards[i*N..(i+1)*N-1]. */
+    /* A simpler reliable approach: draw each service to all route cards in same stack. */
+    /* The DOM nests: .hpg-map-stack (col 3) -> routes across all services flat. */
+    /* Find the two stacks for col2 (services) and col3 (routes+tunnels). */
+    var stacks = Array.prototype.slice.call(lane.querySelectorAll('.hpg-map-stack'));
+    /* stacks[0] = services, stacks[1] = routes+tunnels, stacks[2] = edge nodes. */
+
+    if (stacks.length >= 2) {
+      /* service -> route: pair same-index service to all routes in the routes stack. */
+      serviceCards.forEach(function(svc, si) {
+        routeCards.forEach(function(rt, ri) {
+          /* Only draw if this route belongs to this service: check DOM ancestry. */
+          /* Routes are nested inside stacks[1] directly. Without per-service grouping
+             in the DOM we pair each service to every route (fan-out) - acceptable. */
+          var p = edgePath(svc, rt, lane);
+          if (p) paths.push({ d: p, type: 'service-route' });
+        });
+      });
+    }
+
+    /* route -> edge node: match by DOM position index (1:1 mapping in template). */
+    routeCards.forEach(function(rt, i) {
+      var edge = edgeCards[i];
+      if (edge) {
+        var p = edgePath(rt, edge, lane);
+        if (p) paths.push({ d: p, type: 'route-edge' });
+      }
+    });
+
+    return paths.map(function(seg) {
+      return '<path d="' + seg.d + '" stroke="' + colors[seg.type] + '" stroke-width="' + STROKE_W + '" fill="none" stroke-linecap="round"/>';
+    }).join('');
+  }
+
+  function renderEdges() {
+    /* Skip if grid is single-column (mobile): CSS hides the SVG anyway, but
+       avoid work and avoid zero-width SVG noise. */
+    var laneEl = shell.querySelector('[data-topology-lane]');
+    if (!laneEl) return;
+    var laneW = laneEl.getBoundingClientRect().width;
+    /* Rough single-column check: lane narrower than ~500px means stacked layout. */
+    var singleCol = laneW < 500;
+
+    shell.querySelectorAll('[data-topology-lane]').forEach(function(lane) {
+      /* Remove any prior SVG. */
+      var old = lane.querySelector('.hpg-topology-edges');
+      if (old) old.remove();
+      if (singleCol) return;
+
+      var svgContent = buildEdgesForLane(lane);
+      if (!svgContent) return;
+
+      var laneRect = lane.getBoundingClientRect();
+      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+      svg.setAttribute('class', 'hpg-topology-edges');
+      svg.setAttribute('aria-hidden', 'true');
+      svg.setAttribute('width', laneRect.width);
+      svg.setAttribute('height', laneRect.height);
+      svg.setAttribute('viewBox', '0 0 ' + laneRect.width + ' ' + laneRect.height);
+      svg.innerHTML = svgContent;
+      /* Insert as first child so it sits behind node cards. */
+      lane.insertBefore(svg, lane.firstChild);
+    });
+  }
+
+  /* Debounced resize to avoid thrash. */
+  var resizeTimer;
+  function onResize() {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(renderEdges, 80);
+  }
+
+  /* Re-render on filter/search changes (lanes may appear/disappear). */
+  var filterTimer;
+  function onFilterChange() {
+    clearTimeout(filterTimer);
+    filterTimer = setTimeout(renderEdges, 120);
+  }
+
+  /* Initial render after layout is stable. */
+  if (document.readyState === 'complete') {
+    renderEdges();
+  } else {
+    window.addEventListener('load', renderEdges);
+  }
+  window.addEventListener('resize', onResize);
+
+  /* Observe topology filter/search mutations to redraw after lanes hide/show. */
+  var filterBtns = shell.querySelectorAll('[data-topology-filter]');
+  filterBtns.forEach(function(btn) {
+    btn.addEventListener('click', onFilterChange);
+  });
+  var searchInput = document.getElementById('hpg-topology-search');
+  if (searchInput) searchInput.addEventListener('input', onFilterChange);
+
+  /* Redraw when colour scheme toggles (dark/light). */
+  var mq = window.matchMedia('(prefers-color-scheme: dark)');
+  if (mq && mq.addEventListener) mq.addEventListener('change', renderEdges);
+  /* Also watch the html.dark class toggle used by the theme switcher. */
+  if (window.MutationObserver) {
+    new MutationObserver(renderEdges).observe(document.documentElement, { attributes: true, attributeFilter: ['class'] });
+  }
+})();
+</script>
 {{end}}
