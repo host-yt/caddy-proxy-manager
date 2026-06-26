@@ -268,6 +268,11 @@ func (s *Server) routes() {
 			r.Post("/{id}/rekey", s.deps.Admin.NodesRekey)
 		})
 		r.Get("/certs", s.deps.Admin.CertsList)
+		r.Route("/manual-certs", func(r chi.Router) {
+			r.Get("/", s.deps.Admin.ManualCertsList)
+			r.Post("/import", s.deps.Admin.ManualCertsImport)
+			r.Post("/{id}/delete", s.deps.Admin.ManualCertsDelete)
+		})
 		r.Get("/branding", s.deps.Admin.BrandingPage)
 		r.Post("/branding", s.deps.Admin.BrandingSave)
 		r.Route("/hosts", func(r chi.Router) {
