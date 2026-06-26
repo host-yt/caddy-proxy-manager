@@ -34,6 +34,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/handlers"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/jobs"
 	"github.com/host-yt/caddy-proxy-manager/internal/leader"
@@ -572,6 +573,34 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		if n, err := audit.Prune(ctx, db); err == nil && n > 0 {
 			logger.Info("audit retention prune", "rows", n)
 		}
+	}))
+
+	// Idempotency key purge — leader-only, daily; run once 30s after boot to
+	// clear any keys that expired while the app was down.
+	go func() {
+		select {
+		case <-rootCtx.Done():
+			return
+		case <-time.After(30 * time.Second):
+		}
+		if db := wizard.DB(); db != nil && leaderElec.IsLeader() {
+			if err := middleware.IdempotencyPurgeExpired(rootCtx, db); err != nil {
+				logger.Error("idem-purge", "err", err)
+			} else {
+				logger.Info("idem-purge done (startup)")
+			}
+		}
+	}()
+	go runTicker(rootCtx, 24*time.Hour, leaderElec, guard(logger, "idem-purge", func(ctx context.Context) {
+		db := wizard.DB()
+		if db == nil {
+			return
+		}
+		if err := middleware.IdempotencyPurgeExpired(ctx, db); err != nil {
+			logger.Error("idem-purge", "err", err)
+			return
+		}
+		logger.Info("idem-purge done")
 	}))
 
 	// Background Caddy metrics poller (60s interval) — leader-only.
