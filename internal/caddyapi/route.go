@@ -1066,8 +1066,10 @@ func htmlEscape(s string) string {
 	return string(out)
 }
 
+// dial builds a host:port string for Caddy's upstream dial field.
+// net.JoinHostPort brackets bare IPv6 literals so Caddy can parse them.
 func dial(ip string, port int) string {
-	return ip + ":" + itoa(port)
+	return net.JoinHostPort(ip, itoa(port))
 }
 
 // firstNonEmpty returns the first non-empty string, or "".
