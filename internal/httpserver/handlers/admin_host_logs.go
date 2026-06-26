@@ -351,6 +351,10 @@ func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "streaming not supported", http.StatusInternalServerError)
 		return
 	}
+	// Clear the server WriteTimeout (30s) for this conn: it's an absolute
+	// deadline from response start, so a long-lived SSE stream gets killed
+	// mid-flight (Caddy then 502s the upstream -> browser ERR_HTTP2_PROTOCOL_ERROR).
+	_ = rc.SetWriteDeadline(time.Time{})
 
 	ch := h.AccessLogBroker.Subscribe(id)
 	defer h.AccessLogBroker.Unsubscribe(id, ch)
