@@ -617,12 +617,15 @@ func (h *APIHandlers) ClientUpdate(w http.ResponseWriter, r *http.Request) {
 	defer tx.Rollback() //nolint:errcheck
 
 	if in.Email != nil || in.Name != nil {
-		email := *in.Email
-		var name string
-		// Fetch current values so partial updates work.
-		_ = tx.QueryRowContext(ctx,
+		// Load current values FIRST so a partial update (e.g. name-only) does not
+		// deref a nil pointer or blank the other column on a stale read.
+		var email, name string
+		if err := tx.QueryRowContext(ctx,
 			"SELECT email, COALESCE(full_name,'') FROM users WHERE id=?", userID,
-		).Scan(&email, &name)
+		).Scan(&email, &name); err != nil && err != sql.ErrNoRows {
+			apiErr(w, http.StatusInternalServerError, "user fetch failed")
+			return
+		}
 		if in.Email != nil {
 			email = strings.ToLower(strings.TrimSpace(*in.Email))
 		}
