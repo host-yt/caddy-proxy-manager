@@ -39,6 +39,18 @@
     {
       "name": "Nodes",
       "description": "Caddy node management — admin-only."
+    },
+    {
+      "name": "Node Pools",
+      "description": "Node group (pool) management — admin-only. Groups determine where plans place routes."
+    },
+    {
+      "name": "Plans",
+      "description": "Plan management — admin-only. Plans control per-client quotas and feature flags."
+    },
+    {
+      "name": "Clients",
+      "description": "Client account management — admin-only. Creates user + client records together."
     }
   ],
   "components": {
@@ -80,14 +92,60 @@
         "type": "object",
         "properties": {
           "id": { "type": "integer", "format": "int64", "example": 201 },
+          "service_id": { "type": "integer", "format": "int64", "example": 42 },
           "domain": { "type": "string", "example": "app.example.com" },
           "path_prefix": { "type": "string", "example": "/api" },
           "upstream_port": { "type": "integer", "example": 30005 },
+          "ssl": { "type": "boolean", "example": true },
+          "websocket": { "type": "boolean", "example": false },
+          "force_https": { "type": "boolean", "example": true },
+          "caddy_node_id": { "type": "integer", "format": "int64", "example": 1 },
           "status": {
             "type": "string",
             "enum": ["active", "pending_ssl", "error", "inactive"],
             "example": "active"
-          }
+          },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "PlanObject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 3 },
+          "name": { "type": "string", "example": "Starter" },
+          "kind": { "type": "string", "enum": ["restricted", "npm"], "example": "restricted" },
+          "max_domains": { "type": "integer", "example": 5 },
+          "max_ports": { "type": "integer", "example": 20 },
+          "ssl_enabled": { "type": "boolean", "example": true },
+          "path_routing_enabled": { "type": "boolean", "example": false },
+          "wildcard_enabled": { "type": "boolean", "example": false },
+          "websocket_enabled": { "type": "boolean", "example": true },
+          "external_proxy_enabled": { "type": "boolean", "example": false },
+          "allow_egress_ip": { "type": "boolean", "example": false },
+          "rate_limit_rpm": { "type": "integer", "nullable": true, "example": 600 },
+          "wg_key_rotation_days": { "type": "integer", "nullable": true, "example": 90 },
+          "node_group_id": { "type": "integer", "format": "int64", "example": 1 },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ClientObject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 7 },
+          "user_id": { "type": "integer", "format": "int64", "example": 12 },
+          "display_name": { "type": "string", "example": "Acme Corp" },
+          "email": { "type": "string", "format": "email", "example": "admin@acme.com" },
+          "external_ref": { "type": "string", "example": "fossbilling-client-99" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "NodePoolObject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 1 },
+          "name": { "type": "string", "example": "europe-west" },
+          "mode": { "type": "string", "enum": ["single", "active_active", "failover"], "example": "single" },
+          "created_at": { "type": "string", "format": "date-time" }
         }
       },
       "NodeObject": {
@@ -802,6 +860,417 @@
           "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "500": { "description": "Resync failed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/services": {
+      "get": {
+        "tags": ["Services"],
+        "summary": "List all services",
+        "operationId": "servicesList",
+        "description": "Admin-only. Returns all customer services across all clients.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": {
+            "description": "Service list",
+            "content": { "application/json": { "schema": { "type": "object", "properties": { "services": { "type": "array", "items": { "$ref": "#/components/schemas/ServiceObject" } } } } } }
+          },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/services/{id}/delete": {
+      "delete": {
+        "tags": ["Services"],
+        "summary": "Delete a service",
+        "operationId": "serviceDelete",
+        "description": "Admin-only. Deletes the service. Fails with 409 if the service has active routes.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Service has active routes", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}": {
+      "get": {
+        "tags": ["Routes"],
+        "summary": "Get a route by ID",
+        "operationId": "routeGet",
+        "description": "Returns a single route. Clients can only fetch routes belonging to their own services.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Route", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RouteObject" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Forbidden", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/node-pools": {
+      "get": {
+        "tags": ["Node Pools"],
+        "summary": "List node pools",
+        "operationId": "nodePoolsList",
+        "description": "Admin-only. Returns all node groups.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Pool list", "content": { "application/json": { "schema": { "type": "object", "properties": { "node_pools": { "type": "array", "items": { "$ref": "#/components/schemas/NodePoolObject" } } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Node Pools"],
+        "summary": "Create a node pool",
+        "operationId": "nodePoolCreate",
+        "description": "Admin-only. Supports Idempotency-Key header for safe retries.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "header", "name": "Idempotency-Key", "required": false, "schema": { "type": "string", "maxLength": 128 }, "description": "Optional client-generated key for idempotent POST. Same key within 24 h replays the stored response." }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                  "name": { "type": "string", "example": "europe-west" },
+                  "mode": { "type": "string", "enum": ["single", "active_active", "failover"], "default": "single" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer", "format": "int64" } } } } } },
+          "400": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Pool name already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/node-pools/{id}": {
+      "get": {
+        "tags": ["Node Pools"],
+        "summary": "Get a node pool",
+        "operationId": "nodePoolGet",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Pool", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NodePoolObject" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "patch": {
+        "tags": ["Node Pools"],
+        "summary": "Update a node pool",
+        "operationId": "nodePoolUpdate",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "mode": { "type": "string", "enum": ["single", "active_active", "failover"] }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "updated": { "type": "boolean" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Name conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "delete": {
+        "tags": ["Node Pools"],
+        "summary": "Delete a node pool",
+        "operationId": "nodePoolDelete",
+        "description": "Admin-only. Fails with 409 if the pool is referenced by a plan or node.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Pool in use", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/plans": {
+      "get": {
+        "tags": ["Plans"],
+        "summary": "List plans",
+        "operationId": "plansList",
+        "description": "Admin-only.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Plan list", "content": { "application/json": { "schema": { "type": "object", "properties": { "plans": { "type": "array", "items": { "$ref": "#/components/schemas/PlanObject" } } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Plans"],
+        "summary": "Create a plan",
+        "operationId": "planCreate",
+        "description": "Admin-only. Supports Idempotency-Key header.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "header", "name": "Idempotency-Key", "required": false, "schema": { "type": "string", "maxLength": 128 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["name", "max_domains", "max_ports", "node_group_id"],
+                "properties": {
+                  "name": { "type": "string" },
+                  "kind": { "type": "string", "enum": ["restricted", "npm"], "default": "restricted" },
+                  "max_domains": { "type": "integer", "minimum": 1 },
+                  "max_ports": { "type": "integer", "minimum": 1 },
+                  "node_group_id": { "type": "integer", "format": "int64" },
+                  "ssl_enabled": { "type": "boolean", "default": false },
+                  "path_routing_enabled": { "type": "boolean", "default": false },
+                  "wildcard_enabled": { "type": "boolean", "default": false },
+                  "websocket_enabled": { "type": "boolean", "default": true },
+                  "external_proxy_enabled": { "type": "boolean", "default": false },
+                  "allow_egress_ip": { "type": "boolean", "default": false },
+                  "rate_limit_rpm": { "type": "integer", "minimum": 0 },
+                  "wg_key_rotation_days": { "type": "integer", "minimum": 0 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer", "format": "int64" } } } } } },
+          "400": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Plan name already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/plans/{id}": {
+      "get": {
+        "tags": ["Plans"],
+        "summary": "Get a plan",
+        "operationId": "planGet",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Plan", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/PlanObject" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "patch": {
+        "tags": ["Plans"],
+        "summary": "Update a plan",
+        "operationId": "planUpdate",
+        "description": "Admin-only. All fields are optional - only provided fields are updated.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "kind": { "type": "string", "enum": ["restricted", "npm"] },
+                  "max_domains": { "type": "integer", "minimum": 1 },
+                  "max_ports": { "type": "integer", "minimum": 1 },
+                  "node_group_id": { "type": "integer", "format": "int64" },
+                  "ssl_enabled": { "type": "boolean" },
+                  "path_routing_enabled": { "type": "boolean" },
+                  "wildcard_enabled": { "type": "boolean" },
+                  "websocket_enabled": { "type": "boolean" },
+                  "external_proxy_enabled": { "type": "boolean" },
+                  "allow_egress_ip": { "type": "boolean" },
+                  "rate_limit_rpm": { "type": "integer", "description": "Set to 0 to remove the cap." },
+                  "wg_key_rotation_days": { "type": "integer", "description": "Set to 0 to disable rotation." }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "updated": { "type": "boolean" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Name conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "delete": {
+        "tags": ["Plans"],
+        "summary": "Delete a plan",
+        "operationId": "planDelete",
+        "description": "Admin-only. Fails with 409 if the plan is in use by any service.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Plan in use", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/clients": {
+      "get": {
+        "tags": ["Clients"],
+        "summary": "List clients",
+        "operationId": "clientsList",
+        "description": "Admin-only.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Client list", "content": { "application/json": { "schema": { "type": "object", "properties": { "clients": { "type": "array", "items": { "$ref": "#/components/schemas/ClientObject" } } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Clients"],
+        "summary": "Create a client",
+        "operationId": "clientCreate",
+        "description": "Admin-only. Creates a users row (role=client) and a clients row in one transaction. Supports Idempotency-Key.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "header", "name": "Idempotency-Key", "required": false, "schema": { "type": "string", "maxLength": 128 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": ["email", "name", "password"],
+                "properties": {
+                  "email": { "type": "string", "format": "email" },
+                  "name": { "type": "string", "example": "Acme Corp" },
+                  "password": { "type": "string", "minLength": 12, "description": "Initial login password - at least 12 chars." },
+                  "external_ref": { "type": "string", "example": "fossbilling-99" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "user_id": { "type": "integer", "format": "int64" } } } } } },
+          "400": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Email already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/clients/{id}": {
+      "get": {
+        "tags": ["Clients"],
+        "summary": "Get a client",
+        "operationId": "clientGet",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Client", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ClientObject" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "patch": {
+        "tags": ["Clients"],
+        "summary": "Update a client",
+        "operationId": "clientUpdate",
+        "description": "Admin-only. Updates display name, email, and/or external_ref. All fields optional.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "email": { "type": "string", "format": "email" },
+                  "external_ref": { "type": "string" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "updated": { "type": "boolean" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Email already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "delete": {
+        "tags": ["Clients"],
+        "summary": "Delete a client",
+        "operationId": "clientDelete",
+        "description": "Admin-only. Deletes user + client rows. Fails with 409 if the client has active services.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Client has active services", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     }
