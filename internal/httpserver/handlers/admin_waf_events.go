@@ -2,11 +2,15 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"encoding/csv"
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
@@ -27,8 +31,9 @@ func (h *AdminHandlers) wafScopeOK(ctx context.Context, sess *auth.Session, rout
 // wafEventsData drives the waf_events template.
 type wafEventsData struct {
 	baseAdminData
-	Entries []wafevents.Event
-	Filter  wafevents.Filter
+	Entries      []wafevents.Event
+	Filter       wafevents.Filter
+	Suppressions []wafevents.Suppression
 }
 
 // parseWAFFilter reads WAF filter query params from r.
@@ -85,15 +90,232 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 	)
 	if hasWAFFilter(f) {
 		f.Limit = 200
-		entries, err = h.WAFEvents.Filtered(ctx, f)
+		entries, _, err = h.WAFEvents.FilteredWithSuppressions(ctx, f)
 	} else {
 		entries, err = h.WAFEvents.Recent(ctx, 0, 100)
+		if err == nil {
+			// Annotate recent results with suppression state too.
+			keys, kerr := h.WAFEvents.ActiveSuppressedKeys(ctx)
+			if kerr == nil {
+				wafevents.MarkSuppressed(entries, keys)
+			}
+		}
 	}
 	if err != nil {
 		h.Logger.Warn("waf events query", "err", err)
 	}
 	d.Entries = entries
+
+	// Load active suppressions for display; scoped admins see only their routes'.
+	var scopeRouteIDs []int64
+	if sess != nil && sess.Role != "super_admin" && h.AdminScope != nil {
+		// Scoped admin: only show their accessible route suppressions.
+		scopeRouteIDs = []int64{}
+		if f.RouteID > 0 {
+			scopeRouteIDs = []int64{f.RouteID}
+		}
+	}
+	sups, serr := h.WAFEvents.ListSuppressions(ctx, scopeRouteIDs)
+	if serr != nil {
+		h.Logger.Warn("waf suppressions query", "err", serr)
+	}
+	d.Suppressions = sups
+
 	h.render(w, "waf_events", d)
+}
+
+// WAFSuppressRule handles POST /admin/waf/suppress.
+// Creates a new rule suppression. Scoped admins may not create global ones.
+func (h *AdminHandlers) WAFSuppressRule(w http.ResponseWriter, r *http.Request) {
+	if h.WAFEvents == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+	sess := middleware.SessionFromContext(ctx)
+	if sess == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	_ = r.ParseForm()
+	ruleID := strings.TrimSpace(r.FormValue("rule_id"))
+	if len(ruleID) > 128 {
+		ruleID = ruleID[:128]
+	}
+	if ruleID == "" {
+		redirectWithFlash(w, r, "/admin/waf", "", "rule_id is required")
+		return
+	}
+	reason := strings.TrimSpace(r.FormValue("reason"))
+	if len(reason) > 255 {
+		reason = reason[:255]
+	}
+
+	routeID, _ := strconv.ParseInt(r.FormValue("route_id"), 10, 64)
+
+	// Scoped admins must target a route they can access; they cannot create global suppressions.
+	isScoped := sess.Role != "super_admin" && h.AdminScope != nil
+	if isScoped {
+		if routeID == 0 {
+			redirectWithFlash(w, r, "/admin/waf", "", "scoped admin cannot create a global suppression")
+			return
+		}
+		if !h.scopeCheckRoute(ctx, sess, routeID) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	}
+
+	var routeIDVal sql.NullInt64
+	if routeID > 0 {
+		routeIDVal = sql.NullInt64{Int64: routeID, Valid: true}
+	}
+
+	var expiresAt sql.NullTime
+	if s := strings.TrimSpace(r.FormValue("expires_at")); s != "" {
+		if t, err := time.Parse("2006-01-02", s); err == nil {
+			expiresAt = sql.NullTime{Time: t.Add(24 * time.Hour), Valid: true}
+		}
+	}
+
+	sup := wafevents.Suppression{
+		RuleID:    ruleID,
+		RouteID:   routeIDVal,
+		Reason:    reason,
+		CreatedBy: sess.UserID,
+		ExpiresAt: expiresAt,
+	}
+	id, err := h.WAFEvents.SuppressRule(ctx, sup)
+	if err != nil {
+		h.Logger.Error("waf suppress rule", "err", err)
+		redirectWithFlash(w, r, "/admin/waf", "", "could not save suppression")
+		return
+	}
+	if h.DB != nil {
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess),
+			Action: "waf.rule_suppressed", Entity: "waf_rule_suppressions",
+			EntityID: strconv.FormatInt(id, 10),
+			Meta:     map[string]any{"rule_id": ruleID, "route_id": routeID, "reason": reason},
+		})
+	}
+	redirectWithFlash(w, r, "/admin/waf", "Rule suppressed", "")
+}
+
+// WAFDeleteSuppression handles POST /admin/waf/suppressions/{id}/delete.
+func (h *AdminHandlers) WAFDeleteSuppression(w http.ResponseWriter, r *http.Request) {
+	if h.WAFEvents == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+	sess := middleware.SessionFromContext(ctx)
+	if sess == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if id == 0 {
+		redirectWithFlash(w, r, "/admin/waf", "", "invalid suppression id")
+		return
+	}
+
+	// Scoped admins may only delete suppressions for their own routes.
+	var ownerRouteID int64
+	isScoped := sess.Role != "super_admin" && h.AdminScope != nil
+	if isScoped {
+		routeID, _ := strconv.ParseInt(r.FormValue("route_id"), 10, 64)
+		if routeID == 0 || !h.scopeCheckRoute(ctx, sess, routeID) {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		ownerRouteID = routeID
+	}
+
+	if err := h.WAFEvents.DeleteSuppression(ctx, id, ownerRouteID); err != nil {
+		h.Logger.Error("waf delete suppression", "err", err)
+		redirectWithFlash(w, r, "/admin/waf", "", "delete failed")
+		return
+	}
+	if h.DB != nil {
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess),
+			Action: "waf.suppression_deleted", Entity: "waf_rule_suppressions",
+			EntityID: strconv.FormatInt(id, 10),
+		})
+	}
+	redirectWithFlash(w, r, "/admin/waf", "Suppression deleted", "")
+}
+
+// WAFAckEvent handles POST /admin/waf/events/{id}/ack.
+func (h *AdminHandlers) WAFAckEvent(w http.ResponseWriter, r *http.Request) {
+	if h.WAFEvents == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+	sess := middleware.SessionFromContext(ctx)
+	if sess == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	eventID, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if eventID == 0 {
+		redirectWithFlash(w, r, "/admin/waf", "", "invalid event id")
+		return
+	}
+
+	// Scope-check: verify the event belongs to a route this session can access.
+	if !h.wafEventScopeOK(ctx, sess, eventID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	if err := h.WAFEvents.AckEvent(ctx, eventID, sess.UserID); err != nil {
+		h.Logger.Error("waf ack event", "err", err)
+		redirectWithFlash(w, r, "/admin/waf", "", "ack failed")
+		return
+	}
+	if h.DB != nil {
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess),
+			Action: "waf.event_acked", Entity: "waf_events",
+			EntityID: strconv.FormatInt(eventID, 10),
+		})
+	}
+	redirectWithFlash(w, r, "/admin/waf", "Event acknowledged", "")
+}
+
+// wafEventScopeOK checks whether sess may act on the given event ID.
+// Looks up the event's route_id and delegates to wafScopeOK.
+func (h *AdminHandlers) wafEventScopeOK(ctx context.Context, sess *auth.Session, eventID int64) bool {
+	if sess == nil {
+		return false
+	}
+	if sess.Role == "super_admin" || h.AdminScope == nil {
+		return true
+	}
+	if h.DB == nil {
+		return false
+	}
+	db := h.DB()
+	if db == nil {
+		return false
+	}
+	var routeID sql.NullInt64
+	if err := db.QueryRowContext(ctx,
+		"SELECT route_id FROM waf_events WHERE id = ?", eventID,
+	).Scan(&routeID); err != nil {
+		return false
+	}
+	rid := int64(0)
+	if routeID.Valid {
+		rid = routeID.Int64
+	}
+	return h.wafScopeOK(ctx, sess, rid)
 }
 
 // WafEventsJSON returns the last 100 events as JSON for GET /admin/waf.json.
