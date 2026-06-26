@@ -28,13 +28,22 @@ import (
 )
 
 type State struct {
-	Installed   bool        `json:"installed"`
-	CurrentStep string      `json:"current_step"`
-	DB          *DBState    `json:"db,omitempty"`
-	Admin       *AdminState `json:"admin,omitempty"`
-	App         *AppState   `json:"app,omitempty"`
-	SMTP        *SMTPState  `json:"smtp,omitempty"`
-	CaddyNode   *NodeState  `json:"caddy_node,omitempty"`
+	Installed   bool   `json:"installed"`
+	CurrentStep string `json:"current_step"`
+	// Profile is the deployment shape (homelab|smallteam|advanced|provider).
+	// Empty on legacy installs - readers treat empty as the full-menu default.
+	Profile string `json:"profile,omitempty"`
+	// DBDriver is the chosen database driver ("mysql"; "sqlite" reserved).
+	DBDriver string `json:"db_driver,omitempty"`
+	// SetupVersion/SetupCompletedAt are stamped on completion so later schema
+	// changes to the profile model can detect and upgrade older installs.
+	SetupVersion     string      `json:"setup_version,omitempty"`
+	SetupCompletedAt string      `json:"setup_completed_at,omitempty"` // RFC3339
+	DB               *DBState    `json:"db,omitempty"`
+	Admin            *AdminState `json:"admin,omitempty"`
+	App              *AppState   `json:"app,omitempty"`
+	SMTP             *SMTPState  `json:"smtp,omitempty"`
+	CaddyNode        *NodeState  `json:"caddy_node,omitempty"`
 }
 
 type DBState struct {
@@ -76,6 +85,7 @@ type NodeState struct {
 // Steps in order. UI advances linearly.
 const (
 	StepWelcome = "welcome"
+	StepProfile = "profile"
 	StepDB      = "db"
 	StepAdmin   = "admin"
 	StepApp     = "app"
@@ -84,7 +94,7 @@ const (
 	StepDone    = "done"
 )
 
-var StepOrder = []string{StepWelcome, StepDB, StepAdmin, StepApp, StepSMTP, StepCaddy, StepDone}
+var StepOrder = []string{StepWelcome, StepProfile, StepDB, StepAdmin, StepApp, StepSMTP, StepCaddy, StepDone}
 
 // Manager persists state and provides encryption helpers.
 type Manager struct {

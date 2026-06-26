@@ -52,6 +52,8 @@ type DBConfig struct {
 	Password string
 	TLS      bool
 	DSN      string // optional override
+	// Driver is the database driver seam; only "mysql" is active today.
+	Driver string
 }
 
 type RedisConfig struct {
@@ -168,6 +170,7 @@ func Load() (*Config, error) {
 			Password: os.Getenv("DB_PASSWORD"),
 			TLS:      envBool("DB_TLS", false),
 			DSN:      os.Getenv("DB_DSN"),
+			Driver:   envOr("DB_DRIVER", "mysql"),
 		},
 		Redis: RedisConfig{
 			Addr:     envOr("REDIS_ADDR", "redis:6379"),

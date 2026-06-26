@@ -28,6 +28,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/captcha"
 	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
+	"github.com/host-yt/caddy-proxy-manager/internal/deployment"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
@@ -132,6 +133,10 @@ type baseAdminData struct {
 	Brand       Branding
 	Breadcrumbs []Crumb // auto-populated from pageBreadcrumbs by render()
 	PageDesc    string  // optional one-line page subtitle; defaults to ""
+	// Profile/Features drive install-profile menu gating. Populated once per
+	// request from install_state so the layout shows only enabled modules.
+	Profile  string
+	Features deployment.Features
 }
 
 // pageBreadcrumbs maps a page key to its breadcrumb trail (section + leaf).
@@ -162,6 +167,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"backups":            {{Label: "System", URL: ""}, {Label: "Backups", URL: ""}},
 	"branding":           {{Label: "System", URL: ""}, {Label: "Branding", URL: ""}},
 	"settings":           {{Label: "System", URL: ""}, {Label: "Settings", URL: ""}},
+	"deployment":         {{Label: "System", URL: ""}, {Label: "Deployment mode", URL: ""}},
 	"dns_providers":      {{Label: "System", URL: ""}, {Label: "DNS providers", URL: ""}},
 	"external_allowlist": {{Label: "System", URL: ""}, {Label: "External allowlist", URL: ""}},
 	"api_keys":           {{Label: "System", URL: ""}, {Label: "Settings", URL: "/admin/settings"}, {Label: "API keys", URL: ""}},
@@ -191,6 +197,12 @@ func (h *AdminHandlers) base(r *http.Request, title string) baseAdminData {
 	if msg := r.URL.Query().Get("err"); msg != "" {
 		d.Error = msg
 	}
+	prof := deployment.Default
+	if h.State != nil {
+		prof = deployment.Parse(h.State.Get().Profile)
+	}
+	d.Profile = string(prof)
+	d.Features = prof.Features()
 	return d
 }
 

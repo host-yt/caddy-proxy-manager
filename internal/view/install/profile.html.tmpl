@@ -1,0 +1,36 @@
+{{define "profile"}}
+<h2 class="text-xl font-semibold mb-1">Deployment profile</h2>
+<p class="text-sm text-slate-500 dark:text-slate-400 mb-5">
+  Choose the profile that best describes your use-case. This controls which
+  modules and menu items are visible after install. You can change it later
+  in Settings.
+</p>
+<form method="POST" action="/install/profile" class="space-y-3">
+  {{range .Form.Options}}
+  <label class="flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors
+    {{if eq $.Form.Selected .Value}}
+      border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10
+    {{else}}
+      border-slate-200 dark:border-zinc-700 hover:border-indigo-300 dark:hover:border-indigo-500/50
+    {{end}}">
+    <input type="radio" name="profile" value="{{.Value}}"
+           {{if eq $.Form.Selected .Value}}checked{{end}}
+           class="mt-0.5 accent-indigo-600 cursor-pointer">
+    <div class="flex-1 min-w-0">
+      <div class="flex items-center gap-2">
+        <span class="font-medium text-sm text-slate-800 dark:text-slate-100">{{.Label}}</span>
+        <span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-slate-400">
+          DB: {{.RecommendDB}}
+        </span>
+      </div>
+      <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{.Description}}</p>
+    </div>
+  </label>
+  {{end}}
+  <div class="flex justify-end pt-2">
+    <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
+      Continue →
+    </button>
+  </div>
+</form>
+{{end}}

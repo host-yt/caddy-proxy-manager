@@ -66,11 +66,11 @@
       Routes
     </a>
 
-    <a href="/app/tunnels" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+    {{if $.Data.Features.Tunnels}}<a href="/app/tunnels" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
       {{if eq .Page "tunnels"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Tunnels
-    </a>
+    </a>{{end}}
 
     <div class="px-2 pt-4 pb-1.5 text-[10px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-semibold">Settings</div>
 
@@ -86,11 +86,11 @@
       Security
     </a>
 
-    <a href="/app/api-keys" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+    {{if $.Data.Features.APITokens}}<a href="/app/api-keys" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
       {{if eq .Page "api_keys"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
       API Keys
-    </a>
+    </a>{{end}}
   </nav>
 
   <!-- Sidebar footer -->

@@ -184,6 +184,7 @@ func (s *Server) routes() {
 		r.Group(func(r chi.Router) {
 			r.Use(mw.InstallGuard(s.deps.InstallState.IsInstalled, s.deps.Config.Install.Token))
 			r.Post("/start", s.deps.Wizard.Start)
+			r.Post("/profile", s.deps.Wizard.ProfileSubmit)
 			r.Post("/db", s.deps.Wizard.DBSubmit)
 			r.Post("/admin", s.deps.Wizard.AdminSubmit)
 			r.Post("/app", s.deps.Wizard.AppSubmit)
@@ -247,6 +248,10 @@ func (s *Server) routes() {
 		r.Get("/", s.deps.Admin.Dashboard)
 		r.Get("/map", s.deps.Admin.AdminMap)
 		r.Get("/stats", s.deps.Admin.Stats)
+		// Deployment mode (install profile). View is read-only for any admin;
+		// the POST handler enforces super_admin internally.
+		r.Get("/deployment", s.deps.Admin.DeploymentPage)
+		r.Post("/deployment", s.deps.Admin.DeploymentUpdate)
 		r.Route("/nodes", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.Nodes)
 			r.Get("/{id}", s.deps.Admin.NodeDetail)
