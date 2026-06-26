@@ -8,8 +8,8 @@ BEGIN
     IF NOT EXISTS (SELECT 1 FROM information_schema.TABLES
                    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='saved_filters') THEN
         CREATE TABLE saved_filters (
-            id         BIGINT       NOT NULL AUTO_INCREMENT,
-            user_id    BIGINT       NOT NULL,
+            id         BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+            user_id    BIGINT UNSIGNED NOT NULL,
             view_key   VARCHAR(64)  NOT NULL,
             name       VARCHAR(120) NOT NULL,
             query_json TEXT         NOT NULL,
