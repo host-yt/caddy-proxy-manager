@@ -1,62 +1,65 @@
 {{define "plans"}}
-<section class="hpg-card !p-0 overflow-hidden">
-  <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+<section class="r-card !p-0 overflow-hidden">
+  <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-[rgb(var(--border))]">
     <div class="flex items-center gap-3">
-      <div>
-        <p class="hpg-eyebrow">Catalog</p>
-        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Plans</h2>
+      <div class="icon-chip">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12c0 1.268-.63 2.39-1.593 3.068a3.745 3.745 0 0 1-1.043 3.296 3.745 3.745 0 0 1-3.296 1.043A3.745 3.745 0 0 1 12 21c-1.268 0-2.39-.63-3.068-1.593a3.746 3.746 0 0 1-3.296-1.043 3.745 3.745 0 0 1-1.043-3.296A3.745 3.745 0 0 1 3 12c0-1.268.63-2.39 1.593-3.068a3.745 3.745 0 0 1 1.043-3.296 3.746 3.746 0 0 1 3.296-1.043A3.746 3.746 0 0 1 12 3c1.268 0 2.39.63 3.068 1.593a3.746 3.746 0 0 1 3.296 1.043 3.746 3.746 0 0 1 1.043 3.296A3.745 3.745 0 0 1 21 12Z"/>
+        </svg>
       </div>
-      <span class="hpg-chip">{{len .Plans}}</span>
+      <div>
+        <p class="t-eyebrow">Catalog</p>
+        <h2 class="t-h3">Plans</h2>
+      </div>
+      <span class="r-pill r-pill-neutral">{{len .Plans}}</span>
     </div>
-    <button type="button" id="plan-new-btn"
-      class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">
+    <button type="button" id="plan-new-btn" class="r-btn-primary cursor-pointer">
       <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
       New plan
     </button>
   </div>
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <!-- sticky header stays visible while scrolling tall tables -->
-      <thead class="sticky top-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm z-10 text-left border-b border-slate-100 dark:border-zinc-800">
+    <table class="r-table">
+      <thead>
         <tr>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Name</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Kind</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Max domains</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Max ports</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">SSL</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Path</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">WS</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Ext proxy</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Node group</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">WG key rotation</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Services</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Clients</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Routes</th>
-          <th class="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Actions</th>
+          <th>Name</th>
+          <th>Kind</th>
+          <th>Max domains</th>
+          <th>Max ports</th>
+          <th>SSL</th>
+          <th>Path</th>
+          <th>WS</th>
+          <th>Ext proxy</th>
+          <th>Node group</th>
+          <th>WG key rotation</th>
+          <th>Services</th>
+          <th>Clients</th>
+          <th>Routes</th>
+          <th class="text-right">Actions</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody>
         {{range .Plans}}
-        <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
-          <td class="px-4 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}</td>
-          <td class="px-4 py-3.5">
-            {{if eq .Kind "npm"}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400">NPM</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-zinc-700 dark:text-slate-300">restricted</span>{{end}}
+        <tr>
+          <td class="font-medium whitespace-nowrap">{{.Name}}</td>
+          <td>
+            {{if eq .Kind "npm"}}<span class="r-pill r-pill-info">NPM</span>{{else}}<span class="r-pill r-pill-neutral">restricted</span>{{end}}
           </td>
-          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{.MaxDomains}}</td>
-          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{.MaxPorts}}</td>
-          <td class="px-4 py-3.5">{{if .SSL}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">yes</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">no</span>{{end}}</td>
-          <td class="px-4 py-3.5">{{if .PathRouting}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">yes</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">no</span>{{end}}</td>
-          <td class="px-4 py-3.5">{{if .WebSocket}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">yes</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">no</span>{{end}}</td>
-          <td class="px-4 py-3.5">{{if .ExternalProxy}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">yes</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">no</span>{{end}}</td>
-          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.NodeGroupName}}</td>
-          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{if .WGKeyRotationDays}}{{.WGKeyRotationDays}}d{{else}}<span class="text-slate-400">inherit</span>{{end}}</td>
-          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{if .ServiceCount}}{{.ServiceCount}}{{else}}-{{end}}</td>
-          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{if .ClientCount}}{{.ClientCount}}{{else}}-{{end}}</td>
-          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{if .RouteCount}}{{.RouteCount}}{{else}}-{{end}}</td>
-          <td class="px-4 py-3.5 text-right whitespace-nowrap">
+          <td>{{.MaxDomains}}</td>
+          <td>{{.MaxPorts}}</td>
+          <td>{{if .SSL}}<span class="r-pill r-pill-success">yes</span>{{else}}<span class="r-pill r-pill-neutral">no</span>{{end}}</td>
+          <td>{{if .PathRouting}}<span class="r-pill r-pill-success">yes</span>{{else}}<span class="r-pill r-pill-neutral">no</span>{{end}}</td>
+          <td>{{if .WebSocket}}<span class="r-pill r-pill-success">yes</span>{{else}}<span class="r-pill r-pill-neutral">no</span>{{end}}</td>
+          <td>{{if .ExternalProxy}}<span class="r-pill r-pill-success">yes</span>{{else}}<span class="r-pill r-pill-neutral">no</span>{{end}}</td>
+          <td class="whitespace-nowrap">{{.NodeGroupName}}</td>
+          <td>{{if .WGKeyRotationDays}}{{.WGKeyRotationDays}}d{{else}}<span class="text-[rgb(var(--muted))]">inherit</span>{{end}}</td>
+          <td>{{if .ServiceCount}}{{.ServiceCount}}{{else}}-{{end}}</td>
+          <td>{{if .ClientCount}}{{.ClientCount}}{{else}}-{{end}}</td>
+          <td>{{if .RouteCount}}{{.RouteCount}}{{else}}-{{end}}</td>
+          <td class="text-right whitespace-nowrap">
             <div class="inline-flex items-center gap-3">
               <button type="button"
-                class="plan-edit-btn text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                class="plan-edit-btn t-small font-medium text-[rgb(var(--accent))] hover:underline cursor-pointer"
                 data-id="{{.ID}}"
                 data-name="{{.Name}}"
                 data-kind="{{.Kind}}"
@@ -72,18 +75,19 @@
                 data-nodegroup="{{.NodeGroupID}}"
                 data-wgkeyrotdays="{{.WGKeyRotationDays}}">edit</button>
               <form method="POST" action="/admin/plans/{{.ID}}/delete" data-confirm="Delete plan {{.Name}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="text-xs font-medium text-rose-600 hover:text-rose-700 hover:underline cursor-pointer">delete</button>
+                <button class="t-small font-medium text-[rgb(var(--danger,220_38_38))] hover:underline cursor-pointer">delete</button>
               </form>
             </div>
           </td>
         </tr>
         {{else}}
-        <!-- empty state with centered icon -->
         <tr><td colspan="14" class="px-4 py-16 text-center">
           <div class="flex flex-col items-center gap-3">
-            <svg class="w-10 h-10 text-slate-300 dark:text-zinc-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
-            <p class="text-sm font-medium text-slate-600 dark:text-slate-300">No plans yet</p>
-            <p class="text-xs text-slate-400 dark:text-zinc-500 max-w-xs">Create a plan to define feature limits for client service accounts.</p>
+            <div class="icon-chip w-12 h-12">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+            </div>
+            <p class="t-body font-medium">No plans yet</p>
+            <p class="t-small text-[rgb(var(--muted))] max-w-xs">Create a plan to define feature limits for client service accounts.</p>
           </div>
         </td></tr>
         {{end}}
@@ -94,16 +98,16 @@
 
 <!-- Create/Edit modal -->
 <div id="plan-modal" class="fixed inset-0 z-50 hidden">
-  <div id="plan-modal-overlay" class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm"></div>
+  <div id="plan-modal-overlay" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
   <div class="absolute inset-0 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
-    <div class="hpg-card rounded-2xl shadow-2xl w-full max-w-lg my-8 relative" role="dialog" aria-modal="true">
+    <div class="r-card w-full max-w-lg my-8 relative" role="dialog" aria-modal="true">
       <div class="flex items-start justify-between mb-5">
         <div>
-          <p class="hpg-eyebrow">Catalog</p>
-          <h2 id="plan-modal-title" class="font-semibold text-slate-800 dark:text-slate-100">New plan</h2>
+          <p class="t-eyebrow">Catalog</p>
+          <h2 id="plan-modal-title" class="t-h3">New plan</h2>
         </div>
         <button type="button" id="plan-modal-close"
-          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer" aria-label="Close">
+          class="text-[rgb(var(--muted))] hover:text-[rgb(var(--text))] transition-colors cursor-pointer" aria-label="Close">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
         </button>
       </div>
@@ -111,54 +115,52 @@
       <form id="plan-form" method="POST" action="/admin/plans" class="space-y-4 text-sm">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Name</label>
-          <input name="name" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">Name</label>
+          <input name="name" required class="r-input w-full">
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Plan kind</label>
-          <select name="kind" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">Plan kind</label>
+          <select name="kind" class="r-select w-full">
             <option value="restricted" selected>Restricted - admin pins backend IP + port range</option>
             <option value="npm">NPM-style - client edits backend IP + ports themselves</option>
           </select>
-          <p class="text-[11px] text-slate-500 mt-1">Restricted enforces the hosting-provider model (sell port slices on shared backends). NPM-style hands full control to the customer; only use for trusted resellers / self-use accounts.</p>
+          <p class="t-caption text-[rgb(var(--muted))] mt-1">Restricted enforces the hosting-provider model (sell port slices on shared backends). NPM-style hands full control to the customer; only use for trusted resellers / self-use accounts.</p>
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="hpg-eyebrow block mb-1.5">Max domains</label>
-            <input name="max_domains" type="number" min="1" value="5" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+            <label class="t-eyebrow block mb-1.5">Max domains</label>
+            <input name="max_domains" type="number" min="1" value="5" required class="r-input w-full font-mono">
           </div>
           <div>
-            <label class="hpg-eyebrow block mb-1.5">Max ports</label>
-            <input name="max_ports" type="number" min="1" value="20" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+            <label class="t-eyebrow block mb-1.5">Max ports</label>
+            <input name="max_ports" type="number" min="1" value="20" required class="r-input w-full font-mono">
           </div>
         </div>
-        <div class="space-y-2">
-          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="ssl" value="1" checked class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> SSL enabled</label>
-          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="path_routing" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Path routing</label>
-          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="websocket" value="1" checked class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> WebSocket</label>
-          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="wildcard" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Wildcard domains</label>
-          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="external_proxy" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Allow external HTTPS upstream proxy</label>
-          <label class="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="allow_egress_ip" value="1" class="rounded ring-1 ring-slate-300 dark:ring-zinc-600 text-indigo-600 focus:ring-2 focus:ring-indigo-500"> Allow custom egress IP (fixed/random)</label>
+        <div class="space-y-2.5">
+          <label class="flex items-center gap-2 cursor-pointer t-small"><input type="checkbox" name="ssl" value="1" checked class="rounded"> SSL enabled</label>
+          <label class="flex items-center gap-2 cursor-pointer t-small"><input type="checkbox" name="path_routing" value="1" class="rounded"> Path routing</label>
+          <label class="flex items-center gap-2 cursor-pointer t-small"><input type="checkbox" name="websocket" value="1" checked class="rounded"> WebSocket</label>
+          <label class="flex items-center gap-2 cursor-pointer t-small"><input type="checkbox" name="wildcard" value="1" class="rounded"> Wildcard domains</label>
+          <label class="flex items-center gap-2 cursor-pointer t-small"><input type="checkbox" name="external_proxy" value="1" class="rounded"> Allow external HTTPS upstream proxy</label>
+          <label class="flex items-center gap-2 cursor-pointer t-small"><input type="checkbox" name="allow_egress_ip" value="1" class="rounded"> Allow custom egress IP (fixed/random)</label>
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Rate limit (req/min, 0 = none)</label>
-          <input name="rate_limit_rpm" type="number" min="0" value="0" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+          <label class="t-eyebrow block mb-1.5">Rate limit (req/min, 0 = none)</label>
+          <input name="rate_limit_rpm" type="number" min="0" value="0" class="r-input w-full font-mono">
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">WG key rotation (days, 0 = inherit global)</label>
-          <input name="wg_key_rotation_days" type="number" min="0" value="0" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+          <label class="t-eyebrow block mb-1.5">WG key rotation (days, 0 = inherit global)</label>
+          <input name="wg_key_rotation_days" type="number" min="0" value="0" class="r-input w-full font-mono">
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Node group</label>
-          <select name="node_group_id" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">Node group</label>
+          <select name="node_group_id" required class="r-select w-full">
             {{range .Groups}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
           </select>
         </div>
         <div class="flex items-center justify-end gap-2 pt-1">
-          <button type="button" id="plan-modal-cancel"
-            class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer">Cancel</button>
-          <button type="submit"
-            class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">Save plan</button>
+          <button type="button" id="plan-modal-cancel" class="r-btn-ghost cursor-pointer">Cancel</button>
+          <button type="submit" class="r-btn-primary cursor-pointer">Save plan</button>
         </div>
       </form>
     </div>

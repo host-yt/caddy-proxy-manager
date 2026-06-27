@@ -6,83 +6,90 @@
   <div id="svc-bulk-ids"></div>
 </form>
 
-<section class="hpg-card !p-0 overflow-hidden">
-  <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+<section class="r-card !p-0 overflow-hidden">
+  <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-[rgb(var(--border))]">
     <div class="flex items-center gap-3">
-      <div>
-        <p class="hpg-eyebrow">Fleet</p>
-        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Services</h2>
+      <div class="icon-chip">
+        <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2"/>
+        </svg>
       </div>
-      <span class="hpg-chip">{{len .Services}}</span>
+      <div>
+        <p class="t-eyebrow">Fleet</p>
+        <h2 class="t-h3">Services</h2>
+      </div>
+      <span class="r-pill r-pill-neutral">{{len .Services}}</span>
     </div>
-    <button type="button" id="svc-new-btn"
-      class="px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors">
-      + New service
+    <button type="button" id="svc-new-btn" class="r-btn-primary cursor-pointer">
+      <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
+      New service
     </button>
   </div>
-  <div class="px-5 py-3 border-b border-slate-100 dark:border-zinc-800">
+
+  <div class="px-5 py-3 border-b border-[rgb(var(--border))]">
     <form method="GET" action="/admin/services" class="flex flex-wrap items-center gap-2">
       <input type="search" name="q" value="{{.Q}}"
              placeholder="Name, IP, or client…"
-             class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none w-52">
-      <select name="status" class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none">
+             class="r-input w-52">
+      <select name="status" class="r-select">
         <option value="" {{if eq .StatusFilter ""}}selected{{end}}>All statuses</option>
         <option value="active" {{if eq .StatusFilter "active"}}selected{{end}}>Active</option>
         <option value="suspended" {{if eq .StatusFilter "suspended"}}selected{{end}}>Suspended</option>
         <option value="terminated" {{if eq .StatusFilter "terminated"}}selected{{end}}>Terminated</option>
       </select>
-      <button type="submit" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors cursor-pointer">Filter</button>
+      <button type="submit" class="r-btn-primary cursor-pointer">Filter</button>
       {{if or .Q .StatusFilter}}
-      <a href="/admin/services" class="px-2 py-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors">Clear</a>
+      <a href="/admin/services" class="r-btn-ghost">Clear</a>
       {{end}}
     </form>
   </div>
+
   <!-- Bulk action bar - hidden until a checkbox is selected -->
   {{if .Services}}
-  <div id="svc-bulk-bar" class="hidden px-5 py-3 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-    <span class="hpg-eyebrow">Bulk action</span>
-    <select id="svc-bulk-select" class="px-3 py-1.5 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs outline-none">
+  <div id="svc-bulk-bar" class="hidden px-5 py-3 border-b border-[rgb(var(--border))] flex items-center gap-2">
+    <span class="t-eyebrow">Bulk action</span>
+    <select id="svc-bulk-select" class="r-select">
       <option value="suspend">Suspend selected</option>
       <option value="resume">Resume selected</option>
       <option value="delete">Delete selected</option>
     </select>
-    <button type="button" id="svc-bulk-apply" class="px-3 py-1.5 rounded-full bg-slate-800 dark:bg-zinc-700 text-white text-xs hover:bg-slate-900 cursor-pointer">Apply</button>
-    <span id="svc-bulk-count" class="text-slate-400"></span>
+    <button type="button" id="svc-bulk-apply" class="r-btn-secondary cursor-pointer">Apply</button>
+    <span id="svc-bulk-count" class="t-caption text-[rgb(var(--muted))]"></span>
   </div>
   {{end}}
+
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead class="bg-slate-50/95 dark:bg-zinc-800/95 backdrop-blur text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+    <table class="r-table">
+      <thead>
         <tr>
-          <th class="pl-5 pr-2 py-3 w-8"><input type="checkbox" data-check-all="ids[]" class="rounded"></th>
-          <th class="px-5 py-3 font-medium">Service</th>
-          <th class="px-5 py-3 font-medium">Client</th>
-          <th class="px-5 py-3 font-medium">Backend</th>
-          <th class="px-5 py-3 font-medium">Ports</th>
-          <th class="px-5 py-3 font-medium">Plan</th>
-          <th class="px-5 py-3 font-medium">Status</th>
-          <th class="px-5 py-3 text-right font-medium">Actions</th>
+          <th class="w-8"><input type="checkbox" data-check-all="ids[]" class="rounded"></th>
+          <th>Service</th>
+          <th>Client</th>
+          <th>Backend</th>
+          <th>Ports</th>
+          <th>Plan</th>
+          <th>Status</th>
+          <th class="text-right">Actions</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody>
         {{range .Services}}
-        <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
-          <td class="pl-5 pr-2 py-3.5"><input type="checkbox" name="ids[]" value="{{.ID}}" class="rounded svc-row-chk"></td>
-          <td class="px-5 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}{{if .Notes}}<span title="{{if gt (len .Notes) 80}}{{slice .Notes 0 80}}...{{else}}{{.Notes}}{{end}}" class="ml-1 text-slate-400 dark:text-slate-500 cursor-help text-xs" aria-label="has notes"><svg class="inline w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></span>{{end}}</td>
-          <td class="px-5 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.ClientName}}</td>
-          <td class="px-5 py-3.5"><code class="font-mono text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-zinc-800 rounded px-1.5 py-0.5">{{.BackendIP}}</code></td>
-          <td class="px-5 py-3.5 whitespace-nowrap"><span class="font-mono text-xs text-slate-500 dark:text-slate-400">{{.PortStart}}-{{.PortEnd}}</span></td>
-          <td class="px-5 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.PlanName}}</td>
-          <td class="px-5 py-3.5">
-            <span class="hpg-pill
-              {{if eq .Status "active"}}hpg-pill-ok
-              {{else if eq .Status "suspended"}}hpg-pill-warn
-              {{else}}hpg-pill-err{{end}}">{{.Status}}</span>
+        <tr>
+          <td><input type="checkbox" name="ids[]" value="{{.ID}}" class="rounded svc-row-chk"></td>
+          <td class="font-medium whitespace-nowrap">
+            {{.Name}}{{if .Notes}}<span title="{{if gt (len .Notes) 80}}{{slice .Notes 0 80}}...{{else}}{{.Notes}}{{end}}" class="ml-1 text-[rgb(var(--muted))] cursor-help text-xs" aria-label="has notes"><svg class="inline w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></span>{{end}}
           </td>
-          <td class="px-5 py-3.5 text-right whitespace-nowrap">
+          <td class="whitespace-nowrap">{{.ClientName}}</td>
+          <td><code class="font-mono text-xs bg-[rgb(var(--surface-2))] rounded px-1.5 py-0.5">{{.BackendIP}}</code></td>
+          <td class="whitespace-nowrap"><span class="font-mono text-xs text-[rgb(var(--muted))]">{{.PortStart}}-{{.PortEnd}}</span></td>
+          <td class="whitespace-nowrap">{{.PlanName}}</td>
+          <td>
+            <span class="r-pill {{if eq .Status "active"}}r-pill-success{{else if eq .Status "suspended"}}r-pill-warning{{else}}r-pill-danger{{end}}">{{.Status}}</span>
+          </td>
+          <td class="text-right whitespace-nowrap">
             <div class="inline-flex items-center gap-3">
               <button type="button"
-                class="svc-edit-btn text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline"
+                class="svc-edit-btn t-small font-medium text-[rgb(var(--accent))] hover:underline cursor-pointer"
                 data-id="{{.ID}}"
                 data-name="{{.Name}}"
                 data-client="{{.ClientID}}"
@@ -93,24 +100,24 @@
                 data-extref="{{.ExternalRef}}"
                 data-notes="{{.Notes}}">edit</button>
               <form method="POST" action="/admin/services/{{.ID}}/delete" data-confirm="Delete service {{.Name}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="text-xs font-medium text-rose-600 hover:text-rose-700 hover:underline">delete</button>
+                <button class="t-small font-medium text-[rgb(var(--danger,220_38_38))] hover:underline cursor-pointer">delete</button>
               </form>
               {{if eq .Status "active"}}
               <form method="POST" action="/admin/services/{{.ID}}/suspend" class="inline" data-confirm="Suspend all routes for {{.Name}}?">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="text-xs font-medium text-amber-600 hover:text-amber-700 hover:underline cursor-pointer">suspend</button>
+                <button class="t-small font-medium text-[rgb(var(--warning,245_158_11))] hover:underline cursor-pointer">suspend</button>
               </form>
               {{else if eq .Status "suspended"}}
               <form method="POST" action="/admin/services/{{.ID}}/resume" class="inline">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="text-xs font-medium text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer">resume</button>
+                <button class="t-small font-medium text-[rgb(var(--success,16_185_129))] hover:underline cursor-pointer">resume</button>
               </form>
               {{end}}
             </div>
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="8" class="px-5 py-12 text-center text-slate-500 dark:text-slate-400">No services yet.</td></tr>
+        <tr><td colspan="8" class="px-5 py-12 text-center text-[rgb(var(--muted))]">No services yet.</td></tr>
         {{end}}
       </tbody>
     </table>
@@ -119,71 +126,71 @@
 
 <!-- Create/Edit modal -->
 <div id="svc-modal" class="fixed inset-0 z-50 hidden">
-  <div id="svc-modal-overlay" class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm"></div>
+  <div id="svc-modal-overlay" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
   <div class="absolute inset-0 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
-    <div class="hpg-card w-full max-w-lg my-8 relative" role="dialog" aria-modal="true">
+    <div class="r-card w-full max-w-lg my-8 relative" role="dialog" aria-modal="true">
       <div class="flex items-start justify-between mb-5">
         <div>
-          <p class="hpg-eyebrow">Provision</p>
-          <h2 id="svc-modal-title" class="font-semibold text-slate-800 dark:text-slate-100">New service</h2>
+          <p class="t-eyebrow">Provision</p>
+          <h2 id="svc-modal-title" class="t-h3">New service</h2>
         </div>
         <button type="button" id="svc-modal-close"
-          class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none">&times;</button>
+          class="text-[rgb(var(--muted))] hover:text-[rgb(var(--text))] transition-colors cursor-pointer" aria-label="Close">
+          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12"/></svg>
+        </button>
       </div>
 
       {{if not .Clients}}
-        <p class="text-xs text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 ring-1 ring-rose-200 dark:ring-rose-900 rounded-lg p-2.5 mb-3">Create a <a href="/admin/clients" class="underline">client</a> first.</p>
+        <p class="t-small text-[rgb(var(--danger,220_38_38))] bg-[rgb(var(--danger,220_38_38)/.08)] ring-1 ring-[rgb(var(--danger,220_38_38)/.3)] rounded-lg p-2.5 mb-3">Create a <a href="/admin/clients" class="underline">client</a> first.</p>
       {{end}}
       {{if not .Plans}}
-        <p class="text-xs text-rose-700 dark:text-rose-300 bg-rose-50 dark:bg-rose-950/40 ring-1 ring-rose-200 dark:ring-rose-900 rounded-lg p-2.5 mb-3">Create a <a href="/admin/plans" class="underline">plan</a> first.</p>
+        <p class="t-small text-[rgb(var(--danger,220_38_38))] bg-[rgb(var(--danger,220_38_38)/.08)] ring-1 ring-[rgb(var(--danger,220_38_38)/.3)] rounded-lg p-2.5 mb-3">Create a <a href="/admin/plans" class="underline">plan</a> first.</p>
       {{end}}
 
       <form id="svc-form" method="POST" action="/admin/services" class="space-y-4 text-sm">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Client</label>
-          <select name="client_id" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">Client</label>
+          <select name="client_id" required class="r-select w-full">
             {{range .Clients}}<option value="{{.ID}}">{{.DisplayName}} ({{.Email}})</option>{{end}}
           </select>
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Service name</label>
-          <input name="name" required placeholder="vps-fra-01" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">Service name</label>
+          <input name="name" required placeholder="vps-fra-01" class="r-input w-full">
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Backend IP (admin-only)</label>
-          <input name="backend_ip" required placeholder="10.0.0.5" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+          <label class="t-eyebrow block mb-1.5">Backend IP (admin-only)</label>
+          <input name="backend_ip" required placeholder="10.0.0.5" class="r-input w-full font-mono">
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="hpg-eyebrow block mb-1.5">Port start</label>
-            <input name="port_start" type="number" min="1" max="65535" value="30000" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+            <label class="t-eyebrow block mb-1.5">Port start</label>
+            <input name="port_start" type="number" min="1" max="65535" value="30000" required class="r-input w-full font-mono">
           </div>
           <div>
-            <label class="hpg-eyebrow block mb-1.5">Port end</label>
-            <input name="port_end" type="number" min="1" max="65535" value="30019" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
+            <label class="t-eyebrow block mb-1.5">Port end</label>
+            <input name="port_end" type="number" min="1" max="65535" value="30019" required class="r-input w-full font-mono">
           </div>
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Plan</label>
-          <select name="plan_id" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">Plan</label>
+          <select name="plan_id" required class="r-select w-full">
             {{range .Plans}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
           </select>
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">External reference (FOSSBilling order ID)</label>
-          <input name="external_reference" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">External reference (FOSSBilling order ID)</label>
+          <input name="external_reference" class="r-input w-full">
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Internal notes</label>
+          <label class="t-eyebrow block mb-1.5">Internal notes</label>
           <textarea name="notes" rows="3" placeholder="Visible to admins only"
-                    class="w-full px-3 py-2 text-sm rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none resize-y"></textarea>
+                    class="r-input w-full resize-y"></textarea>
         </div>
         <div class="flex items-center justify-end gap-2 pt-1">
-          <button type="button" id="svc-modal-cancel"
-            class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">Cancel</button>
-          <button type="submit"
-            class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors">Save service</button>
+          <button type="button" id="svc-modal-cancel" class="r-btn-ghost cursor-pointer">Cancel</button>
+          <button type="submit" class="r-btn-primary cursor-pointer">Save service</button>
         </div>
       </form>
     </div>
