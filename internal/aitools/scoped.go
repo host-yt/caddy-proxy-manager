@@ -182,7 +182,7 @@ func (r *Registry) trafficStatsScoped(ctx context.Context, scope Scope, raw json
 	in, idArgs, ok := inPlaceholders(scope.ClientIDs)
 	if !ok {
 		return toJSON(map[string]any{
-			"window_hours": hours, "requests": 0, "errors_4xx": 0, "errors_5xx": 0,
+			"window_hours": hours, "requests": 0, "errors_4xx": 0, "errors_5xx": 0, "bytes_resp": 0,
 			"top_hosts": []any{}, "top_countries": []any{}, "top_client_ips": []any{},
 		})
 	}
