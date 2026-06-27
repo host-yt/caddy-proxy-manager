@@ -688,6 +688,13 @@ type nodeRow struct {
 	Transport      string // tunnel transport: udp|wss|auto
 	WstunnelPort   int    // 0 = unset; prefilled into the tunnel modal
 
+	// Caddy capability flags set by the node-agent probe.
+	HasWAF       bool
+	HasL4        bool
+	HasGeoIP     bool
+	HasRateLimit bool
+	CaddyVersion string
+
 	// WG tunnel health - reported by node-agent via POST /api/node/wg/stats.
 	// All nullable: NULL = agent hasn't reported yet (older agent or no tunnel).
 	TunnelEnabled      bool
@@ -4858,7 +4865,10 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 		        n.fwd_mtu, n.tunnel_wstunnel_healthy,
 		        n.fwd_ip_forward_enabled, n.fwd_policy_drop_detected,
 		        n.fwd_firewall_backend, n.fwd_last_setup_error,
-		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),'')
+		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),''),
+		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0),
+		        COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0),
+		        COALESCE(n.caddy_version,'')
 		 FROM caddy_nodes n JOIN node_groups g ON g.id = n.node_group_id
 		 ORDER BY n.priority DESC, n.id ASC`)
 	if err == nil {
@@ -4872,7 +4882,8 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 				&n.TunnelMTU, &n.WstunnelHealthy,
 				&n.FwdIPForward, &n.FwdPolicyDrop,
 				&n.FwdFirewallBackend, &n.FwdLastSetupError,
-				&n.FwdReportedAt); err == nil {
+				&n.FwdReportedAt,
+				&n.HasWAF, &n.HasL4, &n.HasGeoIP, &n.HasRateLimit, &n.CaddyVersion); err == nil {
 				n.WGKeepalive = 25
 				d.Nodes = append(d.Nodes, n)
 			}
