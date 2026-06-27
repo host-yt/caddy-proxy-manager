@@ -58,6 +58,25 @@
     </div>
   </div>
 
+  {{if gt .Bandwidth30dTotal 0}}
+  <section class="hpg-card p-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h3 class="hpg-eyebrow">Bandwidth · last 30 days</h3>
+      <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{formatBytes .Bandwidth30dTotal}}</span>
+    </div>
+    <div class="flex items-end gap-0.5" style="height:48px">
+      {{range .Bandwidth30dDays}}
+      {{$pct := divf .Bytes $.MaxDay30dBytes}}
+      {{$h := mulf $pct 48.0}}
+      <div class="flex-1 flex flex-col items-center gap-0.5 h-full justify-end" title="{{.Label}}: {{formatBytes .Bytes}}">
+        <div class="w-full rounded-t bg-sky-400 dark:bg-sky-500 transition-all cursor-default"
+             style="height: {{printf "%.0f" $h}}px; min-height: 2px"></div>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
   <section class="grid grid-cols-1 lg:grid-cols-[1.1fr_1fr] gap-4">
     <div class="hpg-card">
       <div class="flex items-center justify-between gap-3">
