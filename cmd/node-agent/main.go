@@ -58,6 +58,7 @@ type config struct {
 	WstunnelPort     int    // loopback port for wstunnel server; default 0 (disabled)
 	WstunnelBindAddr string // host IP wstunnel listens on; never 0.0.0.0
 	AccessLogPath    string // Caddy access-log file to tail+forward; "" = disabled
+	WAFAuditLogPath  string // Coraza audit-log to tail and forward; "" = disabled
 }
 
 // agentHTTP is a client-level backstop timeout: requests already set a
@@ -127,7 +128,8 @@ func loadConfig() (config, error) {
 		GatewayCIDR:  os.Getenv("HPG_WG_GATEWAY_IP"),
 		PollInterval: 30 * time.Second,
 		// Empty disables forwarding. Set to the shared Caddy access-log file.
-		AccessLogPath: os.Getenv("HPG_CADDY_ACCESS_LOG"),
+		AccessLogPath:   os.Getenv("HPG_CADDY_ACCESS_LOG"),
+		WAFAuditLogPath: os.Getenv("HPG_CADDY_WAF_AUDIT_LOG"),
 	}
 	if d := os.Getenv("HPG_POLL_INTERVAL"); d != "" {
 		if v, err := time.ParseDuration(d); err == nil {
@@ -409,6 +411,11 @@ func main() {
 	// lines to the panel. Opt-in via HPG_CADDY_ACCESS_LOG; off by default.
 	if cfg.AccessLogPath != "" && !*dry {
 		go forwardAccessLogs(ctx, log, cfg)
+	}
+	// WAF audit-log forwarder: tail Coraza NDJSON audit log and POST events
+	// to the panel. Opt-in via HPG_CADDY_WAF_AUDIT_LOG; off by default.
+	if cfg.WAFAuditLogPath != "" && !*dry {
+		go forwardWAFEvents(ctx, log, cfg)
 	}
 
 	t := time.NewTicker(cfg.PollInterval)
@@ -1032,6 +1039,200 @@ func postAccessLogBatch(ctx context.Context, c config, endpoint string, body []b
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, resp.Body)
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+// corazaAuditEntry is the subset of Coraza NDJSON audit log we care about.
+type corazaAuditEntry struct {
+	Transaction struct {
+		Timestamp     string `json:"timestamp"`
+		RemoteAddress string `json:"remote_address"`
+		Request       struct {
+			URI     string              `json:"uri"`
+			Headers map[string][]string `json:"headers"`
+		} `json:"request"`
+	} `json:"transaction"`
+	Messages []struct {
+		Message string `json:"message"`
+		Details struct {
+			RuleID   string `json:"ruleId"`
+			Severity string `json:"severity"`
+		} `json:"details"`
+	} `json:"messages"`
+	Interruption *struct {
+		Action string `json:"action"`
+	} `json:"interruption"`
+}
+
+// wafEventPayload is one WAF event sent to the panel.
+type wafEventPayload struct {
+	TS       string `json:"ts"`
+	Severity string `json:"severity"`
+	RuleID   string `json:"rule_id"`
+	Action   string `json:"action"`
+	RemoteIP string `json:"remote_ip"`
+	Host     string `json:"host"`
+	URI      string `json:"uri"`
+	Message  string `json:"message"`
+	RouteID  int64  `json:"route_id,omitempty"`
+}
+
+// corazaSeverity maps Coraza numeric severity to the panel enum.
+// Coraza levels: 0-2 = EMERGENCY/ALERT/CRITICAL, 3 = ERROR, 4 = WARNING, 5-7 = NOTICE/INFO/DEBUG.
+func corazaSeverity(s string) string {
+	switch s {
+	case "0", "1", "2":
+		return "critical"
+	case "3":
+		return "high"
+	case "4":
+		return "medium"
+	default:
+		return "low"
+	}
+}
+
+// parseCorazaLines decodes NDJSON lines into WAF event payloads; skips malformed lines.
+// Takes only the first message per entry (the primary triggering rule).
+func parseCorazaLines(data []byte) []wafEventPayload {
+	var events []wafEventPayload
+	for _, line := range bytes.Split(data, []byte("\n")) {
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+		var e corazaAuditEntry
+		if err := json.Unmarshal(line, &e); err != nil {
+			continue
+		}
+		if len(e.Messages) == 0 {
+			continue
+		}
+		msg := e.Messages[0]
+		action := "detected"
+		if e.Interruption != nil && e.Interruption.Action != "" {
+			action = "blocked"
+		}
+		ip := e.Transaction.RemoteAddress
+		if host, _, err := net.SplitHostPort(ip); err == nil {
+			ip = host
+		}
+		hostVal := ""
+		if hosts, ok := e.Transaction.Request.Headers["host"]; ok && len(hosts) > 0 {
+			hostVal = hosts[0]
+		}
+		ts := e.Transaction.Timestamp
+		if ts == "" {
+			ts = time.Now().UTC().Format(time.RFC3339)
+		}
+		events = append(events, wafEventPayload{
+			TS:       ts,
+			Severity: corazaSeverity(msg.Details.Severity),
+			RuleID:   msg.Details.RuleID,
+			Action:   action,
+			RemoteIP: ip,
+			Host:     hostVal,
+			URI:      e.Transaction.Request.URI,
+			Message:  msg.Message,
+		})
+	}
+	return events
+}
+
+// postWAFBatch ships one batch of WAF events to /api/node/waf/events; returns true on 2xx.
+func postWAFBatch(ctx context.Context, c config, events []wafEventPayload) bool {
+	body, err := json.Marshal(map[string]any{"events": events})
+	if err != nil {
+		return false
+	}
+	endpoint := strings.TrimRight(c.PanelURL, "/") + "/api/node/waf/events"
+	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return false
+	}
+	req.Header.Set("Authorization", "Bearer "+c.NodeToken)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := agentHTTP.Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	return resp.StatusCode >= 200 && resp.StatusCode < 300
+}
+
+// forwardWAFEvents tails the Coraza audit log and POSTs parsed events to the panel.
+// Same poll pattern as forwardAccessLogs; batches at most 500 events per flush.
+func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
+	const maxBatch = 500
+	const maxRead = 8 << 20
+	var offset int64
+	warnedMissing := false
+	t := time.NewTicker(2 * time.Second)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		f, err := os.Open(c.WAFAuditLogPath)
+		if err != nil {
+			if !warnedMissing {
+				log.Warn("WAF audit-log not present yet; waiting", "path", c.WAFAuditLogPath)
+				warnedMissing = true
+			}
+			continue
+		}
+		warnedMissing = false
+		fi, err := f.Stat()
+		if err != nil {
+			f.Close()
+			continue
+		}
+		if fi.Size() < offset {
+			offset = 0 // rotated/truncated
+		}
+		if fi.Size() == offset {
+			f.Close()
+			continue
+		}
+		if _, err := f.Seek(offset, io.SeekStart); err != nil {
+			f.Close()
+			continue
+		}
+		buf, err := io.ReadAll(io.LimitReader(f, maxRead))
+		f.Close()
+		if err != nil || len(buf) == 0 {
+			continue
+		}
+		// Advance only through the last complete line.
+		nl := bytes.LastIndexByte(buf, '\n')
+		if nl < 0 {
+			continue
+		}
+		batch := buf[:nl+1]
+		events := parseCorazaLines(batch)
+		ok := true
+		// Ship in chunks of maxBatch so the panel's 500-event limit is respected.
+		for len(events) > 0 {
+			chunk := events
+			if len(chunk) > maxBatch {
+				chunk = events[:maxBatch]
+			}
+			events = events[len(chunk):]
+			if !postWAFBatch(ctx, c, chunk) {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			offset += int64(len(batch))
+		} else {
+			log.Warn("WAF event forward failed, will retry", "bytes", len(batch))
+		}
+	}
 }
 
 // geoSyncInterval throttles the GeoIP DB check so it runs ~every 30 min, not
