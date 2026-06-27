@@ -41,6 +41,10 @@ type Config struct {
 	ErrorRateMinRequests int // ALERT_ERROR_RATE_MIN_REQS, default 10
 	// Move routes to a healthy sibling on node_offline when true.
 	AutoFailoverEnabled bool // ENABLE_AUTO_FAILOVER, default false
+	// Rolling window (minutes) for WAF block-surge detection.
+	WAFSurgeWindowMinutes int // ALERT_WAF_SURGE_WINDOW_MIN, default 5
+	// Number of WAF blocks in the window that triggers a waf_attack_surge alert.
+	WAFSurgeThreshold int // ALERT_WAF_SURGE_THRESHOLD, default 50
 }
 
 // LoadConfig reads env with sane defaults. Invalid numerics fall back to
@@ -64,6 +68,8 @@ func LoadConfig() Config {
 		ErrorRateWindowMinutes:    envInt("ALERT_ERROR_RATE_WINDOW_MIN", 10),
 		ErrorRateMinRequests:      envInt("ALERT_ERROR_RATE_MIN_REQS", 10),
 		AutoFailoverEnabled:       os.Getenv("ENABLE_AUTO_FAILOVER") == "1",
+		WAFSurgeWindowMinutes:     envInt("ALERT_WAF_SURGE_WINDOW_MIN", 5),
+		WAFSurgeThreshold:         envInt("ALERT_WAF_SURGE_THRESHOLD", 50),
 	}
 }
 

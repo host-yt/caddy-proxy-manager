@@ -107,5 +107,6 @@ func (e *Evaluator) evaluate(ctx context.Context, db *sql.DB) []Alert {
 	out = append(out, wgKeyNotFetched(ctx, db, cfg, e.Logger)...)
 	out = append(out, manualCertExpiry(ctx, db, cfg, e.Logger)...)
 	out = append(out, highErrorRate(ctx, db, cfg)...)
+	out = append(out, wafAttackSurge(ctx, db, cfg)...)
 	return out
 }
