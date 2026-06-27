@@ -4,21 +4,40 @@ import (
 	"context"
 	"html/template"
 	"net/http"
-	"sort"
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
-// ClientWorldMap renders the world map for regular (client-role) users.
-// Clients see all node countries read-only - no client data exposed.
+// clientWorldmapData drives the client-facing traffic-by-country map. Scoped to
+// the logged-in client's own routes only - never another client's traffic.
+type clientWorldmapData struct {
+	baseAppData
+	Countries      []*trafficCountryEntry
+	CountryJSON    string
+	MaxCount       int64
+	TotalRequests  int64
+	UnknownCount   int64
+	UnknownPercent float64
+	Hosts          []trafficHostOption
+	SelectedRoute  int64
+	SelectedHost   string
+	Range          string
+	GeoIPAvailable bool
+	DBUnavailable  bool
+	WorldSVG       template.HTML // inlined SVG; object-src 'none' blocks <object>
+}
+
+// ClientWorldMap renders visitor traffic by country for the client's own hosts.
 func (h *ClientHandlers) ClientWorldMap(w http.ResponseWriter, r *http.Request) {
-	d := clientWorldmapData{baseAppData: h.base(r, "Node world map")}
+	d := clientWorldmapData{baseAppData: h.base(r, "Traffic by country")}
 	d.WorldSVG = loadWorldSVG()
 
 	db := h.DB()
-	if db == nil {
-		d.DBUnavailable = true
+	sess := middleware.SessionFromContext(r.Context())
+	if db == nil || sess == nil {
+		d.DBUnavailable = db == nil
 		h.render(w, "worldmap", d)
 		return
 	}
@@ -26,53 +45,41 @@ func (h *ClientHandlers) ClientWorldMap(w http.ResponseWriter, r *http.Request) 
 	resolver := geoip.Global()
 	d.GeoIPAvailable = resolver.Available()
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	dur, rangeKey := parseTrafficRange(r)
+	d.Range = rangeKey
+
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
-	nodes := loadWorldmapNodes(ctx, db)
-	byCountry := map[string]*worldmapCountryEntry{}
-
-	for _, n := range nodes {
-		code := resolver.LookupISO2(n.PublicIP)
-		if code == "" {
-			d.Unknown = append(d.Unknown, n)
-			continue
-		}
-		e := byCountry[code]
-		if e == nil {
-			e = &worldmapCountryEntry{
-				Code: code,
-				Name: iso2Name(code),
-			}
-			byCountry[code] = e
-		}
-		e.Nodes = append(e.Nodes, *n)
-		e.NodeCount++
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		// No client record: render an empty (but scoped) view.
+		h.render(w, "worldmap", d)
+		return
 	}
 
-	for _, e := range byCountry {
-		statuses := make([]string, 0, len(e.Nodes))
-		for _, n := range e.Nodes {
-			statuses = append(statuses, n.HealthStatus)
-		}
-		e.Health = worldmapNodeHealth(statuses)
-		d.Countries = append(d.Countries, e)
-	}
-	sort.Slice(d.Countries, func(i, j int) bool {
-		return d.Countries[i].Name < d.Countries[j].Name
-	})
+	// Scope every query to this single client's routes.
+	scope := []int64{clientID}
+	d.Hosts = loadTrafficHosts(ctx, db, scope, false)
 
-	d.CountryJSON = buildCountryJSON(d.Countries)
+	if rid := parseRouteID(r); rid > 0 && hostInOptions(d.Hosts, rid) {
+		d.SelectedRoute = rid
+		d.SelectedHost = hostLabel(d.Hosts, rid)
+	}
+
+	conds, args := worldmapWhere(dur, d.SelectedRoute, scope, false)
+	agg := aggregateTrafficByCountry(ctx, db, conds, args, resolver)
+	if agg.dbErr != nil {
+		h.Logger.Warn("client worldmap aggregate", "err", agg.dbErr)
+	}
+
+	d.TotalRequests = agg.total
+	d.UnknownCount = agg.unknown
+	if agg.total > 0 {
+		d.UnknownPercent = float64(agg.unknown) / float64(agg.total) * 100
+	}
+	d.MaxCount, d.Countries = rankTrafficCountries(agg)
+	d.CountryJSON = buildTrafficJSON(agg.byCountry)
 
 	h.render(w, "worldmap", d)
-}
-
-type clientWorldmapData struct {
-	baseAppData
-	Countries      []*worldmapCountryEntry
-	CountryJSON    string
-	Unknown        []*worldmapNodeEntry
-	GeoIPAvailable bool
-	DBUnavailable  bool
-	WorldSVG       template.HTML // inlined SVG; object-src 'none' blocks <object>
 }
