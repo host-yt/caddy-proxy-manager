@@ -86,6 +86,26 @@
     </div>
   </section>
 
+  {{if .BandwidthDays}}
+  <section class="hpg-card p-4">
+    <div class="flex items-baseline justify-between mb-3">
+      <h3 class="hpg-eyebrow">Bandwidth · last 7 days</h3>
+      <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{formatBytes .BandwidthTotal7d}}</span>
+    </div>
+    <div class="flex items-end gap-1.5" style="height:48px">
+      {{range .BandwidthDays}}
+      {{$pct := divf .Bytes $.MaxDayBytes}}
+      {{$h := mulf $pct 48.0}}
+      <div class="flex-1 flex flex-col items-center gap-0.5 h-full justify-end" title="{{.Label}}: {{formatBytes .Bytes}}">
+        <div class="w-full rounded-t bg-indigo-400 dark:bg-indigo-500 transition-all cursor-default"
+             style="height: {{printf "%.0f" $h}}px; min-height: 2px"></div>
+        <span class="text-[9px] text-slate-400 leading-none select-none">{{.ShortLabel}}</span>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
   {{if not .Entries}}
   <div class="hpg-card text-sm text-slate-500 dark:text-slate-400 text-center py-12">
     No log entries yet. Entries appear here once Caddy starts forwarding requests to this route.

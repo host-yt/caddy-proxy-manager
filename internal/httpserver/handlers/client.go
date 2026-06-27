@@ -1129,16 +1129,19 @@ func (h *ClientHandlers) loadClientAPIKeys(ctx context.Context) []clientAPIKeyRo
 
 type clientRouteLogsData struct {
 	baseAppData
-	RouteID        int64
-	Domain         string
-	Error          string
-	Entries        []accesslog.Entry
-	AnalyticsTotal int64
-	StatusBuckets  []accesslog.StatusBucket
-	ProtoBreakdown []accesslog.ProtoHit
-	BytesSummary   accesslog.BytesSummary
-	TopPaths       []accesslog.PathHit
-	TopCountries   []accesslog.CountryHit
+	RouteID          int64
+	Domain           string
+	Error            string
+	Entries          []accesslog.Entry
+	AnalyticsTotal   int64
+	StatusBuckets    []accesslog.StatusBucket
+	ProtoBreakdown   []accesslog.ProtoHit
+	BytesSummary     accesslog.BytesSummary
+	TopPaths         []accesslog.PathHit
+	TopCountries     []accesslog.CountryHit
+	BandwidthDays    []accesslog.BandwidthDayBucket // 7-day daily totals
+	BandwidthTotal7d int64                          // sum across BandwidthDays
+	MaxDayBytes      int64                          // max bucket for bar scaling
 }
 
 // RouteLogs renders GET /app/routes/{id}/logs for the owning client.
@@ -1202,6 +1205,17 @@ func (h *ClientHandlers) RouteLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		if countries, err := h.AccessLogs.TopCountries(ctx, f, 10); err == nil {
 			d.TopCountries = countries
+		}
+		// 7-day daily bandwidth sparkline.
+		bwFrom := now.Add(-7 * 24 * time.Hour)
+		if days, err := h.AccessLogs.BandwidthDaySeries(ctx, id, bwFrom, now); err == nil {
+			d.BandwidthDays = days
+			for _, b := range days {
+				d.BandwidthTotal7d += b.Bytes
+				if b.Bytes > d.MaxDayBytes {
+					d.MaxDayBytes = b.Bytes
+				}
+			}
 		}
 	}
 	h.render(w, "client_route_logs", d)
