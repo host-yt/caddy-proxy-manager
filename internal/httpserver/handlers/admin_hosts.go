@@ -643,6 +643,25 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate mTLS CA when client-cert enforcement is requested.
+	requireClientCert := r.FormValue("require_client_cert") == "1"
+	mtlsCAID, _ := strconv.ParseInt(r.FormValue("mtls_ca_id"), 10, 64)
+	if requireClientCert && mtlsCAID <= 0 {
+		h.renderHostsNewErr(w, r, form, "require_client_cert needs an mTLS CA assigned")
+		return
+	}
+	if requireClientCert && mtlsCAID > 0 {
+		// Reject if CA has no uploaded certificate or is not active.
+		var caCount int
+		_ = db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM mtls_cas WHERE id=? AND status='active' AND cert_pem IS NOT NULL AND cert_pem != ''",
+			mtlsCAID).Scan(&caCount)
+		if caCount == 0 {
+			h.renderHostsNewErr(w, r, form, "selected mTLS CA is not active - upload a certificate first")
+			return
+		}
+	}
+
 	// Generate the one-time inbound bearer for external routes (Create
 	// encrypts it at rest; we show the plaintext once below).
 	var proxySecret string
@@ -2252,8 +2271,19 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	requireClientCert := r.FormValue("require_client_cert") == "1"
 	mtlsCAID, _ := strconv.ParseInt(r.FormValue("mtls_ca_id"), 10, 64)
 	if requireClientCert && mtlsCAID <= 0 {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "mTLS: select a certificate authority to require client certs")
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "require_client_cert needs an mTLS CA assigned")
 		return
+	}
+	if requireClientCert && mtlsCAID > 0 {
+		// Reject if CA has no uploaded certificate or is not active.
+		var caCount int
+		_ = h.DB().QueryRowContext(r.Context(),
+			"SELECT COUNT(*) FROM mtls_cas WHERE id=? AND status='active' AND cert_pem IS NOT NULL AND cert_pem != ''",
+			mtlsCAID).Scan(&caCount)
+		if caCount == 0 {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "selected mTLS CA is not active - upload a certificate first")
+			return
+		}
 	}
 	if !requireClientCert {
 		mtlsCAID = 0 // clear the anchor when enforcement is off
