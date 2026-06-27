@@ -4,7 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 )
 
 // builtins returns the read-only tool set. Each tool selects only non-sensitive
@@ -38,7 +41,7 @@ func (r *Registry) builtins() []Tool {
 		},
 		{
 			Name:        "get_traffic_stats",
-			Description: "Traffic summary over the last N hours: total requests, errors, and top hosts/IPs.",
+			Description: "Traffic summary over the last N hours: total requests, errors, top hosts, top visitor countries (ISO2, '??' = unresolved), and top client IPs.",
 			Schema:      trafficSchema,
 			Exec:        r.trafficStats,
 		},
@@ -255,14 +258,69 @@ func (r *Registry) trafficStats(ctx context.Context, raw json.RawMessage) (strin
 	if err != nil {
 		return "", err
 	}
+	topCountries, err := r.topCountries(ctx, since, top)
+	if err != nil {
+		return "", err
+	}
 	return toJSON(map[string]any{
 		"window_hours":   hours,
 		"requests":       total,
 		"errors_4xx":     errors4xx.Int64,
 		"errors_5xx":     errors5xx.Int64,
 		"top_hosts":      topHosts,
+		"top_countries":  topCountries,
 		"top_client_ips": topIPs,
 	})
+}
+
+// trafficCountryIPCap bounds how many distinct visitor IPs we resolve to a
+// country per call (matches the traffic map cap) so a wide window stays cheap.
+const trafficCountryIPCap = 5000
+
+// topCountries resolves visitor remote_ip to ISO2 via the shared geoip resolver
+// (same source as the traffic map) and returns the busiest countries. Unresolved
+// or private IPs bucket as "??". Empty when no geoip db is configured.
+func (r *Registry) topCountries(ctx context.Context, since time.Time, limit int) ([]countHit, error) {
+	const q = `SELECT remote_ip, COUNT(*) c
+	           FROM host_access_log
+	           WHERE ts >= ? AND remote_ip <> ''
+	           GROUP BY remote_ip ORDER BY c DESC, remote_ip ASC LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, q, since, trafficCountryIPCap)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	resolver := geoip.Global()
+	byCC := map[string]int64{}
+	for rows.Next() {
+		var ip string
+		var c int64
+		if err := rows.Scan(&ip, &c); err != nil {
+			return nil, err
+		}
+		cc := resolver.LookupISO2(ip)
+		if cc == "" {
+			cc = "??"
+		}
+		byCC[cc] += c
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]countHit, 0, len(byCC))
+	for cc, n := range byCC {
+		out = append(out, countHit{Value: cc, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Value < out[j].Value
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 type countHit struct {
