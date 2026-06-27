@@ -17,14 +17,17 @@ package integration
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/smtp"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/oschwald/maxminddb-golang"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
@@ -149,4 +152,62 @@ func TestSFTPLoginUploadDownload(t *testing.T) {
 	}
 	_ = sc.Remove(probe)
 	_ = strings.TrimSpace // imported but ensure stays used
+}
+
+// TestGeoIPMMDBLookup opens a real MaxMind Country DB and verifies 8.8.8.8 resolves to US.
+// Needs HPG_TEST_GEOIP_MMDB=/path/to/GeoLite2-Country.mmdb to run.
+func TestGeoIPMMDBLookup(t *testing.T) {
+	path := os.Getenv("HPG_TEST_GEOIP_MMDB")
+	if path == "" {
+		t.Skip("set HPG_TEST_GEOIP_MMDB to run GeoIP integration tests")
+	}
+	db, err := maxminddb.Open(path)
+	if err != nil {
+		t.Fatalf("open mmdb: %v", err)
+	}
+	defer db.Close()
+
+	var record struct {
+		Country struct {
+			ISOCode string `maxminddb:"iso_code"`
+		} `maxminddb:"country"`
+	}
+	ip := net.ParseIP("8.8.8.8")
+	if err := db.Lookup(ip, &record); err != nil {
+		t.Fatalf("lookup 8.8.8.8: %v", err)
+	}
+	if record.Country.ISOCode != "US" {
+		t.Errorf("8.8.8.8: got ISOCode %q, want US", record.Country.ISOCode)
+	}
+}
+
+// TestGeoIPNodeMetaEndpoint verifies the panel serves GeoIP DB metadata to authenticated nodes.
+// Needs HPG_TEST_PANEL_URL and HPG_TEST_NODE_TOKEN to run.
+func TestGeoIPNodeMetaEndpoint(t *testing.T) {
+	panelURL := os.Getenv("HPG_TEST_PANEL_URL")
+	token := os.Getenv("HPG_TEST_NODE_TOKEN")
+	if panelURL == "" || token == "" {
+		t.Skip("set HPG_TEST_PANEL_URL and HPG_TEST_NODE_TOKEN to run panel integration tests")
+	}
+	url := strings.TrimRight(panelURL, "/") + "/api/node/geoip/meta"
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	hc := &http.Client{Timeout: 5 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		t.Fatalf("GET geoip/meta: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("geoip/meta: status %d", resp.StatusCode)
+	}
+	var meta struct {
+		SHA256 string `json:"sha256"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+		t.Fatalf("decode geoip/meta: %v", err)
+	}
+	if meta.SHA256 == "" {
+		t.Error("geoip/meta: sha256 is empty - no GeoIP DB configured on panel")
+	}
 }
