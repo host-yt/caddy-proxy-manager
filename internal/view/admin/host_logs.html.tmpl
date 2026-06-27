@@ -351,6 +351,13 @@
         value="{{.Filter.URIPattern}}"
         class="w-36 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 font-mono transition-colors">
     </div>
+    <!-- Country -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Country (ISO2)</label>
+      <input type="text" name="country" maxlength="2" placeholder="e.g. US"
+        value="{{.Filter.Country}}"
+        class="w-20 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 uppercase font-mono transition-colors">
+    </div>
     <!-- Date from -->
     <div class="flex flex-col gap-1">
       <label class="text-xs font-medium text-slate-500 dark:text-slate-400">From</label>
@@ -518,7 +525,7 @@
       var form = document.getElementById('log-filter-form');
       if(!form) return '';
       var p = new URLSearchParams();
-      ['status_min','status_max','method','remote_ip','uri','from','to'].forEach(function(n){
+      ['status_min','status_max','method','remote_ip','uri','country','from','to'].forEach(function(n){
         var el = form.elements[n];
         if(el && el.value) p.set(n, el.value);
       });
