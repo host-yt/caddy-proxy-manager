@@ -90,6 +90,26 @@
     <p class="text-xs text-slate-400">ID: {{.ID}}</p>
   </section>
 
+  <!-- Change plan -->
+  {{if .AllPlans}}
+  <section class="hpg-card">
+    <h2 class="hpg-eyebrow mb-3">Change plan</h2>
+    <form method="POST" action="/admin/clients/{{.ID}}/change-plan" class="flex items-center gap-3">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <select name="plan_id"
+              class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none cursor-pointer">
+        {{range .AllPlans}}
+        <option value="{{.ID}}"{{if eq .ID $.CurrentPlanID}} selected{{end}}>{{.Name}}</option>
+        {{end}}
+      </select>
+      <button type="submit"
+              class="px-4 py-1.5 text-sm rounded-full bg-indigo-600 text-white hover:bg-indigo-700 transition-colors cursor-pointer">
+        Apply
+      </button>
+    </form>
+  </section>
+  {{end}}
+
   <!-- Status page controls -->
   <section class="hpg-card">
     <h2 class="hpg-eyebrow mb-3">Public status page</h2>
