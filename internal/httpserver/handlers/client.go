@@ -191,14 +191,15 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		 JOIN services s ON s.id = r.service_id
 		 WHERE s.client_id = ? AND l.ts >= NOW() - INTERVAL 24 HOUR`, clientID,
 	).Scan(&d.Requests24h, &d.Errors24h)
-	// 30-day per-day bandwidth for the chart.
+	// 30-day per-day bandwidth from pre-aggregated rollups (hourly buckets).
+	// Avoids a full scan of raw host_access_log on large installations.
 	rows, err2 := db.QueryContext(ctx,
-		`SELECT DATE(l.ts) AS day, COALESCE(SUM(l.bytes_resp),0)
-		 FROM host_access_log l
-		 JOIN routes r ON r.id = l.route_id
+		`SELECT DATE(lr.bucket_start) AS day, COALESCE(SUM(lr.bytes_resp),0)
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id = lr.route_id
 		 JOIN services s ON s.id = r.service_id
-		 WHERE s.client_id = ? AND l.ts >= DATE_SUB(NOW(), INTERVAL 30 DAY)
-		 GROUP BY DATE(l.ts)
+		 WHERE s.client_id = ? AND lr.bucket_start >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+		 GROUP BY DATE(lr.bucket_start)
 		 ORDER BY day ASC`, clientID)
 	if err2 == nil {
 		for rows.Next() {
