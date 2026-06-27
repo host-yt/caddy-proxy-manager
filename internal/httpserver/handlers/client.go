@@ -328,11 +328,13 @@ type clientRouteRow struct {
 	Status          string
 	LastError       string
 	MaintenanceMode bool
+	SvcStatus       string // parent service status
 }
 
 type clientRoutesData struct {
 	baseAppData
-	Routes []clientRouteRow
+	Routes               []clientRouteRow
+	HasSuspendedService  bool // true if any route's service is suspended
 }
 
 func (h *ClientHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
@@ -351,14 +353,17 @@ func (h *ClientHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port, s.name, r.status, COALESCE(r.last_error,''), COALESCE(r.maintenance_mode,0)
+		`SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port, s.name, r.status, COALESCE(r.last_error,''), COALESCE(r.maintenance_mode,0), s.status
 		 FROM routes r JOIN services s ON s.id = r.service_id
 		 WHERE s.client_id = ? ORDER BY r.id DESC`, clientID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var rr clientRouteRow
-			if err := rows.Scan(&rr.ID, &rr.Domain, &rr.PathPrefix, &rr.UpstreamPort, &rr.ServiceName, &rr.Status, &rr.LastError, &rr.MaintenanceMode); err == nil {
+			if err := rows.Scan(&rr.ID, &rr.Domain, &rr.PathPrefix, &rr.UpstreamPort, &rr.ServiceName, &rr.Status, &rr.LastError, &rr.MaintenanceMode, &rr.SvcStatus); err == nil {
+				if rr.SvcStatus == "suspended" {
+					d.HasSuspendedService = true
+				}
 				d.Routes = append(d.Routes, rr)
 			}
 		}
