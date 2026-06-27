@@ -34,13 +34,20 @@
     </div>
   </section>
 
-  <div class="flex flex-wrap gap-2 text-sm">
-    <a href="/admin/users" class="px-3 py-1.5 rounded-full {{if eq .Filter ""}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">All</a>
-    <a href="/admin/users?role=super_admin" class="px-3 py-1.5 rounded-full {{if eq .Filter "super_admin"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Super admin</a>
-    <a href="/admin/users?role=admin" class="px-3 py-1.5 rounded-full {{if eq .Filter "admin"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Admin</a>
-    <a href="/admin/users?role=support" class="px-3 py-1.5 rounded-full {{if eq .Filter "support"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Support</a>
-    <a href="/admin/users?role=client" class="px-3 py-1.5 rounded-full {{if eq .Filter "client"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">Client</a>
-  </div>
+  <form method="GET" action="/admin/users" class="flex items-center gap-2 mb-4 flex-wrap">
+    <input type="search" name="q" value="{{.Q}}"
+           placeholder="Email or name…"
+           class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none w-48">
+    <select name="role" class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none">
+      <option value="" {{if eq .Filter ""}}selected{{end}}>All roles</option>
+      <option value="super_admin" {{if eq .Filter "super_admin"}}selected{{end}}>Super admin</option>
+      <option value="admin" {{if eq .Filter "admin"}}selected{{end}}>Admin</option>
+      <option value="client" {{if eq .Filter "client"}}selected{{end}}>Client</option>
+      <option value="support" {{if eq .Filter "support"}}selected{{end}}>Support</option>
+    </select>
+    <button type="submit" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors cursor-pointer">Filter</button>
+    {{if or .Q .Filter}}<a href="/admin/users" class="text-sm text-slate-500 hover:text-slate-700 transition-colors">Clear</a>{{end}}
+  </form>
 
   <section class="hpg-card !p-0 overflow-hidden">
     <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">

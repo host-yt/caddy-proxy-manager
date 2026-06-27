@@ -2398,6 +2398,7 @@ type usersData struct {
 	Users               []userRow
 	ScopeClients        []userScopeClientRow
 	Filter              string
+	Q                   string
 	CanCreateSuperAdmin bool
 	CanManageScopes     bool
 }
@@ -2406,6 +2407,7 @@ func (h *AdminHandlers) UsersList(w http.ResponseWriter, r *http.Request) {
 	d := usersData{baseAdminData: h.base(r, "Users")}
 	sess := middleware.SessionFromContext(r.Context())
 	d.Filter = r.URL.Query().Get("role")
+	d.Q = strings.TrimSpace(r.URL.Query().Get("q"))
 	if sess != nil {
 		d.CanCreateSuperAdmin = sess.Role == "super_admin"
 		d.CanManageScopes = sess.Role == "super_admin"
@@ -2424,9 +2426,18 @@ func (h *AdminHandlers) UsersList(w http.ResponseWriter, r *http.Request) {
 	             COALESCE((SELECT GROUP_CONCAT(acs.client_id ORDER BY acs.client_id SEPARATOR ',') FROM admin_client_scope acs WHERE acs.admin_user_id = users.id), '')
 	      FROM users`
 	args := []any{}
+	var conds []string
 	if d.Filter != "" {
-		q += " WHERE role = ?"
+		conds = append(conds, "role = ?")
 		args = append(args, d.Filter)
+	}
+	if d.Q != "" {
+		conds = append(conds, "(email LIKE ? OR COALESCE(full_name,'') LIKE ?)")
+		like := "%" + d.Q + "%"
+		args = append(args, like, like)
+	}
+	if len(conds) > 0 {
+		q += " WHERE " + strings.Join(conds, " AND ")
 	}
 	q += " ORDER BY id ASC"
 	rows, err := db.QueryContext(ctx, q, args...)
