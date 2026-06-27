@@ -602,6 +602,8 @@ func (s *Server) routes() {
 			r.Post("/{id}/revoke", s.deps.Client.ClientTunnelsRevoke)
 			r.Get("/{id}/bandwidth.json", s.deps.Client.ClientTunnelsBandwidthJSON)
 		})
+		r.Get("/contact", s.deps.Client.ContactPage)
+		r.Post("/contact", s.deps.Client.ContactSubmit)
 		r.Get("/account", s.deps.Client.AccountPage)
 		r.Post("/account", s.deps.Client.AccountUpdate)
 		if s.deps.OAuthIdentity != nil {

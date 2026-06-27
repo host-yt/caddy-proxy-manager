@@ -97,6 +97,12 @@
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
       API Keys
     </a>{{end}}
+
+    <a href="/app/contact" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
+      {{if eq .Page "contact"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+      Support
+    </a>
   </nav>
 
   <!-- Sidebar footer -->
@@ -173,6 +179,7 @@
     {{if eq .Page "tunnels"}}{{template "client_tunnels" .Data}}{{end}}
     {{if eq .Page "account"}}{{template "account" .Data}}{{end}}
     {{if eq .Page "worldmap"}}{{template "worldmap_app" .Data}}{{end}}
+    {{if eq .Page "contact"}}{{template "contact" .Data}}{{end}}
   </main>
 </div>
 
