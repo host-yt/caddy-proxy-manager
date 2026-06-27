@@ -13,12 +13,19 @@
   <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
     <div class="overflow-x-auto"><table class="w-full text-sm">
       <thead class="bg-slate-50 dark:bg-zinc-800/50 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        <tr><th class="px-4 py-2">Name</th><th class="px-4 py-2">Prefix</th><th class="px-4 py-2">Created</th><th class="px-4 py-2">Expires</th><th class="px-4 py-2">Last used</th><th class="px-4 py-2">Last IP</th><th class="px-4 py-2"></th></tr>
+        <tr><th class="px-4 py-2">Name</th><th class="px-4 py-2">Scopes</th><th class="px-4 py-2">Prefix</th><th class="px-4 py-2">Created</th><th class="px-4 py-2">Expires</th><th class="px-4 py-2">Last used</th><th class="px-4 py-2">Last IP</th><th class="px-4 py-2"></th></tr>
       </thead>
       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
       {{range .Keys}}
         <tr>
           <td class="px-4 py-2 font-medium text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.Name}}{{if .Revoked}} <span class="text-xs text-rose-600">(revoked)</span>{{end}}</td>
+          <td class="px-4 py-2">
+            {{range splitStr .Scopes ","}}{{$s := trimStr .}}
+            {{if eq $s "client:read"}}<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300 mr-1">read</span>
+            {{else if eq $s "client:write"}}<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300 mr-1">write</span>
+            {{else if $s}}<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-zinc-700 dark:text-slate-300 mr-1">{{$s}}</span>
+            {{end}}{{end}}
+          </td>
           <td class="px-4 py-2 font-mono text-xs text-slate-600 dark:text-slate-300">{{.Prefix}}…</td>
           <td class="px-4 py-2 text-xs text-slate-500">{{.CreatedAt}}</td>
           <td class="px-4 py-2 text-xs text-slate-500">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}never{{end}}</td>
@@ -34,7 +41,7 @@
           </td>
         </tr>
       {{else}}
-        <tr><td colspan="7" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No tokens yet.</td></tr>
+        <tr><td colspan="8" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No tokens yet.</td></tr>
       {{end}}
       </tbody>
     </table></div>
