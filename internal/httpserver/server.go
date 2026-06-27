@@ -595,6 +595,13 @@ func (s *Server) routes() {
 		})
 		r.Get("/account", s.deps.Client.AccountPage)
 		r.Post("/account", s.deps.Client.AccountUpdate)
+		r.Route("/ai/chat", func(r chi.Router) {
+			r.Get("/sessions", s.deps.Client.AppAIChatListSessions)
+			r.Post("/sessions", s.deps.Client.AppAIChatCreateSession)
+			r.Get("/sessions/{id}", s.deps.Client.AppAIChatGetSession)
+			r.Delete("/sessions/{id}", s.deps.Client.AppAIChatDeleteSession)
+			r.Post("/sessions/{id}/message", s.deps.Client.AppAIChatSendMessage)
+		})
 		if s.deps.OAuthIdentity != nil {
 			r.Route("/oauth-identities", func(r chi.Router) {
 				r.Get("/", s.deps.OAuthIdentity.List)
