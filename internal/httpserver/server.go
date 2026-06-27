@@ -566,6 +566,7 @@ func (s *Server) routes() {
 		r.Post("/services/{id}/edit", s.deps.Client.ServiceEdit)
 		r.Route("/routes", func(r chi.Router) {
 			r.Get("/", s.deps.Client.RoutesList)
+			r.Get("/export.csv", s.deps.Client.RouteExport)
 			r.Get("/new", s.deps.Client.RouteNew)
 			r.Post("/", s.deps.Client.RouteCreate)
 			r.Post("/{id}/delete", s.deps.Client.RouteDelete)
