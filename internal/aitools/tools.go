@@ -136,6 +136,12 @@ func (r *Registry) builtins() []Tool {
 			Exec:        r.nodeDetail,
 		},
 		{
+			Name:        "list_users",
+			Description: "List panel users: email, role, active status, 2FA enrolled, last login. No credential columns selected.",
+			Schema:      limitSchema(50),
+			Exec:        r.listUsers,
+		},
+		{
 			Name:        "list_node_groups",
 			Description: "List node groups with mode (single/active_active/failover), node count, and plan count. Useful for understanding routing topology.",
 			Schema:      emptyObjectSchema,
@@ -1088,6 +1094,44 @@ func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string,
 		return "", err
 	}
 	return toJSON(res)
+}
+
+func (r *Registry) listUsers(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a limitArgs
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 50, 200)
+	db := r.db
+	if db == nil {
+		return `{"error":"db unavailable"}`, nil
+	}
+	type user struct {
+		ID          int64  `json:"id"`
+		Email       string `json:"email"`
+		Role        string `json:"role"`
+		FullName    string `json:"full_name,omitempty"`
+		Active      bool   `json:"is_active"`
+		TwoFA       bool   `json:"totp_enrolled"`
+		LastLoginAt string `json:"last_login_at,omitempty"`
+		CreatedAt   string `json:"created_at"`
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, email, role, COALESCE(full_name,''), is_active, totp_enabled,
+		        COALESCE(DATE_FORMAT(last_login_at,'%Y-%m-%dT%H:%i:%sZ'),''),
+		        DATE_FORMAT(created_at,'%Y-%m-%dT%H:%i:%sZ')
+		 FROM users ORDER BY created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return `{"error":"query failed"}`, nil
+	}
+	defer rows.Close()
+	out := make([]user, 0, limit)
+	for rows.Next() {
+		var u user
+		if rows.Scan(&u.ID, &u.Email, &u.Role, &u.FullName, &u.Active, &u.TwoFA, &u.LastLoginAt, &u.CreatedAt) == nil {
+			out = append(out, u)
+		}
+	}
+	b, _ := json.Marshal(map[string]any{"users": out, "total": len(out)})
+	return string(b), nil
 }
 
 func (r *Registry) listNodeGroups(ctx context.Context, _ json.RawMessage) (string, error) {
