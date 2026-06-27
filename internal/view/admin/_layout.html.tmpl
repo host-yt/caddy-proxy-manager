@@ -360,39 +360,39 @@
 
 <!-- Modal confirm (replaces native confirm()). Backdrop blur, centered card. -->
 <div id="hpg-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-  <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200 dark:ring-zinc-800 max-w-md w-full p-5 space-y-4">
-    <p id="hpg-modal-msg" class="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap"></p>
+  <div class="rounded-[var(--r-lg,16px)] border shadow-[var(--shadow-soft)] max-w-md w-full p-5 space-y-4" style="background:rgb(var(--surface));border-color:rgb(var(--border))">
+    <p id="hpg-modal-msg" class="text-sm whitespace-pre-wrap" style="color:rgb(var(--text))"></p>
     <div class="flex justify-end gap-2">
-      <button id="hpg-modal-cancel" type="button" class="px-3 py-1.5 rounded-md text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cancel</button>
-      <button id="hpg-modal-ok" type="button" class="px-3 py-1.5 rounded-md bg-rose-600 text-white text-sm font-medium hover:bg-rose-700">Confirm</button>
+      <button id="hpg-modal-cancel" type="button" class="r-btn-ghost text-sm h-8 px-3">Cancel</button>
+      <button id="hpg-modal-ok" type="button" class="px-3 py-1.5 rounded-[var(--r-sm,8px)] bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700 cursor-pointer transition-colors">Confirm</button>
     </div>
   </div>
 </div>
 
 <!-- Modal prompt (replaces native prompt()). Single text input. -->
 <div id="hpg-prompt" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-  <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200 dark:ring-zinc-800 max-w-md w-full p-5 space-y-4">
-    <p id="hpg-prompt-msg" class="text-sm text-slate-800 dark:text-slate-100 whitespace-pre-wrap"></p>
-    <input id="hpg-prompt-input" type="text" class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+  <div class="rounded-[var(--r-lg,16px)] border shadow-[var(--shadow-soft)] max-w-md w-full p-5 space-y-4" style="background:rgb(var(--surface));border-color:rgb(var(--border))">
+    <p id="hpg-prompt-msg" class="text-sm whitespace-pre-wrap" style="color:rgb(var(--text))"></p>
+    <input id="hpg-prompt-input" type="text" class="r-input">
     <div class="flex justify-end gap-2">
-      <button id="hpg-prompt-cancel" type="button" class="px-3 py-1.5 rounded-md text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cancel</button>
-      <button id="hpg-prompt-ok" type="button" class="px-3 py-1.5 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">OK</button>
+      <button id="hpg-prompt-cancel" type="button" class="r-btn-ghost text-sm h-8 px-3">Cancel</button>
+      <button id="hpg-prompt-ok" type="button" class="r-btn-primary text-sm h-8 px-3">OK</button>
     </div>
   </div>
 </div>
 
 <!-- Command palette overlay -->
 <div id="hpg-palette" class="fixed inset-0 z-[60] hidden items-start justify-center pt-20 bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Command palette">
-  <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-xl shadow-slate-900/10 ring-1 ring-slate-200 dark:ring-zinc-800 w-full max-w-xl overflow-hidden">
-    <div class="flex items-center gap-2 px-4 py-3 border-b border-slate-100 dark:border-zinc-800">
+  <div class="rounded-[var(--r-lg,16px)] border w-full max-w-xl overflow-hidden" style="background:rgb(var(--surface));border-color:rgb(var(--border));box-shadow:var(--shadow-soft)">
+    <div class="flex items-center gap-2 px-4 py-3 border-b" style="border-color:rgb(var(--border))">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
       </svg>
-      <input id="hpg-palette-input" type="text" class="flex-1 bg-transparent text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none" placeholder="Search hosts, clients, nodes, tunnels..." autocomplete="off" spellcheck="false">
-      <kbd class="hidden sm:inline px-1.5 py-0.5 rounded text-[10px] text-slate-400 bg-slate-100 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700">Esc</kbd>
+      <input id="hpg-palette-input" type="text" class="flex-1 bg-transparent text-sm outline-none placeholder:opacity-50" style="color:rgb(var(--text))" placeholder="Search hosts, clients, nodes, tunnels..." autocomplete="off" spellcheck="false">
+      <kbd class="hidden sm:inline px-1.5 py-0.5 rounded text-[10px] border" style="color:rgb(var(--muted));background:rgb(var(--surface));border-color:rgb(var(--border))">Esc</kbd>
     </div>
-    <ul id="hpg-palette-list" role="listbox" class="max-h-72 overflow-y-auto divide-y divide-slate-50 dark:divide-zinc-800"></ul>
-    <div class="px-4 py-2 flex items-center gap-3 text-[10px] text-slate-400 dark:text-slate-600 border-t border-slate-100 dark:border-zinc-800">
+    <ul id="hpg-palette-list" role="listbox" class="max-h-72 overflow-y-auto divide-y" style="border-color:rgb(var(--border))"></ul>
+    <div class="px-4 py-2 flex items-center gap-3 text-[10px] border-t" style="color:rgb(var(--muted));border-color:rgb(var(--border))">
       <span><kbd class="font-mono">↑↓</kbd> navigate</span>
       <span><kbd class="font-mono">↵</kbd> open</span>
       <span><kbd class="font-mono">Esc</kbd> close</span>
