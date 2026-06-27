@@ -136,13 +136,13 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Load 7-day bandwidth; ignore errors if column/table missing.
+	// Load 7-day bandwidth from rollups (hourly pre-aggregated, avoids full access-log scan).
 	_ = db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(l.bytes_resp), 0)
-		 FROM host_access_log l
-		 JOIN routes r ON r.id = l.route_id
+		`SELECT COALESCE(SUM(lr.bytes_resp), 0)
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id = lr.route_id
 		 JOIN services s ON s.id = r.service_id
-		 WHERE s.client_id = ? AND l.ts >= NOW() - INTERVAL 7 DAY`, id,
+		 WHERE s.client_id = ? AND lr.bucket_start >= NOW() - INTERVAL 7 DAY`, id,
 	).Scan(&d.BandwidthBytes7d)
 
 	// Load routes for all services owned by this client (up to 200).
