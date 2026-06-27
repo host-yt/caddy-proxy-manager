@@ -1766,26 +1766,3 @@ func (h *ClientHandlers) ContactSubmit(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/app/contact", "Message sent. We will reply to your email.", "")
 }
 
-// ---- legacy stubs kept compiling ---------------------------------------
-
-func ClientDashboard(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "ClientDashboard")
-}
-func ClientServices(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "ClientServices")
-}
-func ClientRoutesList(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "ClientRoutesList")
-}
-func ClientRouteCreate(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "ClientRouteCreate")
-}
-func ClientRouteDelete(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "ClientRouteDelete")
-}
-func ClientRouteVerifyDNS(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "ClientRouteVerifyDNS")
-}
-func ClientRouteRetrySSL(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "ClientRouteRetrySSL")
-}
