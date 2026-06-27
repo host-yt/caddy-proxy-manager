@@ -52,6 +52,12 @@ func genProxySecret() (string, error) {
 // surface for daily work (find a domain, see who owns it, who's serving
 // it, what state it's in).
 
+type hostGroupOption struct {
+	ID    int64
+	Name  string
+	Color string
+}
+
 type hostRow struct {
 	RouteID      int64
 	Domain       string
@@ -97,6 +103,10 @@ type hostRow struct {
 	// GeoMode is the per-route geo filter setting (off/allow/deny).
 	GeoMode string
 
+	GroupID    sql.NullInt64
+	GroupName  string
+	GroupColor string
+
 	// Req24h is total requests from log_rollups in the last 24 hours.
 	Req24h int64
 	// Err24h is total 4xx+5xx errors from log_rollups in the last 24 hours.
@@ -119,6 +129,8 @@ type hostsData struct {
 	NodeIDFilter    int64
 	TagFilter       string
 	BackendIPFilter string
+	Groups          []hostGroupOption
+	GroupFilter     int64
 	NodeOptions     []hostsNewNode
 	StatusCounts    map[string]int // per-status route counts (excludes deleted)
 
@@ -164,6 +176,8 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	d.NodeIDFilter, _ = strconv.ParseInt(r.URL.Query().Get("node_id"), 10, 64)
 	d.TagFilter = strings.TrimSpace(r.URL.Query().Get("tag"))
 	d.BackendIPFilter = strings.TrimSpace(r.URL.Query().Get("backend_ip"))
+	d.GroupFilter, _ = strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
+	d.Groups = loadHostGroups(ctx, db)
 
 	where := []string{"1=1"}
 	args := []any{}
@@ -188,6 +202,10 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 		// filter on effective backend: override or service IP
 		where = append(where, "COALESCE(NULLIF(r.backend_ip_override,''), s.backend_ip) LIKE ?")
 		args = append(args, "%"+d.BackendIPFilter+"%")
+	}
+	if d.GroupFilter > 0 {
+		where = append(where, "r.group_id = ?")
+		args = append(args, d.GroupFilter)
 	}
 	whereSQL := strings.Join(where, " AND ")
 
@@ -245,7 +263,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	if d.NextPage > d.TotalPages {
 		d.NextPage = d.TotalPages
 	}
-	d.FilterQS = hostsFilterQuery(d.Q, d.Status, d.NodeIDFilter, d.TagFilter, d.BackendIPFilter)
+	d.FilterQS = hostsFilterQuery(d.Q, d.Status, d.NodeIDFilter, d.TagFilter, d.BackendIPFilter, d.GroupFilter)
 
 	q := `SELECT r.id, r.domain, r.path_prefix, r.upstream_port,
 	             r.status, COALESCE(r.last_error,''),
@@ -264,7 +282,8 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	             CASE WHEN r.mtls_ca_id IS NOT NULL AND mca.status='active' THEN 1 ELSE 0 END,
 	             COALESCE(NULLIF(mca.name,''), mca.common_name, ''),
 	             COALESCE(r.geo_mode,'off'),
-	             COALESCE(lr.req24h, 0), COALESCE(lr.err24h, 0)
+	             COALESCE(lr.req24h, 0), COALESCE(lr.err24h, 0),
+	             COALESCE(hg.id,0), COALESCE(hg.name,''), COALESCE(hg.color,'')
 	      FROM routes r
 	      JOIN services s    ON s.id = r.service_id
 	      JOIN clients c     ON c.id = s.client_id
@@ -280,6 +299,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	        WHERE bucket_start >= DATE_SUB(NOW(), INTERVAL 1 DAY)
 	        GROUP BY route_id
 	      ) lr ON lr.route_id = r.id
+	      LEFT JOIN host_groups hg ON hg.id = r.group_id
 	      WHERE ` + whereSQL + `
 	      ORDER BY r.updated_at DESC
 	      LIMIT ? OFFSET ?`
@@ -297,6 +317,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 		// upstream_host_header reused as the external FQDN source; the FQDN
 		// itself lives in backend_ip_override (already in BackendIP).
 		var extHostHeader string
+		var groupIDRaw int64
 		if err := rows.Scan(
 			&hr.RouteID, &hr.Domain, &hr.PathPrefix, &hr.UpstreamPort,
 			&hr.Status, &hr.LastError,
@@ -311,7 +332,11 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 			&hr.CertDaysLeft, &hr.MaintenanceMode,
 			&hr.RequireClientCert, &hr.MTLSCAActive, &hr.MTLSCAName, &hr.GeoMode,
 			&hr.Req24h, &hr.Err24h,
+			&groupIDRaw, &hr.GroupName, &hr.GroupColor,
 		); err == nil {
+			if groupIDRaw > 0 {
+				hr.GroupID = sql.NullInt64{Int64: groupIDRaw, Valid: true}
+			}
 			hr.ExternalHost = extHostHeader
 			hr.BackendDisplay = hostBackendDisplay(hr)
 			hr.CertStatus = hostCertStatus(hr.SSL, hr.Status)
@@ -441,7 +466,7 @@ func (h *AdminHandlers) HostsExport(w http.ResponseWriter, r *http.Request) {
 // hostsFilterQuery builds the "&key=val" suffix appended to page links so
 // the active filters survive pagination. The leading "page=" is added by
 // the template; everything here is already URL-escaped.
-func hostsFilterQuery(q, status string, nodeID int64, tag, backendIP string) string {
+func hostsFilterQuery(q, status string, nodeID int64, tag, backendIP string, groupID int64) string {
 	v := url.Values{}
 	if q != "" {
 		v.Set("q", q)
@@ -458,10 +483,30 @@ func hostsFilterQuery(q, status string, nodeID int64, tag, backendIP string) str
 	if backendIP != "" {
 		v.Set("backend_ip", backendIP)
 	}
+	if groupID > 0 {
+		v.Set("group_id", strconv.FormatInt(groupID, 10))
+	}
 	if len(v) == 0 {
 		return ""
 	}
 	return "&" + v.Encode()
+}
+
+// loadHostGroups returns all host groups ordered by name.
+func loadHostGroups(ctx context.Context, db *sql.DB) []hostGroupOption {
+	rows, err := db.QueryContext(ctx, "SELECT id, name, color FROM host_groups ORDER BY name")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []hostGroupOption
+	for rows.Next() {
+		var g hostGroupOption
+		if rows.Scan(&g.ID, &g.Name, &g.Color) == nil {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // hostBackendDisplay returns the effective upstream as "host:port". External
@@ -495,8 +540,9 @@ func hostCertStatus(ssl bool, status string) string {
 
 type hostsNewData struct {
 	baseAdminData
-	Nodes []hostsNewNode
-	Form  hostsNewForm
+	Nodes  []hostsNewNode
+	Groups []hostGroupOption
+	Form   hostsNewForm
 }
 
 type hostsNewNode struct {
@@ -525,6 +571,7 @@ type hostsNewForm struct {
 	// Wildcard DNS-01: domain served by a *.zone cert (gated by DNS01_AVAILABLE).
 	WildcardEnabled bool
 	WildcardZone    string
+	GroupID         int64
 }
 
 // HostsNew renders /admin/hosts/new (GET).
@@ -534,6 +581,12 @@ func (h *AdminHandlers) HostsNew(w http.ResponseWriter, r *http.Request) {
 		Form:          hostsNewForm{SSL: true, WebSocket: true, Kind: "proxy", RedirectCode: "308", UpstreamScheme: "http"},
 	}
 	d.Nodes = h.loadNodeOptions(r.Context())
+	db := h.DB()
+	if db != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		d.Groups = loadHostGroups(ctx, db)
+	}
 	h.render(w, "hosts_new", d)
 }
 
@@ -595,6 +648,7 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	port, _ := strconv.Atoi(form.Port)
 	redirectCode, _ := strconv.Atoi(form.RedirectCode)
 	nodeID, _ := strconv.ParseInt(form.NodeID, 10, 64)
+	groupID, _ := strconv.ParseInt(r.FormValue("group_id"), 10, 64)
 
 	if form.Domain == "" || nodeID == 0 {
 		h.renderHostsNewErr(w, r, form, "domain and node are required")
@@ -732,6 +786,9 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("admin hosts: route create", "err", err)
 		h.renderHostsNewErr(w, r, form, "create failed: "+sanitizeErr(err))
 		return
+	}
+	if groupID > 0 {
+		_, _ = db.ExecContext(ctx, "UPDATE routes SET group_id = NULLIF(?, 0) WHERE id = ?", groupID, routeID)
 	}
 
 	// Never log the secret in the audit meta.
@@ -2053,6 +2110,9 @@ type hostEditData struct {
 	MTLSCAID          int64
 	MTLSCAActive      bool // true when the saved CA status='active'
 	MTLSCAs           []mtlsCAOption
+
+	Groups  []hostGroupOption
+	GroupID sql.NullInt64
 }
 
 // mtlsCAOption is one selectable trust-anchor CA in the host editor dropdown.
@@ -2138,7 +2198,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	        COALESCE(r.dns_address_family,'any'),
 	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0),
 		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0), COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0),
-		        COALESCE(r.dial_timeout_ms,0), COALESCE(r.response_header_timeout_ms,0)
+		        COALESCE(r.dial_timeout_ms,0), COALESCE(r.response_header_timeout_ms,0),
+		        COALESCE(r.group_id,0)
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
@@ -2173,7 +2234,11 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily,
 		&d.RequireClientCert, &d.MTLSCAID,
 		&d.NodeHasWAF, &d.NodeHasL4, &d.NodeHasGeoIP, &d.NodeHasRateLimit,
-		&d.DialTimeoutMs, &d.ResponseHeaderTimeoutMs)
+		&d.DialTimeoutMs, &d.ResponseHeaderTimeoutMs,
+		&d.GroupID.Int64)
+	if d.GroupID.Int64 > 0 {
+		d.GroupID.Valid = true
+	}
 	if err != nil {
 		d.Error = "host not found"
 		h.render(w, "hosts_edit", d)
@@ -2196,6 +2261,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		_ = db.QueryRowContext(ctx, `SELECT status FROM mtls_cas WHERE id=?`, d.MTLSCAID).Scan(&caStatus)
 		d.MTLSCAActive = caStatus == "active"
 	}
+	d.Groups = loadHostGroups(ctx, db)
 	d.WeightedLBAvail = h.Routes.WeightedLBAvailable
 	d.RateLimitModuleAvailable = h.Routes.RateLimitModuleAvailable
 	d.WAFModuleAvailable = h.Routes.WAFModuleAvailable
@@ -2649,6 +2715,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		dnsAddressFamily = "any"
 	}
 
+	groupID, _ := strconv.ParseInt(r.FormValue("group_id"), 10, 64)
+
 	cacheTTL, _ := strconv.Atoi(r.FormValue("cache_ttl_secs"))
 	if cacheTTL <= 0 {
 		cacheTTL = 60
@@ -3075,6 +3143,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
 			   outbound_ip_mode = ?, outbound_ip = ?,
 			   dns_resolver_ip = ?, dns_resolver_via_wg_peer_id = ?, dns_address_family = ?,
+			   group_id = NULLIF(?, 0),
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -3108,6 +3177,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
 			outboundIPMode, nullableString(outboundIP),
 			nullableString(dnsResolverIP), nullableInt64(dnsResolverViaWGID), dnsAddressFamily,
+			groupID,
 			id)
 	} else {
 		_, err = h.DB().ExecContext(ctx,
@@ -3143,6 +3213,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
 			   outbound_ip_mode = ?, outbound_ip = ?,
 			   dns_resolver_ip = ?, dns_resolver_via_wg_peer_id = ?, dns_address_family = ?,
+			   group_id = NULLIF(?, 0),
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -3176,6 +3247,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
 			outboundIPMode, nullableString(outboundIP),
 			nullableString(dnsResolverIP), nullableInt64(dnsResolverViaWGID), dnsAddressFamily,
+			groupID,
 			id)
 	}
 	if err != nil {
@@ -3862,4 +3934,81 @@ func parseHeaderLines(raw string) string {
 	}
 	b, _ := json.Marshal(out)
 	return string(b)
+}
+
+func (h *AdminHandlers) HostGroupCreate(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.FormValue("name"))
+	color := strings.TrimSpace(r.FormValue("color"))
+	if name == "" {
+		redirectWithFlash(w, r, "/admin/hosts", "", "group name required")
+		return
+	}
+	if color == "" || len(color) != 7 || color[0] != '#' {
+		color = "#6366f1"
+	}
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "db unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	_, err := db.ExecContext(ctx, "INSERT INTO host_groups (name, color) VALUES (?, ?)", name, color)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "create failed: "+sanitizeErr(err))
+		return
+	}
+	redirectWithFlash(w, r, "/admin/hosts", "Group created", "")
+}
+
+func (h *AdminHandlers) HostGroupUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		redirectWithFlash(w, r, "/admin/hosts", "", "invalid id")
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	color := strings.TrimSpace(r.FormValue("color"))
+	if name == "" {
+		redirectWithFlash(w, r, "/admin/hosts", "", "group name required")
+		return
+	}
+	if color == "" || len(color) != 7 || color[0] != '#' {
+		color = "#6366f1"
+	}
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "db unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	_, err = db.ExecContext(ctx, "UPDATE host_groups SET name=?, color=? WHERE id=?", name, color, id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "update failed: "+sanitizeErr(err))
+		return
+	}
+	redirectWithFlash(w, r, "/admin/hosts", "Group updated", "")
+}
+
+func (h *AdminHandlers) HostGroupDelete(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		redirectWithFlash(w, r, "/admin/hosts", "", "invalid id")
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "db unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	// ON DELETE SET NULL clears routes.group_id automatically.
+	_, err = db.ExecContext(ctx, "DELETE FROM host_groups WHERE id=?", id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "delete failed: "+sanitizeErr(err))
+		return
+	}
+	redirectWithFlash(w, r, "/admin/hosts", "Group deleted", "")
 }

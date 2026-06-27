@@ -381,6 +381,9 @@ func (s *Server) routes() {
 			r.Get("/{id}/rollups.csv", s.deps.Admin.HostsRollupCSV)
 			r.Post("/{id}/dns/test", s.deps.Admin.HostsDNSTest)
 			r.Post("/{id}/backend/test", s.deps.Admin.HostsTestBackend)
+			r.Post("/groups", s.deps.Admin.HostGroupCreate)
+			r.Post("/groups/{id}/update", s.deps.Admin.HostGroupUpdate)
+			r.Post("/groups/{id}/delete", s.deps.Admin.HostGroupDelete)
 		})
 		// Built-in forward-auth portal: local access groups + members.
 		r.Route("/access-groups", func(r chi.Router) {
