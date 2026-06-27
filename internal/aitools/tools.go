@@ -435,14 +435,15 @@ func (r *Registry) trafficStats(ctx context.Context, raw json.RawMessage) (strin
 	top := clampLimit(a.Top, 5, 20)
 	since := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
 
-	var total int64
+	var total, bytesResp int64
 	var errors4xx, errors5xx sql.NullInt64
 	row := r.db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(requests),0),
 		        COALESCE(SUM(errors_4xx),0),
-		        COALESCE(SUM(errors_5xx),0)
+		        COALESCE(SUM(errors_5xx),0),
+		        COALESCE(SUM(bytes_resp),0)
 		 FROM log_rollups WHERE bucket_start >= ?`, since)
-	if err := row.Scan(&total, &errors4xx, &errors5xx); err != nil {
+	if err := row.Scan(&total, &errors4xx, &errors5xx, &bytesResp); err != nil {
 		return "", err
 	}
 
@@ -463,6 +464,7 @@ func (r *Registry) trafficStats(ctx context.Context, raw json.RawMessage) (strin
 		"requests":       total,
 		"errors_4xx":     errors4xx.Int64,
 		"errors_5xx":     errors5xx.Int64,
+		"bytes_resp":     bytesResp,
 		"top_hosts":      topHosts,
 		"top_countries":  topCountries,
 		"top_client_ips": topIPs,
@@ -524,12 +526,31 @@ type countHit struct {
 	Count int64  `json:"count"`
 }
 
-func (r *Registry) topHosts(ctx context.Context, since time.Time, limit int) ([]countHit, error) {
-	const q = `SELECT rt.domain, SUM(lr.requests) c
+type hostHit struct {
+	Domain    string `json:"domain"`
+	Requests  int64  `json:"requests"`
+	BytesResp int64  `json:"bytes_resp"`
+}
+
+func (r *Registry) topHosts(ctx context.Context, since time.Time, limit int) ([]hostHit, error) {
+	const q = `SELECT rt.domain, SUM(lr.requests), COALESCE(SUM(lr.bytes_resp),0)
 	           FROM log_rollups lr JOIN routes rt ON rt.id = lr.route_id
 	           WHERE lr.bucket_start >= ?
-	           GROUP BY rt.domain ORDER BY c DESC, rt.domain ASC LIMIT ?`
-	return scanCountHits(ctx, r.db, q, since, limit)
+	           GROUP BY rt.domain ORDER BY SUM(lr.requests) DESC, rt.domain ASC LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, q, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]hostHit, 0, limit)
+	for rows.Next() {
+		var h hostHit
+		if err := rows.Scan(&h.Domain, &h.Requests, &h.BytesResp); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
 }
 
 func (r *Registry) topIPs(ctx context.Context, since time.Time, limit int) ([]countHit, error) {
