@@ -239,7 +239,10 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 	// Build the model input: bounded prior history + this user turn. When tools
 	// are available we prepend a system prompt so the model knows it can query
 	// live HPG state via the read-only tools.
-	toolsAvailable := h.AITools != nil && providerSupportsTools(client.Provider())
+	// Tools expose client/service/route/traffic data (and send it to the external
+	// provider), so gate them to admin roles. Support may open the chat via the
+	// read-only allow-list but must NOT reach that data. See adversarial review 2026-06-27.
+	toolsAvailable := h.AITools != nil && providerSupportsTools(client.Provider()) && aiToolsAllowedFor(r)
 	msgs := buildChatMessages(history, content)
 	if toolsAvailable {
 		msgs = append([]aichat.Message{{Role: aichat.RoleSystem, Content: aiToolsSystemPrompt}}, msgs...)
@@ -351,6 +354,18 @@ const aiToolLoopCap = 5
 const aiToolsSystemPrompt = "You are the HPG (Hostyt Proxy Gateway) admin assistant. " +
 	"You can call read-only tools to inspect live state (nodes, routes, clients, services, traffic). " +
 	"Use them when the user asks about current state, then answer concisely. The tools never expose secrets."
+
+// roleCanUseAITools gates the data-access tools to admin roles. Support is
+// read-only via the allow-list but must not reach client/service/traffic data.
+func roleCanUseAITools(role string) bool {
+	return role == "super_admin" || role == "admin"
+}
+
+// aiToolsAllowedFor reports whether the request's caller may invoke AI tools.
+func aiToolsAllowedFor(r *http.Request) bool {
+	sess := middleware.SessionFromContext(r.Context())
+	return sess != nil && roleCanUseAITools(sess.Role)
+}
 
 // providerSupportsTools reports whether the provider has a tool-calling adapter.
 // Gemini returns ErrToolsUnsupported, so it streams plainly.
