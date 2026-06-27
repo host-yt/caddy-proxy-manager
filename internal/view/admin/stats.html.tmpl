@@ -172,6 +172,36 @@
   </table></div>
 </section>
 {{end}}
+
+{{if .WAFTopRoutes}}
+<section class="hpg-card mb-6">
+  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Top WAF events (7d)</h2>
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead class="text-left hpg-eyebrow">
+      <tr>
+        <th class="px-3 py-2">Domain</th>
+        <th class="px-3 py-2">Total events</th>
+        <th class="px-3 py-2">Blocked</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      {{range .WAFTopRoutes}}
+      <tr>
+        <td class="px-3 py-2 font-mono text-slate-800 dark:text-slate-100">
+          {{if and (ne .Domain "(deleted)") (ne .RouteID 0)}}
+          <a href="/admin/waf?route_id={{.RouteID}}" class="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer transition-colors">{{.Domain}}</a>
+          {{else}}
+          <span class="text-slate-500 dark:text-slate-400">{{.Domain}}</span>
+          {{end}}
+        </td>
+        <td class="px-3 py-2 text-slate-600 dark:text-slate-300 font-mono">{{.EventCount}}</td>
+        <td class="px-3 py-2 text-rose-700 dark:text-rose-400 font-mono">{{.Blocked}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table></div>
+</section>
+{{end}}
 </div><!-- /Overview -->
 
 <!-- Traffic -->
