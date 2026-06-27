@@ -144,6 +144,24 @@ func (s *Store) GetSession(ctx context.Context, userID, sessionID int64) (Sessio
 	return sess, msgs, nil
 }
 
+// UpdateTitle sets a session title, ownership-scoped. Used for the auto-title
+// once a conversation has enough turns. Returns ErrNotFound on foreign/missing id.
+func (s *Store) UpdateTitle(ctx context.Context, userID, sessionID int64, title string) error {
+	const q = `UPDATE ai_chat_sessions SET title = ? WHERE id = ? AND user_id = ?`
+	res, err := s.db.ExecContext(ctx, q, title, sessionID, userID)
+	if err != nil {
+		return fmt.Errorf("chatstore: update title: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("chatstore: update title affected: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // DeleteSession removes a session and all its messages (FK cascade).
 // Returns ErrNotFound if the session does not exist or belongs to a different user.
 func (s *Store) DeleteSession(ctx context.Context, userID, sessionID int64) error {
