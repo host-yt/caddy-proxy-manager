@@ -1269,7 +1269,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		`SELECT COALESCE(SUM(l.bytes_resp),0), COUNT(*)
 		 FROM host_access_log l
 		 JOIN routes r ON r.id = l.route_id
-		 WHERE r.caddy_node_id = ? AND l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR)`, id,
+		 WHERE r.caddy_node_id = ? AND l.ts >= NOW() - INTERVAL 24 HOUR`, id,
 	).Scan(&d.NodeBandwidth24h, &d.NodeRequests24h)
 
 	// Top 5 routes by 24h bandwidth on this node.
@@ -1277,7 +1277,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		`SELECT l.route_id, r.domain, COALESCE(SUM(l.bytes_resp),0), COUNT(*)
 		 FROM host_access_log l
 		 JOIN routes r ON r.id = l.route_id
-		 WHERE r.caddy_node_id = ? AND l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR)
+		 WHERE r.caddy_node_id = ? AND l.ts >= NOW() - INTERVAL 24 HOUR
 		 GROUP BY l.route_id, r.domain
 		 ORDER BY SUM(l.bytes_resp) DESC LIMIT 5`, id)
 	if err == nil {
