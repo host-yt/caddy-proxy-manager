@@ -99,10 +99,10 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 	var slug sql.NullString
 	err := db.QueryRowContext(ctx,
 		`SELECT c.id, COALESCE(c.display_name, u.full_name, u.email), u.email,
-		        COALESCE(c.status_slug,''), c.status_show_traffic
+		        COALESCE(c.status_slug,''), c.status_show_traffic, u.id
 		 FROM clients c JOIN users u ON u.id = c.user_id
 		 WHERE c.id = ?`, id,
-	).Scan(&d.ID, &d.DisplayName, &d.Email, &slug, &d.ShowTraffic)
+	).Scan(&d.ID, &d.DisplayName, &d.Email, &slug, &d.ShowTraffic, &d.UserID)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/clients", "", "client not found")
 		return
@@ -238,6 +238,7 @@ type clientDetailRouteRow struct {
 type clientDetailData struct {
 	baseAdminData
 	ID               int64
+	UserID           int64
 	DisplayName      string
 	Email            string
 	StatusSlug       string // empty if not yet generated
