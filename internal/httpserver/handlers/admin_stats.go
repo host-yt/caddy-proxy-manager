@@ -85,6 +85,13 @@ type wafTopRouteRow struct {
 	Blocked    int64 // action="block" count
 }
 
+// hourlyTrafficRow holds per-hour request and error counts for the 24h bar chart.
+type hourlyTrafficRow struct {
+	HourLabel string // "HH:00" formatted
+	Requests  int64
+	Errors    int64 // non-2xx responses
+}
+
 type statsData struct {
 	baseAdminData
 
@@ -107,6 +114,9 @@ type statsData struct {
 	PlanViolations   []planViolationRow
 	ModuleMismatches []moduleMismatchRow
 	WAFTopRoutes     []wafTopRouteRow
+
+	HourlyTraffic []hourlyTrafficRow
+	HourlyMax     int64 // max requests across all hours; used for bar chart scaling
 
 	Cache    cacheSummary
 	Security securitySummary
@@ -295,6 +305,31 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		ntrRows.Close()
+	}
+
+	// --- Hourly traffic (last 24h, from host_access_log) ----------------
+	htRows, _ := db.QueryContext(ctx,
+		`SELECT DATE_FORMAT(ts, "%H:00") AS hr,
+		        COUNT(*) AS reqs,
+		        SUM(status >= 400) AS errs
+		 FROM host_access_log
+		 WHERE ts >= NOW() - INTERVAL 24 HOUR
+		 GROUP BY hr ORDER BY hr ASC`)
+	if htRows != nil {
+		for htRows.Next() {
+			var row hourlyTrafficRow
+			var errs sql.NullInt64
+			if err := htRows.Scan(&row.HourLabel, &row.Requests, &errs); err == nil {
+				if errs.Valid {
+					row.Errors = errs.Int64
+				}
+				if row.Requests > d.HourlyMax {
+					d.HourlyMax = row.Requests
+				}
+				d.HourlyTraffic = append(d.HourlyTraffic, row)
+			}
+		}
+		htRows.Close()
 	}
 
 	// --- Module mismatches (routes needing modules the node lacks) ----
