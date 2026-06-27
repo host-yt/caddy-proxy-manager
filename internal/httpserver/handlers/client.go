@@ -17,10 +17,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"github.com/host-yt/caddy-proxy-manager/internal/aichat"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
-	"github.com/host-yt/caddy-proxy-manager/internal/chatstore"
 	"github.com/host-yt/caddy-proxy-manager/internal/deployment"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
@@ -47,10 +45,6 @@ type ClientHandlers struct {
 	}
 	// Mailer (optional) used for Email OTP enrollment + login challenges.
 	Mailer *mail.Mailer
-	// AIFactory builds the configured provider client for the AI chat (nil-safe).
-	AIFactory *aichat.Factory
-	// ChatStore persists AI chat sessions/messages, ownership-scoped (nil-safe).
-	ChatStore *chatstore.Store
 }
 
 type baseAppData struct {

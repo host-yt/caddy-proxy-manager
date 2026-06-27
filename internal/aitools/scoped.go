@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"sort"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 )
 
 // emptyResult is returned by scoped tools when the caller's scope resolves to no
@@ -199,6 +202,10 @@ func (r *Registry) trafficStatsScoped(ctx context.Context, scope Scope, raw json
 	if err != nil {
 		return "", err
 	}
+	topCC, err := r.scopedTopCountries(ctx, since, top, routeFilter, idArgs)
+	if err != nil {
+		return "", err
+	}
 	return toJSON(map[string]any{
 		"window_hours":   hours,
 		"requests":       total,
@@ -206,6 +213,7 @@ func (r *Registry) trafficStatsScoped(ctx context.Context, scope Scope, raw json
 		"errors_5xx":     errors5xx.Int64,
 		"top_hosts":      topHosts,
 		"top_client_ips": topIPs,
+		"top_countries":  topCC,
 	})
 }
 
@@ -227,6 +235,55 @@ func (r *Registry) scopedTopIPs(ctx context.Context, since time.Time, limit int,
 	      GROUP BY remote_ip ORDER BY c DESC, remote_ip ASC LIMIT ?`
 	args := append(append([]any{since}, idArgs...), limit)
 	return scanCountHitsArgs(ctx, r.db, q, args)
+}
+
+// scopedTopCountries resolves visitor IPs to ISO2 country codes, filtered to the
+// caller's client_id set via the pre-built routeFilter string.
+func (r *Registry) scopedTopCountries(ctx context.Context, since time.Time, limit int, routeFilter string, idArgs []any) ([]countHit, error) {
+	resolver := geoip.Global()
+	if !resolver.Available() {
+		return nil, nil
+	}
+	q := `SELECT remote_ip, COUNT(*) c
+	      FROM host_access_log
+	      WHERE ts >= ? AND remote_ip <> '' AND ` + routeFilter + `
+	      GROUP BY remote_ip ORDER BY c DESC, remote_ip ASC LIMIT ?`
+	args := append(append([]any{since}, idArgs...), trafficCountryIPCap)
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byCC := map[string]int64{}
+	for rows.Next() {
+		var ip string
+		var c int64
+		if err := rows.Scan(&ip, &c); err != nil {
+			return nil, err
+		}
+		cc := resolver.LookupISO2(ip)
+		if cc == "" {
+			cc = "??"
+		}
+		byCC[cc] += c
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	out := make([]countHit, 0, len(byCC))
+	for cc, n := range byCC {
+		out = append(out, countHit{Value: cc, Count: n})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Count != out[j].Count {
+			return out[i].Count > out[j].Count
+		}
+		return out[i].Value < out[j].Value
+	})
+	if len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
 }
 
 // scanCountHitsArgs runs a value+count query with an arbitrary arg list.

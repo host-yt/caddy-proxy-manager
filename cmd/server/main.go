@@ -386,8 +386,6 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	clientH := &handlers.ClientHandlers{
 		DB: wizard.DB, Sessions: sessions, Templates: appTpls, Routes: routesSvc, Logger: logger,
 		State: state, SMS: smsSvc, Mailer: mailer,
-		AIFactory: aichat.NewFactory(wizard.DB(), state.Decrypt),
-		ChatStore: chatstore.New(wizard.DB()),
 	}
 
 	// Built-in forward-auth portal: local access groups + per-route grants +
