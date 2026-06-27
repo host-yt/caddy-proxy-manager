@@ -264,6 +264,8 @@ func (s *Server) routes() {
 			r.Post("/login", s.deps.Portal.LoginSubmit)
 			r.Post("/logout", s.deps.Portal.Logout)
 			r.Get("/logout", s.deps.Portal.Logout)
+			r.Get("/2fa", s.deps.Portal.Portal2FAPage)
+			r.Post("/2fa", s.deps.Portal.Portal2FASubmit)
 		})
 	}
 
