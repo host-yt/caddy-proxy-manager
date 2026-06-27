@@ -144,6 +144,25 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 		 WHERE s.client_id = ? AND l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)`, id,
 	).Scan(&d.BandwidthBytes7d)
 
+	// Load routes for all services owned by this client (up to 200).
+	rrows, rerr := db.QueryContext(ctx,
+		`SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port,
+		        r.status, COALESCE(r.ssl_enabled,0), n.name, s.name, COALESCE(r.tag,'')
+		 FROM routes r
+		 JOIN services s ON s.id=r.service_id
+		 JOIN caddy_nodes n ON n.id=r.caddy_node_id
+		 WHERE s.client_id=? ORDER BY r.status, r.domain LIMIT 200`, id)
+	if rerr == nil {
+		defer rrows.Close()
+		for rrows.Next() {
+			var row clientDetailRouteRow
+			if err := rrows.Scan(&row.RouteID, &row.Domain, &row.PathPrefix, &row.Port,
+				&row.Status, &row.SSL, &row.NodeName, &row.ServiceName, &row.Tag); err == nil {
+				d.Routes = append(d.Routes, row)
+			}
+		}
+	}
+
 	// Load admin notes; ignore errors if column not yet migrated.
 	var notes sql.NullString
 	_ = db.QueryRowContext(ctx, "SELECT COALESCE(notes,'') FROM clients WHERE id=?", id).Scan(&notes)
@@ -161,6 +180,18 @@ type clientDetailServiceRow struct {
 	ActiveRoutes int
 }
 
+type clientDetailRouteRow struct {
+	RouteID     int64
+	Domain      string
+	PathPrefix  string
+	Port        int
+	Status      string
+	SSL         bool
+	NodeName    string
+	ServiceName string
+	Tag         string
+}
+
 type clientDetailData struct {
 	baseAdminData
 	ID               int64
@@ -170,6 +201,7 @@ type clientDetailData struct {
 	StatusURL        string // e.g. /status/abcdef...
 	ShowTraffic      bool
 	Services         []clientDetailServiceRow
+	Routes           []clientDetailRouteRow
 	TotalRoutes      int
 	ActiveRoutes     int
 	BandwidthBytes7d int64  // last 7 days from host_access_log
