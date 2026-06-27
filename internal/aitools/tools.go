@@ -1117,6 +1117,9 @@ func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string,
 		CurrentRoutes int64  `json:"current_routes"`
 		Priority      int64  `json:"priority"`
 		LastSeen      string `json:"last_seen"`
+		Requests24h   int64  `json:"requests_24h"`
+		Errors24h     int64  `json:"errors_24h"`
+		Bytes24h      int64  `json:"bytes_resp_24h"`
 	}
 	var res result
 	err := r.db.QueryRowContext(ctx,
@@ -1134,6 +1137,15 @@ func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string,
 	if err != nil {
 		return "", err
 	}
+	// 24h traffic from log_rollups joined via routes.caddy_node_id.
+	_ = r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(lr.requests),0),
+		        COALESCE(SUM(lr.errors_4xx+lr.errors_5xx),0),
+		        COALESCE(SUM(lr.bytes_resp),0)
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id = lr.route_id
+		 WHERE r.caddy_node_id = ? AND lr.bucket_start >= NOW() - INTERVAL 24 HOUR`, res.ID,
+	).Scan(&res.Requests24h, &res.Errors24h, &res.Bytes24h)
 	return toJSON(res)
 }
 
