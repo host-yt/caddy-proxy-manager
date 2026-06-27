@@ -718,7 +718,7 @@ func (r *Registry) searchRoutes(ctx context.Context, raw json.RawMessage) (strin
 	}
 	limit := clampLimit(a.Limit, 20, 100)
 	pattern := "%" + strings.ReplaceAll(a.Query, "%", `\%`) + "%"
-	const q = `SELECT rt.domain, rt.path_prefix, rt.status, rt.ssl_enabled, cn.name
+	const q = `SELECT rt.domain, rt.path_prefix, rt.upstream_port, rt.status, rt.ssl_enabled, cn.name
 	           FROM routes rt JOIN caddy_nodes cn ON cn.id = rt.caddy_node_id
 	           WHERE rt.domain LIKE ? ESCAPE '\\' ORDER BY rt.domain ASC LIMIT ?`
 	rows, err := r.db.QueryContext(ctx, q, pattern, limit)
@@ -727,16 +727,17 @@ func (r *Registry) searchRoutes(ctx context.Context, raw json.RawMessage) (strin
 	}
 	defer rows.Close()
 	type route struct {
-		Domain string `json:"domain"`
-		Path   string `json:"path,omitempty"`
-		Status string `json:"status"`
-		SSL    bool   `json:"ssl"`
-		Node   string `json:"node"`
+		Domain       string `json:"domain"`
+		Path         string `json:"path,omitempty"`
+		UpstreamPort int    `json:"upstream_port"`
+		Status       string `json:"status"`
+		SSL          bool   `json:"ssl"`
+		Node         string `json:"node"`
 	}
 	out := make([]route, 0, limit)
 	for rows.Next() {
 		var rt route
-		if err := rows.Scan(&rt.Domain, &rt.Path, &rt.Status, &rt.SSL, &rt.Node); err != nil {
+		if err := rows.Scan(&rt.Domain, &rt.Path, &rt.UpstreamPort, &rt.Status, &rt.SSL, &rt.Node); err != nil {
 			return "", err
 		}
 		out = append(out, rt)
