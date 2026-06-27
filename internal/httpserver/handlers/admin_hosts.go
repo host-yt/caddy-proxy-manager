@@ -97,6 +97,9 @@ type hostRow struct {
 	// GeoMode is the per-route geo filter setting (off/allow/deny).
 	GeoMode string
 
+	// Req24h is total requests from log_rollups in the last 24 hours.
+	Req24h int64
+
 	// Derived view-model fields for the at-a-glance table (filled below).
 	BackendDisplay string
 	CertStatus     string // "active" | "pending" | "off"
@@ -258,7 +261,8 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	             COALESCE(r.require_client_cert,0),
 	             CASE WHEN r.mtls_ca_id IS NOT NULL AND mca.status='active' THEN 1 ELSE 0 END,
 	             COALESCE(NULLIF(mca.name,''), mca.common_name, ''),
-	             COALESCE(r.geo_mode,'off')
+	             COALESCE(r.geo_mode,'off'),
+	             COALESCE(lr.req24h, 0)
 	      FROM routes r
 	      JOIN services s    ON s.id = r.service_id
 	      JOIN clients c     ON c.id = s.client_id
@@ -267,6 +271,12 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	      JOIN caddy_nodes n ON n.id = r.caddy_node_id
 	      LEFT JOIN manual_certs mc ON mc.route_id = r.id
 	      LEFT JOIN mtls_cas mca ON mca.id = r.mtls_ca_id
+	      LEFT JOIN (
+	        SELECT route_id, SUM(requests) AS req24h
+	        FROM log_rollups
+	        WHERE bucket_start >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+	        GROUP BY route_id
+	      ) lr ON lr.route_id = r.id
 	      WHERE ` + whereSQL + `
 	      ORDER BY r.updated_at DESC
 	      LIMIT ? OFFSET ?`
@@ -297,6 +307,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 			&hr.SSOProviderURL, &hr.SSOStrictMode,
 			&hr.CertDaysLeft, &hr.MaintenanceMode,
 			&hr.RequireClientCert, &hr.MTLSCAActive, &hr.MTLSCAName, &hr.GeoMode,
+			&hr.Req24h,
 		); err == nil {
 			hr.ExternalHost = extHostHeader
 			hr.BackendDisplay = hostBackendDisplay(hr)
