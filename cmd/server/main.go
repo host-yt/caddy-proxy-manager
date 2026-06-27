@@ -23,11 +23,13 @@ import (
 	proxygateway "github.com/host-yt/caddy-proxy-manager"
 	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
 	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
+	"github.com/host-yt/caddy-proxy-manager/internal/aichat"
 	"github.com/host-yt/caddy-proxy-manager/internal/alert"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/backup"
 	"github.com/host-yt/caddy-proxy-manager/internal/captcha"
+	"github.com/host-yt/caddy-proxy-manager/internal/chatstore"
 	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
 	"github.com/host-yt/caddy-proxy-manager/internal/config"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/portal"
@@ -354,6 +356,8 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		AccessLogs:      alStore,
 		AccessLogBroker: alBroker,
 		WAFEvents:       wafStore,
+		AIFactory:       aichat.NewFactory(wizard.DB(), state.Decrypt),
+		ChatStore:       chatstore.New(wizard.DB()),
 	}
 
 	// Bash bootstrap script served at GET /install/node.sh.

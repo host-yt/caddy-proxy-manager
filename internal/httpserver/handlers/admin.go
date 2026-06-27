@@ -22,11 +22,13 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
 	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
+	"github.com/host-yt/caddy-proxy-manager/internal/aichat"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/backup"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/captcha"
+	"github.com/host-yt/caddy-proxy-manager/internal/chatstore"
 	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
 	"github.com/host-yt/caddy-proxy-manager/internal/deployment"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/portal"
@@ -103,6 +105,10 @@ type AdminHandlers struct {
 	WAFEvents *wafevents.Store
 	// Portal drives the built-in forward-auth access portal (groups, grants).
 	Portal *portal.Service
+	// AIFactory builds the configured provider client for the AI chat (nil-safe).
+	AIFactory *aichat.Factory
+	// ChatStore persists AI chat sessions/messages, ownership-scoped (nil-safe).
+	ChatStore *chatstore.Store
 }
 
 // adminConfigRefs holds pointers admin settings handlers can flip at runtime.
