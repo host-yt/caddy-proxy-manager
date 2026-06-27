@@ -1503,18 +1503,20 @@ func (r *Registry) routeDetailScoped(ctx context.Context, scope Scope, raw json.
 	if !scope.AllClients && len(scope.ClientIDs) == 0 {
 		return `{"error":"route not found"}`, nil
 	}
-	in, _, ok := inPlaceholders(scope.ClientIDs)
-	if !ok && !scope.AllClients {
-		return `{"error":"route not found"}`, nil
-	}
-	extra := ""
+	var extra string
+	var ownerArgs []any
 	if !scope.AllClients {
+		in, args, ok := inPlaceholders(scope.ClientIDs)
+		if !ok {
+			return `{"error":"route not found"}`, nil
+		}
 		extra = " AND s.client_id IN " + in
+		ownerArgs = args
 	}
-	return routeDetailQuery(ctx, r.db, raw, extra)
+	return routeDetailQuery(ctx, r.db, raw, extra, ownerArgs...)
 }
 
-func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, ownershipCond string) (string, error) {
+func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, ownershipCond string, ownershipArgs ...any) (string, error) {
 	if db == nil {
 		return `{"error":"db unavailable"}`, nil
 	}
@@ -1556,7 +1558,8 @@ func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, owne
 	      JOIN users u ON u.id = c.user_id
 	      WHERE (rt.id = ? OR rt.domain LIKE ? ESCAPE '\\')` + ownershipCond + `
 	      ORDER BY rt.id ASC LIMIT 1`
-	err := db.QueryRowContext(ctx, q, numID, "%"+strings.ReplaceAll(id, "%", `\%`)+"%").
+	qArgs := append([]any{numID, "%" + strings.ReplaceAll(id, "%", `\%`) + "%"}, ownershipArgs...)
+	err := db.QueryRowContext(ctx, q, qArgs...).
 		Scan(&ro.ID, &ro.Domain, &ro.Path, &ro.UpstreamPort, &ro.Status, &ro.SSL,
 			&ro.Node, &ro.Kind, &ro.WafEnabled, &ro.RateLimitRPM, &ro.Service, &ro.Client)
 	if err == sql.ErrNoRows {
