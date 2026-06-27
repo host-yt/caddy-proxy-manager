@@ -86,6 +86,14 @@ func (r *Registry) builtins() []Tool {
 			clientRelevant: true,
 			scopedExec:     r.routeLogsScoped,
 		},
+		{
+			Name:           "get_waf_events",
+			Description:    "Return recent WAF block/detect events. Filter by domain, severity (critical/high/medium/low), or action (block/detect). Useful for investigating attacks or false positives.",
+			Schema:         wafEventsSchema,
+			Exec:           r.wafEvents,
+			clientRelevant: true,
+			scopedExec:     r.wafEventsScoped,
+		},
 	}
 }
 
@@ -119,6 +127,14 @@ var routeLogsSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"route_id":{"type":"integer","description":"route ID (alternative to domain)"},` +
 	`"limit":{"type":"integer","minimum":1,"maximum":100},` +
 	`"errors_only":{"type":"boolean","description":"when true, only return status >= 400"}},` +
+	`"additionalProperties":false}`)
+
+var wafEventsSchema = json.RawMessage(`{"type":"object","properties":{` +
+	`"domain":{"type":"string","description":"filter to a specific domain (partial match)"},` +
+	`"severity":{"type":"string","description":"filter by severity: critical, high, medium, or low"},` +
+	`"action":{"type":"string","description":"filter by action: block or detect"},` +
+	`"hours":{"type":"integer","description":"look-back window in hours (default 24, max 720)","minimum":1,"maximum":720},` +
+	`"limit":{"type":"integer","minimum":1,"maximum":100}},` +
 	`"additionalProperties":false}`)
 
 // list_nodes: caddy_nodes carries no secret columns; agent_token_hash and WG
@@ -651,6 +667,68 @@ func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, 
 		return "", err
 	}
 	return toJSON(map[string]any{"route_id": routeID, "count": len(out), "entries": out})
+}
+
+// wafEvents returns recent WAF events with per-event detail.
+func (r *Registry) wafEvents(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a struct {
+		Domain   string `json:"domain"`
+		Severity string `json:"severity"`
+		Action   string `json:"action"`
+		Hours    int    `json:"hours"`
+		Limit    int    `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	hours := clampLimit(a.Hours, 24, 720)
+	limit := clampLimit(a.Limit, 30, 100)
+	since := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+
+	q := `SELECT DATE_FORMAT(ts,'%Y-%m-%dT%H:%i:%sZ'), severity, rule_id, action, remote_ip, host, uri, message
+	      FROM waf_events WHERE ts >= ?`
+	args := []any{since}
+	if a.Severity != "" {
+		q += " AND severity = ?"
+		args = append(args, a.Severity)
+	}
+	if a.Action != "" {
+		q += " AND action = ?"
+		args = append(args, a.Action)
+	}
+	if a.Domain != "" {
+		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
+		q += " AND host LIKE ? ESCAPE '\\'"
+		args = append(args, pattern)
+	}
+	q += " ORDER BY ts DESC, id DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type event struct {
+		TS       string `json:"ts"`
+		Severity string `json:"severity"`
+		RuleID   string `json:"rule_id"`
+		Action   string `json:"action"`
+		RemoteIP string `json:"remote_ip"`
+		Host     string `json:"host"`
+		URI      string `json:"uri"`
+		Message  string `json:"message"`
+	}
+	out := make([]event, 0, limit)
+	for rows.Next() {
+		var e event
+		if err := rows.Scan(&e.TS, &e.Severity, &e.RuleID, &e.Action, &e.RemoteIP, &e.Host, &e.URI, &e.Message); err != nil {
+			return "", err
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"window_hours": hours, "count": len(out), "events": out})
 }
 
 // itoa is a tiny strconv.Itoa to avoid an import only used in schema strings.
