@@ -292,6 +292,8 @@ const (
 	portal2FATTR      = 5 * time.Minute
 )
 
+const portal2FAMaxAttempts = 3
+
 type portal2FAState struct {
 	UserID     int64  `json:"u"`
 	Email      string `json:"e"`
@@ -299,6 +301,8 @@ type portal2FAState struct {
 	Back       string `json:"b"`
 	Host       string `json:"h"`
 	RememberMe bool   `json:"r"`
+	Attempts   int    `json:"a,omitempty"`
+	ExpiresAt  int64  `json:"x,omitempty"` // unix seconds; do not extend TTL on bad code
 }
 
 func (h *PortalHandlers) startPortal2FA(ctx context.Context, w http.ResponseWriter, r *http.Request,
@@ -308,7 +312,10 @@ func (h *PortalHandlers) startPortal2FA(ctx context.Context, w http.ResponseWrit
 		return err
 	}
 	nonce := base64.RawURLEncoding.EncodeToString(raw)
-	st := portal2FAState{UserID: userID, Email: email, Username: username, Back: back, Host: host, RememberMe: rememberMe}
+	st := portal2FAState{
+		UserID: userID, Email: email, Username: username, Back: back, Host: host, RememberMe: rememberMe,
+		ExpiresAt: time.Now().Add(portal2FATTR).Unix(),
+	}
 	b, _ := json.Marshal(st)
 	if err := h.RDB.Set(ctx, portal2FARedisPfx+nonce, b, portal2FATTR).Err(); err != nil {
 		return err
@@ -385,8 +392,26 @@ func (h *PortalHandlers) Portal2FASubmit(w http.ResponseWriter, r *http.Request)
 	}
 
 	if err := auth.ValidateTOTP(secret, code); err != nil {
-		// Re-mint the pending cookie (GetDel already consumed it).
-		_ = h.RDB.Set(ctx, portal2FARedisPfx+nonce, raw, portal2FATTR).Err()
+		st.Attempts++
+		h.auditPortalLogin(ctx, r, &st.UserID, "portal.2fa.fail", st.Email, st.Host, "bad_totp")
+		if h.Metrics != nil {
+			h.Metrics.LoginEvent("fail", "portal", "totp")
+		}
+		if st.Attempts >= portal2FAMaxAttempts {
+			// Consumed by GetDel above; do not re-mint. Force re-login.
+			h.clearPortal2FACookie(w)
+			http.Redirect(w, r, "/hpg-portal/login", http.StatusSeeOther)
+			return
+		}
+		remaining := time.Until(time.Unix(st.ExpiresAt, 0))
+		if remaining <= 0 {
+			h.clearPortal2FACookie(w)
+			http.Redirect(w, r, "/hpg-portal/login", http.StatusSeeOther)
+			return
+		}
+		// Re-mint with original expiry (not a fresh portal2FATTR window).
+		b2, _ := json.Marshal(st)
+		_ = h.RDB.Set(ctx, portal2FARedisPfx+nonce, b2, remaining).Err()
 		http.SetCookie(w, &http.Cookie{
 			Name: portal2FACookie, Value: nonce, Path: "/hpg-portal",
 			HttpOnly: true, Secure: h.Secure, SameSite: h.SameSite,
