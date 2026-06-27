@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"database/sql"
+	"encoding/csv"
 	"encoding/hex"
 	"fmt"
 	"net/http"
@@ -206,6 +207,53 @@ type clientDetailData struct {
 	ActiveRoutes     int
 	BandwidthBytes7d int64  // last 7 days from host_access_log
 	Notes            string // admin-only internal notes
+}
+
+// ClientsExport streams the full client list as a CSV download.
+func (h *AdminHandlers) ClientsExport(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	const query = `SELECT COALESCE(c.display_name, u.full_name, u.email), u.email,
+	               p.name, u.is_active, u.role,
+	               (SELECT COUNT(*) FROM services s WHERE s.client_id=c.id),
+	               (SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=c.id AND r.status='active'),
+	               DATE_FORMAT(u.created_at, '%Y-%m-%d')
+	               FROM clients c JOIN users u ON u.id=c.user_id JOIN plans p ON p.id=c.plan_id
+	               ORDER BY c.id DESC`
+
+	rows, err := db.QueryContext(ctx, query)
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=clients.csv")
+	w.Header().Set("Cache-Control", "no-store")
+
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"name", "email", "plan", "active", "role", "services", "active_routes", "created_at"})
+	for rows.Next() {
+		var name, email, plan, role, createdAt string
+		var isActive bool
+		var services, activeRoutes int
+		if err := rows.Scan(&name, &email, &plan, &isActive, &role, &services, &activeRoutes, &createdAt); err != nil {
+			continue
+		}
+		active := "0"
+		if isActive {
+			active = "1"
+		}
+		_ = cw.Write([]string{name, email, plan, active, role, strconv.Itoa(services), strconv.Itoa(activeRoutes), createdAt})
+	}
+	cw.Flush()
 }
 
 // ClientsUpdateNotes saves admin-only notes for a client (POST /admin/clients/{id}/notes).

@@ -424,6 +424,7 @@ func (s *Server) routes() {
 		})
 		r.Route("/clients", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.ClientsList)
+			r.Get("/export.csv", s.deps.Admin.ClientsExport)
 			r.Post("/", s.deps.Admin.ClientsCreate)
 			r.Post("/{id}/edit", s.deps.Admin.ClientsUpdate)
 			r.Post("/{id}/delete", s.deps.Admin.ClientsDelete)
