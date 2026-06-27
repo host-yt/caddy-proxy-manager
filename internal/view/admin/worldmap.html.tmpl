@@ -51,16 +51,16 @@
     </div>
     <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
       <span>Fewer</span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#e0e7ff"></span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#a5b4fc"></span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#6366f1"></span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#4338ca"></span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#312e81"></span>
+      <span class="inline-block w-4 h-3 rounded-sm bg-indigo-100 dark:bg-indigo-950"></span>
+      <span class="inline-block w-4 h-3 rounded-sm bg-indigo-300"></span>
+      <span class="inline-block w-4 h-3 rounded-sm bg-indigo-500"></span>
+      <span class="inline-block w-4 h-3 rounded-sm bg-indigo-700"></span>
+      <span class="inline-block w-4 h-3 rounded-sm bg-indigo-900"></span>
       <span>More</span>
     </div>
   </div>
 
-  <div class="relative bg-slate-50 dark:bg-zinc-900 select-none overflow-hidden" id="worldmap-wrap">
+  <div class="relative bg-slate-50 dark:bg-zinc-900 select-none overflow-hidden max-h-[50vh]" id="worldmap-wrap">
     {{if .WorldSVG}}
     <div id="worldmap-inner" class="w-full">{{.WorldSVG}}</div>
     {{else}}
@@ -72,7 +72,7 @@
       <svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="m15 9-6 6M9 9l6 6"/></svg>
       Reset zoom
     </button>
-    <p class="absolute bottom-2 left-0 right-0 text-center text-[10px] text-slate-400/60 dark:text-slate-600/60 pointer-events-none select-none">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</p>
+    <p class="absolute bottom-2 left-0 right-0 text-center text-[10px] text-slate-400/60 dark:text-slate-600/60 pointer-events-none select-none">Ctrl+scroll to zoom &middot; Drag to pan &middot; Double-click to reset</p>
     <div id="wm-tooltip"
          class="pointer-events-none absolute z-20 hidden rounded-lg bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 shadow-lg shadow-slate-900/10 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 min-w-[140px]">
       <p id="wm-tt-name" class="font-semibold text-sm text-slate-900 dark:text-white mb-0.5"></p>
@@ -148,9 +148,23 @@
 
   var countryNames = {"AE":"UAE","AF":"Afghanistan","AL":"Albania","AM":"Armenia","AO":"Angola","AR":"Argentina","AT":"Austria","AU":"Australia","AZ":"Azerbaijan","BA":"Bosnia","BD":"Bangladesh","BE":"Belgium","BF":"Burkina Faso","BG":"Bulgaria","BI":"Burundi","BJ":"Benin","BN":"Brunei","BO":"Bolivia","BR":"Brazil","BT":"Bhutan","BW":"Botswana","BY":"Belarus","BZ":"Belize","CA":"Canada","CD":"DR Congo","CF":"CAR","CG":"Congo","CH":"Switzerland","CI":"Ivory Coast","CL":"Chile","CM":"Cameroon","CN":"China","CO":"Colombia","CR":"Costa Rica","CU":"Cuba","CY":"Cyprus","CZ":"Czech Republic","DE":"Germany","DJ":"Djibouti","DK":"Denmark","DO":"Dominican Rep.","DZ":"Algeria","EC":"Ecuador","EE":"Estonia","EG":"Egypt","EH":"W. Sahara","ER":"Eritrea","ES":"Spain","ET":"Ethiopia","FI":"Finland","FJ":"Fiji","FR":"France","GA":"Gabon","GB":"United Kingdom","GE":"Georgia","GH":"Ghana","GL":"Greenland","GN":"Guinea","GQ":"Eq. Guinea","GR":"Greece","GT":"Guatemala","GW":"Guinea-Bissau","GY":"Guyana","HN":"Honduras","HR":"Croatia","HT":"Haiti","HU":"Hungary","ID":"Indonesia","IE":"Ireland","IL":"Israel","IN":"India","IQ":"Iraq","IR":"Iran","IS":"Iceland","IT":"Italy","JO":"Jordan","JP":"Japan","KE":"Kenya","KG":"Kyrgyzstan","KH":"Cambodia","KP":"North Korea","KR":"South Korea","KW":"Kuwait","KZ":"Kazakhstan","LA":"Laos","LB":"Lebanon","LK":"Sri Lanka","LR":"Liberia","LS":"Lesotho","LT":"Lithuania","LV":"Latvia","LY":"Libya","MA":"Morocco","MD":"Moldova","ME":"Montenegro","MG":"Madagascar","MK":"North Macedonia","ML":"Mali","MM":"Myanmar","MN":"Mongolia","MR":"Mauritania","MW":"Malawi","MX":"Mexico","MY":"Malaysia","MZ":"Mozambique","NA":"Namibia","NC":"New Caledonia","NE":"Niger","NG":"Nigeria","NI":"Nicaragua","NL":"Netherlands","NO":"Norway","NP":"Nepal","NZ":"New Zealand","OM":"Oman","PA":"Panama","PE":"Peru","PG":"Papua New Guinea","PH":"Philippines","PK":"Pakistan","PL":"Poland","PR":"Puerto Rico","PS":"Palestine","PT":"Portugal","PY":"Paraguay","QA":"Qatar","RO":"Romania","RS":"Serbia","RU":"Russia","RW":"Rwanda","SA":"Saudi Arabia","SD":"Sudan","SE":"Sweden","SI":"Slovenia","SK":"Slovakia","SL":"Sierra Leone","SN":"Senegal","SO":"Somalia","SR":"Suriname","SS":"South Sudan","SV":"El Salvador","SY":"Syria","SZ":"Eswatini","TD":"Chad","TF":"Fr. South Territories","TG":"Togo","TH":"Thailand","TJ":"Tajikistan","TL":"Timor-Leste","TM":"Turkmenistan","TN":"Tunisia","TR":"Turkey","TW":"Taiwan","TZ":"Tanzania","UA":"Ukraine","UG":"Uganda","US":"United States","UY":"Uruguay","UZ":"Uzbekistan","VE":"Venezuela","VN":"Vietnam","YE":"Yemen","ZA":"South Africa","ZM":"Zambia","ZW":"Zimbabwe","SG":"Singapore","HK":"Hong Kong","LU":"Luxembourg","MT":"Malta","LI":"Liechtenstein","AD":"Andorra","MC":"Monaco","SM":"San Marino","MV":"Maldives","BB":"Barbados","JM":"Jamaica","TT":"Trinidad & Tobago","BS":"Bahamas"};
 
-  var ramp = ['#e0e7ff','#a5b4fc','#6366f1','#4338ca','#312e81'];
   var max = 0;
   Object.keys(counts).forEach(function(k){ if (counts[k] > max) max = counts[k]; });
+
+  // Read primary accent colors from CSS variables so the map adapts to palette switches.
+  function cssRGB(v) {
+    var ch = getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+    return 'rgb(' + ch.replace(/\s+/g, ',') + ')';
+  }
+  function getRamp() {
+    return [
+      cssRGB('--c-indigo-100'),
+      cssRGB('--c-indigo-300'),
+      cssRGB('--c-indigo-500'),
+      cssRGB('--c-indigo-700'),
+      cssRGB('--c-indigo-900'),
+    ];
+  }
 
   function isDark() { return document.documentElement.classList.contains('dark'); }
   function getNeutral() { return isDark() ? '#3f3f46' : '#e2e8f0'; }
@@ -158,8 +172,9 @@
 
   function bucketColor(v) {
     if (!v || max <= 0) return getNeutral();
-    var idx = Math.ceil(v / max * ramp.length) - 1;
-    return ramp[Math.max(0, Math.min(idx, ramp.length - 1))];
+    var r = getRamp();
+    var idx = Math.ceil(v / max * r.length) - 1;
+    return r[Math.max(0, Math.min(idx, r.length - 1))];
   }
 
   var wrap    = document.getElementById('worldmap-wrap');
@@ -181,13 +196,13 @@
     if (!path) return;
     var v = counts[path.getAttribute('id')] || 0;
     if (on) {
-      path.setAttribute('stroke', '#4338ca');
+      path.setAttribute('stroke', cssRGB('--c-indigo-700'));
       path.setAttribute('stroke-width', '1.5');
       path.style.filter = 'brightness(1.12)';
     } else {
       path.setAttribute('fill', bucketColor(v));
       path.setAttribute('stroke', getStroke());
-      path.setAttribute('stroke-width', '0.4');
+      path.setAttribute('stroke-width', '0.15');
       path.style.filter = '';
     }
   }
@@ -220,6 +235,7 @@
     }
 
     svgEl.addEventListener('wheel', function(e) {
+      if (!e.ctrlKey && !e.metaKey) return; // let page scroll; zoom only on Ctrl+scroll
       e.preventDefault();
       var rect = svgEl.getBoundingClientRect();
       var mx = curVB.x + (e.clientX - rect.left) / rect.width  * curVB.w;
@@ -298,6 +314,7 @@
     svgEl.style.display = 'block';
     svgEl.style.width   = '100%';
     svgEl.style.height  = 'auto';
+    svgEl.style.maxHeight = '50vh';
 
     initZoom(svgEl);
 
@@ -307,7 +324,7 @@
       var v = counts[code] || 0;
       path.setAttribute('fill', bucketColor(v));
       path.setAttribute('stroke', getStroke());
-      path.setAttribute('stroke-width', '0.4');
+      path.setAttribute('stroke-width', '0.15');
       path.style.transition = 'filter .1s';
 
       path.addEventListener('mouseenter', function(e) {
