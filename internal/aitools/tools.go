@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -172,6 +173,12 @@ func (r *Registry) builtins() []Tool {
 			Description: "List manual SSL certificates sorted by expiry (soonest first). Returns name, common_name, SANs, not_after, days_left (negative = already expired).",
 			Schema:      limitSchema(50),
 			Exec:        r.listSSLCerts,
+		},
+		{
+			Name:        "get_plan_violations",
+			Description: "List clients exceeding their plan limits: route quota, WebSocket access without the feature, and ForceHTTPS without the flag. Use to identify clients needing plan upgrades or to audit over-provisioned accounts.",
+			Schema:      emptyObjectSchema,
+			Exec:        r.planViolations,
 		},
 	}
 }
@@ -1394,4 +1401,79 @@ func itoa(n int) string {
 		buf[i] = '-'
 	}
 	return string(buf[i:])
+}
+
+// planViolations returns clients that exceed their plan limits.
+func (r *Registry) planViolations(ctx context.Context, _ json.RawMessage) (string, error) {
+	if r.db == nil {
+		return `{"error":"db unavailable"}`, nil
+	}
+	type violation struct {
+		ClientEmail string `json:"client_email"`
+		PlanName    string `json:"plan_name"`
+		Reason      string `json:"reason"`
+	}
+	seen := map[string]struct{}{}
+	var out []violation
+
+	// Routes exceed plan max_domains.
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT COALESCE(NULLIF(c.display_name,''), u.email), p.name, COUNT(r.id), p.max_domains
+		 FROM clients c
+		 JOIN users u ON u.id=c.user_id
+		 JOIN plans p ON p.id=c.plan_id
+		 JOIN services s ON s.client_id=c.id
+		 JOIN routes r ON r.service_id=s.id
+		 WHERE r.status IN ('active','pending_dns','dns_ok','pending_ssl')
+		 GROUP BY c.id, c.display_name, u.email, p.name, p.max_domains
+		 HAVING COUNT(r.id) > p.max_domains AND p.max_domains > 0
+		 LIMIT 50`)
+	if err == nil {
+		for rows.Next() {
+			var email, plan string
+			var cnt, max int
+			if rows.Scan(&email, &plan, &cnt, &max) == nil {
+				key := email + ":domains"
+				if _, dup := seen[key]; !dup {
+					seen[key] = struct{}{}
+					out = append(out, violation{ClientEmail: email, PlanName: plan,
+						Reason: fmt.Sprintf("routes (%d) > max_domains (%d)", cnt, max)})
+				}
+			}
+		}
+		rows.Close()
+	}
+
+	// WebSocket routes without plan.websocket.
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT COALESCE(NULLIF(c.display_name,''), u.email), p.name
+		 FROM clients c
+		 JOIN users u ON u.id=c.user_id
+		 JOIN plans p ON p.id=c.plan_id
+		 JOIN services s ON s.client_id=c.id
+		 JOIN routes r ON r.service_id=s.id
+		 WHERE r.websocket=1 AND p.websocket=0
+		   AND r.status NOT IN ('disabled')
+		 GROUP BY c.id, c.display_name, u.email, p.name
+		 LIMIT 50`)
+	if err == nil {
+		for rows.Next() {
+			var email, plan string
+			if rows.Scan(&email, &plan) == nil {
+				key := email + ":ws"
+				if _, dup := seen[key]; !dup {
+					seen[key] = struct{}{}
+					out = append(out, violation{ClientEmail: email, PlanName: plan,
+						Reason: "websocket route without plan.websocket flag"})
+				}
+			}
+		}
+		rows.Close()
+	}
+
+	if out == nil {
+		out = []violation{}
+	}
+	b, _ := json.Marshal(map[string]any{"violations": out, "count": len(out)})
+	return string(b), nil
 }
