@@ -150,5 +150,11 @@ func TestNoSQLAntiPatterns(t *testing.T) {
 				t.Errorf("%s: filter waf_events by we.ts (indexed), not we.created_at", e.Name())
 			}
 		}
+		// plans column is websocket_enabled; p.websocket=N in SQL (without _enabled) does not exist.
+		if strings.Contains(code, "p.websocket=") || strings.Contains(code, "p.websocket =") {
+			if !strings.Contains(code, "p.websocket_enabled") {
+				t.Errorf("%s: plans column is websocket_enabled, not websocket", e.Name())
+			}
+		}
 	}
 }
