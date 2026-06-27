@@ -180,6 +180,13 @@ func (r *Registry) builtins() []Tool {
 			Schema:      emptyObjectSchema,
 			Exec:        r.planViolations,
 		},
+		{
+			Name:           "get_route_detail",
+			Description:    "Look up full details for a single route by domain or route_id: metadata (status, node, plan, waf, rate_limit) plus 24h traffic and 7d bandwidth from log_rollups.",
+			Schema:         identifierSchema,
+			Exec:           r.routeDetail,
+			scopedExec:     r.routeDetailScoped,
+		},
 	}
 }
 
@@ -1522,4 +1529,85 @@ func (r *Registry) planViolations(ctx context.Context, _ json.RawMessage) (strin
 	}
 	b, _ := json.Marshal(map[string]any{"violations": out, "count": len(out)})
 	return string(b), nil
+}
+
+// routeDetail looks up a single route by domain (LIKE) or numeric ID.
+func (r *Registry) routeDetail(ctx context.Context, raw json.RawMessage) (string, error) {
+	return routeDetailQuery(ctx, r.db, raw, "")
+}
+
+// routeDetailScoped enforces tenant boundary: route must belong to scope.ClientIDs.
+func (r *Registry) routeDetailScoped(ctx context.Context, scope Scope, raw json.RawMessage) (string, error) {
+	if !scope.AllClients && len(scope.ClientIDs) == 0 {
+		return `{"error":"route not found"}`, nil
+	}
+	in, _, ok := inPlaceholders(scope.ClientIDs)
+	if !ok && !scope.AllClients {
+		return `{"error":"route not found"}`, nil
+	}
+	extra := ""
+	if !scope.AllClients {
+		extra = " AND s.client_id IN " + in
+	}
+	return routeDetailQuery(ctx, r.db, raw, extra)
+}
+
+func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, ownershipCond string) (string, error) {
+	if db == nil {
+		return `{"error":"db unavailable"}`, nil
+	}
+	var a struct {
+		Identifier string `json:"identifier"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	id := strings.TrimSpace(a.Identifier)
+	if id == "" {
+		return `{"error":"identifier required"}`, nil
+	}
+	numID, _ := strconv.ParseInt(id, 10, 64)
+	type res struct {
+		ID           int64  `json:"id"`
+		Domain       string `json:"domain"`
+		Path         string `json:"path,omitempty"`
+		UpstreamPort int    `json:"upstream_port"`
+		Status       string `json:"status"`
+		SSL          bool   `json:"ssl"`
+		Node         string `json:"node"`
+		Kind         string `json:"kind"`
+		WafEnabled   bool   `json:"waf_enabled"`
+		RateLimitRPM int    `json:"rate_limit_rpm"`
+		Service      string `json:"service"`
+		Client       string `json:"client"`
+		Requests24h  int64  `json:"requests_24h"`
+		Errors24h    int64  `json:"errors_24h"`
+		Bytes7d      int64  `json:"bytes_resp_7d"`
+	}
+	var ro res
+	q := `SELECT rt.id, rt.domain, COALESCE(rt.path_prefix,''), rt.upstream_port,
+	             rt.status, rt.ssl_enabled, cn.name, rt.kind,
+	             COALESCE(rt.waf_enabled,0), COALESCE(rt.rate_limit_rpm,0),
+	             s.name, COALESCE(NULLIF(c.display_name,''), u.email)
+	      FROM routes rt
+	      JOIN caddy_nodes cn ON cn.id = rt.caddy_node_id
+	      JOIN services s ON s.id = rt.service_id
+	      JOIN clients c ON c.id = s.client_id
+	      JOIN users u ON u.id = c.user_id
+	      WHERE (rt.id = ? OR rt.domain LIKE ? ESCAPE '\\')` + ownershipCond + `
+	      ORDER BY rt.id ASC LIMIT 1`
+	err := db.QueryRowContext(ctx, q, numID, "%"+strings.ReplaceAll(id, "%", `\%`)+"%").
+		Scan(&ro.ID, &ro.Domain, &ro.Path, &ro.UpstreamPort, &ro.Status, &ro.SSL,
+			&ro.Node, &ro.Kind, &ro.WafEnabled, &ro.RateLimitRPM, &ro.Service, &ro.Client)
+	if err == sql.ErrNoRows {
+		return `{"error":"route not found"}`, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	_ = db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(CASE WHEN bucket_start >= NOW() - INTERVAL 24 HOUR THEN requests ELSE 0 END),0),
+		        COALESCE(SUM(CASE WHEN bucket_start >= NOW() - INTERVAL 24 HOUR THEN errors_4xx+errors_5xx ELSE 0 END),0),
+		        COALESCE(SUM(bytes_resp),0)
+		 FROM log_rollups WHERE route_id = ? AND bucket_start >= NOW() - INTERVAL 7 DAY`, ro.ID,
+	).Scan(&ro.Requests24h, &ro.Errors24h, &ro.Bytes7d)
+	return toJSON(ro)
 }
