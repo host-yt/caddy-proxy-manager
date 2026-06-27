@@ -135,6 +135,16 @@
       </div>
       {{end}}
 
+      <p class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 px-3 mb-1.5 mt-5 pt-4 border-t border-slate-200/80 dark:border-zinc-800">AI</p>
+      <div class="space-y-0.5">
+        <a href="/admin/ai/chat" class="flex items-center gap-2 px-3 py-1.5 rounded-lg border-l-2 transition-colors {{if eq .Page "ai_chat"}}bg-indigo-50 text-indigo-600 font-medium border-indigo-500 ring-1 ring-indigo-200 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/30{{else}}border-transparent text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+          </svg>
+          AI assistant
+        </a>
+      </div>
+
       <div class="mt-5 pt-4 border-t border-slate-200 dark:border-zinc-800">
         <a href="/api-docs" target="_blank" rel="noopener" class="block px-3 py-1.5 rounded-lg transition-colors text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-white">API docs ↗</a>
       </div>
@@ -250,6 +260,7 @@
     {{if eq .Page "legal"}}{{template "legal" .Data}}{{end}}
     {{if eq .Page "mtls"}}{{template "mtls" .Data}}{{end}}
     {{if eq .Page "mtls_crl"}}{{template "mtls_crl" .Data}}{{end}}
+    {{if eq .Page "ai_chat"}}{{template "ai_chat" .Data}}{{end}}
   </main>
   <footer class="px-6 py-3 text-center">
     <p class="text-[10px] text-slate-400 dark:text-slate-600">Made with ❤️ in 🇺🇦 &amp; 🇵🇱</p>
