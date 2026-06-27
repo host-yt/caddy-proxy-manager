@@ -327,6 +327,7 @@ func (s *Server) routes() {
 			r.Post("/{id}/approve", s.deps.Admin.NodesApprove)
 			r.Post("/{id}/decommission", s.deps.Admin.NodesDecommission)
 			r.Post("/{id}/rekey", s.deps.Admin.NodesRekey)
+			r.Post("/{id}/probe-capabilities", s.deps.Admin.ProbeNodeCapabilities)
 		})
 		r.Get("/certs", s.deps.Admin.CertsList)
 		r.Route("/manual-certs", func(r chi.Router) {

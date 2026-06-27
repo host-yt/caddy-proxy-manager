@@ -744,6 +744,65 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/nodes", "Node updated", "")
 }
 
+// ProbeNodeCapabilities handles POST /admin/nodes/{id}/probe-capabilities.
+// Calls the node's Caddy admin API, maps modules to capability flags, and updates caddy_nodes.
+func (h *AdminHandlers) ProbeNodeCapabilities(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "no db"})
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if id == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "invalid node id"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	var apiURL string
+	if err := db.QueryRowContext(ctx, "SELECT api_url FROM caddy_nodes WHERE id = ?", id).Scan(&apiURL); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "node not found"})
+		return
+	}
+
+	client := caddyapi.New(apiURL)
+	caps, err := caddyapi.ProbeCapabilities(ctx, client)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadGateway)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+
+	_, dbErr := db.ExecContext(ctx,
+		`UPDATE caddy_nodes SET has_waf=?, has_l4=?, has_dns_module=?, has_rate_limit=?, has_geoip=?, modules_probed_at=NOW()
+		 WHERE id=?`,
+		caps.HasWAF, caps.HasL4, caps.HasDNS, caps.HasRateLimit, caps.HasGeoIP, id)
+	if dbErr != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "db update failed: " + sanitizeErr(dbErr)})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ok":           true,
+		"has_waf":      caps.HasWAF,
+		"has_l4":       caps.HasL4,
+		"has_dns":      caps.HasDNS,
+		"has_rate_limit": caps.HasRateLimit,
+		"has_geoip":    caps.HasGeoIP,
+	})
+}
+
 func (h *AdminHandlers) NodesToggle(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	if db == nil {
