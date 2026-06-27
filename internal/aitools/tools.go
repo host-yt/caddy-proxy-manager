@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
@@ -59,6 +60,24 @@ func (r *Registry) builtins() []Tool {
 			Schema:      emptyObjectSchema,
 			Exec:        r.nodeHealth,
 		},
+		{
+			Name:        "get_recent_alerts",
+			Description: "Return the most recent fired alerts (node offline, cert expiry, etc.) from the alert log.",
+			Schema:      limitSchema(20),
+			Exec:        r.recentAlerts,
+		},
+		{
+			Name:        "get_waf_summary",
+			Description: "WAF events summary over the last N hours: counts by severity and action, top attacking IPs, top targeted hosts.",
+			Schema:      trafficSchema,
+			Exec:        r.wafSummary,
+		},
+		{
+			Name:        "search_routes",
+			Description: "Search proxy routes by domain name substring (case-insensitive). Returns domain, status, SSL, node.",
+			Schema:      searchRoutesSchema,
+			Exec:        r.searchRoutes,
+		},
 	}
 }
 
@@ -80,6 +99,11 @@ var listRoutesSchema = json.RawMessage(`{"type":"object","properties":{` +
 var trafficSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"hours":{"type":"integer","description":"window size in hours (default 24, max 720)","minimum":1,"maximum":720},` +
 	`"top":{"type":"integer","description":"top-N hosts/IPs (default 5, max 20)","minimum":1,"maximum":20}},` +
+	`"additionalProperties":false}`)
+
+var searchRoutesSchema = json.RawMessage(`{"type":"object","required":["query"],"properties":{` +
+	`"query":{"type":"string","description":"domain substring to search for","minLength":1,"maxLength":253},` +
+	`"limit":{"type":"integer","minimum":1,"maximum":100}},` +
 	`"additionalProperties":false}`)
 
 // list_nodes: caddy_nodes carries no secret columns; agent_token_hash and WG
@@ -401,6 +425,157 @@ func (r *Registry) nodeHealth(ctx context.Context, _ json.RawMessage) (string, e
 		"enabled":   totalEnabled,
 		"disabled":  total - totalEnabled,
 	})
+}
+
+// recentAlerts: reads alert_log, safe non-secret columns only.
+func (r *Registry) recentAlerts(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a limitArgs
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 20, 100)
+	const q = `SELECT rule_id, severity, title, COALESCE(detail,''), fired_at
+	           FROM alert_log ORDER BY fired_at DESC LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, q, limit)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type alert struct {
+		RuleID   string `json:"rule_id"`
+		Severity string `json:"severity"`
+		Title    string `json:"title"`
+		Detail   string `json:"detail,omitempty"`
+		FiredAt  string `json:"fired_at"`
+	}
+	out := make([]alert, 0, limit)
+	for rows.Next() {
+		var a alert
+		var firedAt time.Time
+		if err := rows.Scan(&a.RuleID, &a.Severity, &a.Title, &a.Detail, &firedAt); err != nil {
+			return "", err
+		}
+		a.FiredAt = firedAt.UTC().Format(time.RFC3339)
+		out = append(out, a)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"alerts": out, "count": len(out)})
+}
+
+// wafSummary: counts + top attackers + top targets from waf_events.
+func (r *Registry) wafSummary(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a trafficArgs
+	_ = json.Unmarshal(raw, &a)
+	hours := clampLimit(a.Hours, 24, 720)
+	top := clampLimit(a.Top, 5, 20)
+	since := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+
+	// Counts by severity.
+	bySeverity := map[string]int64{}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT severity, COUNT(*) FROM waf_events WHERE ts >= ? GROUP BY severity`, since)
+	if err != nil {
+		return "", err
+	}
+	for rows.Next() {
+		var sev string
+		var cnt int64
+		if err := rows.Scan(&sev, &cnt); err != nil {
+			rows.Close()
+			return "", err
+		}
+		bySeverity[sev] = cnt
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+
+	// Counts by action.
+	byAction := map[string]int64{}
+	rows, err = r.db.QueryContext(ctx,
+		`SELECT action, COUNT(*) FROM waf_events WHERE ts >= ? GROUP BY action`, since)
+	if err != nil {
+		return "", err
+	}
+	for rows.Next() {
+		var act string
+		var cnt int64
+		if err := rows.Scan(&act, &cnt); err != nil {
+			rows.Close()
+			return "", err
+		}
+		byAction[act] = cnt
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+
+	// Top attacking IPs.
+	topIPs, err := scanCountHits(ctx, r.db,
+		`SELECT remote_ip, COUNT(*) c FROM waf_events WHERE ts >= ? AND remote_ip <> '' GROUP BY remote_ip ORDER BY c DESC, remote_ip ASC LIMIT ?`,
+		since, top)
+	if err != nil {
+		return "", err
+	}
+
+	// Top targeted hosts.
+	topHosts, err := scanCountHits(ctx, r.db,
+		`SELECT host, COUNT(*) c FROM waf_events WHERE ts >= ? AND host <> '' GROUP BY host ORDER BY c DESC, host ASC LIMIT ?`,
+		since, top)
+	if err != nil {
+		return "", err
+	}
+
+	return toJSON(map[string]any{
+		"window_hours": hours,
+		"by_severity":  bySeverity,
+		"by_action":    byAction,
+		"top_ips":      topIPs,
+		"top_hosts":    topHosts,
+	})
+}
+
+// searchRoutes: case-insensitive domain LIKE search.
+func (r *Registry) searchRoutes(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a struct {
+		Query string `json:"query"`
+		Limit int    `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	if a.Query == "" {
+		return toJSON(map[string]any{"routes": []any{}, "count": 0})
+	}
+	limit := clampLimit(a.Limit, 20, 100)
+	pattern := "%" + strings.ReplaceAll(a.Query, "%", `\%`) + "%"
+	const q = `SELECT rt.domain, rt.path_prefix, rt.status, rt.ssl_enabled, cn.name
+	           FROM routes rt JOIN caddy_nodes cn ON cn.id = rt.caddy_node_id
+	           WHERE rt.domain LIKE ? ESCAPE '\\' ORDER BY rt.domain ASC LIMIT ?`
+	rows, err := r.db.QueryContext(ctx, q, pattern, limit)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type route struct {
+		Domain string `json:"domain"`
+		Path   string `json:"path,omitempty"`
+		Status string `json:"status"`
+		SSL    bool   `json:"ssl"`
+		Node   string `json:"node"`
+	}
+	out := make([]route, 0, limit)
+	for rows.Next() {
+		var rt route
+		if err := rows.Scan(&rt.Domain, &rt.Path, &rt.Status, &rt.SSL, &rt.Node); err != nil {
+			return "", err
+		}
+		out = append(out, rt)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"routes": out, "count": len(out)})
 }
 
 // itoa is a tiny strconv.Itoa to avoid an import only used in schema strings.
