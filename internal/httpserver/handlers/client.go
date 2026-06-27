@@ -1512,6 +1512,8 @@ type clientRouteLogsData struct {
 	BytesSummary     accesslog.BytesSummary
 	TopPaths         []accesslog.PathHit
 	TopCountries     []accesslog.CountryHit
+	TopRemoteIPs     []accesslog.RemoteIPHit
+	TopASNOrgs       []accesslog.ASNOrgHit
 	BandwidthDays    []accesslog.BandwidthDayBucket // 7-day daily totals
 	BandwidthTotal7d int64                          // sum across BandwidthDays
 	MaxDayBytes      int64                          // max bucket for bar scaling
@@ -1581,6 +1583,12 @@ func (h *ClientHandlers) RouteLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		if countries, err := h.AccessLogs.TopCountries(ctx, f, 10); err == nil {
 			d.TopCountries = countries
+		}
+		if ips, err := h.AccessLogs.TopRemoteIPs(ctx, f, 5); err == nil {
+			d.TopRemoteIPs = ips
+		}
+		if asns, err := h.AccessLogs.TopASNOrgs(ctx, f, 5); err == nil {
+			d.TopASNOrgs = asns
 		}
 		// 7-day daily bandwidth sparkline.
 		bwFrom := now.Add(-7 * 24 * time.Hour)
