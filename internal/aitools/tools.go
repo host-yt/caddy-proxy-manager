@@ -87,6 +87,12 @@ func (r *Registry) builtins() []Tool {
 			scopedExec:     r.routeLogsScoped,
 		},
 		{
+			Name:        "list_wg_peers",
+			Description: "List WireGuard tunnel peers: name, status, assigned IP, last handshake age. Useful for debugging tunnel connectivity issues. Private keys are never exposed.",
+			Schema:      json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","description":"filter by status: active, revoked, pending"},"limit":{"type":"integer","minimum":1,"maximum":200}},"additionalProperties":false}`),
+			Exec:        r.listWGPeers,
+		},
+		{
 			Name:        "get_backup_status",
 			Description: "Return recent backup job history (last N jobs): destination name, kind, status, size, duration, error. config_enc is never exposed.",
 			Schema:      json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`),
@@ -673,6 +679,66 @@ func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, 
 		return "", err
 	}
 	return toJSON(map[string]any{"route_id": routeID, "count": len(out), "entries": out})
+}
+
+// listWGPeers returns WireGuard peer status. Private/server keys never selected.
+func (r *Registry) listWGPeers(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a struct {
+		Status string `json:"status"`
+		Limit  int    `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 50, 200)
+
+	q := `SELECT p.name, p.status, p.assigned_ip,
+	             COALESCE(DATE_FORMAT(p.last_handshake_at,'%Y-%m-%dT%H:%i:%sZ'),''),
+	             TIMESTAMPDIFF(SECOND, p.last_handshake_at, NOW()),
+	             p.rx_bytes, p.tx_bytes,
+	             COALESCE(u.email,''), n.name
+	      FROM customer_wg_peer p
+	      JOIN clients c ON c.id = p.client_id
+	      JOIN users u ON u.id = c.user_id
+	      LEFT JOIN caddy_nodes n ON n.id = p.node_id`
+	args := []any{}
+	if a.Status != "" {
+		q += " WHERE p.status = ?"
+		args = append(args, a.Status)
+	}
+	q += " ORDER BY p.last_handshake_at DESC, p.id DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type peer struct {
+		Name           string `json:"name"`
+		Status         string `json:"status"`
+		AssignedIP     string `json:"assigned_ip"`
+		LastHandshake  string `json:"last_handshake,omitempty"`
+		HandshakeAgeSec int64 `json:"handshake_age_sec,omitempty"`
+		RxBytes        int64  `json:"rx_bytes"`
+		TxBytes        int64  `json:"tx_bytes"`
+		ClientEmail    string `json:"client_email"`
+		NodeName       string `json:"node,omitempty"`
+	}
+	out := make([]peer, 0, limit)
+	for rows.Next() {
+		var p peer
+		var ageSec sql.NullInt64
+		if err := rows.Scan(&p.Name, &p.Status, &p.AssignedIP, &p.LastHandshake, &ageSec, &p.RxBytes, &p.TxBytes, &p.ClientEmail, &p.NodeName); err != nil {
+			return "", err
+		}
+		if ageSec.Valid {
+			p.HandshakeAgeSec = ageSec.Int64
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"count": len(out), "peers": out})
 }
 
 // backupStatus returns recent backup job history. config_enc is never selected.
