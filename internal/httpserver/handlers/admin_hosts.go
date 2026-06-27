@@ -1478,6 +1478,26 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			touchedNodes[nodeID] = struct{}{}
+		case "set_tag":
+			tag := strings.TrimSpace(r.FormValue("tag"))
+			if len(tag) > 64 {
+				tag = tag[:64]
+			}
+			if tag == "" {
+				fail++
+				continue
+			}
+			if _, derr := h.DB().ExecContext(ctx,
+				"UPDATE routes SET tag=?, updated_at=NOW() WHERE id=?", tag, id); derr != nil {
+				fail++
+				continue
+			}
+		case "clear_tag":
+			if _, derr := h.DB().ExecContext(ctx,
+				"UPDATE routes SET tag=NULL, updated_at=NOW() WHERE id=?", id); derr != nil {
+				fail++
+				continue
+			}
 		default:
 			fail++
 			continue
