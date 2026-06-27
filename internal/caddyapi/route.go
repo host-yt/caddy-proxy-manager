@@ -2,6 +2,7 @@ package caddyapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"strings"
 )
@@ -164,6 +165,10 @@ type Route struct {
 	LBTryDurationMs int
 	// LBTryIntervalMs: delay (ms) between retry attempts. 0 = no inter-attempt delay.
 	LBTryIntervalMs int
+	// DialTimeoutMs: per-route dial timeout override (0 = use default 10s).
+	DialTimeoutMs int
+	// ResponseHeaderTimeoutMs: per-route response header timeout (0 = no limit).
+	ResponseHeaderTimeoutMs int
 
 	// Active health check; HealthURI=="" disables it.
 	HealthURI          string
@@ -432,9 +437,16 @@ func BuildRoute(r Route) map[string]any {
 		// Bounded HTTP transport: a dead upstream must fail the dial fast
 		// instead of pinning the proxied request. Keep-alive pooling is
 		// Caddy's default (32 idle conns/host, 2m idle) so we don't restate it.
+		dialTO := "10s"
+		if r.DialTimeoutMs > 0 {
+			dialTO = fmt.Sprintf("%dms", r.DialTimeoutMs)
+		}
 		transport := map[string]any{
 			"protocol":     "http",
-			"dial_timeout": "10s",
+			"dial_timeout": dialTO,
+		}
+		if r.ResponseHeaderTimeoutMs > 0 {
+			transport["response_header_timeout"] = fmt.Sprintf("%dms", r.ResponseHeaderTimeoutMs)
 		}
 		// https backend → tls block on the same transport.
 		if r.UpstreamScheme == "https" {

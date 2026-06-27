@@ -1707,7 +1707,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(pl.allow_egress_ip, 0),
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(dns_peer.assigned_ip,''),
 	        COALESCE(r.dns_address_family,'any'),
-	        COALESCE(r.require_client_cert,0), COALESCE(mca.cert_pem,'')
+	        COALESCE(r.require_client_cert,0), COALESCE(mca.cert_pem,''),
+	        COALESCE(r.dial_timeout_ms,0), COALESCE(r.response_header_timeout_ms,0)
 		 FROM routes r
 		 JOIN services sv ON sv.id = r.service_id
 		 LEFT JOIN plans pl ON pl.id = sv.plan_id
@@ -1794,6 +1795,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var dnsResolverIP, dnsResolverPeerIP, dnsAddressFamily string
 		var requireClientCert bool
 		var mtlsCACertPEM string
+		var dialTimeoutMs, responseHeaderTimeoutMs int
 		if err := rows.Scan(&id, &domain, &aliases, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
 			&tunnelResolverIP,
 			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &headersJSON,
@@ -1817,7 +1819,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&errOverride, &errHTML, &errLogo, &errBrand, &errBg,
 			&outboundIPMode, &outboundIP, &planAllowEgress,
 			&dnsResolverIP, &dnsResolverPeerIP, &dnsAddressFamily,
-			&requireClientCert, &mtlsCACertPEM); err != nil {
+			&requireClientCert, &mtlsCACertPEM,
+			&dialTimeoutMs, &responseHeaderTimeoutMs); err != nil {
 			return nil, nil, err
 		}
 		// Re-check plan entitlement at build time so revoking the flag takes effect immediately.
@@ -1982,9 +1985,11 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			CompressDisabled:       compressDisabled,
 			LBPolicy:               lbPolicy,
 			WeightedLBAvailable:    s.WeightedLBAvailable,
-			LBTryDurationMs:        lbTryDurationMs,
-			LBTryIntervalMs:        lbTryIntervalMs,
-			HealthURI:              hActiveURI,
+			LBTryDurationMs:         lbTryDurationMs,
+			LBTryIntervalMs:         lbTryIntervalMs,
+			DialTimeoutMs:           dialTimeoutMs,
+			ResponseHeaderTimeoutMs: responseHeaderTimeoutMs,
+			HealthURI:               hActiveURI,
 			HealthIntervalSecs:     hActiveInterval,
 			HealthTimeoutSecs:      hActiveTimeout,
 			HealthExpectStatus:     hActiveStatus,
