@@ -87,6 +87,12 @@ func (r *Registry) builtins() []Tool {
 			scopedExec:     r.routeLogsScoped,
 		},
 		{
+			Name:        "get_backup_status",
+			Description: "Return recent backup job history (last N jobs): destination name, kind, status, size, duration, error. config_enc is never exposed.",
+			Schema:      json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`),
+			Exec:        r.backupStatus,
+		},
+		{
 			Name:           "get_waf_events",
 			Description:    "Return recent WAF block/detect events. Filter by domain, severity (critical/high/medium/low), or action (block/detect). Useful for investigating attacks or false positives.",
 			Schema:         wafEventsSchema,
@@ -667,6 +673,49 @@ func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, 
 		return "", err
 	}
 	return toJSON(map[string]any{"route_id": routeID, "count": len(out), "entries": out})
+}
+
+// backupStatus returns recent backup job history. config_enc is never selected.
+func (r *Registry) backupStatus(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a limitArgs
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 20, 50)
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT d.name, d.kind,
+		        j.kind, j.status,
+		        j.size_bytes,
+		        TIMESTAMPDIFF(SECOND, j.started_at, COALESCE(j.finished_at, NOW())),
+		        COALESCE(DATE_FORMAT(j.created_at,'%Y-%m-%dT%H:%i:%sZ'),''),
+		        COALESCE(LEFT(j.error_text,200),'')
+		 FROM backup_jobs j
+		 JOIN backup_destinations d ON d.id = j.destination_id
+		 ORDER BY j.created_at DESC LIMIT ?`, limit)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type job struct {
+		Destination string `json:"destination"`
+		DestKind    string `json:"dest_kind"`
+		Kind        string `json:"kind"`
+		Status      string `json:"status"`
+		SizeBytes   int64  `json:"size_bytes"`
+		DurationSec int64  `json:"duration_sec"`
+		CreatedAt   string `json:"created_at"`
+		Error       string `json:"error,omitempty"`
+	}
+	out := make([]job, 0, limit)
+	for rows.Next() {
+		var j job
+		if err := rows.Scan(&j.Destination, &j.DestKind, &j.Kind, &j.Status, &j.SizeBytes, &j.DurationSec, &j.CreatedAt, &j.Error); err != nil {
+			return "", err
+		}
+		out = append(out, j)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"count": len(out), "jobs": out})
 }
 
 // wafEvents returns recent WAF events with per-event detail.
