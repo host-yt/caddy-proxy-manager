@@ -1,0 +1,105 @@
+{{define "service_detail"}}
+<div class="space-y-5">
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+    <div class="min-w-0">
+      <p class="hpg-eyebrow">Service detail</p>
+      <h2 class="flex flex-wrap items-center gap-2 text-xl font-semibold text-slate-950 dark:text-white">
+        {{.Name}}
+        {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>
+        {{else if eq .Status "suspended"}}<span class="hpg-pill hpg-pill-warn">suspended</span>
+        {{else}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>{{end}}
+      </h2>
+    </div>
+    <a href="/app/services" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-white dark:bg-zinc-900 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 transition">
+      <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+      Back to services
+    </a>
+  </div>
+
+  {{if .Notes}}
+  <div class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
+    <svg class="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+      <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <div>
+      <p class="text-xs font-semibold text-amber-800 dark:text-amber-300">Admin note</p>
+      <p class="text-xs text-amber-700 dark:text-amber-400 mt-0.5">{{.Notes}}</p>
+    </div>
+  </div>
+  {{end}}
+
+  <dl class="grid grid-cols-2 lg:grid-cols-5 gap-3 text-sm">
+    <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+      <dt class="hpg-eyebrow">Plan</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-white truncate">{{.PlanName}}</dd>
+    </div>
+    <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+      <dt class="hpg-eyebrow">Backend IP</dt>
+      <dd class="mt-1 font-mono text-slate-900 dark:text-white break-all">{{.BackendIP}}</dd>
+    </div>
+    <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+      <dt class="hpg-eyebrow">Routes</dt>
+      <dd class="mt-1 tabular-nums text-slate-900 dark:text-white">{{.RouteCount}}</dd>
+    </div>
+    <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+      <dt class="hpg-eyebrow">Active</dt>
+      <dd class="mt-1 tabular-nums {{if .ActiveRoutes}}text-emerald-600 dark:text-emerald-400{{else}}text-slate-900 dark:text-white{{end}}">{{.ActiveRoutes}}</dd>
+    </div>
+    <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-3 ring-1 ring-slate-200/70 dark:ring-zinc-700">
+      <dt class="hpg-eyebrow">Traffic · 7d</dt>
+      <dd class="mt-1 font-medium text-slate-900 dark:text-white tabular-nums">{{.Bandwidth7dH}}</dd>
+    </div>
+  </dl>
+
+  <section class="hpg-card">
+    <div class="flex items-center justify-between gap-3 mb-4">
+      <h3 class="font-semibold text-slate-950 dark:text-white">Routes</h3>
+      <a href="/app/routes/new?service_id={{.ServiceID}}" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition">Add route</a>
+    </div>
+
+    {{if .Routes}}
+    <div class="overflow-x-auto -mx-5">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="border-b border-slate-100 dark:border-zinc-800">
+            <th class="px-5 pb-2 text-left hpg-eyebrow font-medium">Domain</th>
+            <th class="px-3 pb-2 text-left hpg-eyebrow font-medium hidden sm:table-cell">Path</th>
+            <th class="px-3 pb-2 text-left hpg-eyebrow font-medium">Status</th>
+            <th class="px-3 pb-2 text-left hpg-eyebrow font-medium hidden md:table-cell">Port</th>
+            <th class="px-3 pb-2 text-left hpg-eyebrow font-medium hidden md:table-cell">SSL</th>
+            <th class="px-5 pb-2 text-right hpg-eyebrow font-medium">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+          {{range .Routes}}
+          <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition">
+            <td class="px-5 py-3 font-mono text-xs text-slate-900 dark:text-white max-w-[16rem] truncate">
+              {{.Domain}}{{if .PathPrefix}}<span class="text-slate-400 dark:text-slate-500">{{.PathPrefix}}</span>{{end}}
+            </td>
+            <td class="px-3 py-3 text-slate-500 dark:text-slate-400 font-mono text-xs hidden sm:table-cell">{{if .PathPrefix}}{{.PathPrefix}}{{else}}-{{end}}</td>
+            <td class="px-3 py-3">
+              {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>
+              {{else if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err">failed</span>
+              {{else if eq .Status "suspended"}}<span class="hpg-pill hpg-pill-warn">suspended</span>
+              {{else}}<span class="hpg-pill hpg-pill-muted">{{.Status}}</span>{{end}}
+            </td>
+            <td class="px-3 py-3 tabular-nums text-slate-600 dark:text-slate-300 hidden md:table-cell">{{.Port}}</td>
+            <td class="px-3 py-3 hidden md:table-cell">
+              {{if .SSL}}<span class="hpg-pill bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">SSL</span>{{else}}<span class="text-slate-400 dark:text-slate-500 text-xs">-</span>{{end}}
+            </td>
+            <td class="px-5 py-3 text-right">
+              <a href="/app/routes/{{.RouteID}}/edit" class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition cursor-pointer">Edit</a>
+            </td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+    {{else}}
+    <div class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
+      No routes yet. <a href="/app/routes/new?service_id={{.ServiceID}}" class="text-indigo-600 dark:text-indigo-400 hover:underline font-medium">Add the first one.</a>
+    </div>
+    {{end}}
+  </section>
+</div>
+{{end}}
