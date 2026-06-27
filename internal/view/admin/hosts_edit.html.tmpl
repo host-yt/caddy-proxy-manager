@@ -1,146 +1,160 @@
 {{define "hosts_edit"}}
 <div class="max-w-4xl space-y-4">
+  <!-- Page header -->
   <div class="flex items-start justify-between gap-4">
     <div>
-      <a href="/admin/hosts" class="text-xs text-slate-500 hover:text-indigo-600">← all hosts</a>
-      <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1">{{.Domain}}{{.PathPrefix}} · node {{.NodeName}} ({{.NodeHost}}) · status: {{.Status}}</p>
+      <a href="/admin/hosts" class="t-caption text-muted hover:text-accent transition-colors inline-flex items-center gap-1">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        All hosts
+      </a>
+      <p class="t-caption text-muted font-mono mt-1">{{.Domain}}{{.PathPrefix}} &middot; node {{.NodeName}} ({{.NodeHost}}) &middot; status: {{.Status}}</p>
     </div>
-    <div class="flex items-center gap-2">
-      <a href="/admin/hosts/{{.RouteID}}/logs"
-        class="px-3 py-1.5 rounded-lg ring-1 ring-indigo-200 dark:ring-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors cursor-pointer">
+    <div class="flex items-center gap-2 flex-wrap">
+      <a href="/admin/hosts/{{.RouteID}}/logs" class="r-btn-secondary t-small">
+        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         Access logs
       </a>
       {{if .CacheEnabled}}
       <form method="POST" action="/admin/hosts/{{.RouteID}}/purge-cache" data-confirm="Flush cache on the node serving {{.Domain}}?">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="px-3 py-1.5 rounded-lg ring-1 ring-amber-200 dark:ring-amber-800 text-amber-800 dark:text-amber-300 text-xs hover:bg-amber-50 dark:hover:bg-amber-500/10">Purge cache</button>
+        <button class="r-btn-secondary t-small text-warning">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          Purge cache
+        </button>
       </form>
       {{end}}
       <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" title="Re-run DNS check + re-push to Caddy (forces ACME retry).">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="px-3 py-1.5 rounded-lg ring-1 ring-emerald-200 dark:ring-emerald-800 text-emerald-800 dark:text-emerald-300 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-500/10">Renew certificate now</button>
+        <button class="r-btn-secondary t-small text-success">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+          Renew certificate now
+        </button>
       </form>
     </div>
   </div>
 
   <!-- Tab strip -->
-  <nav class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-zinc-800 text-sm" id="hpg-tabs">
-    <button type="button" data-tab="basics"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-indigo-600 text-indigo-700 dark:text-indigo-400 font-medium">Basics</button>
-    <button type="button" data-tab="target"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Target</button>
-    <button type="button" data-tab="locations" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Routing rules</button>
-    <button type="button" data-tab="ssl"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">SSL &amp; Protocols</button>
-    <button type="button" data-tab="cache"   class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Cache</button>
-    <button type="button" data-tab="lb"      class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Load balancing</button>
-    <button type="button" data-tab="ratelimit" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Rate limit</button>
-    <button type="button" data-tab="waf"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">WAF</button>
-    <button type="button" data-tab="geo"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Geo</button>
-    <button type="button" data-tab="mtls"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">mTLS</button>
-    <button type="button" data-tab="access"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Access list</button>
-    <button type="button" data-tab="sso"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">SSO</button>
-    <button type="button" data-tab="portal"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Portal</button>
-    <button type="button" data-tab="maint"   class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Maintenance</button>
-    <button type="button" data-tab="headers" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Headers</button>
-    <button type="button" data-tab="custom"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Custom JSON</button>
-    <button type="button" data-tab="egress"  class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">Egress IP</button>
-    <button type="button" data-tab="dns"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700">DNS</button>
+  <nav class="flex flex-wrap gap-1 border-b border-[rgb(var(--border))] text-sm" id="hpg-tabs">
+    <button type="button" data-tab="basics"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-[rgb(var(--accent))] text-[rgb(var(--accent))] font-medium t-small">Basics</button>
+    <button type="button" data-tab="target"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Target</button>
+    <button type="button" data-tab="locations" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Routing rules</button>
+    <button type="button" data-tab="ssl"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">SSL &amp; Protocols</button>
+    <button type="button" data-tab="cache"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Cache</button>
+    <button type="button" data-tab="lb"        class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Load balancing</button>
+    <button type="button" data-tab="ratelimit" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Rate limit</button>
+    <button type="button" data-tab="waf"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">WAF</button>
+    <button type="button" data-tab="geo"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Geo</button>
+    <button type="button" data-tab="mtls"      class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">mTLS</button>
+    <button type="button" data-tab="access"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Access list</button>
+    <button type="button" data-tab="sso"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">SSO</button>
+    <button type="button" data-tab="portal"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Portal</button>
+    <button type="button" data-tab="maint"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Maintenance</button>
+    <button type="button" data-tab="headers"   class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Headers</button>
+    <button type="button" data-tab="custom"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Custom JSON</button>
+    <button type="button" data-tab="egress"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Egress IP</button>
+    <button type="button" data-tab="dns"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">DNS</button>
   </nav>
 
-  <form method="POST" action="/admin/hosts/{{.RouteID}}/edit" class="space-y-4 text-sm" id="hpg-edit-form">
+  <form method="POST" action="/admin/hosts/{{.RouteID}}/edit" class="space-y-4" id="hpg-edit-form">
     <input type="hidden" name="active_tab" id="hpg-active-tab" value="basics">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 
     <!-- Basics -->
-    <section data-pane="basics" class="hpg-pane hpg-card space-y-4">
+    <section data-pane="basics" class="hpg-pane r-card space-y-4">
+      <p class="t-eyebrow">Domain &amp; identity</p>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Domain (primary)</label>
-        <input name="domain" value="{{.Domain}}" required class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Domain (primary)</label>
+        <input name="domain" value="{{.Domain}}" required class="r-input w-full font-mono">
       </div>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Additional domains (aliases, comma-separated)</label>
-        <textarea name="aliases" rows="2" placeholder="alias1.example.com, alias2.example.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">{{.Aliases}}</textarea>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Each alias gets its own Let's Encrypt cert on first hit (on-demand). Point DNS for each at this node before adding.</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Additional domains (aliases, comma-separated)</label>
+        <textarea name="aliases" rows="2" placeholder="alias1.example.com, alias2.example.com" class="r-input w-full font-mono text-sm">{{.Aliases}}</textarea>
+        <p class="t-caption text-muted mt-1">Each alias gets its own Let's Encrypt cert on first hit (on-demand). Point DNS for each at this node before adding.</p>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Path prefix (optional)</label>
-          <input name="path_prefix" value="{{.PathPrefix}}" placeholder="/api" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Path prefix (optional)</label>
+          <input name="path_prefix" value="{{.PathPrefix}}" placeholder="/api" class="r-input w-full font-mono">
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tag / group (optional)</label>
-          <input name="tag" value="{{.Tag}}" placeholder="saas-customer-1" maxlength="64" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Tag / group (optional)</label>
+          <input name="tag" value="{{.Tag}}" placeholder="saas-customer-1" maxlength="64" class="r-input w-full">
         </div>
-          <div class="col-span-full sm:col-span-1">
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Host group</label>
-            <select name="group_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm cursor-pointer">
-              <option value="0">— none —</option>
-              {{range .Groups}}
-              <option value="{{.ID}}" {{if and $.GroupID.Valid (eq $.GroupID.Int64 .ID)}}selected{{end}}>{{.Name}}</option>
-              {{end}}
-            </select>
-          </div>
+        <div class="col-span-full sm:col-span-1">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Host group</label>
+          <select name="group_id" class="r-select w-full cursor-pointer">
+            <option value="0">- none -</option>
+            {{range .Groups}}
+            <option value="{{.ID}}" {{if and $.GroupID.Valid (eq $.GroupID.Int64 .ID)}}selected{{end}}>{{.Name}}</option>
+            {{end}}
+          </select>
+        </div>
       </div>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Route kind</label>
-        <select name="kind" id="hpg-kind" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-          <option value="proxy" {{if eq .Kind "proxy"}}selected{{end}}>Reverse proxy → backend</option>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Route kind</label>
+        <select name="kind" id="hpg-kind" class="r-select w-full cursor-pointer">
+          <option value="proxy"    {{if eq .Kind "proxy"}}selected{{end}}>Reverse proxy - backend</option>
           <option value="redirect" {{if eq .Kind "redirect"}}selected{{end}}>Redirect to URL</option>
         </select>
       </div>
     </section>
 
     <!-- Routing rules -->
-    <section data-pane="locations" class="hpg-pane hidden hpg-card space-y-4">
+    <section data-pane="locations" class="hpg-pane hidden r-card space-y-4">
       <div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
-          <h3 class="hpg-eyebrow">Path-specific routing</h3>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Rules run top to bottom before the default target. Use them for /api, /assets, rewrites, legacy redirects, or emergency blocks.</p>
+          <p class="t-eyebrow">Path-specific routing</p>
+          <p class="t-caption text-muted mt-1">Rules run top to bottom before the default target. Use them for /api, /assets, rewrites, legacy redirects, or emergency blocks.</p>
         </div>
-        <button type="button" id="hpg-location-add" class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 shrink-0">+ Add rule</button>
+        <button type="button" id="hpg-location-add" class="r-btn-secondary t-small shrink-0 cursor-pointer">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+          Add rule
+        </button>
       </div>
       <div id="hpg-locations" class="space-y-2">
         {{range .LocationRules}}
-        <div class="hpg-location-row rounded-lg ring-1 ring-slate-200 dark:ring-zinc-800 p-3 bg-white dark:bg-zinc-900 space-y-3">
+        <div class="hpg-location-row r-card space-y-3">
           <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
             <label class="md:col-span-3 block">
-              <span class="block text-[11px] text-slate-500 mb-1">Path</span>
-              <input name="loc_path[]" value="{{.Path}}" placeholder="/api/*" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+              <span class="block t-caption text-muted mb-1">Path</span>
+              <input name="loc_path[]" value="{{.Path}}" placeholder="/api/*" class="r-input w-full font-mono text-xs">
             </label>
             <label class="md:col-span-2 block">
-              <span class="block text-[11px] text-slate-500 mb-1">Action</span>
-              <select name="loc_action[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
-                <option value="proxy" {{if eq .Action "proxy"}}selected{{end}}>Proxy</option>
-                <option value="rewrite" {{if eq .Action "rewrite"}}selected{{end}}>Rewrite</option>
+              <span class="block t-caption text-muted mb-1">Action</span>
+              <select name="loc_action[]" class="r-select w-full text-xs cursor-pointer">
+                <option value="proxy"    {{if eq .Action "proxy"}}selected{{end}}>Proxy</option>
+                <option value="rewrite"  {{if eq .Action "rewrite"}}selected{{end}}>Rewrite</option>
                 <option value="redirect" {{if eq .Action "redirect"}}selected{{end}}>Redirect</option>
-                <option value="block" {{if eq .Action "block"}}selected{{end}}>Block</option>
+                <option value="block"    {{if eq .Action "block"}}selected{{end}}>Block</option>
               </select>
             </label>
             <label class="md:col-span-2 block">
-              <span class="block text-[11px] text-slate-500 mb-1">Scheme</span>
-              <select name="loc_upstream_scheme[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
-                <option value="http" {{if ne .UpstreamScheme "https"}}selected{{end}}>http</option>
+              <span class="block t-caption text-muted mb-1">Scheme</span>
+              <select name="loc_upstream_scheme[]" class="r-select w-full text-xs cursor-pointer">
+                <option value="http"  {{if ne .UpstreamScheme "https"}}selected{{end}}>http</option>
                 <option value="https" {{if eq .UpstreamScheme "https"}}selected{{end}}>https</option>
               </select>
             </label>
             <label class="md:col-span-3 block">
-              <span class="block text-[11px] text-slate-500 mb-1">Upstream host</span>
-              <input name="loc_upstream_host[]" value="{{.UpstreamHost}}" placeholder="10.0.0.10" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+              <span class="block t-caption text-muted mb-1">Upstream host</span>
+              <input name="loc_upstream_host[]" value="{{.UpstreamHost}}" placeholder="10.0.0.10" class="r-input w-full font-mono text-xs">
             </label>
             <label class="md:col-span-1 block">
-              <span class="block text-[11px] text-slate-500 mb-1">Port</span>
-              <input type="number" name="loc_upstream_port[]" value="{{.UpstreamPort}}" min="1" max="65535" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+              <span class="block t-caption text-muted mb-1">Port</span>
+              <input type="number" name="loc_upstream_port[]" value="{{.UpstreamPort}}" min="1" max="65535" class="r-input w-full text-xs">
             </label>
             <div class="md:col-span-1 flex items-end">
-              <button type="button" class="hpg-location-del px-2 py-2 text-xs text-rose-600 hover:text-rose-700">remove</button>
+              <button type="button" class="hpg-location-del r-btn-ghost text-danger t-small cursor-pointer">remove</button>
             </div>
           </div>
           <div class="grid grid-cols-1 md:grid-cols-12 gap-2">
             <label class="md:col-span-7 block">
-              <span class="block text-[11px] text-slate-500 mb-1">Redirect URL</span>
-              <input name="loc_redirect_url[]" value="{{.RedirectURL}}" placeholder="https://new.example.com{http.request.uri}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+              <span class="block t-caption text-muted mb-1">Redirect URL</span>
+              <input name="loc_redirect_url[]" value="{{.RedirectURL}}" placeholder="https://new.example.com{http.request.uri}" class="r-input w-full font-mono text-xs">
             </label>
             <label class="md:col-span-2 block">
-              <span class="block text-[11px] text-slate-500 mb-1">Code</span>
-              <select name="loc_redirect_code[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+              <span class="block t-caption text-muted mb-1">Code</span>
+              <select name="loc_redirect_code[]" class="r-select w-full text-xs cursor-pointer">
                 <option value="308" {{if eq .RedirectCode 308}}selected{{end}}>308</option>
                 <option value="301" {{if eq .RedirectCode 301}}selected{{end}}>301</option>
                 <option value="307" {{if eq .RedirectCode 307}}selected{{end}}>307</option>
@@ -148,104 +162,114 @@
               </select>
             </label>
             <label class="md:col-span-3 block">
-              <span class="block text-[11px] text-slate-500 mb-1">Rewrite URI</span>
-              <input name="loc_rewrite_uri[]" value="{{.RewriteURI}}" placeholder="/index.php{http.request.uri}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+              <span class="block t-caption text-muted mb-1">Rewrite URI</span>
+              <input name="loc_rewrite_uri[]" value="{{.RewriteURI}}" placeholder="/index.php{http.request.uri}" class="r-input w-full font-mono text-xs">
             </label>
           </div>
         </div>
         {{end}}
       </div>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400">Entering <code>/api</code> saves as <code>/api/*</code> and matches both <code>/api</code> and nested paths. Leave Path empty to ignore a row.</p>
+      <p class="t-caption text-muted">Entering <code>/api</code> saves as <code>/api/*</code> and matches both <code>/api</code> and nested paths. Leave Path empty to ignore a row.</p>
     </section>
 
-    <!-- Target (Backend OR Redirect, swapped by kind) -->
-    <section data-pane="target" class="hpg-pane hidden hpg-card space-y-4">
+    <!-- Target -->
+    <section data-pane="target" class="hpg-pane hidden r-card space-y-4">
       <div id="hpg-target-proxy" class="space-y-4">
-        <h3 class="hpg-eyebrow">Backend (proxy mode)</h3>
+        <p class="t-eyebrow">Backend (proxy mode)</p>
         {{if .ClientTunnels}}
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Backend via</label>
-          <select id="hpg-via-peer" name="via_wg_peer_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Backend via</label>
+          <select id="hpg-via-peer" name="via_wg_peer_id" class="r-select w-full cursor-pointer">
             <option value="">Direct IP / hostname (default)</option>
-            {{range .ClientTunnels}}<option value="{{.ID}}" data-ip="{{.AssignedIP}}" {{if eq .ID $.ViaWGPeerID}}selected{{end}}>WG tunnel #{{.ID}} · {{.Name}} ({{.AssignedIP}})</option>{{end}}
+            {{range .ClientTunnels}}<option value="{{.ID}}" data-ip="{{.AssignedIP}}" {{if eq .ID $.ViaWGPeerID}}selected{{end}}>WG tunnel #{{.ID}} &middot; {{.Name}} ({{.AssignedIP}})</option>{{end}}
           </select>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">With tunnel: leave empty → dial peer IP, OR type a specific <strong>IP</strong> reachable through the tunnel (e.g. a docker bridge IP if AllowedIPs covers it). <strong>Hostnames are NOT supported yet</strong> - container DNS via tunnel needs peer-side dnsmasq which the install script doesn&apos;t ship. Expose the port on the peer&apos;s host network instead and use <code class="text-xs">peer_ip:port</code>.</p>
+          <p class="t-caption text-muted mt-1">With tunnel: leave empty - dial peer IP, OR type a specific <strong>IP</strong> reachable through the tunnel (e.g. a docker bridge IP if AllowedIPs covers it). <strong>Hostnames are NOT supported yet</strong> - container DNS via tunnel needs peer-side dnsmasq which the install script doesn&apos;t ship. Expose the port on the peer&apos;s host network instead and use <code class="text-xs">peer_ip:port</code>.</p>
         </div>
         {{end}}
         <div class="grid grid-cols-6 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Scheme</label>
-            <select name="upstream_scheme" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Scheme</label>
+            <select name="upstream_scheme" class="r-select w-full cursor-pointer">
               <option value="http"  {{if ne .UpstreamScheme "https"}}selected{{end}}>http</option>
               <option value="https" {{if eq .UpstreamScheme "https"}}selected{{end}}>https</option>
             </select>
           </div>
           <div class="col-span-3">
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Backend host (IP or hostname)</label>
-            <input id="hpg-backend-ip" name="backend_ip" value="{{.BackendIP}}" placeholder="10.0.0.5 or backend.example.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-            <p id="hpg-backend-ip-note" class="text-[11px] text-amber-700 dark:text-amber-400 mt-1 hidden">Tunnel selected: leave empty to dial peer IP, or type an IP reachable through the tunnel. Hostnames are rejected (require peer DNS, not implemented).</p>
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Backend host (IP or hostname)</label>
+            <input id="hpg-backend-ip" name="backend_ip" value="{{.BackendIP}}" placeholder="10.0.0.5 or backend.example.com" class="r-input w-full">
+            <p id="hpg-backend-ip-note" class="t-caption text-warning mt-1 hidden">Tunnel selected: leave empty to dial peer IP, or type an IP reachable through the tunnel. Hostnames are rejected (require peer DNS, not implemented).</p>
           </div>
           <div class="col-span-2">
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Port</label>
-            <input name="port" type="number" min="1" max="65535" value="{{.Port}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Port</label>
+            <input name="port" type="number" min="1" max="65535" value="{{.Port}}" class="r-input w-full">
           </div>
         </div>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">Hostname auto-resolves via DNS at proxy time. Whitespace trimmed. Changing host updates owning service - every route on this service swaps backend on next push.</p>
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-300 text-sm">
+        <p class="t-caption text-muted">Hostname auto-resolves via DNS at proxy time. Whitespace trimmed. Changing host updates owning service - every route on this service swaps backend on next push.</p>
+        <label class="r-toggle">
           <input type="checkbox" name="upstream_skip_tls_verify" value="1" {{if .UpstreamSkipTLSVerify}}checked{{end}}>
-          Ignore invalid SSL on backend
+          <span></span>
+          <span class="t-body ml-2">Ignore invalid SSL on backend</span>
         </label>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">Only applies when scheme = https. Enable for self-signed backends (Portainer, internal services).</p>
+        <p class="t-caption text-muted">Only applies when scheme = https. Enable for self-signed backends (Portainer, internal services).</p>
       </div>
-      <div id="hpg-target-external" class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 space-y-3 {{if not .External}}hidden{{end}}">
-        <label class="flex items-center gap-2 font-medium text-slate-800 dark:text-slate-200">
-          <input type="checkbox" id="hpg-ext-toggle" name="upstream_external" value="1" {{if .External}}checked{{end}}>
+
+      <!-- External upstream -->
+      <div id="hpg-target-external" class="r-card bg-[rgb(var(--warning-weak),0.15)] border-warning/30 space-y-3 {{if not .External}}hidden{{end}}">
+        <label class="flex items-center gap-2 font-medium t-body cursor-pointer">
+          <input type="checkbox" id="hpg-ext-toggle" name="upstream_external" value="1" {{if .External}}checked{{end}} class="cursor-pointer">
           External HTTPS upstream (proxy to an allowlisted public API)
         </label>
-        <p class="text-[11px] text-slate-600 dark:text-slate-400">
+        <p class="t-caption text-muted">
           Forwards to the external origin over TLS (correct SNI + Host) from this node's egress IP. Host must be in
           <code>EXTERNAL_UPSTREAM_ALLOWLIST</code>. Cannot be combined with a WG tunnel. When ticked, the Backend host/port + tunnel above are ignored.
         </p>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium mb-1">External host (FQDN)</label>
-            <input name="external_host" list="hpg-ext-allow" value="{{.ExternalHost}}" placeholder="adm.tools" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <label class="block t-caption font-medium mb-1">External host (FQDN)</label>
+            <input name="external_host" list="hpg-ext-allow" value="{{.ExternalHost}}" placeholder="adm.tools" class="r-input w-full">
             <datalist id="hpg-ext-allow">{{range .ExternalAllowlist}}<option value="{{.}}">{{end}}</datalist>
           </div>
           <div>
-            <label class="block text-xs font-medium mb-1">Host / SNI override (optional)</label>
-            <input name="upstream_host_header" value="{{.UpstreamHostHeader}}" placeholder="defaults to external host" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <label class="block t-caption font-medium mb-1">Host / SNI override (optional)</label>
+            <input name="upstream_host_header" value="{{.UpstreamHostHeader}}" placeholder="defaults to external host" class="r-input w-full">
           </div>
         </div>
         <div class="pt-1 space-y-2">
-          <div class="flex items-center justify-between gap-2">
-            <span class="hpg-pill {{if .HasProxySecret}}hpg-pill-ok{{else}}hpg-pill-err{{end}}">
+          <div class="flex items-center justify-between gap-2 flex-wrap">
+            <span class="r-pill {{if .HasProxySecret}}r-pill-success{{else}}r-pill-danger{{end}}">
               Inbound bearer: {{if .HasProxySecret}}set{{else}}none{{end}}
             </span>
             <div class="flex items-center gap-2">
-              {{if .HasProxySecret}}<button type="button" id="hpg-reveal-secret" data-id="{{.RouteID}}" class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 inline-flex items-center gap-1"><span id="hpg-reveal-icon">&#128065;</span> Reveal</button>{{end}}
-              <button type="submit" form="hpg-regen-secret" class="px-3 py-1.5 rounded-lg ring-1 ring-amber-300 dark:ring-amber-700 text-amber-700 dark:text-amber-300 text-xs hover:bg-amber-100 dark:hover:bg-amber-900/30">Regenerate</button>
+              {{if .HasProxySecret}}
+              <button type="button" id="hpg-reveal-secret" data-id="{{.RouteID}}" class="r-btn-secondary t-small cursor-pointer">
+                <svg id="hpg-reveal-icon" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                Reveal
+              </button>
+              {{end}}
+              <button type="submit" form="hpg-regen-secret" class="r-btn-secondary t-small text-warning cursor-pointer">Regenerate</button>
             </div>
           </div>
           {{if .HasProxySecret}}
           <div id="hpg-secret-box" class="hidden items-center gap-2">
-            <input id="hpg-secret-field" type="text" readonly value="" placeholder="hidden" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 font-mono text-xs">
-            <button type="button" id="hpg-secret-copy" class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 shrink-0">Copy</button>
+            <input id="hpg-secret-field" type="text" readonly value="" placeholder="hidden" class="r-input w-full font-mono text-xs">
+            <button type="button" id="hpg-secret-copy" class="r-btn-secondary t-small shrink-0 cursor-pointer">Copy</button>
           </div>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400">Caller sends it as <code>Authorization: Bearer &lt;token&gt;</code>. The node strips this header before forwarding upstream. Revealed on demand only; never written to logs.</p>
+          <p class="t-caption text-muted">Caller sends it as <code>Authorization: Bearer &lt;token&gt;</code>. The node strips this header before forwarding upstream. Revealed on demand only; never written to logs.</p>
           {{end}}
         </div>
       </div>
+
+      <!-- Redirect target -->
       <div id="hpg-target-redirect" class="space-y-4">
-        <h3 class="hpg-eyebrow">Redirect (redirect mode)</h3>
+        <p class="t-eyebrow">Redirect (redirect mode)</p>
         <div class="grid grid-cols-4 gap-3">
           <div class="col-span-3">
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Destination URL</label>
-            <input name="redirect_url" value="{{.RedirectURL}}" placeholder="https://target.example.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Destination URL</label>
+            <input name="redirect_url" value="{{.RedirectURL}}" placeholder="https://target.example.com" class="r-input w-full">
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Status code</label>
-            <select name="redirect_code" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Status code</label>
+            <select name="redirect_code" class="r-select w-full cursor-pointer">
               <option value="308" {{if eq .RedirectCode 308}}selected{{end}}>308 Permanent</option>
               <option value="301" {{if eq .RedirectCode 301}}selected{{end}}>301 Permanent (legacy)</option>
               <option value="307" {{if eq .RedirectCode 307}}selected{{end}}>307 Temporary</option>
@@ -257,25 +281,47 @@
     </section>
 
     <!-- SSL & Protocols -->
-    <section data-pane="ssl" class="hpg-pane hidden hpg-card space-y-3">
-      <div class="grid grid-cols-2 gap-2 text-sm">
-        <label class="flex items-center gap-2"><input type="checkbox" name="ssl" value="1" {{if .SSL}}checked{{end}}> SSL (Let's Encrypt on-demand)</label>
-        <label class="flex items-center gap-2"><input type="checkbox" name="force_https" value="1" {{if .ForceHTTPS}}checked{{end}}> Force HTTPS (308 redirect on :80)</label>
-        <label class="flex items-center gap-2"><input type="checkbox" name="websocket" value="1" {{if .WebSocket}}checked{{end}}> Allow WebSocket upgrades</label>
-        <label class="flex items-center gap-2"><input type="checkbox" name="compress_disabled" value="1" {{if .CompressDisabled}}checked{{end}}> Disable response compression (gzip/zstd)</label>
-      </div>
-      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3 space-y-2">
-        <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="wildcard_enabled" value="1" {{if .WildcardEnabled}}checked{{end}}> Wildcard cert via DNS-01 (needs a DNS provider + DNS01_AVAILABLE)</label>
-        <label class="block text-sm"><span class="block text-[11px] text-slate-500 mb-1">Wildcard zone (apex, e.g. customer.com)</span>
-          <input type="text" name="wildcard_zone" value="{{.WildcardZone}}" list="hpg-wild-zones" placeholder="customer.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-          <datalist id="hpg-wild-zones">{{range .WildcardZones}}<option value="{{.}}">{{end}}</datalist>
+    <section data-pane="ssl" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">SSL &amp; Protocols</p>
+      <div class="grid grid-cols-2 gap-3">
+        <label class="r-toggle">
+          <input type="checkbox" name="ssl" value="1" {{if .SSL}}checked{{end}}>
+          <span></span>
+          <span class="t-body ml-2">SSL (Let's Encrypt on-demand)</span>
         </label>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">Zone must cover this domain. Add the provider credential under <a href="/admin/settings/dns-providers" class="underline">DNS providers</a>.</p>
+        <label class="r-toggle">
+          <input type="checkbox" name="force_https" value="1" {{if .ForceHTTPS}}checked{{end}}>
+          <span></span>
+          <span class="t-body ml-2">Force HTTPS (308 redirect on :80)</span>
+        </label>
+        <label class="r-toggle">
+          <input type="checkbox" name="websocket" value="1" {{if .WebSocket}}checked{{end}}>
+          <span></span>
+          <span class="t-body ml-2">Allow WebSocket upgrades</span>
+        </label>
+        <label class="r-toggle">
+          <input type="checkbox" name="compress_disabled" value="1" {{if .CompressDisabled}}checked{{end}}>
+          <span></span>
+          <span class="t-body ml-2">Disable response compression (gzip/zstd)</span>
+        </label>
       </div>
-      <p class="text-[11px] text-slate-600 dark:text-slate-400 mt-1">WebSocket OFF = Caddy answers 426 Upgrade Required, request never hits upstream. HTTP/2 is always on; HTTP/3 was removed (Caddy v2 protocols are server-wide so a per-route toggle was misleading, and QUIC fragments badly over WG).</p>
+      <div class="border-t border-[rgb(var(--border))] pt-4 space-y-3">
+        <label class="r-toggle">
+          <input type="checkbox" name="wildcard_enabled" value="1" {{if .WildcardEnabled}}checked{{end}}>
+          <span></span>
+          <span class="t-body ml-2">Wildcard cert via DNS-01 (needs a DNS provider + DNS01_AVAILABLE)</span>
+        </label>
+        <div>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Wildcard zone (apex, e.g. customer.com)</label>
+          <input type="text" name="wildcard_zone" value="{{.WildcardZone}}" list="hpg-wild-zones" placeholder="customer.com" class="r-input w-full">
+          <datalist id="hpg-wild-zones">{{range .WildcardZones}}<option value="{{.}}">{{end}}</datalist>
+          <p class="t-caption text-muted mt-1">Zone must cover this domain. Add the provider credential under <a href="/admin/settings/dns-providers" class="text-[rgb(var(--accent))] hover:underline">DNS providers</a>.</p>
+        </div>
+      </div>
+      <p class="t-caption text-muted">WebSocket OFF = Caddy answers 426 Upgrade Required, request never hits upstream. HTTP/2 is always on; HTTP/3 was removed (Caddy v2 protocols are server-wide so a per-route toggle was misleading, and QUIC fragments badly over WG).</p>
       <input type="hidden" name="http2" value="1">
       <input type="hidden" name="http3" value="0">
-      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3 text-xs text-slate-500 dark:text-slate-400">
+      <div class="border-t border-[rgb(var(--border))] pt-3 t-caption text-muted">
         Use "Renew certificate now" at the top of the page to force a
         DNS re-check + Caddy re-push (re-triggers Let's Encrypt on-demand
         issuance for this domain).
@@ -283,139 +329,148 @@
     </section>
 
     <!-- Cache -->
-    <section data-pane="cache" class="hpg-pane hidden hpg-card space-y-3">
-      <label class="flex items-center gap-2 text-sm font-medium text-slate-800 dark:text-slate-100">
+    <section data-pane="cache" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">Cache</p>
+      <label class="r-toggle">
         <input type="checkbox" name="cache_enabled" value="1" {{if .CacheEnabled}}checked{{end}}>
-        Enable origin cache for this host
+        <span></span>
+        <span class="t-body ml-2 font-medium">Enable origin cache for this host</span>
       </label>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400">Souin module caches GET/HEAD at the edge. Browsers + CDNs also get a matching <code class="text-xs">Cache-Control</code> header.</p>
+      <p class="t-caption text-muted">Souin module caches GET/HEAD at the edge. Browsers + CDNs also get a matching <code class="text-xs">Cache-Control</code> header.</p>
       <div class="grid grid-cols-3 gap-3">
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">TTL (seconds)</label>
-          <input name="cache_ttl_secs" type="number" min="0" max="31536000" value="{{.CacheTTLSecs}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">TTL (seconds)</label>
+          <input name="cache_ttl_secs" type="number" min="0" max="31536000" value="{{.CacheTTLSecs}}" class="r-input w-full">
         </div>
         <div class="col-span-2">
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Vary headers (cache key)</label>
-          <input name="cache_vary" value="{{.CacheVary}}" placeholder="Accept-Encoding,Accept-Language" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Vary headers (cache key)</label>
+          <input name="cache_vary" value="{{.CacheVary}}" placeholder="Accept-Encoding,Accept-Language" class="r-input w-full font-mono text-xs">
         </div>
       </div>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400">Avoid <code class="text-xs">Cookie</code>/<code class="text-xs">Authorization</code> in Vary - cardinality blows up and you cache per-user.</p>
-      <div id="cache-auth-warn" class="hidden p-2 rounded-lg bg-amber-50 dark:bg-amber-500/10 ring-1 ring-amber-200 dark:ring-amber-500/30 text-amber-900 dark:text-amber-300 text-xs">
-        ⚠ Detected <code class="text-xs">Authorization</code> / <code class="text-xs">Cookie</code> in custom headers. Caching auth-aware responses risks serving one user's data to another.
+      <p class="t-caption text-muted">Avoid <code class="text-xs">Cookie</code>/<code class="text-xs">Authorization</code> in Vary - cardinality blows up and you cache per-user.</p>
+      <div id="cache-auth-warn" class="hidden p-3 rounded-xl bg-[rgb(var(--warning-weak),0.15)] ring-1 ring-warning/30 text-warning t-caption">
+        <div class="flex items-center gap-2">
+          <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          Detected <code class="text-xs">Authorization</code> / <code class="text-xs">Cookie</code> in custom headers. Caching auth-aware responses risks serving one user's data to another.
+        </div>
       </div>
       {{if .CacheEnabled}}
-      <div class="pt-2 border-t border-slate-100 dark:border-zinc-800">
-        <p class="text-xs text-slate-500 dark:text-slate-400">Flush the cache for this node now (top-right <em>Purge cache</em> button).</p>
+      <div class="pt-2 border-t border-[rgb(var(--border))]">
+        <p class="t-caption text-muted">Flush the cache for this node now (top-right <em>Purge cache</em> button).</p>
       </div>
       {{end}}
     </section>
 
     <!-- Access list -->
-    <section data-pane="access" class="hpg-pane hidden hpg-card space-y-3">
-      <label class="flex items-start gap-2 text-sm text-slate-800 dark:text-slate-100">
-        <input type="checkbox" name="access_block_all" value="1" {{if .AccessBlockAll}}checked{{end}} class="mt-1">
-        <span>
-          <strong>Block everyone by default</strong>
-          <span class="block text-[11px] text-slate-500 dark:text-slate-400">Only IPs in the Allow list below pass through (whitelist mode). Leave unchecked for the default open mode.</span>
-        </span>
+    <section data-pane="access" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">IP access control</p>
+      <label class="r-toggle">
+        <input type="checkbox" name="access_block_all" value="1" {{if .AccessBlockAll}}checked{{end}}>
+        <span></span>
+        <div class="ml-2">
+          <span class="t-body font-medium">Block everyone by default</span>
+          <span class="block t-caption text-muted">Only IPs in the Allow list below pass through (whitelist mode). Leave unchecked for the default open mode.</span>
+        </div>
       </label>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Allow these IPs / CIDRs</label>
-          <textarea name="access_allow" rows="4" placeholder="10.0.0.0/8&#10;1.2.3.4&#10;2001:db8::/32" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.AccessAllow}}</textarea>
-          <p class="text-[11px] text-slate-500 mt-1">Only meaningful when "Block all" is on. Whitelist of allowed sources.</p>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Allow these IPs / CIDRs</label>
+          <textarea name="access_allow" rows="4" placeholder="10.0.0.0/8&#10;1.2.3.4&#10;2001:db8::/32" class="r-input w-full font-mono text-xs">{{.AccessAllow}}</textarea>
+          <p class="t-caption text-muted mt-1">Only meaningful when "Block all" is on. Whitelist of allowed sources.</p>
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Deny these IPs / CIDRs (403)</label>
-          <textarea name="access_deny" rows="4" placeholder="5.6.7.0/24&#10;2001:db8:bad::/48" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.AccessDeny}}</textarea>
-          <p class="text-[11px] text-slate-500 mt-1">Always wins. Use to block specific bad actors even when "Block all" is off, or to carve exceptions from the Allow list.</p>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Deny these IPs / CIDRs (403)</label>
+          <textarea name="access_deny" rows="4" placeholder="5.6.7.0/24&#10;2001:db8:bad::/48" class="r-input w-full font-mono text-xs">{{.AccessDeny}}</textarea>
+          <p class="t-caption text-muted mt-1">Always wins. Use to block specific bad actors even when "Block all" is off, or to carve exceptions from the Allow list.</p>
         </div>
       </div>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400">One IP/CIDR per line, IPv4 + IPv6 supported. Bare IPs auto-expand to /32 or /128. Three common setups:
-        <br>• <em>Open</em>: leave everything empty.
-        <br>• <em>Blacklist</em>: list bad IPs in Deny, leave the rest as-is.
-        <br>• <em>Whitelist</em>: tick "Block all" + list good IPs in Allow.
+      <p class="t-caption text-muted">One IP/CIDR per line, IPv4 + IPv6 supported. Bare IPs auto-expand to /32 or /128. Three common setups:
+        <br>- <em>Open</em>: leave everything empty.
+        <br>- <em>Blacklist</em>: list bad IPs in Deny, leave the rest as-is.
+        <br>- <em>Whitelist</em>: tick "Block all" + list good IPs in Allow.
       </p>
 
-      <div class="border-t border-slate-100 dark:border-zinc-800 pt-4 mt-4">
-        <h4 class="hpg-eyebrow mb-2">HTTP Basic Auth</h4>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-3">Browser popup login (NPM-style). Empty username disables the gate.</p>
+      <div class="border-t border-[rgb(var(--border))] pt-4 space-y-3">
+        <p class="t-eyebrow">HTTP Basic Auth</p>
+        <p class="t-caption text-muted">Browser popup login (NPM-style). Empty username disables the gate.</p>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Username</label>
-            <input name="basic_auth_user" value="{{.BasicAuthUser}}" maxlength="64" placeholder="admin" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Username</label>
+            <input name="basic_auth_user" value="{{.BasicAuthUser}}" maxlength="64" placeholder="admin" class="r-input w-full font-mono">
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Password</label>
-            <input type="password" name="basic_auth_pass" autocomplete="new-password" placeholder="{{if .BasicAuthHasPassword}}(leave blank to keep current){{else}}min 8 chars{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Password</label>
+            <input type="password" name="basic_auth_pass" autocomplete="new-password" placeholder="{{if .BasicAuthHasPassword}}(leave blank to keep current){{else}}min 8 chars{{end}}" class="r-input w-full font-mono">
           </div>
         </div>
         {{if .BasicAuthHasPassword}}
-        <label class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300 mt-2">
+        <label class="r-toggle">
           <input type="checkbox" name="basic_auth_keep" value="1" checked>
-          Keep current password (only update username)
+          <span></span>
+          <span class="t-caption ml-2">Keep current password (only update username)</span>
         </label>
         {{end}}
       </div>
     </section>
 
-    <!-- SSO forward-auth (Authentik / Authelia / generic) -->
-    <section data-pane="sso" class="hpg-pane hidden hpg-card space-y-4">
+    <!-- SSO -->
+    <section data-pane="sso" class="hpg-pane hidden r-card space-y-4">
       <div>
-        <h4 class="hpg-eyebrow mb-1">Single sign-on (forward-auth)</h4>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">GET/HEAD page navigations are gated through your SSO provider; unauthenticated users are redirected to login. POST/PUT/DELETE and XHR/fetch are passed through (backend enforces its own API auth). Enable Strict mode below to gate all methods and return 401 instead of redirect. Empty Provider URL = SSO off.</p>
+        <p class="t-eyebrow">Single sign-on (forward-auth)</p>
+        <p class="t-caption text-muted mt-1">GET/HEAD page navigations are gated through your SSO provider; unauthenticated users are redirected to login. POST/PUT/DELETE and XHR/fetch are passed through (backend enforces its own API auth). Enable Strict mode below to gate all methods and return 401 instead of redirect. Empty Provider URL = SSO off.</p>
       </div>
       {{if .ClientTunnels}}
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">SSO via</label>
-        <select name="sso_via_wg_peer_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">SSO via</label>
+        <select name="sso_via_wg_peer_id" class="r-select w-full cursor-pointer">
           <option value="">Direct (public URL or local container)</option>
           {{range .ClientTunnels}}<option value="{{.ID}}" {{if eq .ID $.SSOViaWGPeerID}}selected{{end}}>WG tunnel #{{.ID}} - {{.Name}} ({{.AssignedIP}})</option>{{end}}
         </select>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Pick a tunnel to route the forward-auth subrequest through it. The SSO Provider URL hostname is resolved via that peer's DNS (peer IP:53). Useful when Authentik lives on another node behind WG.</p>
+        <p class="t-caption text-muted mt-1">Pick a tunnel to route the forward-auth subrequest through it. The SSO Provider URL hostname is resolved via that peer's DNS (peer IP:53). Useful when Authentik lives on another node behind WG.</p>
       </div>
       {{end}}
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">SSO provider URL</label>
-        <input name="sso_provider_url" value="{{.SSOProviderURL}}" placeholder="https://sso.example.com or authentik-server:9000" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Three modes: (1) <strong>Local container</strong> e.g. <code>authentik-server:9000</code> when Authentik runs in the same docker network as Caddy. (2) <strong>Through tunnel</strong> e.g. <code>http://authentik-server:9000</code> with "SSO via" set - Caddy resolves the hostname via the peer's DNS. (3) <strong>Public URL</strong> e.g. <code>https://sso.example.com</code> only when the IdP is on a separate node (otherwise causes a loop).</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">SSO provider URL</label>
+        <input name="sso_provider_url" value="{{.SSOProviderURL}}" placeholder="https://sso.example.com or authentik-server:9000" class="r-input w-full font-mono text-sm">
+        <p class="t-caption text-muted mt-1">Three modes: (1) <strong>Local container</strong> e.g. <code>authentik-server:9000</code> when Authentik runs in the same docker network as Caddy. (2) <strong>Through tunnel</strong> e.g. <code>http://authentik-server:9000</code> with "SSO via" set - Caddy resolves the hostname via the peer's DNS. (3) <strong>Public URL</strong> e.g. <code>https://sso.example.com</code> only when the IdP is on a separate node (otherwise causes a loop).</p>
       </div>
-      <div class="flex items-start gap-2 mt-1">
-        <input type="checkbox" name="sso_strict_mode" value="1" id="sso_strict_mode" {{if .SSOStrictMode}}checked{{end}} class="mt-0.5 rounded">
-        <div>
-          <label for="sso_strict_mode" class="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">Strict mode (zero-trust)</label>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">Gates ALL HTTP methods (not just GET/HEAD page loads). Returns 401 JSON instead of redirect for unauthenticated requests. Use for API services; breaks browser apps that rely on login redirect.</p>
+      <label class="r-toggle">
+        <input type="checkbox" name="sso_strict_mode" value="1" id="sso_strict_mode" {{if .SSOStrictMode}}checked{{end}}>
+        <span></span>
+        <div class="ml-2">
+          <span class="t-caption font-medium cursor-pointer">Strict mode (zero-trust)</span>
+          <p class="t-caption text-muted mt-0.5">Gates ALL HTTP methods (not just GET/HEAD page loads). Returns 401 JSON instead of redirect for unauthenticated requests. Use for API services; breaks browser apps that rely on login redirect.</p>
         </div>
-      </div>
+      </label>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Copy headers (one per line)</label>
-        <textarea name="sso_copy_headers" rows="6" placeholder="X-Authentik-Username&#10;X-Authentik-Email&#10;X-Authentik-Groups" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.SSOCopyHeaders}}</textarea>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Headers from the auth subrequest that get lifted into the upstream request. Default Authentik set:
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Copy headers (one per line)</label>
+        <textarea name="sso_copy_headers" rows="6" placeholder="X-Authentik-Username&#10;X-Authentik-Email&#10;X-Authentik-Groups" class="r-input w-full font-mono text-xs">{{.SSOCopyHeaders}}</textarea>
+        <p class="t-caption text-muted mt-1">Headers from the auth subrequest that get lifted into the upstream request. Default Authentik set:
           <code>X-Authentik-Username</code>, <code>X-Authentik-Groups</code>, <code>X-Authentik-Email</code>, <code>X-Authentik-Name</code>, <code>X-Authentik-Uid</code>, <code>X-Authentik-Jwt</code>.
         </p>
       </div>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Trusted proxies (optional, comma/space-separated)</label>
-        <input name="sso_trusted_proxies" value="{{.SSOTrustedProxies}}" placeholder="10.0.0.0/8 172.16.0.0/12" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Networks the outpost is allowed to set <code>X-Forwarded-*</code> from. Empty = Caddy's <code>private_ranges</code> default.</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Trusted proxies (optional, comma/space-separated)</label>
+        <input name="sso_trusted_proxies" value="{{.SSOTrustedProxies}}" placeholder="10.0.0.0/8 172.16.0.0/12" class="r-input w-full font-mono text-sm">
+        <p class="t-caption text-muted mt-1">Networks the outpost is allowed to set <code>X-Forwarded-*</code> from. Empty = Caddy's <code>private_ranges</code> default.</p>
       </div>
-      <fieldset class="ring-1 ring-slate-200 dark:ring-zinc-800 rounded-xl p-3 space-y-3">
-        <legend class="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">SSO scope (optional)</legend>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">By default the SSO gate covers the whole route on every host. Narrow it here when you only want SSO on specific URLs (e.g. <code>/admin/*</code>) or on a subset of the hosts/aliases this route serves.</p>
+      <fieldset class="ring-1 ring-[rgb(var(--border))] rounded-xl p-4 space-y-3">
+        <legend class="px-2 t-caption font-semibold text-[rgb(var(--text))]">SSO scope (optional)</legend>
+        <p class="t-caption text-muted">By default the SSO gate covers the whole route on every host. Narrow it here when you only want SSO on specific URLs (e.g. <code>/admin/*</code>) or on a subset of the hosts/aliases this route serves.</p>
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Gate only these paths</label>
-          <textarea name="sso_paths" rows="3" placeholder="/admin/*&#10;/dashboard/*" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.SSOPaths}}</textarea>
-          <p class="text-[11px] text-slate-500 mt-1">One glob per line. Empty = gate every path on the matched hosts.</p>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Gate only these paths</label>
+          <textarea name="sso_paths" rows="3" placeholder="/admin/*&#10;/dashboard/*" class="r-input w-full font-mono text-xs">{{.SSOPaths}}</textarea>
+          <p class="t-caption text-muted mt-1">One glob per line. Empty = gate every path on the matched hosts.</p>
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Gate only these hosts</label>
-          <input name="sso_hosts" value="{{.SSOHosts}}" placeholder="s1.example.com, s2.example.com" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
-          <p class="text-[11px] text-slate-500 mt-1">Comma/space-separated subset of the route's hosts + aliases. Empty = gate every host this route serves.</p>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Gate only these hosts</label>
+          <input name="sso_hosts" value="{{.SSOHosts}}" placeholder="s1.example.com, s2.example.com" class="r-input w-full font-mono text-xs">
+          <p class="t-caption text-muted mt-1">Comma/space-separated subset of the route's hosts + aliases. Empty = gate every host this route serves.</p>
         </div>
       </fieldset>
-      <details class="text-xs text-slate-600 dark:text-slate-400">
-        <summary class="cursor-pointer text-slate-500 hover:text-slate-700 dark:hover:text-slate-200">Authentik full header list</summary>
-        <pre class="mt-2 p-2 bg-slate-50 dark:bg-zinc-800 rounded text-[11px]">X-Authentik-Username
+      <details class="t-caption text-muted">
+        <summary class="cursor-pointer hover:text-[rgb(var(--text))] transition-colors">Authentik full header list</summary>
+        <pre class="mt-2 p-3 bg-[rgb(var(--surface-2))] rounded-lg text-xs">X-Authentik-Username
 X-Authentik-Groups
 X-Authentik-Entitlements
 X-Authentik-Email
@@ -430,425 +485,490 @@ X-Authentik-Meta-Version</pre>
       </details>
     </section>
 
-    <!-- Built-in forward-auth portal -->
-    <section data-pane="portal" class="hpg-pane hidden hpg-card space-y-4">
+    <!-- Portal -->
+    <section data-pane="portal" class="hpg-pane hidden r-card space-y-4">
       <div>
-        <h4 class="hpg-eyebrow mb-1">Built-in access portal</h4>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">Self-hosted login gate, an alternative to external SSO. Protected GET/HEAD page loads are gated by the panel's own verifier; unauthenticated users are redirected to a login form on this host. Members sign in with their normal email + password. Manage groups + members under <a href="/admin/access-groups" class="text-indigo-600 hover:underline">Security &rarr; Access groups</a>.</p>
+        <p class="t-eyebrow">Built-in access portal</p>
+        <p class="t-caption text-muted mt-1">Self-hosted login gate, an alternative to external SSO. Protected GET/HEAD page loads are gated by the panel's own verifier; unauthenticated users are redirected to a login form on this host. Members sign in with their normal email + password. Manage groups + members under <a href="/admin/access-groups" class="text-[rgb(var(--accent))] hover:underline">Security &rarr; Access groups</a>.</p>
       </div>
-      <div class="flex items-start gap-2">
-        <input type="checkbox" name="portal_protect" value="1" id="portal_protect" {{if .PortalProtect}}checked{{end}} class="mt-0.5 rounded">
-        <div>
-          <label for="portal_protect" class="text-xs font-medium text-slate-700 dark:text-slate-300 cursor-pointer">Protect with built-in portal</label>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">The gate only takes effect when at least one group below is granted access. Disabling this leaves existing grants in place.</p>
+      <label class="r-toggle">
+        <input type="checkbox" name="portal_protect" value="1" id="portal_protect" {{if .PortalProtect}}checked{{end}}>
+        <span></span>
+        <div class="ml-2">
+          <span class="t-caption font-medium">Protect with built-in portal</span>
+          <p class="t-caption text-muted mt-0.5">The gate only takes effect when at least one group below is granted access. Disabling this leaves existing grants in place.</p>
         </div>
-      </div>
-      <fieldset class="ring-1 ring-slate-200 dark:ring-zinc-800 rounded-xl p-3 space-y-2">
-        <legend class="px-2 text-xs font-semibold text-slate-700 dark:text-slate-300">Groups allowed to access this host</legend>
+      </label>
+      <fieldset class="ring-1 ring-[rgb(var(--border))] rounded-xl p-4 space-y-2">
+        <legend class="px-2 t-caption font-semibold text-[rgb(var(--text))]">Groups allowed to access this host</legend>
         {{if .PortalGroups}}
         {{range .PortalGroups}}
-        <label class="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200">
-          <input type="checkbox" name="portal_group_ids" value="{{.ID}}" {{if .Granted}}checked{{end}} class="rounded">
-          <span>{{.Name}} <span class="text-slate-400">({{.MemberCount}} member(s))</span></span>
+        <label class="flex items-center gap-2 t-caption cursor-pointer">
+          <input type="checkbox" name="portal_group_ids" value="{{.ID}}" {{if .Granted}}checked{{end}} class="rounded cursor-pointer">
+          <span>{{.Name}} <span class="text-muted">({{.MemberCount}} member(s))</span></span>
         </label>
         {{end}}
         {{else}}
-        <p class="text-[11px] text-slate-400">No access groups exist for this host's client yet. Create one under <a href="/admin/access-groups" class="text-indigo-600 hover:underline">Access groups</a>.</p>
+        <p class="t-caption text-muted">No access groups exist for this host's client yet. Create one under <a href="/admin/access-groups" class="text-[rgb(var(--accent))] hover:underline">Access groups</a>.</p>
         {{end}}
       </fieldset>
     </section>
 
     <!-- Maintenance -->
-    <section data-pane="maint" class="hpg-pane hidden hpg-card space-y-3">
-      <label class="flex items-center gap-2 text-sm text-slate-800 dark:text-slate-100">
+    <section data-pane="maint" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">Maintenance mode</p>
+      <label class="r-toggle">
         <input type="checkbox" name="maintenance_mode" value="1" {{if .MaintenanceMode}}checked{{end}}>
-        Serve a 503 maintenance page instead of forwarding
+        <span></span>
+        <span class="t-body ml-2">Serve a 503 maintenance page instead of forwarding</span>
       </label>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Message (optional, max 500)</label>
-        <textarea name="maintenance_message" rows="3" maxlength="500" placeholder="We are performing scheduled maintenance. Please check back shortly." class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">{{.MaintenanceMessage}}</textarea>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Message (optional, max 500)</label>
+        <textarea name="maintenance_message" rows="3" maxlength="500" placeholder="We are performing scheduled maintenance. Please check back shortly." class="r-input w-full text-sm">{{.MaintenanceMessage}}</textarea>
       </div>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Allow IPs during maintenance (optional)</label>
-        <textarea name="maintenance_allow" rows="3" placeholder="85.222.65.102&#10;2001:db8:cafe::/48" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.MaintenanceAllow}}</textarea>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">These IPs see the real backend while everyone else gets the 503 page. Handy for testing a fix before lifting maintenance globally.</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Allow IPs during maintenance (optional)</label>
+        <textarea name="maintenance_allow" rows="3" placeholder="85.222.65.102&#10;2001:db8:cafe::/48" class="r-input w-full font-mono text-xs">{{.MaintenanceAllow}}</textarea>
+        <p class="t-caption text-muted mt-1">These IPs see the real backend while everyone else gets the 503 page. Handy for testing a fix before lifting maintenance globally.</p>
       </div>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400">HTTP 503 + <code class="text-xs">Retry-After: 60</code>. Branded with your error-page skin. SSL + ForceHTTPS still apply.</p>
+      <p class="t-caption text-muted">HTTP 503 + <code class="text-xs">Retry-After: 60</code>. Branded with your error-page skin. SSL + ForceHTTPS still apply.</p>
 
-      <hr class="border-slate-200 dark:border-zinc-700">
-      <label class="flex items-center gap-2 text-sm text-slate-800 dark:text-slate-100">
+      <hr class="border-[rgb(var(--border))]">
+      <p class="t-eyebrow">Error page branding</p>
+      <label class="r-toggle">
         <input type="checkbox" name="error_override" value="1" {{if .ErrorOverride}}checked{{end}}>
-        Override the node-wide maintenance/error branding for this host
+        <span></span>
+        <span class="t-body ml-2">Override the node-wide maintenance/error branding for this host</span>
       </label>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Brand label</label>
-          <input name="error_brand" value="{{.ErrorBrand}}" maxlength="128" placeholder="Acme Inc" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Brand label</label>
+          <input name="error_brand" value="{{.ErrorBrand}}" maxlength="128" placeholder="Acme Inc" class="r-input w-full text-sm">
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Logo URL</label>
-          <input name="error_logo_url" value="{{.ErrorLogoURL}}" maxlength="512" placeholder="https://cdn.acme.com/logo.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Logo URL</label>
+          <input name="error_logo_url" value="{{.ErrorLogoURL}}" maxlength="512" placeholder="https://cdn.acme.com/logo.svg" class="r-input w-full text-sm">
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Background color</label>
-          <input name="error_bg_color" value="{{.ErrorBgColor}}" maxlength="32" placeholder="#1f2937" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm font-mono">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Background color</label>
+          <input name="error_bg_color" value="{{.ErrorBgColor}}" maxlength="32" placeholder="#1f2937" class="r-input w-full text-sm font-mono">
         </div>
       </div>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Full custom maintenance HTML (optional, max 100 KB)</label>
-        <textarea name="error_html" rows="6" placeholder="&lt;!doctype html&gt;&lt;html&gt;… your own maintenance page …&lt;/html&gt;" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.ErrorHTML}}</textarea>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">When set, this exact HTML is served as the maintenance body (served verbatim, admin-trusted). Leave empty to use the brand label / logo / color above on the standard shell.</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Full custom maintenance HTML (optional, max 100 KB)</label>
+        <textarea name="error_html" rows="6" placeholder="&lt;!doctype html&gt;&lt;html&gt;… your own maintenance page …&lt;/html&gt;" class="r-input w-full font-mono text-xs">{{.ErrorHTML}}</textarea>
+        <p class="t-caption text-muted mt-1">When set, this exact HTML is served as the maintenance body (served verbatim, admin-trusted). Leave empty to use the brand label / logo / color above on the standard shell.</p>
       </div>
     </section>
 
     <!-- Headers -->
-    <section data-pane="headers" class="hpg-pane hidden hpg-card space-y-3">
-      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Custom upstream request headers</label>
-      <textarea id="hpg-custom-headers" name="custom_headers" rows="6" placeholder="X-Forwarded-Host: {http.request.host}&#10;X-Real-IP: {http.request.remote.host}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.CustomHeaders}}</textarea>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400">One <code class="text-xs">Name: value</code> per line. Caddy placeholders work.</p>
+    <section data-pane="headers" class="hpg-pane hidden r-card space-y-3">
+      <p class="t-eyebrow">Custom request headers</p>
+      <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Custom upstream request headers</label>
+      <textarea id="hpg-custom-headers" name="custom_headers" rows="6" placeholder="X-Forwarded-Host: {http.request.host}&#10;X-Real-IP: {http.request.remote.host}" class="r-input w-full font-mono text-xs">{{.CustomHeaders}}</textarea>
+      <p class="t-caption text-muted">One <code class="text-xs">Name: value</code> per line. Caddy placeholders work.</p>
     </section>
 
     <!-- Load balancing -->
-    <section data-pane="lb" class="hpg-pane hidden hpg-card space-y-4">
+    <section data-pane="lb" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">Load balancing</p>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Additional backends</label>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">The primary backend (Target tab) is always upstream #1. Add more here to load-balance across a pool. Ignored for External and WG-tunnel routes.</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Additional backends</label>
+        <p class="t-caption text-muted mb-2">The primary backend (Target tab) is always upstream #1. Add more here to load-balance across a pool. Ignored for External and WG-tunnel routes.</p>
         <div id="hpg-upstreams" class="space-y-2">
           {{range .Upstreams}}
-          <div class="hpg-upstream-row rounded-lg ring-1 ring-slate-100 dark:ring-zinc-800 p-2 space-y-1.5 bg-white dark:bg-zinc-900">
+          <div class="hpg-upstream-row r-card">
             <div class="flex flex-wrap items-center gap-2">
-              <input type="text" name="upstream_host[]" value="{{.Host}}" placeholder="10.0.0.6 or host.internal" class="flex-1 min-w-32 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-              <input type="number" name="upstream_port[]" value="{{.Port}}" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-              <input type="number" name="upstream_weight[]" value="{{.Weight}}" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-              <input type="number" name="upstream_max_requests[]" value="{{.MaxRequests}}" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+              <input type="text" name="upstream_host[]" value="{{.Host}}" placeholder="10.0.0.6 or host.internal" class="r-input flex-1 min-w-32 text-sm">
+              <input type="number" name="upstream_port[]" value="{{.Port}}" placeholder="port" min="1" max="65535" class="r-input w-24 text-sm">
+              <input type="number" name="upstream_weight[]" value="{{.Weight}}" title="weight (weighted policy only)" min="1" max="100" class="r-input w-20 text-sm">
+              <input type="number" name="upstream_max_requests[]" value="{{.MaxRequests}}" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="r-input w-24 text-sm">
               <input type="hidden" name="upstream_enabled[]" value="{{if .Enabled}}1{{else}}0{{end}}">
-              <label class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer">
-                <input type="checkbox" class="hpg-upstream-enabled" {{if .Enabled}}checked{{end}}> on
+              <label class="flex items-center gap-1 t-caption cursor-pointer">
+                <input type="checkbox" class="hpg-upstream-enabled cursor-pointer" {{if .Enabled}}checked{{end}}> on
               </label>
-              <button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>
+              <button type="button" class="hpg-upstream-del r-btn-ghost t-small text-danger cursor-pointer">remove</button>
             </div>
           </div>
           {{end}}
         </div>
-        <button type="button" id="hpg-upstream-add" class="mt-2 text-xs px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer">+ Add backend</button>
-        <p class="text-[11px] text-slate-400 mt-1">host - port - weight - max req (0=unlimited) - on/off. Passive health is configured pool-wide below (stock Caddy has no per-upstream override).</p>
+        <button type="button" id="hpg-upstream-add" class="r-btn-secondary t-small mt-2 cursor-pointer">
+          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/></svg>
+          Add backend
+        </button>
+        <p class="t-caption text-muted mt-1">host - port - weight - max req (0=unlimited) - on/off. Passive health is configured pool-wide below (stock Caddy has no per-upstream override).</p>
       </div>
-      <div class="grid grid-cols-2 gap-3 text-sm">
+      <div class="grid grid-cols-2 gap-3">
         <label class="block">
-          <span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Selection policy</span>
-          <select name="lb_policy" id="hpg-lb-policy" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-            <option value=""              {{if eq .LBPolicy ""}}selected{{end}}>Default (round-robin)</option>
-            <option value="round_robin"   {{if eq .LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
-            <option value="least_conn"    {{if eq .LBPolicy "least_conn"}}selected{{end}}>Least connections</option>
-            <option value="ip_hash"       {{if eq .LBPolicy "ip_hash"}}selected{{end}}>IP hash (sticky)</option>
+          <span class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Selection policy</span>
+          <select name="lb_policy" id="hpg-lb-policy" class="r-select w-full cursor-pointer">
+            <option value=""                  {{if eq .LBPolicy ""}}selected{{end}}>Default (round-robin)</option>
+            <option value="round_robin"       {{if eq .LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
+            <option value="least_conn"        {{if eq .LBPolicy "least_conn"}}selected{{end}}>Least connections</option>
+            <option value="ip_hash"           {{if eq .LBPolicy "ip_hash"}}selected{{end}}>IP hash (sticky)</option>
             {{if .WeightedLBAvail}}<option value="weighted_round_robin" {{if eq .LBPolicy "weighted_round_robin"}}selected{{end}}>Weighted round robin</option>{{end}}
           </select>
         </label>
       </div>
-      {{if not .WeightedLBAvail}}<p class="text-[11px] text-amber-600 dark:text-amber-400">Weighted round-robin needs the custom Caddy image (WEIGHTED_LB_AVAILABLE); hidden until the fleet runs it.</p>{{end}}
-      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
-        <p class="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">Active health check (probes backends on a timer)</p>
-        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
-          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Probe path</span><input type="text" name="health_uri" value="{{.HealthURI}}" placeholder="/healthz" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
-          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Interval (s)</span><input type="number" name="health_interval" value="{{.HealthInterval}}" min="1" max="300" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
-          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Timeout (s)</span><input type="number" name="health_timeout" value="{{.HealthTimeout}}" min="1" max="60" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
-          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Expect status (0=any)</span><input type="number" name="health_expect_status" value="{{.HealthStatus}}" min="0" max="599" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
-          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Fails to eject</span><input type="number" name="health_fails" value="{{.HealthFails}}" min="1" max="10" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
-        </div>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Leave probe path empty to disable active checks.</p>
-      </div>
-      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
-        <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="health_passive" value="1" {{if .HealthPassive}}checked{{end}}> Passive health check (eject on live-request failures)</label>
-        <div class="grid grid-cols-2 gap-3 text-sm mt-2">
-          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Fail window (s)</span><input type="number" name="health_fail_dur" value="{{.HealthFailDur}}" min="1" max="600" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
-          <label class="block"><span class="block text-[11px] text-slate-500 mb-1">Max fails</span><input type="number" name="health_max_fails" value="{{.HealthMaxFails}}" min="1" max="10" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
-        </div>
-      </div>
-      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
-        <p class="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">Retry behavior (requires a load-balancing policy)</p>
-        <div class="grid grid-cols-2 gap-3 text-sm">
-          <label class="block">
-            <span class="block text-[11px] text-slate-500 mb-1">Try duration (ms)</span>
-            <input type="number" name="lb_try_duration_ms" value="{{.LBTryDurationMs}}" min="100" max="300000" placeholder="5000"
-              class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-          </label>
-          <label class="block">
-            <span class="block text-[11px] text-slate-500 mb-1">Retry interval (ms)</span>
-            <input type="number" name="lb_try_interval_ms" value="{{.LBTryIntervalMs}}" min="0" max="60000" placeholder="250"
-              class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-          </label>
-        </div>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Total time Caddy may spend retrying a request across backends, and delay between each attempt. Defaults: 5000 ms / 250 ms.</p>
-      </div>
-      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
-        <p class="text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">Transport timeouts</p>
-        <div class="grid grid-cols-2 gap-4 mt-4">
-          <div>
-            <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Dial timeout (ms, 0=default 10s)</label>
-            <input type="number" name="dial_timeout_ms" min="0" max="300000"
-                   value="{{.DialTimeoutMs}}"
-                   class="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-slate-100">
+      {{if not .WeightedLBAvail}}<p class="t-caption text-warning">Weighted round-robin needs the custom Caddy image (WEIGHTED_LB_AVAILABLE); hidden until the fleet runs it.</p>{{end}}
+
+      <details class="r-card mt-2">
+        <summary class="t-eyebrow cursor-pointer py-1">Active health check</summary>
+        <div class="pt-3 space-y-3">
+          <p class="t-caption text-muted">Probes backends on a timer.</p>
+          <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            <label class="block"><span class="block t-caption text-muted mb-1">Probe path</span><input type="text" name="health_uri" value="{{.HealthURI}}" placeholder="/healthz" class="r-input w-full text-sm"></label>
+            <label class="block"><span class="block t-caption text-muted mb-1">Interval (s)</span><input type="number" name="health_interval" value="{{.HealthInterval}}" min="1" max="300" class="r-input w-full text-sm"></label>
+            <label class="block"><span class="block t-caption text-muted mb-1">Timeout (s)</span><input type="number" name="health_timeout" value="{{.HealthTimeout}}" min="1" max="60" class="r-input w-full text-sm"></label>
+            <label class="block"><span class="block t-caption text-muted mb-1">Expect status (0=any)</span><input type="number" name="health_expect_status" value="{{.HealthStatus}}" min="0" max="599" class="r-input w-full text-sm"></label>
+            <label class="block"><span class="block t-caption text-muted mb-1">Fails to eject</span><input type="number" name="health_fails" value="{{.HealthFails}}" min="1" max="10" class="r-input w-full text-sm"></label>
           </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-600 dark:text-slate-400 mb-1">Response header timeout (ms, 0=none)</label>
-            <input type="number" name="response_header_timeout_ms" min="0" max="300000"
-                   value="{{.ResponseHeaderTimeoutMs}}"
-                   class="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-sm px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:text-slate-100">
+          <p class="t-caption text-muted">Leave probe path empty to disable active checks.</p>
+        </div>
+      </details>
+
+      <details class="r-card mt-2">
+        <summary class="t-eyebrow cursor-pointer py-1">Passive health check</summary>
+        <div class="pt-3 space-y-3">
+          <label class="r-toggle">
+            <input type="checkbox" name="health_passive" value="1" {{if .HealthPassive}}checked{{end}}>
+            <span></span>
+            <span class="t-body ml-2">Passive health check (eject on live-request failures)</span>
+          </label>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block"><span class="block t-caption text-muted mb-1">Fail window (s)</span><input type="number" name="health_fail_dur" value="{{.HealthFailDur}}" min="1" max="600" class="r-input w-full text-sm"></label>
+            <label class="block"><span class="block t-caption text-muted mb-1">Max fails</span><input type="number" name="health_max_fails" value="{{.HealthMaxFails}}" min="1" max="10" class="r-input w-full text-sm"></label>
           </div>
         </div>
-      </div>
+      </details>
+
+      <details class="r-card mt-2">
+        <summary class="t-eyebrow cursor-pointer py-1">Retry &amp; transport timeouts</summary>
+        <div class="pt-3 space-y-3">
+          <p class="t-caption text-muted">Retry behavior requires a load-balancing policy.</p>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="block">
+              <span class="block t-caption text-muted mb-1">Try duration (ms)</span>
+              <input type="number" name="lb_try_duration_ms" value="{{.LBTryDurationMs}}" min="100" max="300000" placeholder="5000" class="r-input w-full text-sm">
+            </label>
+            <label class="block">
+              <span class="block t-caption text-muted mb-1">Retry interval (ms)</span>
+              <input type="number" name="lb_try_interval_ms" value="{{.LBTryIntervalMs}}" min="0" max="60000" placeholder="250" class="r-input w-full text-sm">
+            </label>
+          </div>
+          <p class="t-caption text-muted">Total time Caddy may spend retrying a request across backends, and delay between each attempt. Defaults: 5000 ms / 250 ms.</p>
+          <div class="grid grid-cols-2 gap-3 pt-2 border-t border-[rgb(var(--border))]">
+            <div>
+              <label class="block t-caption text-muted mb-1">Dial timeout (ms, 0=default 10s)</label>
+              <input type="number" name="dial_timeout_ms" min="0" max="300000" value="{{.DialTimeoutMs}}" class="r-input w-full text-sm">
+            </div>
+            <div>
+              <label class="block t-caption text-muted mb-1">Response header timeout (ms, 0=none)</label>
+              <input type="number" name="response_header_timeout_ms" min="0" max="300000" value="{{.ResponseHeaderTimeoutMs}}" class="r-input w-full text-sm">
+            </div>
+          </div>
+        </div>
+      </details>
     </section>
 
     <!-- Rate limit -->
-    <section data-pane="ratelimit" class="hpg-pane hidden hpg-card space-y-4">
+    <section data-pane="ratelimit" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">Rate limiting</p>
       {{if not .RateLimitModuleAvailable}}
-      <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 text-xs text-amber-800 dark:text-amber-300">
-        <strong>Module not available.</strong> Needs Caddy built with <code>github.com/mholt/caddy-ratelimit</code> + <code>RATE_LIMIT_AVAILABLE=1</code>. Saving works, but no rate_limit is pushed until the gate is on fleet-wide.
+      <div class="r-card bg-[rgb(var(--warning-weak),0.15)] ring-warning/30 t-caption text-warning">
+        <div class="flex items-start gap-2">
+          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span><strong>Module not available.</strong> Needs Caddy built with <code>github.com/mholt/caddy-ratelimit</code> + <code>RATE_LIMIT_AVAILABLE=1</code>. Saving works, but no rate_limit is pushed until the gate is on fleet-wide.</span>
+        </div>
       </div>
       {{end}}
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="rate_enabled" value="1" {{if .RateLimitEnabled}}checked{{end}} id="hpg-rl-toggle"> Enable rate limiting</label>
+      <label class="r-toggle">
+        <input type="checkbox" name="rate_enabled" value="1" {{if .RateLimitEnabled}}checked{{end}} id="hpg-rl-toggle">
+        <span></span>
+        <span class="t-body ml-2">Enable rate limiting</span>
+      </label>
       <div id="hpg-rl-fields" class="{{if not .RateLimitEnabled}}hidden{{end}} space-y-4">
-        <div class="grid grid-cols-2 gap-4 text-sm">
-          <label class="block"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Window</span><input name="rate_window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}1m{{end}}" placeholder="1m" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm"><span class="text-[11px] text-slate-500">Go duration: 30s, 1m, 1h.</span></label>
-          <label class="block"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Max requests / window</span><input name="rate_max_events" type="number" min="1" max="1000000" value="{{if .RateLimitMaxEvents}}{{.RateLimitMaxEvents}}{{else}}100{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm"></label>
+        <div class="grid grid-cols-2 gap-4">
+          <label class="block">
+            <span class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Window</span>
+            <input name="rate_window" value="{{if .RateLimitWindow}}{{.RateLimitWindow}}{{else}}1m{{end}}" placeholder="1m" class="r-input w-full font-mono text-sm">
+            <span class="t-caption text-muted">Go duration: 30s, 1m, 1h.</span>
+          </label>
+          <label class="block">
+            <span class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Max requests / window</span>
+            <input name="rate_max_events" type="number" min="1" max="1000000" value="{{if .RateLimitMaxEvents}}{{.RateLimitMaxEvents}}{{else}}100{{end}}" class="r-input w-full text-sm">
+          </label>
         </div>
-        <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Rate limit key</span>
-          <select name="rate_key" id="hpg-rl-key" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
+        <label class="block">
+          <span class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Rate limit key</span>
+          <select name="rate_key" id="hpg-rl-key" class="r-select w-full cursor-pointer">
             <option value="{http.request.remote.host}" {{if or (eq .RateLimitKey "") (eq .RateLimitKey "{http.request.remote.host}")}}selected{{end}}>Per client IP</option>
-            <option value="static" {{if eq .RateLimitKey "static"}}selected{{end}}>Global (one counter)</option>
-            <option value="{http.request.uri}" {{if eq .RateLimitKey "{http.request.uri}"}}selected{{end}}>Per URL path</option>
-            <option value="custom" {{if and (ne .RateLimitKey "") (ne .RateLimitKey "{http.request.remote.host}") (ne .RateLimitKey "static") (ne .RateLimitKey "{http.request.uri}")}}selected{{end}}>Custom placeholder</option>
+            <option value="static"                     {{if eq .RateLimitKey "static"}}selected{{end}}>Global (one counter)</option>
+            <option value="{http.request.uri}"         {{if eq .RateLimitKey "{http.request.uri}"}}selected{{end}}>Per URL path</option>
+            <option value="custom"                     {{if and (ne .RateLimitKey "") (ne .RateLimitKey "{http.request.remote.host}") (ne .RateLimitKey "static") (ne .RateLimitKey "{http.request.uri}")}}selected{{end}}>Custom placeholder</option>
           </select>
         </label>
         <div id="hpg-rl-custom-key" class="{{if or (eq .RateLimitKey "") (eq .RateLimitKey "{http.request.remote.host}") (eq .RateLimitKey "static") (eq .RateLimitKey "{http.request.uri}")}}hidden{{end}}">
-          <input name="rate_key_custom" value="{{if and (ne .RateLimitKey "") (ne .RateLimitKey "{http.request.remote.host}") (ne .RateLimitKey "static") (ne .RateLimitKey "{http.request.uri}")}}{{.RateLimitKey}}{{end}}" placeholder="{http.request.header.X-API-Key}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+          <input name="rate_key_custom" value="{{if and (ne .RateLimitKey "") (ne .RateLimitKey "{http.request.remote.host}") (ne .RateLimitKey "static") (ne .RateLimitKey "{http.request.uri}")}}{{.RateLimitKey}}{{end}}" placeholder="{http.request.header.X-API-Key}" class="r-input w-full font-mono text-sm">
         </div>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">On limit Caddy returns 429 with Retry-After; upstream is never reached.</p>
+        <p class="t-caption text-muted">On limit Caddy returns 429 with Retry-After; upstream is never reached.</p>
       </div>
     </section>
 
     <!-- WAF -->
-    <section data-pane="waf" class="hpg-pane hidden hpg-card space-y-4">
+    <section data-pane="waf" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">Web Application Firewall</p>
       {{if not .WAFModuleAvailable}}
-      <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 text-xs text-amber-800 dark:text-amber-300">
-        <strong>Module not available.</strong> Needs Caddy built with <code>github.com/corazawaf/coraza-caddy/v2</code> + <code>WAF_MODULE_AVAILABLE=1</code>. Saving works, but no WAF is pushed until the gate is on fleet-wide.
+      <div class="r-card bg-[rgb(var(--warning-weak),0.15)] ring-warning/30 t-caption text-warning">
+        <div class="flex items-start gap-2">
+          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span><strong>Module not available.</strong> Needs Caddy built with <code>github.com/corazawaf/coraza-caddy/v2</code> + <code>WAF_MODULE_AVAILABLE=1</code>. Saving works, but no WAF is pushed until the gate is on fleet-wide.</span>
+        </div>
       </div>
       {{end}}
       {{if and .WAFEnabled (not .NodeHasWAF)}}
-      <div class="rounded-xl ring-1 ring-rose-200 dark:ring-rose-800/60 bg-rose-50/60 dark:bg-rose-900/10 p-3 text-xs text-rose-800 dark:text-rose-300">
-        <strong>Node capability missing.</strong> WAF is enabled but this node has not confirmed the WAF module. Enable it in Node settings or disable WAF here.
+      <div class="r-card bg-[rgb(var(--danger-weak),0.15)] ring-danger/30 t-caption text-danger">
+        <div class="flex items-start gap-2">
+          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span><strong>Node capability missing.</strong> WAF is enabled but this node has not confirmed the WAF module. Enable it in Node settings or disable WAF here.</span>
+        </div>
       </div>
       {{end}}
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="waf_enabled" value="1" {{if .WAFEnabled}}checked{{end}} id="hpg-waf-toggle"> Enable WAF (OWASP CRS)</label>
+      <label class="r-toggle">
+        <input type="checkbox" name="waf_enabled" value="1" {{if .WAFEnabled}}checked{{end}} id="hpg-waf-toggle">
+        <span></span>
+        <span class="t-body ml-2">Enable WAF (OWASP CRS)</span>
+      </label>
       <div id="hpg-waf-fields" class="{{if not .WAFEnabled}}hidden{{end}} space-y-3">
-        <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="waf_blocking" value="1" {{if .WAFBlocking}}checked{{end}}> Blocking mode (off = detection-only, logs but never blocks)</label>
-        <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Custom seclang directives (rule exclusions)</span>
-          <textarea name="waf_directives" rows="4" placeholder="SecRuleRemoveById 920420" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.WAFDirectives}}</textarea>
-          <span class="text-[11px] text-slate-500">Applied before the CRS include. 16 KiB max. Start in detection-only and watch logs before enabling blocking.</span>
+        <label class="r-toggle">
+          <input type="checkbox" name="waf_blocking" value="1" {{if .WAFBlocking}}checked{{end}}>
+          <span></span>
+          <span class="t-body ml-2">Blocking mode (off = detection-only, logs but never blocks)</span>
         </label>
+        <div>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Custom seclang directives (rule exclusions)</label>
+          <textarea name="waf_directives" rows="4" placeholder="SecRuleRemoveById 920420" class="r-input w-full font-mono text-xs">{{.WAFDirectives}}</textarea>
+          <span class="t-caption text-muted">Applied before the CRS include. 16 KiB max. Start in detection-only and watch logs before enabling blocking.</span>
+        </div>
       </div>
     </section>
 
-    <!-- Geo blocking -->
-    <section data-pane="geo" class="hpg-pane hidden hpg-card space-y-4">
+    <!-- Geo -->
+    <section data-pane="geo" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">Geo blocking</p>
       {{if not .GeoModuleAvailable}}
-      <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 text-xs text-amber-800 dark:text-amber-300">
-        <strong>Module not available.</strong> Needs Caddy built with the maxmind geolocation module + <code>GEOIP_AVAILABLE=1</code>. Saving works, but no geo rule is pushed until the gate is on fleet-wide.
+      <div class="r-card bg-[rgb(var(--warning-weak),0.15)] ring-warning/30 t-caption text-warning">
+        <div class="flex items-start gap-2">
+          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span><strong>Module not available.</strong> Needs Caddy built with the maxmind geolocation module + <code>GEOIP_AVAILABLE=1</code>. Saving works, but no geo rule is pushed until the gate is on fleet-wide.</span>
+        </div>
       </div>
       {{end}}
       {{if and (ne .GeoMode "off") (not .NodeHasGeoIP)}}
-      <div class="rounded-xl ring-1 ring-rose-200 dark:ring-rose-800/60 bg-rose-50/60 dark:bg-rose-900/10 p-3 text-xs text-rose-800 dark:text-rose-300">
-        <strong>Node capability missing.</strong> Geo filtering is active but this node has not confirmed the GeoIP module. Enable it in Node settings or set mode to Off.
+      <div class="r-card bg-[rgb(var(--danger-weak),0.15)] ring-danger/30 t-caption text-danger">
+        <div class="flex items-start gap-2">
+          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span><strong>Node capability missing.</strong> Geo filtering is active but this node has not confirmed the GeoIP module. Enable it in Node settings or set mode to Off.</span>
+        </div>
       </div>
       {{end}}
-      <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Mode</span>
-        <select name="geo_mode" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+      <div>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Mode</label>
+        <select name="geo_mode" class="r-select w-full cursor-pointer">
           <option value="off"   {{if eq .GeoMode "off"}}selected{{end}}>Off (no geo rule)</option>
           <option value="allow" {{if eq .GeoMode "allow"}}selected{{end}}>Allow only listed countries</option>
           <option value="deny"  {{if eq .GeoMode "deny"}}selected{{end}}>Deny listed countries</option>
         </select>
         {{if .GeoIPAvailable}}
-        <span class="inline-flex items-center gap-1 mt-1.5 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">GeoIP active</span>
+        <span class="r-pill r-pill-success mt-2 inline-flex">GeoIP active</span>
         {{else if ne .GeoMode "off"}}
-        <div class="mt-1.5 flex items-start gap-2 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-300 rounded-lg p-3 text-sm ring-1 ring-amber-200/70 dark:ring-amber-500/25">
+        <div class="mt-2 r-card bg-[rgb(var(--warning-weak),0.15)] ring-warning/30 t-caption text-warning flex items-start gap-2">
+          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
           GeoIP database not configured - geo filtering will have no effect. Configure in <a href="/admin/settings" class="underline font-medium">Settings &rarr; GeoIP</a>.
         </div>
         {{else}}
-        <span class="block mt-1.5 text-xs text-slate-400 dark:text-slate-500">GeoIP not configured</span>
+        <span class="block mt-1 t-caption text-muted">GeoIP not configured</span>
         {{end}}
-      </label>
-      <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Countries</span>
-        <input type="text" name="geo_countries" value="{{.GeoCountries}}" placeholder="PL,DE,US" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">
-        <span class="text-[11px] text-slate-500">Comma-separated ISO country codes (alpha-2). Blocked requests get 403 before reaching the upstream.</span>
-      </label>
+      </div>
+      <div>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Countries</label>
+        <input type="text" name="geo_countries" value="{{.GeoCountries}}" placeholder="PL,DE,US" class="r-input w-full font-mono text-xs">
+        <span class="t-caption text-muted">Comma-separated ISO country codes (alpha-2). Blocked requests get 403 before reaching the upstream.</span>
+      </div>
     </section>
 
-    <!-- mTLS client-cert enforcement -->
-    <section data-pane="mtls" class="hpg-pane hidden hpg-card space-y-4">
+    <!-- mTLS -->
+    <section data-pane="mtls" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">Mutual TLS (mTLS)</p>
       {{if not .MTLSCAs}}
-      <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 text-xs text-amber-800 dark:text-amber-300">
-        <strong>No certificate authorities yet.</strong> Create one under <a href="/admin/mtls" class="underline">mTLS authorities</a> before requiring client certificates.
+      <div class="r-card bg-[rgb(var(--warning-weak),0.15)] ring-warning/30 t-caption text-warning">
+        <div class="flex items-start gap-2">
+          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span><strong>No certificate authorities yet.</strong> Create one under <a href="/admin/mtls" class="underline">mTLS authorities</a> before requiring client certificates.</span>
+        </div>
       </div>
       {{end}}
-      <!-- mTLS status pill: reflects current saved state before any unsaved changes -->
+      <!-- mTLS status -->
       <div class="flex items-center gap-2">
         {{if and .RequireClientCert .MTLSCAActive}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+        <span class="r-pill r-pill-success inline-flex items-center gap-1">
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
           mTLS enforced
         </span>
         {{else if and .RequireClientCert (gt .MTLSCAID 0)}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+        <span class="r-pill r-pill-warning inline-flex items-center gap-1">
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
           mTLS enforced - CA inactive
         </span>
         {{else if .RequireClientCert}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+        <span class="r-pill r-pill-danger inline-flex items-center gap-1">
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
           mTLS configured - CA missing
         </span>
         {{else}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 016 0v2h2V7a5 5 0 00-5-5z"/></svg>
+        <span class="r-pill r-pill-neutral inline-flex items-center gap-1">
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 016 0v2h2V7a5 5 0 00-5-5z"/></svg>
           mTLS off
         </span>
         {{end}}
       </div>
       {{if and .RequireClientCert (not .MTLSCAID)}}
-      <div class="rounded-lg ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-        No CA selected - client certificates will not be verified.
-      </div>
+      <div class="r-card bg-[rgb(var(--warning-weak),0.15)] ring-warning/30 t-caption text-warning">No CA selected - client certificates will not be verified.</div>
       {{end}}
       {{if and .RequireClientCert (gt .MTLSCAID 0) (not .MTLSCAActive)}}
-      <div class="rounded-lg ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
-        Warning: CA is not active - client cert verification may fail-open. Reactivate or replace the CA.
-      </div>
+      <div class="r-card bg-[rgb(var(--warning-weak),0.15)] ring-warning/30 t-caption text-warning">Warning: CA is not active - client cert verification may fail-open. Reactivate or replace the CA.</div>
       {{end}}
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="require_client_cert" value="1" {{if .RequireClientCert}}checked{{end}} id="hpg-mtls-toggle"> Require a client certificate (mutual TLS)</label>
+      <label class="r-toggle">
+        <input type="checkbox" name="require_client_cert" value="1" {{if .RequireClientCert}}checked{{end}} id="hpg-mtls-toggle">
+        <span></span>
+        <span class="t-body ml-2">Require a client certificate (mutual TLS)</span>
+      </label>
       <div id="hpg-mtls-fields" class="{{if not .RequireClientCert}}hidden{{end}} space-y-3">
-        <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Trust anchor (CA)</span>
-          <select name="mtls_ca_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block">
+          <span class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Trust anchor (CA)</span>
+          <select name="mtls_ca_id" class="r-select w-full cursor-pointer">
             <option value="0">- select a CA -</option>
             {{range .MTLSCAs}}<option value="{{.ID}}" {{if eq .ID $.MTLSCAID}}selected{{end}}>{{.Label}}</option>{{end}}
           </select>
-          <span class="text-[11px] text-slate-500">Caddy will require + verify a client cert chaining to this CA on the TLS handshake. Requires SSL enabled on this host; clients without a valid cert are rejected at connect time.</span>
+          <span class="t-caption text-muted mt-1 block">Caddy will require + verify a client cert chaining to this CA on the TLS handshake. Requires SSL enabled on this host; clients without a valid cert are rejected at connect time.</span>
         </label>
       </div>
     </section>
 
     <!-- Custom JSON -->
-    <section data-pane="custom" class="hpg-pane hidden hpg-card space-y-3">
-      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Custom handler chain (Caddy JSON)</label>
-      <textarea name="custom_config" rows="8" placeholder='[{"handler":"rate_limit","zone":"per_ip","window":"1m","max_events":120}]' class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs">{{.CustomConfig}}</textarea>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400">JSON array of handler objects. Each needs <code class="text-xs">"handler"</code> key. Runs before proxy primary. Validated on save. 16 KiB max.</p>
+    <section data-pane="custom" class="hpg-pane hidden r-card space-y-3">
+      <p class="t-eyebrow">Custom handler chain (Caddy JSON)</p>
+      <textarea name="custom_config" rows="8" placeholder='[{"handler":"rate_limit","zone":"per_ip","window":"1m","max_events":120}]' class="r-input w-full font-mono text-xs">{{.CustomConfig}}</textarea>
+      <p class="t-caption text-muted">JSON array of handler objects. Each needs <code class="text-xs">"handler"</code> key. Runs before proxy primary. Validated on save. 16 KiB max.</p>
     </section>
 
     <!-- Egress IP -->
-    <section data-pane="egress" class="hpg-pane hidden hpg-card space-y-4">
-      <h3 class="hpg-eyebrow">Outbound / Egress IP</h3>
-      <p class="text-[11px] text-slate-500 dark:text-slate-400">Controls which source IP the node uses when opening connections to the upstream. Useful when a node has multiple NICs or secondary IPs and the upstream allowlists a specific one.</p>
+    <section data-pane="egress" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">Outbound / Egress IP</p>
+      <p class="t-caption text-muted">Controls which source IP the node uses when opening connections to the upstream. Useful when a node has multiple NICs or secondary IPs and the upstream allowlists a specific one.</p>
       {{if not .PlanAllowEgressIP}}
-      <div class="rounded-lg bg-amber-50 dark:bg-amber-900/20 ring-1 ring-amber-200 dark:ring-amber-700 px-4 py-3 text-xs text-amber-800 dark:text-amber-300">
+      <div class="r-card bg-[rgb(var(--warning-weak),0.15)] ring-warning/30 t-caption text-warning">
         Egress IP control is not enabled on this plan. Ask an admin to enable it in the plan settings.
       </div>
       {{end}}
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Mode</label>
-        <select name="outbound_ip_mode" id="hpg-egress-mode" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500" {{if not .PlanAllowEgressIP}}disabled{{end}}>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Mode</label>
+        <select name="outbound_ip_mode" id="hpg-egress-mode" class="r-select w-full cursor-pointer" {{if not .PlanAllowEgressIP}}disabled{{end}}>
           <option value="default" {{if eq .OutboundIPMode "default"}}selected{{end}}>Default (OS picks source IP)</option>
-          <option value="fixed" {{if eq .OutboundIPMode "fixed"}}selected{{end}}>Fixed IP</option>
-          <option value="random" {{if eq .OutboundIPMode "random"}}selected{{end}}>Random from node inventory (stable per route)</option>
+          <option value="fixed"   {{if eq .OutboundIPMode "fixed"}}selected{{end}}>Fixed IP</option>
+          <option value="random"  {{if eq .OutboundIPMode "random"}}selected{{end}}>Random from node inventory (stable per route)</option>
         </select>
       </div>
       <div id="hpg-egress-ip-row" class="{{if ne .OutboundIPMode "fixed"}}hidden{{end}}">
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Egress IP</label>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Egress IP</label>
         {{if .NodeOutboundIPs}}
         <datalist id="hpg-egress-ip-list">
           {{range .NodeOutboundIPs}}<option value="{{.}}">{{end}}
         </datalist>
         <input type="text" name="outbound_ip" id="hpg-egress-ip" value="{{.OutboundIP}}" placeholder="203.0.113.5"
-          list="hpg-egress-ip-list"
-          class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+          list="hpg-egress-ip-list" class="r-input w-full font-mono text-sm">
         {{else}}
         <input type="text" name="outbound_ip" id="hpg-egress-ip" value="{{.OutboundIP}}" placeholder="203.0.113.5"
-          class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
+          class="r-input w-full font-mono text-sm">
         {{end}}
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Must be a bare IPv4 or IPv6 address present on the node NIC. Caddy will reject /load if the address is missing. Not compatible with connection pool reuse across routes that share an upstream.</p>
+        <p class="t-caption text-muted mt-1">Must be a bare IPv4 or IPv6 address present on the node NIC. Caddy will reject /load if the address is missing. Not compatible with connection pool reuse across routes that share an upstream.</p>
       </div>
     </section>
 
-    <!-- DNS controls -->
-    <section data-pane="dns" class="hpg-pane hidden hpg-card space-y-4">
+    <!-- DNS -->
+    <section data-pane="dns" class="hpg-pane hidden r-card space-y-4">
       <div>
-        <h4 class="hpg-eyebrow mb-1">DNS resolver controls</h4>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400">Override how Caddy resolves the upstream hostname. Useful when the backend is only resolvable via a private DNS server (e.g. a WireGuard-connected node running dnsmasq) or when you need to force IPv4-only or IPv6-only lookups. Only applies when the upstream is a hostname, not a bare IP.</p>
+        <p class="t-eyebrow">DNS resolver controls</p>
+        <p class="t-caption text-muted mt-1">Override how Caddy resolves the upstream hostname. Useful when the backend is only resolvable via a private DNS server (e.g. a WireGuard-connected node running dnsmasq) or when you need to force IPv4-only or IPv6-only lookups. Only applies when the upstream is a hostname, not a bare IP.</p>
       </div>
 
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Custom resolver IP</label>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Custom resolver IP</label>
         <input type="text" name="dns_resolver_ip" value="{{.DNSResolverIP}}" placeholder="10.8.0.1 or 2001:db8::1"
-          class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-sm">
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Direct resolver IP (port 53). When set, the WG peer resolver below is ignored. Leave blank to use OS default.</p>
+          class="r-input w-full font-mono text-sm">
+        <p class="t-caption text-muted mt-1">Direct resolver IP (port 53). When set, the WG peer resolver below is ignored. Leave blank to use OS default.</p>
       </div>
 
       {{if .ClientTunnels}}
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Resolver via WG peer</label>
-        <select name="dns_resolver_via_wg_peer_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Resolver via WG peer</label>
+        <select name="dns_resolver_via_wg_peer_id" class="r-select w-full cursor-pointer">
           <option value="">None (use resolver IP above or OS default)</option>
           {{range .ClientTunnels}}<option value="{{.ID}}" {{if eq .ID $.DNSResolverViaWGID}}selected{{end}}>WG tunnel #{{.ID}} - {{.Name}} ({{.AssignedIP}})</option>{{end}}
         </select>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Pick a tunnel peer that runs a DNS server on its assigned IP:53. Ignored when a direct resolver IP is set above.</p>
+        <p class="t-caption text-muted mt-1">Pick a tunnel peer that runs a DNS server on its assigned IP:53. Ignored when a direct resolver IP is set above.</p>
       </div>
       {{end}}
 
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Address family</label>
-        <select name="dns_address_family" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Address family</label>
+        <select name="dns_address_family" class="r-select w-full cursor-pointer">
           <option value="any"  {{if or (eq .DNSAddressFamily "") (eq .DNSAddressFamily "any")}}selected{{end}}>Any (A records / IPv4)</option>
           <option value="ipv4" {{if eq .DNSAddressFamily "ipv4"}}selected{{end}}>IPv4 only (A records)</option>
           <option value="ipv6" {{if eq .DNSAddressFamily "ipv6"}}selected{{end}}>IPv6 only (AAAA records)</option>
         </select>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Forces the resolver lookup type. Only takes effect when a custom resolver (IP or WG peer) is configured above.</p>
+        <p class="t-caption text-muted mt-1">Forces the resolver lookup type. Only takes effect when a custom resolver (IP or WG peer) is configured above.</p>
       </div>
 
       <!-- Backend reachability test -->
-      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
-        <div class="flex items-center gap-2 mb-2">
-          <p class="text-xs font-medium text-slate-700 dark:text-slate-300">Test backend</p>
+      <div class="border-t border-[rgb(var(--border))] pt-4 space-y-2">
+        <div class="flex items-center gap-3">
+          <p class="t-caption font-medium text-[rgb(var(--text))]">Test backend</p>
           <button type="button" id="hpg-backend-test-btn"
-            class="px-3 py-1.5 rounded-lg ring-1 ring-emerald-200 dark:ring-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors cursor-pointer inline-flex items-center gap-1">
-            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            class="r-btn-secondary t-small text-success cursor-pointer">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
             TCP probe
           </button>
         </div>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">Tests a TCP connection from this panel host to the route's backend IP and upstream port (saved values). Confirms layer-4 reachability before Caddy is involved.</p>
-        <div id="hpg-backend-test-result" class="hidden rounded-lg p-3 text-xs font-mono space-y-1"></div>
+        <p class="t-caption text-muted">Tests a TCP connection from this panel host to the route's backend IP and upstream port (saved values). Confirms layer-4 reachability before Caddy is involved.</p>
+        <div id="hpg-backend-test-result" class="hidden rounded-xl p-3 t-caption font-mono space-y-1"></div>
       </div>
 
       <!-- DNS resolver test -->
-      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
-        <div class="flex items-center gap-2 mb-2">
-          <p class="text-xs font-medium text-slate-700 dark:text-slate-300">Test resolver</p>
+      <div class="border-t border-[rgb(var(--border))] pt-4 space-y-2">
+        <div class="flex items-center gap-3">
+          <p class="t-caption font-medium text-[rgb(var(--text))]">Test resolver</p>
           <button type="button" id="hpg-dns-test-btn"
-            class="px-3 py-1.5 rounded-lg ring-1 ring-indigo-200 dark:ring-indigo-800 text-indigo-700 dark:text-indigo-300 text-xs hover:bg-indigo-50 dark:hover:bg-indigo-500/10 transition-colors cursor-pointer inline-flex items-center gap-1">
+            class="r-btn-secondary t-small text-[rgb(var(--accent))] cursor-pointer">
             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15.91 11.672a.375.375 0 010 .656l-5.603 3.113a.375.375 0 01-.557-.328V8.887c0-.286.307-.466.557-.328l5.603 3.113z"/></svg>
             Run test
           </button>
         </div>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">Tests DNS resolution of the backend hostname through the configured custom resolver (saved values used, not the current form inputs). Only meaningful when a resolver IP or WG peer is configured and the backend is a hostname.</p>
-        <div id="hpg-dns-test-result" class="hidden rounded-lg p-3 text-xs font-mono space-y-1"></div>
+        <p class="t-caption text-muted">Tests DNS resolution of the backend hostname through the configured custom resolver (saved values used, not the current form inputs). Only meaningful when a resolver IP or WG peer is configured and the backend is a hostname.</p>
+        <div id="hpg-dns-test-result" class="hidden rounded-xl p-3 t-caption font-mono space-y-1"></div>
       </div>
     </section>
 
     <div class="flex flex-wrap justify-between items-center gap-3 pt-2">
-      <a href="/admin/hosts" class="text-sm text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100">Cancel</a>
-      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save changes</button>
+      <a href="/admin/hosts" class="r-btn-ghost t-body">Cancel</a>
+      <button class="r-btn-primary">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        Save changes
+      </button>
     </div>
   </form>
 
-  <!-- Standalone form for the "Regenerate secret" button (kept outside the
-       edit form so it can't carry the edit values; nested forms are invalid). -->
+  <!-- Standalone regen form (outside edit form - nested forms invalid) -->
   <form id="hpg-regen-secret" method="POST" action="/admin/hosts/{{.RouteID}}/regenerate-secret" class="hidden">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   </form>
@@ -885,30 +1005,24 @@ X-Authentik-Meta-Version</pre>
     function activate(name){
       tabs.forEach(function(t){
         var on = t.dataset.tab === name;
-        t.classList.toggle('border-indigo-600', on);
-        t.classList.toggle('text-indigo-700', on);
-        t.classList.toggle('dark:text-indigo-400', on);
+        t.classList.toggle('border-[rgb(var(--accent))]', on);
+        t.classList.toggle('text-[rgb(var(--accent))]', on);
         t.classList.toggle('font-medium', on);
         t.classList.toggle('border-transparent', !on);
-        t.classList.toggle('text-slate-500', !on);
-        t.classList.toggle('dark:text-slate-400', !on);
+        t.classList.toggle('text-muted', !on);
       });
       panes.forEach(function(p){ p.classList.toggle('hidden', p.dataset.pane !== name); });
       if (activeTabInput) activeTabInput.value = name;
-      // Mirror to URL hash so reload preserves tab + handler redirect on save lands here.
       try { history.replaceState(null, '', '#tab=' + encodeURIComponent(name)); } catch(_) {}
     }
     tabs.forEach(function(t){ t.addEventListener('click', function(){ activate(t.dataset.tab); }); });
 
-    // Restore tab from URL hash on page load (e.g. after save redirect).
     var initialTab = 'basics';
     var m = (location.hash || '').match(/tab=([a-z]+)/i);
     if (m && m[1]) initialTab = m[1];
     activate(initialTab);
 
-    // Target pane: show proxy XOR redirect block based on Kind, unless the
-    // External upstream toggle is on - it owns the whole target pane and is
-    // mutually exclusive with the WG tunnel + plain backend.
+    // Target pane: show proxy XOR redirect block based on Kind.
     var kind = document.getElementById('hpg-kind');
     var pBox = document.getElementById('hpg-target-proxy');
     var rBox = document.getElementById('hpg-target-redirect');
@@ -925,7 +1039,7 @@ X-Authentik-Meta-Version</pre>
       if (extBox) extBox.classList.toggle('hidden', !extOn());
       if (extOn()){
         var viaSel = document.getElementById('hpg-via-peer');
-        if (viaSel) viaSel.value = ''; // never submit a peer with external
+        if (viaSel) viaSel.value = '';
       }
       syncKind();
     }
@@ -946,8 +1060,7 @@ X-Authentik-Meta-Version</pre>
     if (cb) cb.addEventListener('change', syncCache);
     syncCache();
 
-    // Tunnel selected: keep the input editable so admin can type a
-    // container hostname; empty falls back to peer IP server-side.
+    // Tunnel selected: keep the input editable.
     var via = document.getElementById('hpg-via-peer');
     var beIp = document.getElementById('hpg-backend-ip');
     var beNote = document.getElementById('hpg-backend-ip-note');
@@ -957,7 +1070,7 @@ X-Authentik-Meta-Version</pre>
       var ip = sel && sel.dataset && sel.dataset.ip;
       if (via.value && ip) {
         beIp.disabled = false;
-        beIp.placeholder = '(empty) → ' + ip + '  · or hostname e.g. signyt-prod-frontend-1';
+        beIp.placeholder = '(empty) - ' + ip + '  or hostname e.g. signyt-prod-frontend-1';
         if (beNote) beNote.classList.remove('hidden');
       } else {
         beIp.placeholder = '10.0.0.5 or backend.example.com';
@@ -967,21 +1080,21 @@ X-Authentik-Meta-Version</pre>
     if (via) via.addEventListener('change', syncVia);
     syncVia();
 
-    // Load-balancing backends repeater (add/remove rows, vanilla JS).
+    // LB backends repeater (add/remove rows, vanilla JS).
     var upWrap = document.getElementById('hpg-upstreams');
     var upAdd  = document.getElementById('hpg-upstream-add');
     function upRow(){
       var div = document.createElement('div');
-      div.className = 'hpg-upstream-row rounded-lg ring-1 ring-slate-100 dark:ring-zinc-800 p-2 space-y-1.5 bg-white dark:bg-zinc-900';
+      div.className = 'hpg-upstream-row r-card';
       div.innerHTML =
         '<div class="flex flex-wrap items-center gap-2">' +
-          '<input type="text" name="upstream_host[]" placeholder="10.0.0.6 or host.internal" class="flex-1 min-w-32 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
-          '<input type="number" name="upstream_port[]" placeholder="port" min="1" max="65535" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
-          '<input type="number" name="upstream_weight[]" value="1" title="weight (weighted policy only)" min="1" max="100" class="w-20 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
-          '<input type="number" name="upstream_max_requests[]" value="0" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="w-24 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">' +
+          '<input type="text" name="upstream_host[]" placeholder="10.0.0.6 or host.internal" class="r-input flex-1 min-w-32 text-sm">' +
+          '<input type="number" name="upstream_port[]" placeholder="port" min="1" max="65535" class="r-input w-24 text-sm">' +
+          '<input type="number" name="upstream_weight[]" value="1" title="weight (weighted policy only)" min="1" max="100" class="r-input w-20 text-sm">' +
+          '<input type="number" name="upstream_max_requests[]" value="0" title="max concurrent requests (0=unlimited)" min="0" max="100000" placeholder="0" class="r-input w-24 text-sm">' +
           '<input type="hidden" name="upstream_enabled[]" value="1">' +
-          '<label class="flex items-center gap-1 text-xs text-slate-600 dark:text-slate-300 cursor-pointer"><input type="checkbox" class="hpg-upstream-enabled" checked> on</label>' +
-          '<button type="button" class="hpg-upstream-del text-xs px-2 py-2 text-rose-600 hover:text-rose-700 cursor-pointer">remove</button>' +
+          '<label class="flex items-center gap-1 t-caption cursor-pointer"><input type="checkbox" class="hpg-upstream-enabled cursor-pointer" checked> on</label>' +
+          '<button type="button" class="hpg-upstream-del r-btn-ghost t-small text-danger cursor-pointer">remove</button>' +
         '</div>';
       return div;
     }
@@ -992,7 +1105,6 @@ X-Authentik-Meta-Version</pre>
         if (row) row.remove();
       }
     });
-    // Sync enabled checkbox -> hidden input (pool stays in sync without JS state).
     if (upWrap) upWrap.addEventListener('change', function(e){
       if (e.target && e.target.classList.contains('hpg-upstream-enabled')) {
         var row = e.target.closest('.hpg-upstream-row');
@@ -1002,24 +1114,25 @@ X-Authentik-Meta-Version</pre>
       }
     });
 
+    // Location rules repeater.
     var locWrap = document.getElementById('hpg-locations');
     var locAdd = document.getElementById('hpg-location-add');
     function locRow(){
       var div = document.createElement('div');
-      div.className = 'hpg-location-row rounded-lg ring-1 ring-slate-200 dark:ring-zinc-800 p-3 bg-white dark:bg-zinc-900 space-y-3';
+      div.className = 'hpg-location-row r-card space-y-3';
       div.innerHTML =
         '<div class="grid grid-cols-1 md:grid-cols-12 gap-2">' +
-          '<label class="md:col-span-3 block"><span class="block text-[11px] text-slate-500 mb-1">Path</span><input name="loc_path[]" placeholder="/api/*" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></label>' +
-          '<label class="md:col-span-2 block"><span class="block text-[11px] text-slate-500 mb-1">Action</span><select name="loc_action[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"><option value="proxy">Proxy</option><option value="rewrite">Rewrite</option><option value="redirect">Redirect</option><option value="block">Block</option></select></label>' +
-          '<label class="md:col-span-2 block"><span class="block text-[11px] text-slate-500 mb-1">Scheme</span><select name="loc_upstream_scheme[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"><option value="http">http</option><option value="https">https</option></select></label>' +
-          '<label class="md:col-span-3 block"><span class="block text-[11px] text-slate-500 mb-1">Upstream host</span><input name="loc_upstream_host[]" placeholder="10.0.0.10" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></label>' +
-          '<label class="md:col-span-1 block"><span class="block text-[11px] text-slate-500 mb-1">Port</span><input type="number" name="loc_upstream_port[]" min="1" max="65535" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"></label>' +
-          '<div class="md:col-span-1 flex items-end"><button type="button" class="hpg-location-del px-2 py-2 text-xs text-rose-600 hover:text-rose-700">remove</button></div>' +
+          '<label class="md:col-span-3 block"><span class="block t-caption text-muted mb-1">Path</span><input name="loc_path[]" placeholder="/api/*" class="r-input w-full font-mono text-xs"></label>' +
+          '<label class="md:col-span-2 block"><span class="block t-caption text-muted mb-1">Action</span><select name="loc_action[]" class="r-select w-full text-xs cursor-pointer"><option value="proxy">Proxy</option><option value="rewrite">Rewrite</option><option value="redirect">Redirect</option><option value="block">Block</option></select></label>' +
+          '<label class="md:col-span-2 block"><span class="block t-caption text-muted mb-1">Scheme</span><select name="loc_upstream_scheme[]" class="r-select w-full text-xs cursor-pointer"><option value="http">http</option><option value="https">https</option></select></label>' +
+          '<label class="md:col-span-3 block"><span class="block t-caption text-muted mb-1">Upstream host</span><input name="loc_upstream_host[]" placeholder="10.0.0.10" class="r-input w-full font-mono text-xs"></label>' +
+          '<label class="md:col-span-1 block"><span class="block t-caption text-muted mb-1">Port</span><input type="number" name="loc_upstream_port[]" min="1" max="65535" class="r-input w-full text-xs"></label>' +
+          '<div class="md:col-span-1 flex items-end"><button type="button" class="hpg-location-del r-btn-ghost t-small text-danger cursor-pointer">remove</button></div>' +
         '</div>' +
         '<div class="grid grid-cols-1 md:grid-cols-12 gap-2">' +
-          '<label class="md:col-span-7 block"><span class="block text-[11px] text-slate-500 mb-1">Redirect URL</span><input name="loc_redirect_url[]" placeholder="https://new.example.com{http.request.uri}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></label>' +
-          '<label class="md:col-span-2 block"><span class="block text-[11px] text-slate-500 mb-1">Code</span><select name="loc_redirect_code[]" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs"><option value="308">308</option><option value="301">301</option><option value="307">307</option><option value="302">302</option></select></label>' +
-          '<label class="md:col-span-3 block"><span class="block text-[11px] text-slate-500 mb-1">Rewrite URI</span><input name="loc_rewrite_uri[]" placeholder="/index.php{http.request.uri}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono text-xs"></label>' +
+          '<label class="md:col-span-7 block"><span class="block t-caption text-muted mb-1">Redirect URL</span><input name="loc_redirect_url[]" placeholder="https://new.example.com{http.request.uri}" class="r-input w-full font-mono text-xs"></label>' +
+          '<label class="md:col-span-2 block"><span class="block t-caption text-muted mb-1">Code</span><select name="loc_redirect_code[]" class="r-select w-full text-xs cursor-pointer"><option value="308">308</option><option value="301">301</option><option value="307">307</option><option value="302">302</option></select></label>' +
+          '<label class="md:col-span-3 block"><span class="block t-caption text-muted mb-1">Rewrite URI</span><input name="loc_rewrite_uri[]" placeholder="/index.php{http.request.uri}" class="r-input w-full font-mono text-xs"></label>' +
         '</div>';
       return div;
     }
@@ -1031,18 +1144,17 @@ X-Authentik-Meta-Version</pre>
       }
     });
 
-    // Rate limit + WAF enable toggles + custom-key reveal.
+    // Rate limit + WAF + mTLS enable toggles.
     var rlTg = document.getElementById('hpg-rl-toggle'), rlFl = document.getElementById('hpg-rl-fields');
     if (rlTg && rlFl) rlTg.addEventListener('change', function(){ rlFl.classList.toggle('hidden', !rlTg.checked); });
     var rlKey = document.getElementById('hpg-rl-key'), rlCustom = document.getElementById('hpg-rl-custom-key');
     if (rlKey && rlCustom) rlKey.addEventListener('change', function(){ rlCustom.classList.toggle('hidden', rlKey.value !== 'custom'); });
     var wafTg = document.getElementById('hpg-waf-toggle'), wafFl = document.getElementById('hpg-waf-fields');
     if (wafTg && wafFl) wafTg.addEventListener('change', function(){ wafFl.classList.toggle('hidden', !wafTg.checked); });
-
     var mtlsTg = document.getElementById('hpg-mtls-toggle'), mtlsFl = document.getElementById('hpg-mtls-fields');
     if (mtlsTg && mtlsFl) mtlsTg.addEventListener('change', function(){ mtlsFl.classList.toggle('hidden', !mtlsTg.checked); });
 
-    // Egress IP: show fixed-IP input only when mode=fixed (random resolves at build time).
+    // Egress IP: show fixed-IP input only when mode=fixed.
     var egressMode = document.getElementById('hpg-egress-mode');
     var egressRow  = document.getElementById('hpg-egress-ip-row');
     if (egressMode && egressRow) {
@@ -1057,7 +1169,7 @@ X-Authentik-Meta-Version</pre>
       var res = document.getElementById('hpg-backend-test-result');
       if (!btn || !res) return;
       btn.addEventListener('click', function() {
-        res.className = 'rounded-lg p-3 text-xs font-mono bg-slate-50 dark:bg-zinc-800 text-slate-500';
+        res.className = 'rounded-xl p-3 t-caption font-mono bg-[rgb(var(--surface-2))] text-muted';
         res.textContent = 'Probing...';
         fetch('/admin/hosts/{{.RouteID}}/backend/test', {
           method: 'POST',
@@ -1067,9 +1179,9 @@ X-Authentik-Meta-Version</pre>
           .then(function(j) {
             var ok = j.reachable === true;
             res.className = ok
-              ? 'rounded-lg p-3 text-xs font-mono space-y-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300'
-              : 'rounded-lg p-3 text-xs font-mono space-y-1 bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300';
-            var lines = [ok ? '✓ reachable' : '✗ not reachable'];
+              ? 'rounded-xl p-3 t-caption font-mono space-y-1 bg-[rgb(var(--success-weak),0.15)] text-success'
+              : 'rounded-xl p-3 t-caption font-mono space-y-1 bg-[rgb(var(--danger-weak),0.15)] text-danger';
+            var lines = [ok ? 'reachable' : 'not reachable'];
             if (j.host) lines.push('host: ' + j.host);
             if (j.port) lines.push('port: ' + j.port);
             if (j.latency_ms !== undefined) lines.push('latency: ' + j.latency_ms + ' ms');
@@ -1077,7 +1189,7 @@ X-Authentik-Meta-Version</pre>
             res.textContent = lines.join('\n');
           })
           .catch(function(err) {
-            res.className = 'rounded-lg p-3 text-xs font-mono bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300';
+            res.className = 'rounded-xl p-3 t-caption font-mono bg-[rgb(var(--danger-weak),0.15)] text-danger';
             res.textContent = 'request failed: ' + err;
           });
       });
@@ -1088,7 +1200,7 @@ X-Authentik-Meta-Version</pre>
     var dnsTestResult = document.getElementById('hpg-dns-test-result');
     if (dnsTestBtn && dnsTestResult) {
       dnsTestBtn.addEventListener('click', function() {
-        dnsTestResult.className = 'rounded-lg p-3 text-xs font-mono bg-slate-50 dark:bg-zinc-800 text-slate-500';
+        dnsTestResult.className = 'rounded-xl p-3 t-caption font-mono bg-[rgb(var(--surface-2))] text-muted';
         dnsTestResult.textContent = 'Running...';
         fetch('/admin/hosts/{{.RouteID}}/dns/test', {
           method: 'POST',
@@ -1097,10 +1209,9 @@ X-Authentik-Meta-Version</pre>
         }).then(function(resp) { return resp.json(); })
           .then(function(j) {
             var ok = j.ok === true;
-            var cls = ok
-              ? 'rounded-lg p-3 text-xs font-mono space-y-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300'
-              : 'rounded-lg p-3 text-xs font-mono space-y-1 bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300';
-            dnsTestResult.className = cls;
+            dnsTestResult.className = ok
+              ? 'rounded-xl p-3 t-caption font-mono space-y-1 bg-[rgb(var(--success-weak),0.15)] text-success'
+              : 'rounded-xl p-3 t-caption font-mono space-y-1 bg-[rgb(var(--danger-weak),0.15)] text-danger';
             var lines = [];
             if (j.host) lines.push('host: ' + j.host);
             if (j.resolver) lines.push('resolver: ' + j.resolver);
@@ -1112,7 +1223,7 @@ X-Authentik-Meta-Version</pre>
             dnsTestResult.textContent = lines.join('\n');
           })
           .catch(function(err) {
-            dnsTestResult.className = 'rounded-lg p-3 text-xs font-mono bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300';
+            dnsTestResult.className = 'rounded-xl p-3 t-caption font-mono bg-[rgb(var(--danger-weak),0.15)] text-danger';
             dnsTestResult.textContent = 'request failed: ' + err;
           });
       });
