@@ -1,0 +1,70 @@
+{{define "r_kpi"}}
+{{- /* Args (via dict): Label string, Value string, Trend string, TrendUp bool, Class string */ -}}
+<div class="r-card flex flex-col gap-2 {{if .Class}}{{.Class}}{{end}}">
+  <div class="t-eyebrow">{{.Label}}</div>
+  <div class="t-display">{{.Value}}</div>
+  {{- if .Trend}}
+  <div class="r-pill {{if .TrendUp}}r-pill-success{{else}}r-pill-danger{{end}} self-start">
+    {{- if .TrendUp}}
+    <svg class="w-3 h-3" fill="none" viewBox="0 0 12 12" stroke="currentColor" stroke-width="2"><path d="M2 9l4-6 4 6"/></svg>
+    {{- else}}
+    <svg class="w-3 h-3" fill="none" viewBox="0 0 12 12" stroke="currentColor" stroke-width="2"><path d="M2 3l4 6 4-6"/></svg>
+    {{- end}}
+    {{.Trend}}
+  </div>
+  {{- end}}
+</div>
+{{end}}
+
+{{define "r_row"}}
+{{- /* Args (via dict): Href string, IconSVG template.HTML, Title string, Sub string, Trailing string, TrailingClass string, PillText string, PillClass string */ -}}
+{{- if .Href}}<a href="{{.Href}}" class="r-row group">{{else}}<div class="r-row group">{{end}}
+  {{- if .IconSVG}}
+  <div class="icon-chip shrink-0">{{.IconSVG}}</div>
+  {{- end}}
+  <div class="flex-1 min-w-0">
+    <div class="t-body font-medium truncate">{{.Title}}</div>
+    {{- if .Sub}}<div class="t-small truncate">{{.Sub}}</div>{{end}}
+  </div>
+  {{- if .PillText}}
+  <span class="r-pill {{if .PillClass}}{{.PillClass}}{{else}}r-pill-neutral{{end}}">{{.PillText}}</span>
+  {{- end}}
+  {{- if .Trailing}}
+  <span class="t-small {{if .TrailingClass}}{{.TrailingClass}}{{end}} tabular-nums shrink-0">{{.Trailing}}</span>
+  {{- end}}
+  <svg class="w-4 h-4 shrink-0 opacity-30 group-hover:opacity-60 transition-opacity" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5"><path d="M6 4l4 4-4 4"/></svg>
+{{- if .Href}}</a>{{else}}</div>{{end}}
+{{end}}
+
+{{define "r_empty"}}
+{{- /* Args (via dict): IconSVG template.HTML, Title string, Sub string, CTAText string, CTAHref string */ -}}
+<div class="r-empty">
+  {{- if .IconSVG}}
+  <div class="r-empty-icon">{{.IconSVG}}</div>
+  {{- end}}
+  <div>
+    <div class="t-h3 mb-1">{{.Title}}</div>
+    {{- if .Sub}}<div class="t-small">{{.Sub}}</div>{{end}}
+  </div>
+  {{- if .CTAText}}
+  <a href="{{.CTAHref}}" class="r-btn-primary">{{.CTAText}}</a>
+  {{- end}}
+</div>
+{{end}}
+
+{{define "r_pill"}}
+{{- /* Args (via dict): Text string, Class string (r-pill-success|warning|danger|info|neutral) */ -}}
+<span class="r-pill {{if .Class}}{{.Class}}{{else}}r-pill-neutral{{end}}">{{.Text}}</span>
+{{end}}
+
+{{define "r_segment"}}
+{{- /* Args (via dict): Items []map[string]any each with: Label, Value, Active bool */ -}}
+<div class="r-segment" role="tablist">
+  {{- range .Items}}
+  <button role="tab" type="button"
+    class="r-segment-item {{if .Active}}is-active{{end}}"
+    {{- if .Active}} aria-selected="true"{{end}}
+    data-value="{{.Value}}">{{.Label}}</button>
+  {{- end}}
+</div>
+{{end}}
