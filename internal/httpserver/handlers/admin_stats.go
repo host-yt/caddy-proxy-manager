@@ -25,10 +25,12 @@ type nodeStatRow struct {
 }
 
 type topClientRow struct {
-	Name     string
-	Services int
-	Routes   int
-	Active   int
+	Name             string
+	Services         int
+	Routes           int
+	Active           int
+	Bandwidth7d      int64
+	Bandwidth7dHuman string
 }
 
 type recentRouteRow struct {
@@ -174,18 +176,24 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 	// --- Per-node traffic table ---------------------------------------
 	d.NodeStats = h.perNodeStats(ctx, db)
 
-	// --- Top clients --------------------------------------------------
+	// --- Top clients (ordered by 7d bandwidth desc) -------------------
 	crows, _ := db.QueryContext(ctx,
-		`SELECT COALESCE(c.display_name, u.full_name, u.email),
+		`SELECT COALESCE(NULLIF(c.display_name,""), u.email),
 		        (SELECT COUNT(*) FROM services s WHERE s.client_id = c.id),
 		        (SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=c.id),
-		        (SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=c.id AND r.status='active')
+		        (SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=c.id AND r.status="active"),
+		        COALESCE((SELECT SUM(lr.bytes_resp) FROM log_rollups lr
+		                  JOIN routes r ON r.id=lr.route_id
+		                  JOIN services s ON s.id=r.service_id
+		                  WHERE s.client_id=c.id
+		                  AND lr.bucket_start >= (NOW() - INTERVAL 7 DAY)), 0)
 		 FROM clients c JOIN users u ON u.id=c.user_id
-		 ORDER BY 3 DESC LIMIT 10`)
+		 ORDER BY 5 DESC, 3 DESC LIMIT 10`)
 	if crows != nil {
 		for crows.Next() {
 			var row topClientRow
-			if err := crows.Scan(&row.Name, &row.Services, &row.Routes, &row.Active); err == nil {
+			if err := crows.Scan(&row.Name, &row.Services, &row.Routes, &row.Active, &row.Bandwidth7d); err == nil {
+				row.Bandwidth7dHuman = humanBytes(uint64(row.Bandwidth7d))
 				d.TopClients = append(d.TopClients, row)
 			}
 		}

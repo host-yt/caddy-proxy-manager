@@ -39,10 +39,10 @@
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
   <section class="hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Top clients by routes</h2>
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Top clients by bandwidth</h2>
     <div class="overflow-x-auto"><table class="w-full text-sm">
       <thead class="text-left hpg-eyebrow">
-        <tr><th class="px-3 py-2">Client</th><th class="px-3 py-2">Services</th><th class="px-3 py-2">Routes</th><th class="px-3 py-2">Active</th></tr>
+        <tr><th class="px-3 py-2">Client</th><th class="px-3 py-2">Services</th><th class="px-3 py-2">Routes</th><th class="px-3 py-2">Active</th><th class="px-3 py-2">Bandwidth 7d</th></tr>
       </thead>
       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
         {{range .TopClients}}
@@ -51,9 +51,10 @@
           <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.Services}}</td>
           <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.Routes}}</td>
           <td class="px-3 py-2 text-emerald-700 dark:text-emerald-400">{{.Active}}</td>
+          <td class="px-3 py-2 text-slate-600 dark:text-slate-300 font-mono">{{.Bandwidth7dHuman}}</td>
         </tr>
         {{else}}
-        <tr><td colspan="4" class="px-3 py-6 text-center text-slate-500">No clients yet.</td></tr>
+        <tr><td colspan="5" class="px-3 py-6 text-center text-slate-500">No clients yet.</td></tr>
         {{end}}
       </tbody>
     </table></div>
