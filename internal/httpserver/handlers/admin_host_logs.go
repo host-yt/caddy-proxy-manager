@@ -35,6 +35,8 @@ type hostLogsData struct {
 	ErrorRateSeries []accesslog.ErrorRatePoint
 	TrafficPoints   []accesslog.TrafficPoint
 	AnalyticsTotal  int64
+	ProtoBreakdown  []accesslog.ProtoHit
+	BytesSummary    accesslog.BytesSummary
 }
 
 // parseLogsFilter reads filter query params from r.
@@ -180,6 +182,20 @@ func (h *AdminHandlers) loadHostLogAnalytics(ctx context.Context, routeID int64,
 		points = points[len(points)-12:]
 	}
 	d.TrafficPoints = points
+
+	proto, err := h.AccessLogs.ProtoBreakdown(ctx, f)
+	if err != nil {
+		h.Logger.Warn("host logs proto analytics", "id", routeID, "err", err)
+	} else {
+		d.ProtoBreakdown = proto
+	}
+
+	bsum, err := h.AccessLogs.BytesSummary(ctx, f)
+	if err != nil {
+		h.Logger.Warn("host logs bytes analytics", "id", routeID, "err", err)
+	} else {
+		d.BytesSummary = bsum
+	}
 }
 
 // HostsLogsJSON returns the last 100 entries as JSON for GET /admin/hosts/{id}/logs.json.

@@ -64,6 +64,18 @@ type MethodHit struct {
 	Count  int64
 }
 
+// ProtoHit is a counted HTTP protocol version.
+type ProtoHit struct {
+	Proto string
+	Count int64
+}
+
+// BytesSummary holds aggregate response-bytes stats over a filter window.
+type BytesSummary struct {
+	TotalBytes int64
+	AvgBytes   int64
+}
+
 // LatencyStats holds latency percentile summary over a filter window.
 // Geo/ASN/protocol/bytes breakdowns and time-rollup tables are deferred - need new columns/storage decision.
 type LatencyStats struct {
@@ -367,6 +379,54 @@ func (s *Store) TrafficTimeseries(ctx context.Context, f AnalyticsFilter) ([]Tra
 		})
 	}
 	return out, nil
+}
+
+// ProtoBreakdown returns request counts grouped by HTTP protocol version.
+func (s *Store) ProtoBreakdown(ctx context.Context, f AnalyticsFilter) ([]ProtoHit, error) {
+	db := s.db()
+	if db == nil {
+		return nil, nil
+	}
+	conds, args := analyticsWhere(f, false)
+	conds = append(conds, "proto <> ''")
+	args = append(args, 10)
+	q := `SELECT proto, COUNT(*) AS cnt
+	      FROM host_access_log
+	      WHERE ` + strings.Join(conds, " AND ") + `
+	      GROUP BY proto
+	      ORDER BY cnt DESC
+	      LIMIT ?`
+	rows, err := db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []ProtoHit
+	for rows.Next() {
+		var h ProtoHit
+		if err := rows.Scan(&h.Proto, &h.Count); err == nil {
+			out = append(out, h)
+		}
+	}
+	return out, rows.Err()
+}
+
+// BytesSummary returns total and average response bytes over the filter window.
+func (s *Store) BytesSummary(ctx context.Context, f AnalyticsFilter) (BytesSummary, error) {
+	db := s.db()
+	if db == nil {
+		return BytesSummary{}, nil
+	}
+	conds, args := analyticsWhere(f, false)
+	q := `SELECT COALESCE(SUM(bytes_resp),0), COALESCE(AVG(bytes_resp),0)
+	      FROM host_access_log
+	      WHERE ` + strings.Join(conds, " AND ")
+	var total int64
+	var avg float64
+	if err := db.QueryRowContext(ctx, q, args...).Scan(&total, &avg); err != nil {
+		return BytesSummary{}, err
+	}
+	return BytesSummary{TotalBytes: total, AvgBytes: int64(avg)}, nil
 }
 
 type topTextValue struct {

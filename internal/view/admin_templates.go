@@ -57,6 +57,13 @@ func CommonFuncs() template.FuncMap {
 			return m, nil
 		},
 		"slice": func(v ...any) []any { return v },
+		// divf divides two int64 values and returns float64; used for byte formatting.
+		"divf": func(a, b int64) float64 {
+			if b == 0 {
+				return 0
+			}
+			return float64(a) / float64(b)
+		},
 	}
 }
 
