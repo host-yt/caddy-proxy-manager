@@ -52,7 +52,8 @@ var ruleDescriptions = map[string]string{
 	"drill_stale":       "No successful restore drill within configured days",
 	"wg_key_not_fetched": "Bootstrap token unconsumed after key rotation grace period",
 	"manual_cert_expiry": "Manually imported cert nearing expiry or already expired",
-	"high_error_rate":   "5xx ratio above threshold in rolling window",
+	"high_error_rate":    "5xx ratio above threshold in rolling window",
+	"waf_attack_surge":   "WAF block count exceeded surge threshold within window",
 }
 
 // AlertsPage handles GET /admin/alerts. Reads alert_log directly (same
