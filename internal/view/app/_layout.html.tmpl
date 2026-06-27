@@ -25,97 +25,96 @@
   .dark input::placeholder, .dark textarea::placeholder { color: rgb(var(--c-zinc-500)); }
 </style>
 </head>
-<body class="h-full bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-slate-100">
+<body class="h-full" style="background:rgb(var(--bg));color:rgb(var(--text))">
 
 <!-- Mobile overlay -->
 <div id="sidebar-overlay" class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm hidden" data-action="close-sidebar"></div>
 
 <!-- Sidebar -->
-<aside id="sidebar" class="fixed inset-y-0 left-0 z-40 flex flex-col w-64 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border-r border-slate-200 dark:border-zinc-800 -translate-x-full lg:translate-x-0 transition-transform duration-200 ease-in-out">
+<aside id="sidebar" class="fixed inset-y-0 left-0 z-40 flex flex-col w-64 backdrop-blur border-r -translate-x-full lg:translate-x-0 transition-transform duration-200 ease-in-out" style="background:rgb(var(--surface)/.95);border-color:rgb(var(--border))">
 
   <!-- Brand -->
-  <div class="flex items-center gap-2.5 px-4 py-4 border-b border-slate-200 dark:border-zinc-800 shrink-0">
+  <div class="flex items-center gap-2.5 px-4 py-4 border-b shrink-0" style="border-color:rgb(var(--border))">
     {{if .Data.Brand.LogoURLLight}}<img src="{{.Data.Brand.LogoURLLight}}" alt="" class="h-5 dark:hidden">{{end}}
     {{if .Data.Brand.LogoURLDark}}<img src="{{.Data.Brand.LogoURLDark}}" alt="" class="h-5 hidden dark:inline-block">{{end}}
     {{if not .Data.Brand.LogoURLLight}}<span class="w-8 h-8 rounded-xl bg-indigo-600 shrink-0 flex items-center justify-center shadow-sm shadow-indigo-900/20">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
     </span>{{end}}
-    <span class="font-semibold text-sm tracking-tight truncate text-slate-900 dark:text-slate-100">{{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}</span>
+    <span class="font-semibold text-sm tracking-tight truncate" style="color:rgb(var(--text))">{{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}</span>
   </div>
 
   <!-- Navigation -->
   <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
 
-    <div class="px-2 pb-1.5 text-[10px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-semibold">Operations</div>
+    <div data-nav-group="ops">
+    <button type="button" class="nav-group-btn mb-1 px-2"><span class="nav-eyebrow text-[10px]">Operations</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
+    <div class="nav-group-body space-y-0.5 pb-1">
 
-    <a href="/app" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
-      {{if eq .Page "dashboard"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+    <a href="/app" class="nav-link {{if eq .Page "dashboard"}}is-active{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
       Dashboard
     </a>
 
-    <a href="/app/services" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
-      {{if eq .Page "services"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+    <a href="/app/services" class="nav-link {{if eq .Page "services"}}is-active{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><line x1="6" y1="6" x2="6.01" y2="6"/><line x1="6" y1="18" x2="6.01" y2="18"/></svg>
       Services
     </a>
 
-    <a href="/app/routes" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
-      {{if or (eq .Page "routes_list") (eq .Page "route_new")}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+    <a href="/app/routes" class="nav-link {{if or (eq .Page "routes_list") (eq .Page "route_new")}}is-active{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
       Routes
     </a>
 
-    {{if $.Data.Features.Tunnels}}<a href="/app/tunnels" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
-      {{if eq .Page "tunnels"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+    {{if $.Data.Features.Tunnels}}<a href="/app/tunnels" class="nav-link {{if eq .Page "tunnels"}}is-active{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
       Tunnels
     </a>{{end}}
 
-    <a href="/app/worldmap" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
-      {{if eq .Page "worldmap"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+    <a href="/app/worldmap" class="nav-link {{if eq .Page "worldmap"}}is-active{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
       Traffic map
     </a>
 
-    <div class="px-2 pt-4 pb-1.5 text-[10px] uppercase tracking-widest text-slate-400 dark:text-slate-500 font-semibold">Settings</div>
+    </div></div>
 
-    <a href="/app/account" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
-      {{if eq .Page "account"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+    <div data-nav-group="settings">
+    <button type="button" class="nav-group-btn mb-1 px-2"><span class="nav-eyebrow text-[10px]">Settings</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
+    <div class="nav-group-body space-y-0.5 pb-1">
+
+    <a href="/app/account" class="nav-link {{if eq .Page "account"}}is-active{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
       Account
     </a>
 
-    <a href="/app/2fa" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
-      {{if eq .Page "twofa"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+    <a href="/app/2fa" class="nav-link {{if eq .Page "twofa"}}is-active{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>
       Security
     </a>
 
-    {{if $.Data.Features.APITokens}}<a href="/app/api-keys" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
-      {{if eq .Page "api_keys"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+    {{if $.Data.Features.APITokens}}<a href="/app/api-keys" class="nav-link {{if eq .Page "api_keys"}}is-active{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
       API Keys
     </a>{{end}}
 
-    <a href="/app/contact" class="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors duration-150 cursor-pointer
-      {{if eq .Page "contact"}}bg-indigo-50 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-300 font-medium{{else}}text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-zinc-800 hover:text-slate-900 dark:hover:text-slate-100{{end}}">
+    <a href="/app/contact" class="nav-link {{if eq .Page "contact"}}is-active{{end}}">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-[18px] w-[18px] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
       Support
     </a>
+
+    </div></div>
   </nav>
 
   <!-- Sidebar footer -->
-  <div class="border-t border-slate-200 dark:border-zinc-800 px-3 py-3 shrink-0">
+  <div class="border-t px-3 py-3 shrink-0" style="border-color:rgb(var(--border))">
     <div class="flex items-center gap-2 mb-3 min-w-0">
       <div class="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[11px] font-semibold flex items-center justify-center shrink-0 uppercase select-none">
         {{printf "%.1s" .Data.Email}}
       </div>
-      <span class="text-xs text-slate-600 dark:text-slate-300 truncate min-w-0">{{.Data.Email}}</span>
+      <span class="text-xs truncate min-w-0" style="color:rgb(var(--text))">{{.Data.Email}}</span>
     </div>
     <div class="flex items-center justify-between">
       <button type="button" data-theme-toggle title="Toggle theme"
-        class="p-1.5 rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-600 dark:hover:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors duration-150 cursor-pointer">
+        class="r-btn-ghost h-8 w-8 p-0">
         <span id="icon-moon">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
         </span>
@@ -148,23 +147,24 @@
   {{end}}
 
   <!-- Mobile top bar (hamburger) -->
-  <header class="sticky top-0 z-20 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 px-4 py-3 flex items-center gap-3 lg:hidden shrink-0">
-    <button data-action="open-sidebar" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer" aria-label="Open menu">
+  <header class="sticky top-0 z-20 border-b px-4 py-3 flex items-center gap-3 lg:hidden shrink-0" style="background:rgb(var(--surface));border-color:rgb(var(--border))">
+    <button data-action="open-sidebar" class="cursor-pointer" style="color:rgb(var(--muted))" aria-label="Open menu">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
-    <span class="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate">{{.Data.Title}}</span>
+    <span class="font-semibold text-sm truncate" style="color:rgb(var(--text))">{{.Data.Title}}</span>
   </header>
 
   <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-7xl w-full">
     <div class="hidden lg:flex items-center justify-between gap-4 mb-5">
       <div>
         <p class="hpg-eyebrow">Client portal</p>
-        <h1 class="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">{{.Data.Title}}</h1>
+        <div data-greeting class="text-xs font-medium mb-0.5" style="color:rgb(var(--accent))"></div>
+        <h1 class="text-2xl font-semibold tracking-tight" style="color:rgb(var(--text))">{{.Data.Title}}</h1>
       </div>
       <div class="flex items-center gap-2">
-        <a href="/app/services" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-white dark:bg-zinc-900 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-800 text-sm font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 shadow-sm">Services</a>
-        <a href="/app/tunnels" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-white dark:bg-zinc-900 text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-800 text-sm font-medium hover:bg-slate-50 dark:hover:bg-zinc-800 shadow-sm">Tunnels</a>
-        <a href="/app/routes/new" class="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New route</a>
+        <a href="/app/services" class="r-btn-secondary text-sm">Services</a>
+        <a href="/app/tunnels" class="r-btn-secondary text-sm">Tunnels</a>
+        <a href="/app/routes/new" class="r-btn-primary text-sm">New route</a>
       </div>
     </div>
     {{if .Data.Flash}}<div class="mb-4 p-3 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-sm">{{.Data.Flash}}</div>{{end}}
@@ -329,6 +329,7 @@ function closeSidebar() {
   document.body.classList.remove('overflow-hidden');
 }
 </script>
+<script nonce="{{.Data.CSPNonce}}">(function(){var K='hpg-ng';function L(){try{return JSON.parse(localStorage.getItem(K)||'{}')}catch{return{}}}function S(s){try{localStorage.setItem(K,JSON.stringify(s))}catch{}}var st=L();document.querySelectorAll('[data-nav-group]').forEach(function(w){var g=w.dataset.navGroup;var btn=w.querySelector('.nav-group-btn');var body=w.querySelector('.nav-group-body');var chev=btn&&btn.querySelector('.nav-chevron');if(!body)return;var open=st[g]!==false;if(!open){body.style.display='none';if(chev)chev.style.transform='rotate(-90deg)';}if(btn)btn.addEventListener('click',function(){open=!open;st[g]=open;S(st);body.style.display=open?'':'none';if(chev)chev.style.transform=open?'':'rotate(-90deg)';});});document.querySelectorAll('[data-greeting]').forEach(function(el){var h=new Date().getHours();el.textContent=h<12?'Good morning':h<17?'Good afternoon':'Good evening';});})();</script>
 </body>
 </html>
 {{end}}
