@@ -33,6 +33,7 @@ type hostLogsData struct {
 	TopUserAgents   []accesslog.UserAgentHit
 	TopMethods      []accesslog.MethodHit
 	TopCountries    []accesslog.CountryHit
+	TopASNOrgs      []accesslog.ASNOrgHit
 	Latency         accesslog.LatencyStats
 	ErrorRateSeries []accesslog.ErrorRatePoint
 	TrafficPoints   []accesslog.TrafficPoint
@@ -168,6 +169,13 @@ func (h *AdminHandlers) loadHostLogAnalytics(ctx context.Context, routeID int64,
 		h.Logger.Warn("host logs country analytics", "id", routeID, "err", err)
 	} else {
 		d.TopCountries = topCountries
+	}
+
+	topASNOrgs, err := h.AccessLogs.TopASNOrgs(ctx, f, 10)
+	if err != nil {
+		h.Logger.Warn("host logs ASN analytics", "id", routeID, "err", err)
+	} else {
+		d.TopASNOrgs = topASNOrgs
 	}
 
 	latency, err := h.AccessLogs.LatencyStats(ctx, f)
