@@ -313,6 +313,9 @@ func (s *Server) routes() {
 		// the POST handler enforces super_admin internally.
 		r.Get("/deployment", s.deps.Admin.DeploymentPage)
 		r.Post("/deployment", s.deps.Admin.DeploymentUpdate)
+		r.Get("/node-groups", s.deps.Admin.NodeGroupsList)
+		r.Post("/node-groups", s.deps.Admin.NodeGroupCreate)
+		r.Post("/node-groups/{id}/update", s.deps.Admin.NodeGroupUpdate)
 		r.Route("/nodes", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.Nodes)
 			r.Get("/{id}", s.deps.Admin.NodeDetail)

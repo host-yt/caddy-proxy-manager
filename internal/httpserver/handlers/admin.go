@@ -183,6 +183,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"manual_certs":       {{Label: "Traffic", URL: ""}, {Label: "Manual Certificates", URL: ""}},
 	"nodes":              {{Label: "Fleet", URL: ""}, {Label: "Caddy nodes", URL: ""}},
 	"node_detail":        {{Label: "Fleet", URL: ""}, {Label: "Caddy nodes", URL: "/admin/nodes"}, {Label: "Node", URL: ""}},
+	"node_groups":        {{Label: "Fleet", URL: ""}, {Label: "Node groups", URL: ""}},
 	"clients":            {{Label: "Customers", URL: ""}, {Label: "Clients", URL: ""}},
 	"client_detail":      {{Label: "Customers", URL: ""}, {Label: "Clients", URL: "/admin/clients"}, {Label: "Client", URL: ""}},
 	"plans":              {{Label: "Customers", URL: ""}, {Label: "Plans", URL: ""}},
@@ -1573,6 +1574,103 @@ type planRow struct {
 type nodeGroup struct {
 	ID   int64
 	Name string
+}
+
+// nodeGroupRow is one row in the node groups list with usage counts.
+type nodeGroupRow struct {
+	ID        int64
+	Name      string
+	Mode      string // "single" | "active_active" | "failover"
+	NodeCount int
+	PlanCount int
+}
+
+type nodeGroupsData struct {
+	baseAdminData
+	Groups []nodeGroupRow
+}
+
+func (h *AdminHandlers) NodeGroupsList(w http.ResponseWriter, r *http.Request) {
+	d := nodeGroupsData{baseAdminData: h.base(r, "Node groups")}
+	db := h.DB()
+	if db == nil {
+		h.render(w, "node_groups", d)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3_000_000_000)
+	defer cancel()
+	rows, err := db.QueryContext(ctx,
+		`SELECT ng.id, ng.name, COALESCE(ng.mode,'single'),
+		        COUNT(DISTINCT n.id), COUNT(DISTINCT p.id)
+		 FROM node_groups ng
+		 LEFT JOIN caddy_nodes n ON n.node_group_id = ng.id
+		 LEFT JOIN plans p ON p.node_group_id = ng.id
+		 GROUP BY ng.id ORDER BY ng.id`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var g nodeGroupRow
+			if err := rows.Scan(&g.ID, &g.Name, &g.Mode, &g.NodeCount, &g.PlanCount); err == nil {
+				d.Groups = append(d.Groups, g)
+			}
+		}
+	}
+	h.render(w, "node_groups", d)
+}
+
+func (h *AdminHandlers) NodeGroupCreate(w http.ResponseWriter, r *http.Request) {
+	name := strings.TrimSpace(r.FormValue("name"))
+	mode := r.FormValue("mode")
+	if name == "" {
+		redirectWithFlash(w, r, "/admin/node-groups", "", "name is required")
+		return
+	}
+	if mode != "single" && mode != "active_active" && mode != "failover" {
+		mode = "single"
+	}
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/node-groups", "", "database unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3_000_000_000)
+	defer cancel()
+	_, err := db.ExecContext(ctx, "INSERT INTO node_groups (name, mode) VALUES (?, ?)", name, mode)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/node-groups", "", "insert failed: "+sanitizeErr(err))
+		return
+	}
+	redirectWithFlash(w, r, "/admin/node-groups", "Node group created", "")
+}
+
+func (h *AdminHandlers) NodeGroupUpdate(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || id <= 0 {
+		redirectWithFlash(w, r, "/admin/node-groups", "", "invalid id")
+		return
+	}
+	name := strings.TrimSpace(r.FormValue("name"))
+	mode := r.FormValue("mode")
+	if name == "" {
+		redirectWithFlash(w, r, "/admin/node-groups", "", "name is required")
+		return
+	}
+	if mode != "single" && mode != "active_active" && mode != "failover" {
+		mode = "single"
+	}
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/node-groups", "", "database unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3_000_000_000)
+	defer cancel()
+	_, err = db.ExecContext(ctx, "UPDATE node_groups SET name=?, mode=? WHERE id=?", name, mode, id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/node-groups", "", "update failed: "+sanitizeErr(err))
+		return
+	}
+	redirectWithFlash(w, r, "/admin/node-groups", "Node group updated", "")
 }
 
 type plansData struct {
