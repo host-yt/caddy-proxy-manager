@@ -478,9 +478,9 @@ func (s *Store) BandwidthDaySeries(ctx context.Context, routeID int64, from, to 
 		return nil, nil
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT DATE(ts) AS day, COALESCE(SUM(bytes_resp),0)
-		 FROM host_access_log
-		 WHERE route_id=? AND ts>=? AND ts<=?
+		`SELECT DATE(bucket_start) AS day, COALESCE(SUM(bytes_resp),0)
+		 FROM log_rollups
+		 WHERE route_id=? AND bucket_start>=? AND bucket_start<=?
 		 GROUP BY day
 		 ORDER BY day ASC`,
 		routeID, from.UTC(), to.UTC(),
