@@ -83,7 +83,7 @@ type BytesSummary struct {
 }
 
 // LatencyStats holds latency percentile summary over a filter window.
-// Geo/ASN/protocol/bytes breakdowns and time-rollup tables are deferred - need new columns/storage decision.
+// ASN breakdown is deferred (needs separate GeoLite2-ASN.mmdb + geoip.LookupASN).
 type LatencyStats struct {
 	Avg float64
 	P50 float64
