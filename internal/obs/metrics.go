@@ -68,6 +68,8 @@ type Metrics struct {
 
 	// WAF events ingested from node agents
 	wafEvents *prometheus.CounterVec // labels: severity, action
+
+	alertsFired *prometheus.CounterVec // labels: rule_id, severity
 }
 
 // New returns a Metrics with all collectors registered against a fresh
@@ -218,6 +220,10 @@ func New() *Metrics {
 		Name: "hpg_waf_events_total",
 		Help: "WAF events ingested from node agents, by severity and action.",
 	}, []string{"severity", "action"})
+	m.alertsFired = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "hpg_alerts_fired_total",
+		Help: "Alert rule firings that passed the cooldown gate, by rule_id and severity.",
+	}, []string{"rule_id", "severity"})
 
 	reg.MustRegister(m.requestCount, m.requestDur, m.requestSize, m.respSize, m.inflight,
 		m.caddyPush, m.caddyPushDur, m.caddyDrift, m.nodeProbeFail,
@@ -227,7 +233,7 @@ func New() *Metrics {
 		m.cacheOps, m.mailSends, m.smsSends,
 		m.routeOps, m.dnsCheck,
 		m.webhookDeliveries, m.webhookDur,
-		m.rateLimitHits, m.askDecisions, m.wafEvents)
+		m.rateLimitHits, m.askDecisions, m.wafEvents, m.alertsFired)
 	// Runtime collectors: enables go_goroutines + process_resident_memory_bytes
 	// + GC stats — required to spot leaks during soak.
 	reg.MustRegister(collectors.NewGoCollector())
@@ -383,6 +389,14 @@ func (m *Metrics) WAFEvent(severity, action string) {
 		return
 	}
 	m.wafEvents.WithLabelValues(severity, action).Inc()
+}
+
+// AlertFired records one alert that passed the cooldown gate and was dispatched.
+func (m *Metrics) AlertFired(ruleID, severity string) {
+	if m == nil {
+		return
+	}
+	m.alertsFired.WithLabelValues(ruleID, severity).Inc()
 }
 
 // NodePushDuration records the wall time of a Caddy push to a specific node.

@@ -44,6 +44,10 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
 		return // do not fan out if we could not record - avoids un-deduped repeat
 	}
 
+	if e.Metrics != nil {
+		e.Metrics.AlertFired(a.RuleID, string(a.Severity))
+	}
+
 	if e.Webhooks != nil {
 		e.Webhooks.Emit(ctx, eventAlertFired, map[string]any{
 			"rule_id":  a.RuleID,
