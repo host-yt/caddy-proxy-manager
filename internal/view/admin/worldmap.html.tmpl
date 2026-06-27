@@ -3,7 +3,7 @@
 
 {{if .DBUnavailable}}
 <section class="hpg-card text-sm text-slate-600 dark:text-slate-300">
-  Database is not available - the world map cannot be built right now.
+  Database is not available - traffic by country cannot be built right now.
 </section>
 {{else}}
 
@@ -13,25 +13,51 @@
   <div>
     <strong>GeoIP database not configured</strong> - configure MaxMind credentials in
     <a href="/admin/settings" class="underline hover:no-underline">Settings</a>
-    to populate the map with node locations.
-    All nodes are listed below without location data.
+    to map visitor countries. Without it, all requests fall into the unknown bucket below.
   </div>
 </div>
 {{end}}
 
-<!-- SVG world map card -->
+<!-- Filters: host selector + time range. Both navigate (GET) preserving the other. -->
+<div class="hpg-card flex flex-wrap items-end gap-4">
+  <div class="min-w-[220px] flex-1">
+    <label for="wm-host" class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Host</label>
+    <select id="wm-host" class="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-slate-900 dark:text-white cursor-pointer transition-colors focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500">
+      <option value="0" {{if eq .SelectedRoute 0}}selected{{end}}>All hosts</option>
+      {{range .Hosts}}
+      <option value="{{.RouteID}}" {{if eq $.SelectedRoute .RouteID}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+  </div>
+  <div>
+    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Time range</label>
+    <div id="wm-range" class="inline-flex rounded-lg border border-slate-200 dark:border-zinc-700 overflow-hidden" role="group">
+      <button type="button" data-range="24h" class="wm-range-btn px-3 py-2 text-sm cursor-pointer transition-colors {{if eq .Range "24h"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">24h</button>
+      <button type="button" data-range="7d" class="wm-range-btn px-3 py-2 text-sm cursor-pointer transition-colors border-l border-slate-200 dark:border-zinc-700 {{if eq .Range "7d"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">7d</button>
+      <button type="button" data-range="30d" class="wm-range-btn px-3 py-2 text-sm cursor-pointer transition-colors border-l border-slate-200 dark:border-zinc-700 {{if eq .Range "30d"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">30d</button>
+    </div>
+  </div>
+</div>
+
+<!-- SVG world map heatmap -->
 <div class="hpg-card p-0 overflow-hidden">
   <div class="px-5 py-4 border-b border-slate-200/70 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3">
     <div>
-      <p class="hpg-eyebrow">Infrastructure presence</p>
-      <p class="text-sm text-slate-600 dark:text-slate-400">{{len .Countries}} countr{{if eq (len .Countries) 1}}y{{else}}ies{{end}} with nodes</p>
+      <p class="hpg-eyebrow">Visitor traffic</p>
+      <p class="text-sm text-slate-600 dark:text-slate-400">
+        {{if .SelectedHost}}{{.SelectedHost}}{{else}}All hosts{{end}}
+        &middot; {{len .Countries}} countr{{if eq (len .Countries) 1}}y{{else}}ies{{end}}
+      </p>
     </div>
-    <!-- Legend -->
-    <div class="flex items-center gap-4 text-xs text-slate-500 dark:text-slate-400">
-      <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-sm bg-emerald-500/80"></span>Healthy</span>
-      <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-sm bg-amber-400/80"></span>Degraded</span>
-      <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-sm bg-rose-500/80"></span>Down</span>
-      <span class="flex items-center gap-1.5"><span class="inline-block w-3 h-3 rounded-sm bg-slate-200 dark:bg-zinc-700"></span>No nodes</span>
+    <!-- Heatmap legend: low -> high request volume -->
+    <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
+      <span>Fewer</span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:#e0e7ff"></span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:#a5b4fc"></span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:#6366f1"></span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:#4338ca"></span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:#312e81"></span>
+      <span>More</span>
     </div>
   </div>
 
@@ -44,78 +70,51 @@
     {{end}}
     <!-- Tooltip positioned via JS -->
     <div id="wm-tooltip"
-         class="pointer-events-none absolute z-20 hidden rounded-lg bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 shadow-lg shadow-slate-900/10 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 min-w-[120px]">
+         class="pointer-events-none absolute z-20 hidden rounded-lg bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 shadow-lg shadow-slate-900/10 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 min-w-[140px]">
       <p id="wm-tt-name" class="font-semibold text-sm text-slate-900 dark:text-white mb-0.5"></p>
       <p id="wm-tt-count" class="text-slate-500 dark:text-slate-400"></p>
-      <p id="wm-tt-health" class="mt-0.5 font-medium"></p>
+      <p id="wm-tt-pct" class="mt-0.5 font-medium text-indigo-600 dark:text-indigo-400"></p>
     </div>
   </div>
 </div>
 
-<!-- Node list grouped by country -->
+<!-- Totals + ranked country table -->
 <div class="hpg-card">
-  <p class="hpg-eyebrow mb-3">Nodes by location</p>
+  <div class="flex flex-wrap items-baseline justify-between gap-2 mb-4">
+    <p class="hpg-eyebrow">Countries by request volume</p>
+    <p class="text-sm text-slate-500 dark:text-slate-400">
+      <span class="font-semibold text-slate-900 dark:text-white">{{.TotalRequests}}</span> total requests
+    </p>
+  </div>
 
   {{if .Countries}}
-  <div class="space-y-4">
+  <div class="space-y-2">
     {{range .Countries}}
-    <div>
-      <div class="flex items-center gap-2 mb-1.5">
-        <span class="inline-flex items-center gap-1.5 text-sm font-medium text-slate-900 dark:text-white">
-          <span class="px-1.5 py-0.5 rounded text-[11px] font-mono font-bold
-            {{if eq .Health "healthy"}}bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-300
-            {{else if eq .Health "degraded"}}bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300
-            {{else}}bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300{{end}}">{{.Code}}</span>
-          {{.Name}}
-        </span>
-        <span class="text-xs text-slate-400 dark:text-slate-500">{{.NodeCount}} node{{if ne .NodeCount 1}}s{{end}}</span>
+    <div class="flex items-center gap-3">
+      <span class="shrink-0 w-9 px-1 py-0.5 rounded text-[11px] font-mono font-bold text-center bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">{{.Code}}</span>
+      <span class="shrink-0 w-40 truncate text-sm font-medium text-slate-900 dark:text-white">{{.Name}}</span>
+      <div class="flex-1 h-2.5 rounded-full bg-slate-100 dark:bg-zinc-800 overflow-hidden">
+        <div class="h-full rounded-full bg-indigo-500 dark:bg-indigo-400" style="width: {{printf "%.1f" .BarPercent}}%"></div>
       </div>
-      <div class="divide-y divide-slate-100 dark:divide-zinc-800 rounded-lg border border-slate-200 dark:border-zinc-800 overflow-hidden">
-        {{range .Nodes}}
-        <div class="flex items-center gap-3 px-3 py-2 text-sm bg-white dark:bg-zinc-900/50">
-          <span class="shrink-0 w-2 h-2 rounded-full
-            {{if eq .HealthStatus "healthy"}}bg-emerald-500
-            {{else if eq .HealthStatus "degraded"}}bg-amber-400
-            {{else}}bg-rose-500{{end}}"></span>
-          <span class="font-medium text-slate-900 dark:text-white truncate">{{.Name}}</span>
-          <span class="text-slate-400 dark:text-slate-500 font-mono text-xs">{{.PublicIP}}</span>
-          <span class="ml-auto shrink-0 text-xs
-            {{if eq .HealthStatus "healthy"}}text-emerald-600 dark:text-emerald-400
-            {{else if eq .HealthStatus "degraded"}}text-amber-600 dark:text-amber-400
-            {{else}}text-rose-600 dark:text-rose-400{{end}}">{{.HealthStatus}}</span>
-          {{if not .IsEnabled}}<span class="shrink-0 hpg-pill hpg-pill-muted">disabled</span>{{end}}
-        </div>
-        {{end}}
-      </div>
+      <span class="shrink-0 w-20 text-right text-sm tabular-nums text-slate-700 dark:text-slate-300">{{.Count}}</span>
+      <span class="shrink-0 w-14 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">{{printf "%.1f" .Percent}}%</span>
     </div>
     {{end}}
   </div>
   {{end}}
 
-  {{if .Unknown}}
-  <div class="{{if .Countries}}mt-6 pt-6 border-t border-slate-200/70 dark:border-zinc-800{{end}}">
-    <div class="flex items-center gap-2 mb-1.5">
-      <span class="text-sm font-medium text-slate-500 dark:text-slate-400">Unknown location</span>
-      <span class="text-xs text-slate-400 dark:text-slate-500">{{len .Unknown}} node{{if ne (len .Unknown) 1}}s{{end}}</span>
-    </div>
-    <div class="divide-y divide-slate-100 dark:divide-zinc-800 rounded-lg border border-slate-200 dark:border-zinc-800 overflow-hidden">
-      {{range .Unknown}}
-      <div class="flex items-center gap-3 px-3 py-2 text-sm bg-white dark:bg-zinc-900/50">
-        <span class="shrink-0 w-2 h-2 rounded-full
-          {{if eq .HealthStatus "healthy"}}bg-emerald-500
-          {{else if eq .HealthStatus "degraded"}}bg-amber-400
-          {{else}}bg-rose-500{{end}}"></span>
-        <span class="font-medium text-slate-900 dark:text-white truncate">{{.Name}}</span>
-        <span class="text-slate-400 dark:text-slate-500 font-mono text-xs">{{if .PublicIP}}{{.PublicIP}}{{else}}no IP{{end}}</span>
-        <span class="ml-auto shrink-0 text-xs text-slate-400 dark:text-slate-500">unresolved</span>
-      </div>
-      {{end}}
-    </div>
+  {{if .UnknownCount}}
+  <div class="{{if .Countries}}mt-4 pt-4 border-t border-slate-200/70 dark:border-zinc-800{{end}} flex items-center gap-3">
+    <span class="shrink-0 w-9 px-1 py-0.5 rounded text-[11px] font-mono font-bold text-center bg-slate-200 text-slate-600 dark:bg-zinc-700 dark:text-slate-300">?</span>
+    <span class="shrink-0 w-40 truncate text-sm font-medium text-slate-500 dark:text-slate-400">Unknown location</span>
+    <div class="flex-1"></div>
+    <span class="shrink-0 w-20 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">{{.UnknownCount}}</span>
+    <span class="shrink-0 w-14 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">{{printf "%.1f" .UnknownPercent}}%</span>
   </div>
   {{end}}
 
-  {{if and (not .Countries) (not .Unknown)}}
-  <p class="text-sm text-slate-500 dark:text-slate-400 py-4 text-center">No Caddy nodes registered yet.</p>
+  {{if and (not .Countries) (not .UnknownCount)}}
+  <p class="text-sm text-slate-500 dark:text-slate-400 py-6 text-center">No traffic recorded in this window.</p>
   {{end}}
 </div>
 
@@ -124,65 +123,80 @@
 
 <script nonce="{{.CSPNonce}}">
 (function(){
-  // Server-rendered JSON maps ISO2 -> health tier.
-  var countryHealth = {{.CountryJSON}};
+  // Server-rendered JSON maps ISO2 -> request count for this window/host.
+  var counts = {{.CountryJSON}};
+  var total  = {{.TotalRequests}};
 
-  var colors = {
-    healthy:  {fill:'#10b981', stroke:'#059669'},
-    degraded: {fill:'#fbbf24', stroke:'#d97706'},
-    down:     {fill:'#ef4444', stroke:'#dc2626'}
-  };
-  var nodeCounts = {};
+  // Filters reload the page; preserve the unrelated param each time.
+  var params = new URLSearchParams(window.location.search);
+  var hostSel = document.getElementById('wm-host');
+  if (hostSel) {
+    hostSel.addEventListener('change', function(){
+      var p = new URLSearchParams(window.location.search);
+      if (this.value && this.value !== '0') { p.set('route_id', this.value); } else { p.delete('route_id'); }
+      window.location.search = p.toString();
+    });
+  }
+  document.querySelectorAll('.wm-range-btn').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var p = new URLSearchParams(window.location.search);
+      p.set('range', this.getAttribute('data-range'));
+      window.location.search = p.toString();
+    });
+  });
+
   var countryNames = {"AE":"UAE","AF":"Afghanistan","AL":"Albania","AM":"Armenia","AO":"Angola","AR":"Argentina","AT":"Austria","AU":"Australia","AZ":"Azerbaijan","BA":"Bosnia","BD":"Bangladesh","BE":"Belgium","BF":"Burkina Faso","BG":"Bulgaria","BI":"Burundi","BJ":"Benin","BN":"Brunei","BO":"Bolivia","BR":"Brazil","BT":"Bhutan","BW":"Botswana","BY":"Belarus","BZ":"Belize","CA":"Canada","CD":"DR Congo","CF":"CAR","CG":"Congo","CH":"Switzerland","CI":"Ivory Coast","CL":"Chile","CM":"Cameroon","CN":"China","CO":"Colombia","CR":"Costa Rica","CU":"Cuba","CY":"Cyprus","CZ":"Czech Republic","DE":"Germany","DJ":"Djibouti","DK":"Denmark","DO":"Dominican Rep.","DZ":"Algeria","EC":"Ecuador","EE":"Estonia","EG":"Egypt","EH":"W. Sahara","ER":"Eritrea","ES":"Spain","ET":"Ethiopia","FI":"Finland","FJ":"Fiji","FR":"France","GA":"Gabon","GB":"United Kingdom","GE":"Georgia","GH":"Ghana","GL":"Greenland","GN":"Guinea","GQ":"Eq. Guinea","GR":"Greece","GT":"Guatemala","GW":"Guinea-Bissau","GY":"Guyana","HN":"Honduras","HR":"Croatia","HT":"Haiti","HU":"Hungary","ID":"Indonesia","IE":"Ireland","IL":"Israel","IN":"India","IQ":"Iraq","IR":"Iran","IS":"Iceland","IT":"Italy","JO":"Jordan","JP":"Japan","KE":"Kenya","KG":"Kyrgyzstan","KH":"Cambodia","KP":"North Korea","KR":"South Korea","KW":"Kuwait","KZ":"Kazakhstan","LA":"Laos","LB":"Lebanon","LK":"Sri Lanka","LR":"Liberia","LS":"Lesotho","LT":"Lithuania","LV":"Latvia","LY":"Libya","MA":"Morocco","MD":"Moldova","ME":"Montenegro","MG":"Madagascar","MK":"North Macedonia","ML":"Mali","MM":"Myanmar","MN":"Mongolia","MR":"Mauritania","MW":"Malawi","MX":"Mexico","MY":"Malaysia","MZ":"Mozambique","NA":"Namibia","NC":"New Caledonia","NE":"Niger","NG":"Nigeria","NI":"Nicaragua","NL":"Netherlands","NO":"Norway","NP":"Nepal","NZ":"New Zealand","OM":"Oman","PA":"Panama","PE":"Peru","PG":"Papua New Guinea","PH":"Philippines","PK":"Pakistan","PL":"Poland","PR":"Puerto Rico","PS":"Palestine","PT":"Portugal","PY":"Paraguay","QA":"Qatar","RO":"Romania","RS":"Serbia","RU":"Russia","RW":"Rwanda","SA":"Saudi Arabia","SD":"Sudan","SE":"Sweden","SI":"Slovenia","SK":"Slovakia","SL":"Sierra Leone","SN":"Senegal","SO":"Somalia","SR":"Suriname","SS":"South Sudan","SV":"El Salvador","SY":"Syria","SZ":"Eswatini","TD":"Chad","TF":"Fr. South Territories","TG":"Togo","TH":"Thailand","TJ":"Tajikistan","TL":"Timor-Leste","TM":"Turkmenistan","TN":"Tunisia","TR":"Turkey","TW":"Taiwan","TZ":"Tanzania","UA":"Ukraine","UG":"Uganda","US":"United States","UY":"Uruguay","UZ":"Uzbekistan","VE":"Venezuela","VN":"Vietnam","YE":"Yemen","ZA":"South Africa","ZM":"Zambia","ZW":"Zimbabwe","SG":"Singapore","HK":"Hong Kong","LU":"Luxembourg"};
-  var healthLabel = {healthy:'Healthy', degraded:'Degraded', down:'Down / unreachable'};
-  var healthClass  = {healthy:'text-emerald-600', degraded:'text-amber-600', down:'text-rose-600'};
 
-  // Build node counts from server-rendered template data.
-  {{range .Countries}}nodeCounts["{{.Code}}"] = {{.NodeCount}};
-  {{end}}
+  // 5-bucket single-hue indigo ramp; works on light + dark backgrounds.
+  var ramp = ['#e0e7ff','#a5b4fc','#6366f1','#4338ca','#312e81'];
+  var neutral = '#e2e8f0';
+  var max = 0;
+  Object.keys(counts).forEach(function(k){ if (counts[k] > max) max = counts[k]; });
+
+  function bucketColor(v){
+    if (!v || max <= 0) return neutral;
+    var r = v / max;            // normalize against busiest country
+    var idx = Math.ceil(r * ramp.length) - 1;
+    if (idx < 0) idx = 0; if (idx >= ramp.length) idx = ramp.length - 1;
+    return ramp[idx];
+  }
 
   var wrap    = document.getElementById('worldmap-wrap');
   var tooltip = document.getElementById('wm-tooltip');
   if (!wrap || !tooltip) return;
-
-  var ttName   = document.getElementById('wm-tt-name');
-  var ttCount  = document.getElementById('wm-tt-count');
-  var ttHealth = document.getElementById('wm-tt-health');
+  var ttName  = document.getElementById('wm-tt-name');
+  var ttCount = document.getElementById('wm-tt-count');
+  var ttPct   = document.getElementById('wm-tt-pct');
 
   function colorMap() {
     var svgEl = wrap.querySelector('svg');
     if (!svgEl) return;
-    // Responsive: let SVG scale to container width.
     svgEl.setAttribute('width', '100%');
     svgEl.setAttribute('height', 'auto');
     svgEl.style.display = 'block';
     svgEl.style.maxHeight = '540px';
 
-    var paths = svgEl.querySelectorAll('path[id]');
-    paths.forEach(function(path){
+    svgEl.querySelectorAll('path[id]').forEach(function(path){
       var code = path.getAttribute('id');
       if (!code || code.length !== 2) return;
-      var h = countryHealth[code];
-      if (!h) return;
-      var c = colors[h];
-      if (!c) return;
-      path.setAttribute('fill', c.fill);
-      path.setAttribute('stroke', c.stroke);
-      path.setAttribute('stroke-width', '0.6');
-      path.style.cursor = 'pointer';
-      path.style.transition = 'opacity 0.15s';
-      path.addEventListener('mouseenter', function(e){ onEnter(e, code, h); });
-      path.addEventListener('mousemove',  function(e){ onMove(e); });
-      path.addEventListener('mouseleave', onLeave);
+      var v = counts[code] || 0;
+      path.setAttribute('fill', bucketColor(v));
+      path.setAttribute('stroke', '#ffffff');
+      path.setAttribute('stroke-width', '0.4');
+      if (v > 0) {
+        path.style.cursor = 'pointer';
+        path.addEventListener('mouseenter', function(e){ onEnter(e, code, v); });
+        path.addEventListener('mousemove',  onMove);
+        path.addEventListener('mouseleave', onLeave);
+      }
     });
   }
 
-  function onEnter(e, code, h) {
-    var cnt = nodeCounts[code] || 0;
-    ttName.textContent   = countryNames[code] || code;
-    ttCount.textContent  = cnt + ' node' + (cnt !== 1 ? 's' : '');
-    ttHealth.textContent = healthLabel[h] || h;
-    ttHealth.className   = 'mt-0.5 font-medium ' + (healthClass[h] || 'text-slate-500');
+  function onEnter(e, code, v) {
+    var pct = total > 0 ? (v / total * 100) : 0;
+    ttName.textContent  = countryNames[code] || code;
+    ttCount.textContent = v.toLocaleString() + ' request' + (v !== 1 ? 's' : '');
+    ttPct.textContent   = pct.toFixed(1) + '% of total';
     tooltip.classList.remove('hidden');
     onMove(e);
   }
@@ -190,7 +204,7 @@
     var rect = wrap.getBoundingClientRect();
     var x = e.clientX - rect.left + 12;
     var y = e.clientY - rect.top  + 12;
-    var tw = tooltip.offsetWidth || 140;
+    var tw = tooltip.offsetWidth || 150;
     if (x + tw > rect.width - 8) x = e.clientX - rect.left - tw - 8;
     tooltip.style.left = x + 'px';
     tooltip.style.top  = y + 'px';
