@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"encoding/csv"
+	"fmt"
 	"net/http"
 	"strconv"
 	"time"
@@ -94,4 +96,64 @@ func (h *AdminHandlers) HostsRollupJSON(w http.ResponseWriter, r *http.Request) 
 		},
 		"series": rows,
 	})
+}
+
+// HostsRollupCSV serves GET /admin/hosts/{id}/rollups.csv?window=24h|7d|30d.
+func (h *AdminHandlers) HostsRollupCSV(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if id == 0 || h.AccessLogs == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+	sess := middleware.SessionFromContext(ctx)
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	// Default window 30d for CSV export.
+	window := 30 * 24 * time.Hour
+	switch r.URL.Query().Get("window") {
+	case "24h":
+		window = 24 * time.Hour
+	case "7d":
+		window = 7 * 24 * time.Hour
+	}
+
+	now := time.Now().UTC()
+	since := now.Add(-window)
+
+	series, err := h.AccessLogs.RollupSeries(ctx, id, since, now)
+	if err != nil {
+		h.Logger.Warn("host rollup csv", "id", id, "err", err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+
+	filename := fmt.Sprintf("rollup-%d.csv", id)
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"bucket_start", "requests", "errors_4xx", "errors_5xx", "latency_avg_ms", "latency_max_ms", "bytes_resp"})
+	for i, b := range series {
+		avg := int64(0)
+		if b.Requests > 0 {
+			avg = b.LatencySumMs / b.Requests
+		}
+		_ = cw.Write([]string{
+			b.BucketStart.UTC().Format(time.RFC3339),
+			strconv.FormatInt(b.Requests, 10),
+			strconv.FormatInt(b.Errors4xx, 10),
+			strconv.FormatInt(b.Errors5xx, 10),
+			strconv.FormatInt(avg, 10),
+			strconv.FormatInt(b.LatencyMaxMs, 10),
+			strconv.FormatInt(b.BytesResp, 10),
+		})
+		if (i+1)%100 == 0 {
+			cw.Flush()
+		}
+	}
+	cw.Flush()
 }

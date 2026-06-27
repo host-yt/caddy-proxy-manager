@@ -19,6 +19,10 @@
         class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
         JSON
       </a>
+      <a href="/admin/hosts/{{.RouteID}}/rollups.csv?window=30d"
+        class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
+        Rollup CSV
+      </a>
       <!-- Export dropdown -->
       <div class="relative" id="export-wrap">
         <button type="button" id="btn-export"
