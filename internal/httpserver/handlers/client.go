@@ -1324,6 +1324,7 @@ type clientAPIKeyRow struct {
 	Scopes     string
 	LastUsedAt string
 	LastUsedIP string
+	UseCount   int64
 	CreatedAt  string
 	ExpiresAt  string
 	Revoked    bool
@@ -1433,6 +1434,7 @@ func (h *ClientHandlers) loadClientAPIKeys(ctx context.Context) []clientAPIKeyRo
 		`SELECT id, name, key_prefix, scopes,
 		        COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i'),''),
 		        last_used_ip,
+		        use_count,
 		        DATE_FORMAT(created_at,'%Y-%m-%d'),
 		        COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d'),''),
 		        revoked_at IS NOT NULL
@@ -1444,7 +1446,7 @@ func (h *ClientHandlers) loadClientAPIKeys(ctx context.Context) []clientAPIKeyRo
 	var out []clientAPIKeyRow
 	for rows.Next() {
 		var k clientAPIKeyRow
-		if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
+		if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.UseCount, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
 			out = append(out, k)
 		}
 	}

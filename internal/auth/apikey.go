@@ -158,9 +158,9 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (user
 func finalizeAPIKey(ctx context.Context, db *sql.DB, id, uid int64, secret, existingHMAC, clientIP string) {
 	if clientIP != "" {
 		_, _ = db.ExecContext(ctx,
-			"UPDATE api_keys SET last_used_at = NOW(), last_used_ip = ? WHERE id = ?", clientIP, id)
+			"UPDATE api_keys SET last_used_at=NOW(), last_used_ip=?, use_count=use_count+1 WHERE id=?", clientIP, id)
 	} else {
-		_, _ = db.ExecContext(ctx, "UPDATE api_keys SET last_used_at = NOW() WHERE id = ?", id)
+		_, _ = db.ExecContext(ctx, "UPDATE api_keys SET last_used_at=NOW(), use_count=use_count+1 WHERE id=?", id)
 	}
 	if len(HMACKey) == 0 {
 		return
