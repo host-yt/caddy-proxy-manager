@@ -100,7 +100,7 @@ func (r *Registry) builtins() []Tool {
 		},
 		{
 			Name:        "get_backup_status",
-			Description: "Return recent backup job history (last N jobs): destination name, kind, status, size, duration, error. config_enc is never exposed.",
+			Description: "Return recent backup job history (last N jobs): destination name, kind, status, size, duration, error. Encrypted credential columns are never selected.",
 			Schema:      json.RawMessage(`{"type":"object","properties":{"limit":{"type":"integer","minimum":1,"maximum":50}},"additionalProperties":false}`),
 			Exec:        r.backupStatus,
 		},
@@ -809,7 +809,7 @@ func (r *Registry) listWGPeers(ctx context.Context, raw json.RawMessage) (string
 	return toJSON(map[string]any{"count": len(out), "peers": out})
 }
 
-// backupStatus returns recent backup job history. config_enc is never selected.
+// backupStatus returns recent backup job history. Encrypted credential columns never selected.
 func (r *Registry) backupStatus(ctx context.Context, raw json.RawMessage) (string, error) {
 	var a limitArgs
 	_ = json.Unmarshal(raw, &a)
