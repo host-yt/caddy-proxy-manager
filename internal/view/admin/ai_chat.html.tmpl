@@ -1,0 +1,419 @@
+{{define "ai_chat"}}
+<div class="flex gap-4 h-[calc(100vh-10rem)] min-h-[32rem]">
+
+  <!-- Session list (left column) -->
+  <aside class="w-64 shrink-0 flex flex-col gap-3">
+    <div class="flex items-center justify-between">
+      <p class="hpg-eyebrow">Conversations</p>
+      {{if .AIConfigured}}
+      <button id="ai-new-btn" type="button"
+        class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+        </svg>
+        New chat
+      </button>
+      {{end}}
+    </div>
+
+    <div id="ai-session-list" class="flex-1 overflow-y-auto rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 divide-y divide-slate-100 dark:divide-zinc-800">
+      <p id="ai-sessions-empty" class="px-4 py-6 text-xs text-slate-400 dark:text-slate-500 text-center">No conversations yet.</p>
+    </div>
+
+    {{if .DefaultProvider}}
+    <p class="text-[10px] text-slate-400 dark:text-slate-500 px-1">Provider: <span class="font-medium text-slate-500 dark:text-slate-400">{{.DefaultProvider}}</span></p>
+    {{end}}
+  </aside>
+
+  <!-- Thread + composer (right column) -->
+  <div class="flex-1 flex flex-col rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 overflow-hidden">
+
+    {{if not .AIConfigured}}
+    <!-- Not configured state -->
+    <div class="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
+      <div class="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+        </svg>
+      </div>
+      <div>
+        <p class="font-semibold text-slate-800 dark:text-slate-100">AI assistant not configured</p>
+        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Add an API key in Settings to enable AI chat.</p>
+      </div>
+      <a href="/admin/settings#ai"
+        class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors">
+        Open Settings - AI tab
+      </a>
+    </div>
+    {{else}}
+
+    <!-- Thread area -->
+    <div id="ai-thread" class="flex-1 overflow-y-auto p-5 space-y-4">
+      <div id="ai-thread-empty" class="flex flex-col items-center justify-center h-full gap-3 text-center">
+        <div class="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+          </svg>
+        </div>
+        <p class="text-sm text-slate-400 dark:text-slate-500">Select a conversation or start a new one.</p>
+      </div>
+    </div>
+
+    <!-- Streaming error banner -->
+    <div id="ai-stream-error" class="hidden px-4 py-2 bg-rose-50 dark:bg-rose-500/10 border-t border-rose-200 dark:border-rose-500/20 text-xs text-rose-700 dark:text-rose-300"></div>
+
+    <!-- Composer -->
+    <div class="border-t border-slate-100 dark:border-zinc-800 p-4">
+      <div class="flex gap-2 items-end">
+        <textarea id="ai-composer" rows="2" placeholder="Send a message..."
+          class="flex-1 resize-none rounded-lg px-3 py-2.5 text-sm border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow placeholder-slate-400 dark:placeholder-zinc-500"
+          disabled></textarea>
+        <button id="ai-send-btn" type="button" disabled
+          class="shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"/>
+          </svg>
+          Send
+        </button>
+      </div>
+      <p id="ai-session-hint" class="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500">Pick or start a conversation to enable input.</p>
+    </div>
+    {{end}}
+  </div>
+</div>
+
+{{if .AIConfigured}}
+<script nonce="{{.CSPNonce}}">
+(function(){
+  'use strict';
+
+  var activeSessionID = null;
+  var streaming = false;
+
+  // ---- DOM refs ----
+  var listEl    = document.getElementById('ai-session-list');
+  var emptyEl   = document.getElementById('ai-sessions-empty');
+  var threadEl  = document.getElementById('ai-thread');
+  var threadEmptyEl = document.getElementById('ai-thread-empty');
+  var errBanner = document.getElementById('ai-stream-error');
+  var composer  = document.getElementById('ai-composer');
+  var sendBtn   = document.getElementById('ai-send-btn');
+  var newBtn    = document.getElementById('ai-new-btn');
+  var hintEl    = document.getElementById('ai-session-hint');
+
+  // ---- Helpers ----
+  function esc(s){
+    return String(s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;');
+  }
+
+  function setComposerEnabled(on){
+    composer.disabled = !on;
+    sendBtn.disabled  = !on;
+    if (hintEl) hintEl.textContent = on ? '' : 'Pick or start a conversation to enable input.';
+  }
+
+  function showStreamError(msg){
+    if (!errBanner) return;
+    errBanner.textContent = msg;
+    errBanner.classList.remove('hidden');
+  }
+
+  function clearStreamError(){
+    if (!errBanner) return;
+    errBanner.classList.add('hidden');
+    errBanner.textContent = '';
+  }
+
+  function scrollThread(){
+    if (threadEl) threadEl.scrollTop = threadEl.scrollHeight;
+  }
+
+  // ---- Session list ----
+  function loadSessions(){
+    fetch('/admin/ai/chat/sessions', {credentials:'same-origin', headers:{Accept:'application/json'}})
+      .then(function(r){ return r.ok ? r.json() : {sessions:[]}; })
+      .then(function(data){ renderSessionList(data.sessions || []); })
+      .catch(function(){ renderSessionList([]); });
+  }
+
+  function renderSessionList(sessions){
+    // Remove all session items, keep the empty placeholder
+    Array.from(listEl.querySelectorAll('[data-session-item]')).forEach(function(el){ el.remove(); });
+
+    if (!sessions.length){
+      if (emptyEl) emptyEl.classList.remove('hidden');
+      return;
+    }
+    if (emptyEl) emptyEl.classList.add('hidden');
+
+    sessions.forEach(function(s){
+      var item = document.createElement('div');
+      item.setAttribute('data-session-item', s.id);
+      item.className = 'group flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-zinc-800';
+      if (s.id === activeSessionID) item.classList.add('bg-indigo-50','dark:bg-indigo-500/10');
+
+      var label = document.createElement('span');
+      label.className = 'flex-1 min-w-0 text-sm truncate text-slate-700 dark:text-slate-200';
+      label.textContent = s.title || 'Untitled';
+      item.appendChild(label);
+
+      var delBtn = document.createElement('button');
+      delBtn.type = 'button';
+      delBtn.title = 'Delete conversation';
+      delBtn.className = 'shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-slate-400 hover:text-rose-500 cursor-pointer';
+      delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>';
+      delBtn.addEventListener('click', function(e){
+        e.stopPropagation();
+        deleteSession(s.id);
+      });
+      item.appendChild(delBtn);
+
+      item.addEventListener('click', function(){
+        openSession(s.id);
+      });
+
+      listEl.appendChild(item);
+    });
+  }
+
+  function highlightSession(id){
+    listEl.querySelectorAll('[data-session-item]').forEach(function(el){
+      var sid = parseInt(el.getAttribute('data-session-item'), 10);
+      el.classList.toggle('bg-indigo-50', sid === id);
+      el.classList.toggle('dark:bg-indigo-500/10', sid === id);
+    });
+  }
+
+  // ---- Session CRUD ----
+  function newSession(){
+    if (streaming) return;
+    // Use hpgPrompt (from layout) for the title
+    window.hpgPrompt('Conversation title:', 'New chat').then(function(title){
+      if (title === null) return; // cancelled
+      fetch('/admin/ai/chat/sessions', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: {'Content-Type':'application/json', Accept:'application/json'},
+        body: JSON.stringify({title: title || 'New chat', provider: ''})
+      })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(function(data){
+        if (!data || !data.id) return;
+        loadSessions();
+        openSession(data.id);
+      })
+      .catch(function(){ window.hpgToast('Failed to create session.', 'error'); });
+    });
+  }
+
+  function openSession(id){
+    if (streaming) return;
+    activeSessionID = id;
+    highlightSession(id);
+    setComposerEnabled(false);
+    clearStreamError();
+
+    fetch('/admin/ai/chat/sessions/'+id, {credentials:'same-origin', headers:{Accept:'application/json'}})
+      .then(function(r){
+        if (!r.ok){ throw new Error('status '+r.status); }
+        return r.json();
+      })
+      .then(function(data){
+        renderThread(data.messages || []);
+        setComposerEnabled(true);
+        composer.focus();
+      })
+      .catch(function(e){
+        showStreamError('Could not load session: '+e.message);
+      });
+  }
+
+  function deleteSession(id){
+    window.hpgConfirm('Delete this conversation?').then(function(ok){
+      if (!ok) return;
+      fetch('/admin/ai/chat/sessions/'+id, {
+        method: 'DELETE',
+        credentials: 'same-origin'
+      })
+      .then(function(r){
+        if (r.ok || r.status===204){
+          if (activeSessionID === id){
+            activeSessionID = null;
+            renderThread([]);
+            setComposerEnabled(false);
+          }
+          loadSessions();
+        }
+      })
+      .catch(function(){ window.hpgToast('Delete failed.', 'error'); });
+    });
+  }
+
+  // ---- Thread rendering ----
+  function renderThread(messages){
+    // Remove message bubbles only
+    Array.from(threadEl.querySelectorAll('[data-msg]')).forEach(function(el){ el.remove(); });
+    clearStreamError();
+
+    if (!messages.length){
+      if (threadEmptyEl) threadEmptyEl.classList.remove('hidden');
+      return;
+    }
+    if (threadEmptyEl) threadEmptyEl.classList.add('hidden');
+
+    messages.forEach(function(m){ appendBubble(m.role, m.content, false); });
+    scrollThread();
+  }
+
+  function appendBubble(role, content, live){
+    if (threadEmptyEl) threadEmptyEl.classList.add('hidden');
+
+    var wrap = document.createElement('div');
+    wrap.setAttribute('data-msg', '1');
+    wrap.className = role === 'user'
+      ? 'flex justify-end'
+      : 'flex justify-start';
+
+    var bubble = document.createElement('div');
+    bubble.className = role === 'user'
+      ? 'max-w-[75%] rounded-2xl rounded-br-sm bg-indigo-600 text-white px-4 py-2.5 text-sm whitespace-pre-wrap break-words'
+      : 'max-w-[80%] rounded-2xl rounded-bl-sm bg-slate-100 dark:bg-zinc-800 text-slate-800 dark:text-slate-100 px-4 py-2.5 text-sm whitespace-pre-wrap break-words';
+
+    // Use textContent to prevent XSS from model output
+    bubble.textContent = content;
+
+    if (live) bubble.setAttribute('data-live-bubble', '1');
+
+    wrap.appendChild(bubble);
+    threadEl.appendChild(wrap);
+    return bubble;
+  }
+
+  // ---- Send + SSE streaming ----
+  function sendMessage(){
+    if (streaming || !activeSessionID) return;
+    var content = composer.value.trim();
+    if (!content) return;
+
+    clearStreamError();
+    composer.value = '';
+    setComposerEnabled(false);
+    streaming = true;
+
+    appendBubble('user', content, false);
+    scrollThread();
+
+    var aiBubble = appendBubble('assistant', '', true);
+    scrollThread();
+
+    fetch('/admin/ai/chat/sessions/'+activeSessionID+'/message', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type':'application/json', Accept:'text/event-stream'},
+      body: JSON.stringify({content: content})
+    })
+    .then(function(r){
+      if (r.status === 409){
+        return r.json().then(function(body){
+          throw {type:'not_configured', msg: body.error || 'AI provider not configured.'};
+        });
+      }
+      if (!r.ok) throw {type:'http', msg:'HTTP '+r.status};
+      return readSSE(r.body, aiBubble);
+    })
+    .then(function(){
+      streaming = false;
+      setComposerEnabled(true);
+      composer.focus();
+      // Refresh session list title after first message
+      loadSessions();
+    })
+    .catch(function(e){
+      streaming = false;
+      var msg = (e && e.msg) ? e.msg : (e && e.message) ? e.message : 'Streaming error.';
+      showStreamError(msg);
+      // Remove empty assistant bubble if nothing was written
+      if (aiBubble && !aiBubble.textContent){
+        var parent = aiBubble.parentElement;
+        if (parent) parent.remove();
+      }
+      setComposerEnabled(true);
+    });
+  }
+
+  function readSSE(body, bubble){
+    return new Promise(function(resolve, reject){
+      var reader = body.getReader();
+      var decoder = new TextDecoder();
+      var buf = '';
+      var currentEvent = '';
+
+      function pump(){
+        reader.read().then(function(result){
+          if (result.done){
+            resolve();
+            return;
+          }
+          buf += decoder.decode(result.value, {stream:true});
+          var lines = buf.split('\n');
+          buf = lines.pop(); // keep incomplete last line
+
+          lines.forEach(function(line){
+            if (line.startsWith('event: ')){
+              currentEvent = line.slice(7).trim();
+            } else if (line.startsWith('data: ')){
+              var raw = line.slice(6);
+              try {
+                var obj = JSON.parse(raw);
+                if (currentEvent === 'done'){
+                  // natural end; resolve
+                  resolve();
+                  return;
+                }
+                if (currentEvent === 'error'){
+                  reject({msg: obj.error || 'Stream error.'});
+                  return;
+                }
+                // Default: delta text chunk
+                if (obj.text){
+                  bubble.textContent += obj.text;
+                  scrollThread();
+                }
+              } catch(e){}
+              currentEvent = '';
+            }
+          });
+
+          pump();
+        }).catch(function(e){ reject({msg: e.message || 'Read error.'}); });
+      }
+
+      pump();
+    });
+  }
+
+  // ---- Event wiring ----
+  if (newBtn) newBtn.addEventListener('click', newSession);
+
+  if (sendBtn) sendBtn.addEventListener('click', sendMessage);
+
+  if (composer){
+    composer.addEventListener('keydown', function(e){
+      // Shift+Enter inserts newline; Enter alone sends
+      if (e.key === 'Enter' && !e.shiftKey){
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+  }
+
+  // ---- Boot ----
+  loadSessions();
+})();
+</script>
+{{end}}
+{{end}}

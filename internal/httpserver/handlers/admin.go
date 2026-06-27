@@ -188,6 +188,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"twofa":              {{Label: "System", URL: ""}, {Label: "Account", URL: "/admin/account"}, {Label: "Two-factor auth", URL: ""}},
 	"admin_account":      {{Label: "System", URL: ""}, {Label: "Account", URL: ""}},
 	"npm_import":         {{Label: "Tools", URL: ""}, {Label: "NPM import", URL: ""}},
+	"ai_chat":            {{Label: "AI", URL: ""}, {Label: "AI assistant", URL: ""}},
 	"worldmap":           {{Label: "Fleet", URL: ""}, {Label: "Traffic map", URL: ""}},
 }
 
