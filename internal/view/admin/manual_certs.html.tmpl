@@ -16,6 +16,18 @@
         <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">Private keys are encrypted at rest. Certs expiring within 30 days are flagged.</p>
       </div>
     </div>
+    <!-- Filter bar -->
+    <div class="px-4 py-3 border-b border-slate-100 dark:border-zinc-800 flex flex-wrap items-center gap-2">
+      <input type="search" id="cert-search" placeholder="Name or common name..."
+             class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none w-52">
+      <select id="cert-status" class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none">
+        <option value="">All</option>
+        <option value="valid">Valid</option>
+        <option value="expiring">Expiring Soon</option>
+        <option value="expired">Expired</option>
+      </select>
+      <span id="cert-filter-count" class="text-xs text-slate-500 dark:text-slate-400"></span>
+    </div>
     <table class="w-full text-sm">
       <thead class="text-left hpg-eyebrow">
         <tr>
@@ -27,9 +39,9 @@
           <th class="px-4 py-3"></th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody id="certs-tbody" class="divide-y divide-slate-100 dark:divide-zinc-800">
       {{range .Certs}}
-        <tr>
+        <tr data-name="{{.Name}}" data-cn="{{.CommonName}}" data-status="{{if eq .Status "expired"}}expired{{else if eq .Status "warn"}}expiring{{else}}valid{{end}}">
           <td class="px-4 py-3">
             <p class="font-medium text-slate-800 dark:text-slate-100 text-xs">{{if .Name}}{{.Name}}{{else}}<span class="text-slate-400">—</span>{{end}}</p>
             <p class="font-mono text-[11px] text-slate-500 dark:text-slate-400">{{.CommonName}}</p>
@@ -156,7 +168,39 @@
   </section>
 
 </div>
-<script nonce="{{.CSPNonce}}">
+<script nonce="{{$.CSPNonce}}">
+// Client-side filter for certs table.
+(function() {
+  var searchEl = document.getElementById('cert-search');
+  var statusEl = document.getElementById('cert-status');
+  var counter  = document.getElementById('cert-filter-count');
+  var tbody    = document.querySelector('#certs-tbody');
+  if (!searchEl || !statusEl || !tbody) return;
+
+  function applyFilter() {
+    var q      = searchEl.value.trim().toLowerCase();
+    var status = statusEl.value;
+    var rows   = tbody.querySelectorAll('tr[data-name]');
+    var shown  = 0;
+    rows.forEach(function(row) {
+      var name = (row.getAttribute('data-name') || '').toLowerCase();
+      var cn   = (row.getAttribute('data-cn')   || '').toLowerCase();
+      var st   = row.getAttribute('data-status') || '';
+      var nameOk   = !q || name.indexOf(q) !== -1 || cn.indexOf(q) !== -1;
+      var statusOk = !status || st === status;
+      var visible  = nameOk && statusOk;
+      row.style.display = visible ? '' : 'none';
+      if (visible) shown++;
+    });
+    if (counter) {
+      counter.textContent = (q || status) ? ('Showing ' + shown + ' of ' + rows.length) : '';
+    }
+  }
+
+  searchEl.addEventListener('input', applyFilter);
+  statusEl.addEventListener('change', applyFilter);
+})();
+
 // Warn before navigating away with text in key textarea (prevent accidental key loss).
 (function() {
   var keyTA = document.querySelector('textarea[name="key_pem"]');
