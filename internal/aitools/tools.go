@@ -431,8 +431,8 @@ type trafficArgs struct {
 	Top   int `json:"top"`
 }
 
-// get_traffic_stats: aggregates over host_access_log (no secret columns). Top
-// hosts come from joining route_id->routes.domain; top IPs from remote_ip.
+// get_traffic_stats: totals + top_hosts from log_rollups; top_ips and
+// top_countries from host_access_log (requires per-row IP/country columns).
 func (r *Registry) trafficStats(ctx context.Context, raw json.RawMessage) (string, error) {
 	var a trafficArgs
 	_ = json.Unmarshal(raw, &a)
