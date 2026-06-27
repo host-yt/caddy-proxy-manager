@@ -89,6 +89,36 @@
         {{end}}
       </div>
     </div>
+
+    <!-- Top IPs -->
+    {{if .TopRemoteIPs}}
+    <div class="hpg-card">
+      <p class="hpg-eyebrow">Top IPs, 24h</p>
+      <ul class="mt-3 divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .TopRemoteIPs}}
+        <li class="flex items-center justify-between gap-2 py-1.5">
+          <span class="text-sm font-mono text-slate-700 dark:text-slate-200 truncate min-w-0">{{.RemoteIP}}</span>
+          <span class="text-xs text-slate-500 dark:text-slate-400 shrink-0">{{.Count}}</span>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    {{end}}
+
+    <!-- Top ASNs -->
+    {{if .TopASNOrgs}}
+    <div class="hpg-card">
+      <p class="hpg-eyebrow">Top ASNs, 24h</p>
+      <ul class="mt-3 divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .TopASNOrgs}}
+        <li class="flex items-center justify-between gap-2 py-1.5">
+          <span class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate min-w-0" title="{{.Org}}">{{.Org}}</span>
+          <span class="text-xs text-slate-500 dark:text-slate-400 shrink-0">{{.Count}}</span>
+        </li>
+        {{end}}
+      </ul>
+    </div>
+    {{end}}
   </section>
 
   {{if .BandwidthDays}}
