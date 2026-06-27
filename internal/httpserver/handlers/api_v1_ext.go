@@ -79,7 +79,7 @@ func (h *APIHandlers) ServiceDelete(w http.ResponseWriter, r *http.Request) {
 	apiJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
 }
 
-// ---- Routes (get by ID) ------------------------------------------------
+// ---- Routes (list, get, update) ----------------------------------------
 
 type apiRoute struct {
 	ID           int64     `json:"id"`
@@ -95,6 +95,71 @@ type apiRoute struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+const routeSelectCols = `r.id, r.service_id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port,
+	COALESCE(r.ssl_enabled,0), COALESCE(r.websocket,0), COALESCE(r.force_https,0),
+	r.status, r.caddy_node_id, r.created_at`
+
+func scanRoute(row interface {
+	Scan(...any) error
+}, rt *apiRoute) error {
+	return row.Scan(&rt.ID, &rt.ServiceID, &rt.Domain, &rt.PathPrefix, &rt.UpstreamPort,
+		&rt.SSL, &rt.WebSocket, &rt.ForceHTTPS, &rt.Status, &rt.CaddyNodeID, &rt.CreatedAt)
+}
+
+func (h *APIHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	c := middleware.CallerFromContext(r.Context())
+	if c == nil {
+		apiErr(w, http.StatusUnauthorized, "auth required")
+		return
+	}
+
+	svcIDFilter, _ := strconv.ParseInt(r.URL.Query().Get("service_id"), 10, 64)
+
+	var (
+		query string
+		args  []any
+	)
+	if c.Role == "client" {
+		clientID, err := clientIDForUserStrict(ctx, h.DB(), c.UserID)
+		if err != nil {
+			apiErr(w, http.StatusForbidden, "client scope unresolved")
+			return
+		}
+		if svcIDFilter > 0 {
+			query = "SELECT " + routeSelectCols + " FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=? AND r.service_id=? ORDER BY r.id DESC"
+			args = []any{clientID, svcIDFilter}
+		} else {
+			query = "SELECT " + routeSelectCols + " FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=? ORDER BY r.id DESC"
+			args = []any{clientID}
+		}
+	} else {
+		if svcIDFilter > 0 {
+			query = "SELECT " + routeSelectCols + " FROM routes r WHERE r.service_id=? ORDER BY r.id DESC"
+			args = []any{svcIDFilter}
+		} else {
+			query = "SELECT " + routeSelectCols + " FROM routes r ORDER BY r.id DESC"
+		}
+	}
+
+	rows, err := h.DB().QueryContext(ctx, query, args...)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	defer rows.Close()
+	out := []apiRoute{}
+	for rows.Next() {
+		var rt apiRoute
+		if err := scanRoute(rows, &rt); err == nil {
+			out = append(out, rt)
+		}
+	}
+	apiJSON(w, http.StatusOK, map[string]any{"routes": out})
+}
+
 func (h *APIHandlers) RouteGet(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -102,10 +167,7 @@ func (h *APIHandlers) RouteGet(w http.ResponseWriter, r *http.Request) {
 
 	var rt apiRoute
 	err := h.DB().QueryRowContext(ctx,
-		`SELECT r.id, r.service_id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port,
-		        COALESCE(r.ssl_enabled,0), COALESCE(r.websocket,0), COALESCE(r.force_https,0),
-		        r.status, r.caddy_node_id, r.created_at
-		 FROM routes r WHERE r.id = ?`, id,
+		"SELECT "+routeSelectCols+" FROM routes r WHERE r.id = ?", id,
 	).Scan(&rt.ID, &rt.ServiceID, &rt.Domain, &rt.PathPrefix, &rt.UpstreamPort,
 		&rt.SSL, &rt.WebSocket, &rt.ForceHTTPS, &rt.Status, &rt.CaddyNodeID, &rt.CreatedAt)
 	if err == sql.ErrNoRows {
@@ -133,6 +195,78 @@ func (h *APIHandlers) RouteGet(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	apiJSON(w, http.StatusOK, rt)
+}
+
+func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(r) {
+		apiErr(w, http.StatusForbidden, "admin role required")
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var in struct {
+		UpstreamPort *int    `json:"upstream_port"`
+		SSLEnabled   *bool   `json:"ssl_enabled"`
+		WebSocket    *bool   `json:"websocket"`
+		ForceHTTPS   *bool   `json:"force_https"`
+		PathPrefix   *string `json:"path_prefix"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		apiErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if in.UpstreamPort != nil && (*in.UpstreamPort < 1 || *in.UpstreamPort > 65535) {
+		apiErr(w, http.StatusBadRequest, "upstream_port out of range")
+		return
+	}
+	if in.PathPrefix != nil && len(*in.PathPrefix) > 100 {
+		apiErr(w, http.StatusBadRequest, "path_prefix max 100 chars")
+		return
+	}
+	parts := []string{}
+	args := []any{}
+	if in.UpstreamPort != nil {
+		parts = append(parts, "upstream_port=?")
+		args = append(args, *in.UpstreamPort)
+	}
+	if in.SSLEnabled != nil {
+		parts = append(parts, "ssl_enabled=?")
+		args = append(args, *in.SSLEnabled)
+	}
+	if in.WebSocket != nil {
+		parts = append(parts, "websocket=?")
+		args = append(args, *in.WebSocket)
+	}
+	if in.ForceHTTPS != nil {
+		parts = append(parts, "force_https=?")
+		args = append(args, *in.ForceHTTPS)
+	}
+	if in.PathPrefix != nil {
+		parts = append(parts, "path_prefix=?")
+		args = append(args, *in.PathPrefix)
+	}
+	if len(parts) == 0 {
+		apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": false, "resync_required": false})
+		return
+	}
+	args = append(args, id)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	res, err := h.DB().ExecContext(ctx,
+		"UPDATE routes SET "+strings.Join(parts, ", ")+" WHERE id=?", args...)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		apiErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	uid := apiCallerID(r)
+	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+		UserID: &uid, ActorType: audit.ActorAPI, Action: "route.updated", Entity: "route",
+		EntityID: strconv.FormatInt(id, 10),
+	})
+	apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true, "resync_required": true})
 }
 
 // ---- Plans CRUD --------------------------------------------------------
@@ -898,6 +1032,157 @@ func (h *APIHandlers) NodePoolDelete(w http.ResponseWriter, r *http.Request) {
 	uid := apiCallerID(r)
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &uid, ActorType: audit.ActorAPI, Action: "node_pool.delete", Entity: "node_pool",
+		EntityID: strconv.FormatInt(id, 10),
+	})
+	apiJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})
+}
+
+// ---- Nodes (get/update/delete) -----------------------------------------
+
+type apiNode struct {
+	ID             int64   `json:"id"`
+	Name           string  `json:"name"`
+	APIURL         string  `json:"api_url"`
+	PublicHostname string  `json:"public_hostname"`
+	PublicIP       string  `json:"public_ip"`
+	NodeGroupID    int64   `json:"node_group_id"`
+	MaxRoutes      int     `json:"max_routes"`
+	CurrentRoutes  int     `json:"current_routes"`
+	Priority       int     `json:"priority"`
+	Enabled        bool    `json:"is_enabled"`
+	Health         string  `json:"health_status"`
+	HasWAF         bool    `json:"has_waf"`
+	HasL4          bool    `json:"has_l4"`
+	HasGeoIP       bool    `json:"has_geoip"`
+	CaddyVersion   *string `json:"caddy_version,omitempty"`
+}
+
+func (h *APIHandlers) NodeGet(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(r) {
+		apiErr(w, http.StatusForbidden, "admin role required")
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+
+	var n apiNode
+	var pubHostname, pubIP sql.NullString
+	var caddyVer sql.NullString
+	err := h.DB().QueryRowContext(ctx,
+		`SELECT id, name, api_url, COALESCE(public_hostname,''), COALESCE(public_ip,''),
+		        node_group_id, max_routes, current_routes, priority, is_enabled, health_status,
+		        COALESCE(has_waf,0), COALESCE(has_l4,0), COALESCE(has_geoip,0), caddy_version
+		 FROM caddy_nodes WHERE id=?`, id,
+	).Scan(&n.ID, &n.Name, &n.APIURL, &pubHostname, &pubIP,
+		&n.NodeGroupID, &n.MaxRoutes, &n.CurrentRoutes, &n.Priority, &n.Enabled, &n.Health,
+		&n.HasWAF, &n.HasL4, &n.HasGeoIP, &caddyVer)
+	_ = pubHostname
+	_ = pubIP
+	if err == sql.ErrNoRows {
+		apiErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	if caddyVer.Valid {
+		n.CaddyVersion = &caddyVer.String
+	}
+	apiJSON(w, http.StatusOK, n)
+}
+
+func (h *APIHandlers) NodeUpdate(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(r) {
+		apiErr(w, http.StatusForbidden, "admin role required")
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	var in struct {
+		Name      *string `json:"name"`
+		IsEnabled *bool   `json:"is_enabled"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		apiErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	parts := []string{}
+	args := []any{}
+	if in.Name != nil {
+		parts = append(parts, "name=?")
+		args = append(args, *in.Name)
+	}
+	if in.IsEnabled != nil {
+		parts = append(parts, "is_enabled=?")
+		args = append(args, *in.IsEnabled)
+	}
+	if len(parts) == 0 {
+		apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": false})
+		return
+	}
+	args = append(args, id)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	res, err := h.DB().ExecContext(ctx,
+		"UPDATE caddy_nodes SET "+strings.Join(parts, ", ")+" WHERE id=?", args...)
+	if err != nil {
+		if strings.Contains(err.Error(), "Duplicate entry") {
+			apiErr(w, http.StatusConflict, "node name already exists")
+			return
+		}
+		apiErr(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		apiErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	uid := apiCallerID(r)
+	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+		UserID: &uid, ActorType: audit.ActorAPI, Action: "node.updated", Entity: "node",
+		EntityID: strconv.FormatInt(id, 10),
+	})
+	apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true})
+}
+
+func (h *APIHandlers) NodeDelete(w http.ResponseWriter, r *http.Request) {
+	if !requireAdmin(r) {
+		apiErr(w, http.StatusForbidden, "admin role required")
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Refuse deletion when the node still serves active routes.
+	var activeRoutes int
+	if err := h.DB().QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM routes WHERE caddy_node_id=? AND status NOT IN ('disabled','failed')", id,
+	).Scan(&activeRoutes); err != nil {
+		apiErr(w, http.StatusInternalServerError, "check failed")
+		return
+	}
+	if activeRoutes > 0 {
+		apiErr(w, http.StatusConflict, "node has "+strconv.Itoa(activeRoutes)+" active routes, reassign first")
+		return
+	}
+	res, err := h.DB().ExecContext(ctx, "DELETE FROM caddy_nodes WHERE id=?", id)
+	if err != nil {
+		if strings.Contains(err.Error(), "foreign key") {
+			apiErr(w, http.StatusConflict, "node is referenced by routes")
+			return
+		}
+		apiErr(w, http.StatusInternalServerError, "delete failed")
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		apiErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	uid := apiCallerID(r)
+	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+		UserID: &uid, ActorType: audit.ActorAPI, Action: "node.deleted", Entity: "node",
 		EntityID: strconv.FormatInt(id, 10),
 	})
 	apiJSON(w, http.StatusOK, map[string]any{"id": id, "deleted": true})

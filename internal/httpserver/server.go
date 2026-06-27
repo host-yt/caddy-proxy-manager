@@ -644,8 +644,10 @@ func (s *Server) routes() {
 				r.Get("/{id}/routes", s.deps.API.ServiceRoutes)
 			})
 			r.Route("/routes", func(r chi.Router) {
+				r.Get("/", s.deps.API.RoutesList)
 				r.Post("/", s.deps.API.RouteCreate)
 				r.Get("/{id}", s.deps.API.RouteGet)
+				r.Patch("/{id}", s.deps.API.RouteUpdate)
 				r.Delete("/{id}", s.deps.API.RouteDelete)
 				r.Post("/{id}/verify-dns", s.deps.API.RouteVerifyDNS)
 				r.Post("/{id}/retry-ssl", s.deps.API.RouteRetrySSL)
@@ -653,6 +655,9 @@ func (s *Server) routes() {
 			r.Route("/nodes", func(r chi.Router) {
 				r.Get("/", s.deps.API.NodesList)
 				r.Post("/", s.deps.API.NodeCreate)
+				r.Get("/{id}", s.deps.API.NodeGet)
+				r.Patch("/{id}", s.deps.API.NodeUpdate)
+				r.Delete("/{id}", s.deps.API.NodeDelete)
 				r.Post("/{id}/resync", s.deps.API.NodeResync)
 			})
 			r.Route("/node-pools", func(r chi.Router) {
