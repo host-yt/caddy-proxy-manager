@@ -5164,17 +5164,3 @@ func (h *AdminHandlers) Stub(title string) http.HandlerFunc {
 	}
 }
 
-// ---- legacy stubs kept for any external references ---------------------
-
-func AdminDashboard(w http.ResponseWriter, _ *http.Request) { notImplemented(w, "AdminDashboard") }
-func AdminUsersList(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "AdminUsersList")
-}
-func AdminUsersCreate(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "AdminUsersCreate")
-}
-func AdminAuditLog(w http.ResponseWriter, _ *http.Request) { notImplemented(w, "AdminAuditLog") }
-func AdminSettings(w http.ResponseWriter, _ *http.Request) { notImplemented(w, "AdminSettings") }
-func AdminNodeResync(w http.ResponseWriter, _ *http.Request) {
-	notImplemented(w, "AdminNodeResync")
-}
