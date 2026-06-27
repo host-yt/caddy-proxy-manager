@@ -9,21 +9,24 @@
   </div>
 
   {{if .Rows}}
-  <div class="hpg-card p-0 overflow-hidden">
+  <section class="hpg-card !p-0 overflow-hidden">
     <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
-      <div>
-        <p class="hpg-eyebrow">Alert log</p>
-        <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">Fired alerts</h2>
+      <div class="flex items-center gap-3">
+        <div>
+          <p class="hpg-eyebrow">Alert log</p>
+          <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">Fired alerts</h2>
+        </div>
+        <span class="hpg-chip">last 200</span>
       </div>
-      <span class="hpg-chip">last 200</span>
     </div>
+    <!-- alert list: each row has hover highlight + severity badge -->
     <ul class="divide-y divide-slate-100 dark:divide-zinc-800">
       {{range .Rows}}
-      <li class="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:gap-4">
-        <div class="shrink-0 sm:w-24">
-          {{if eq .Severity "critical"}}<span class="hpg-pill hpg-pill-err">critical</span>
-          {{else if eq .Severity "warning"}}<span class="hpg-pill hpg-pill-warn">warning</span>
-          {{else}}<span class="hpg-pill hpg-pill-muted">info</span>{{end}}
+      <li class="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:gap-4 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
+        <div class="shrink-0 sm:w-24 pt-0.5">
+          {{if eq .Severity "critical"}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400">critical</span>
+          {{else if eq .Severity "warning"}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">warning</span>
+          {{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-400">info</span>{{end}}
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
@@ -37,12 +40,13 @@
       </li>
       {{end}}
     </ul>
-  </div>
+  </section>
   <p class="text-xs text-slate-500 dark:text-slate-400">Showing last 200 alerts.</p>
   {{else}}
-  <div class="hpg-card flex flex-col items-center gap-3 px-6 py-12 text-center">
-    <div class="flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
-      <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
+  <!-- empty state: all-clear icon with explanation -->
+  <div class="hpg-card flex flex-col items-center gap-3 px-6 py-16 text-center">
+    <div class="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+      <svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
       </svg>
     </div>

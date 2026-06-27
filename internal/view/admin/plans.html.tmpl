@@ -16,34 +16,35 @@
   </div>
   <div class="overflow-x-auto">
     <table class="w-full text-sm">
-      <thead class="bg-slate-50/95 dark:bg-zinc-800/95 backdrop-blur text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+      <!-- sticky header stays visible while scrolling tall tables -->
+      <thead class="sticky top-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm z-10 text-left border-b border-slate-100 dark:border-zinc-800">
         <tr>
-          <th class="px-4 py-3 font-medium">Name</th>
-          <th class="px-4 py-3 font-medium">Kind</th>
-          <th class="px-4 py-3 font-medium">Max domains</th>
-          <th class="px-4 py-3 font-medium">Max ports</th>
-          <th class="px-4 py-3 font-medium">SSL</th>
-          <th class="px-4 py-3 font-medium">Path</th>
-          <th class="px-4 py-3 font-medium">WS</th>
-          <th class="px-4 py-3 font-medium">Ext proxy</th>
-          <th class="px-4 py-3 font-medium">Node group</th>
-          <th class="px-4 py-3 font-medium">WG key rotation</th>
-          <th class="px-4 py-3 text-right font-medium">Actions</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Name</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Kind</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Max domains</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Max ports</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">SSL</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Path</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">WS</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Ext proxy</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Node group</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">WG key rotation</th>
+          <th class="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Actions</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
         {{range .Plans}}
-        <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
+        <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
           <td class="px-4 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}</td>
           <td class="px-4 py-3.5">
-            {{if eq .Kind "npm"}}<span class="hpg-pill bg-indigo-50 text-indigo-600">NPM</span>{{else}}<span class="hpg-pill hpg-pill-muted">restricted</span>{{end}}
+            {{if eq .Kind "npm"}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400">NPM</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-zinc-700 dark:text-slate-300">restricted</span>{{end}}
           </td>
           <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{.MaxDomains}}</td>
           <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{.MaxPorts}}</td>
-          <td class="px-4 py-3.5">{{if .SSL}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
-          <td class="px-4 py-3.5">{{if .PathRouting}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
-          <td class="px-4 py-3.5">{{if .WebSocket}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
-          <td class="px-4 py-3.5">{{if .ExternalProxy}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
+          <td class="px-4 py-3.5">{{if .SSL}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">yes</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">no</span>{{end}}</td>
+          <td class="px-4 py-3.5">{{if .PathRouting}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">yes</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">no</span>{{end}}</td>
+          <td class="px-4 py-3.5">{{if .WebSocket}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">yes</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">no</span>{{end}}</td>
+          <td class="px-4 py-3.5">{{if .ExternalProxy}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">yes</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">no</span>{{end}}</td>
           <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.NodeGroupName}}</td>
           <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{if .WGKeyRotationDays}}{{.WGKeyRotationDays}}d{{else}}<span class="text-slate-400">inherit</span>{{end}}</td>
           <td class="px-4 py-3.5 text-right whitespace-nowrap">
@@ -71,7 +72,14 @@
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="10" class="px-4 py-12 text-center text-slate-500 dark:text-slate-400">No plans yet.</td></tr>
+        <!-- empty state with centered icon -->
+        <tr><td colspan="11" class="px-4 py-16 text-center">
+          <div class="flex flex-col items-center gap-3">
+            <svg class="w-10 h-10 text-slate-300 dark:text-zinc-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
+            <p class="text-sm font-medium text-slate-600 dark:text-slate-300">No plans yet</p>
+            <p class="text-xs text-slate-400 dark:text-zinc-500 max-w-xs">Create a plan to define feature limits for client service accounts.</p>
+          </div>
+        </td></tr>
         {{end}}
       </tbody>
     </table>

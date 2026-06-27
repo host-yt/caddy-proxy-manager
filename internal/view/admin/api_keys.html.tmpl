@@ -44,54 +44,62 @@
     {{end}}
 
     <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left">
-        <tr class="hpg-eyebrow">
-          <th class="px-4 py-3 font-medium">
+      <!-- sticky header stays visible while scrolling tall tables -->
+      <thead class="sticky top-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm z-10 text-left border-b border-slate-100 dark:border-zinc-800">
+        <tr>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
             <a href="/admin/api-keys?q={{.Q}}&sort=name&dir={{if and (eq .Sort "name") (eq .Dir "asc")}}desc{{else}}asc{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
               Name
               {{if eq .Sort "name"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
             </a>
           </th>
-          <th class="px-4 py-3 font-medium">Prefix</th>
-          <th class="px-4 py-3 font-medium">Scopes</th>
-          <th class="px-4 py-3 font-medium">
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Prefix</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Scopes</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
             <a href="/admin/api-keys?q={{.Q}}&sort=last_used_at&dir={{if and (eq .Sort "last_used_at") (eq .Dir "asc")}}desc{{else}}asc{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
               Last used
               {{if eq .Sort "last_used_at"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
             </a>
           </th>
-          <th class="px-4 py-3 font-medium">Last IP</th>
-          <th class="px-4 py-3 font-medium">
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Last IP</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
             <a href="/admin/api-keys?q={{.Q}}&sort=created_at&dir={{if and (eq .Sort "created_at") (eq .Dir "asc")}}desc{{else}}asc{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
               Created
               {{if eq .Sort "created_at"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
             </a>
           </th>
-          <th class="px-4 py-3 font-medium">Expires</th>
-          <th class="px-4 py-3"></th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Expires</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400"></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
         {{range .Keys}}
-        <tr {{if .Revoked}}class="opacity-50"{{end}}>
-          <td class="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
-          <td class="px-4 py-3"><code class="text-xs">hpg_{{.Prefix}}&hellip;</code></td>
-          <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.Scopes}}</td>
-          <td class="px-4 py-3 text-xs text-slate-500">{{if .LastUsedAt}}{{.LastUsedAt}}{{else}}-{{end}}</td>
-          <td class="px-4 py-3 text-xs text-slate-500 font-mono">{{if .LastUsedIP}}{{.LastUsedIP}}{{else}}-{{end}}</td>
-          <td class="px-4 py-3 text-xs text-slate-500">{{.CreatedAt}}</td>
-          <td class="px-4 py-3 text-xs text-slate-500">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}-{{end}}</td>
-          <td class="px-4 py-3 text-right">
+        <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors {{if .Revoked}}opacity-50{{end}}">
+          <td class="px-4 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}</td>
+          <td class="px-4 py-3.5"><code class="text-xs bg-slate-100 dark:bg-zinc-700 px-1.5 py-0.5 rounded">hpg_{{.Prefix}}&hellip;</code></td>
+          <td class="px-4 py-3.5 text-xs text-slate-600 dark:text-slate-300 font-mono">{{.Scopes}}</td>
+          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .LastUsedAt}}{{.LastUsedAt}}{{else}}<span class="text-slate-300 dark:text-zinc-600">-</span>{{end}}</td>
+          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono">{{if .LastUsedIP}}{{.LastUsedIP}}{{else}}<span class="text-slate-300 dark:text-zinc-600">-</span>{{end}}</td>
+          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.CreatedAt}}</td>
+          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}<span class="text-slate-300 dark:text-zinc-600">never</span>{{end}}</td>
+          <td class="px-4 py-3.5 text-right whitespace-nowrap">
             {{if not .Revoked}}
             <form method="POST" action="/admin/api-keys/{{.ID}}/revoke" data-confirm="Revoke {{.Name}}?">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">revoke</button>
+              <button class="text-xs font-medium text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">revoke</button>
             </form>
-            {{else}}<span class="hpg-pill hpg-pill-muted">revoked</span>{{end}}
+            {{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">revoked</span>{{end}}
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="8" class="px-4 py-6 text-center text-slate-500">{{if .Q}}No keys match your search.{{else}}No API keys yet.{{end}}</td></tr>
+        <!-- empty state with centered icon -->
+        <tr><td colspan="8" class="px-4 py-16 text-center">
+          <div class="flex flex-col items-center gap-3">
+            <svg class="w-10 h-10 text-slate-300 dark:text-zinc-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <p class="text-sm font-medium text-slate-600 dark:text-slate-300">{{if .Q}}No keys match your search{{else}}No API keys yet{{end}}</p>
+            <p class="text-xs text-slate-400 dark:text-zinc-500 max-w-xs">{{if .Q}}Try a different search term or clear the filter.{{else}}Create a key using the form on the right.{{end}}</p>
+          </div>
+        </td></tr>
         {{end}}
       </tbody>
     </table></div>
