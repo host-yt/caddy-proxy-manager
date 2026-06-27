@@ -1879,9 +1879,11 @@ type hostEditData struct {
 	LocationRules   []locationRuleRow
 	LBPolicy        string
 	WeightedLBAvail bool
-	LBTryDurationMs int // total retry budget in ms (0 = default 5000)
-	LBTryIntervalMs int // delay between retries in ms (0 = no delay)
-	HealthURI       string
+	LBTryDurationMs         int // total retry budget in ms (0 = default 5000)
+	LBTryIntervalMs         int // delay between retries in ms (0 = no delay)
+	DialTimeoutMs           int // per-route dial timeout override (0 = default 10s)
+	ResponseHeaderTimeoutMs int // per-route response header timeout (0 = no limit)
+	HealthURI               string
 	HealthInterval  int
 	HealthTimeout   int
 	HealthStatus    int
@@ -2058,7 +2060,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(r.dns_resolver_via_wg_peer_id,0),
 	        COALESCE(r.dns_address_family,'any'),
 	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0),
-		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0), COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0)
+		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0), COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0),
+		        COALESCE(r.dial_timeout_ms,0), COALESCE(r.response_header_timeout_ms,0)
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
@@ -2092,7 +2095,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.OutboundIPMode, &d.OutboundIP,
 		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily,
 		&d.RequireClientCert, &d.MTLSCAID,
-		&d.NodeHasWAF, &d.NodeHasL4, &d.NodeHasGeoIP, &d.NodeHasRateLimit)
+		&d.NodeHasWAF, &d.NodeHasL4, &d.NodeHasGeoIP, &d.NodeHasRateLimit,
+		&d.DialTimeoutMs, &d.ResponseHeaderTimeoutMs)
 	if err != nil {
 		d.Error = "host not found"
 		h.render(w, "hosts_edit", d)
@@ -2336,6 +2340,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// (0 = no inter-attempt delay). Clamped: duration 100-300000ms, interval 0-60000ms.
 	lbTryDurationMs := clampInt(atoiDefault(r.FormValue("lb_try_duration_ms"), 5000), 100, 300000)
 	lbTryIntervalMs := clampInt(atoiDefault(r.FormValue("lb_try_interval_ms"), 250), 0, 60000)
+	dialTimeoutMs := clampInt(atoiDefault(r.FormValue("dial_timeout_ms"), 0), 0, 300000)
+	responseHeaderTimeoutMs := clampInt(atoiDefault(r.FormValue("response_header_timeout_ms"), 0), 0, 300000)
 	// Additional backends arrive as parallel arrays. Admin-only internal
 	// targets (same trust level as backend_ip) so the host validator suffices.
 	upHosts := r.Form["upstream_host[]"]
@@ -2974,6 +2980,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   health_active_status = ?, health_active_fails = ?,
 			   health_passive_enabled = ?, health_passive_fail_dur = ?, health_passive_max_fail = ?,
 			   lb_try_duration_ms = ?, lb_try_interval_ms = ?,
+			   dial_timeout_ms = ?, response_header_timeout_ms = ?,
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
 			   geo_mode = ?, geo_countries = ?,
@@ -3006,6 +3013,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			healthStatus, healthFails,
 			healthPassive, healthFailDur, healthMaxFails,
 			lbTryDurationMs, lbTryIntervalMs,
+			dialTimeoutMs, responseHeaderTimeoutMs,
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
 			geoMode, geoCountries,
@@ -3040,6 +3048,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   health_active_status = ?, health_active_fails = ?,
 			   health_passive_enabled = ?, health_passive_fail_dur = ?, health_passive_max_fail = ?,
 			   lb_try_duration_ms = ?, lb_try_interval_ms = ?,
+			   dial_timeout_ms = ?, response_header_timeout_ms = ?,
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
 			   geo_mode = ?, geo_countries = ?,
@@ -3072,6 +3081,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			healthStatus, healthFails,
 			healthPassive, healthFailDur, healthMaxFails,
 			lbTryDurationMs, lbTryIntervalMs,
+			dialTimeoutMs, responseHeaderTimeoutMs,
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
 			geoMode, geoCountries,
