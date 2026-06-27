@@ -480,6 +480,27 @@ func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB) ([]A
 		})
 	}
 
+	// Manual certificates expiring within 30 days or already expired.
+	var expiringSoon, expired int
+	_ = db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM manual_certs WHERE not_after BETWEEN NOW() AND (NOW() + INTERVAL 30 DAY)").Scan(&expiringSoon)
+	_ = db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM manual_certs WHERE not_after < NOW()").Scan(&expired)
+	if expired > 0 {
+		items = append(items, AttentionItem{
+			Severity: "error",
+			Text:     fmt.Sprintf("%d manual cert(s) EXPIRED", expired),
+			URL:      "/admin/manual-certs",
+		})
+	}
+	if expiringSoon > 0 {
+		items = append(items, AttentionItem{
+			Severity: "warn",
+			Text:     fmt.Sprintf("%d manual certificate(s) expiring within 30 days", expiringSoon),
+			URL:      "/admin/manual-certs",
+		})
+	}
+
 	truncated := false
 	if len(items) > dashAttentionCap {
 		items = items[:dashAttentionCap]

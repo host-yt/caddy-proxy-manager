@@ -89,6 +89,8 @@ type hostRow struct {
 	BackendDisplay string
 	CertStatus     string // "active" | "pending" | "off"
 	Health         string // route-status-derived health hint
+	// CertDaysLeft is days until manual cert expiry; -1 = no manual cert.
+	CertDaysLeft int
 }
 
 type hostsData struct {
@@ -215,13 +217,15 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	             n.id, n.name, n.public_hostname,
 	             COALESCE(r.upstream_external,0), COALESCE(r.upstream_host_header,''),
 	             COALESCE(DATE_FORMAT(r.ssl_issued_at,'%Y-%m-%d %H:%i'),''),
-	             COALESCE(r.sso_provider_url,''), COALESCE(r.sso_strict_mode,0)
+	             COALESCE(r.sso_provider_url,''), COALESCE(r.sso_strict_mode,0),
+	             COALESCE(DATEDIFF(mc.not_after, NOW()), -1)
 	      FROM routes r
 	      JOIN services s    ON s.id = r.service_id
 	      JOIN clients c     ON c.id = s.client_id
 	      JOIN users u       ON u.id = c.user_id
 	      JOIN plans p       ON p.id = s.plan_id
 	      JOIN caddy_nodes n ON n.id = r.caddy_node_id
+	      LEFT JOIN manual_certs mc ON mc.route_id = r.id
 	      WHERE ` + whereSQL + `
 	      ORDER BY r.updated_at DESC
 	      LIMIT ? OFFSET ?`
@@ -250,6 +254,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 			&hr.NodeID, &hr.NodeName, &hr.NodeHostname,
 			&hr.External, &extHostHeader, &hr.IssuedAt,
 			&hr.SSOProviderURL, &hr.SSOStrictMode,
+			&hr.CertDaysLeft,
 		); err == nil {
 			hr.ExternalHost = extHostHeader
 			hr.BackendDisplay = hostBackendDisplay(hr)
