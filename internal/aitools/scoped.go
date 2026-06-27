@@ -166,9 +166,9 @@ func (r *Registry) listClientsScoped(ctx context.Context, scope Scope, raw json.
 	return toJSON(map[string]any{"clients": out, "count": len(out)})
 }
 
-// trafficStatsScoped aggregates host_access_log limited to routes whose owning
-// service belongs to scope.ClientIDs, so a client never sees cross-tenant
-// traffic. All sub-selects carry the same client-id IN filter.
+// trafficStatsScoped aggregates log_rollups (totals/hosts) and host_access_log
+// (per-IP, per-country) limited to routes whose owning service belongs to
+// scope.ClientIDs, so a client never sees cross-tenant traffic.
 func (r *Registry) trafficStatsScoped(ctx context.Context, scope Scope, raw json.RawMessage) (string, error) {
 	var a trafficArgs
 	_ = json.Unmarshal(raw, &a)
