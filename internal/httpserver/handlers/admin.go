@@ -1576,6 +1576,7 @@ type clientRow struct {
 	Email           string
 	ExternalRef     string
 	ServiceCount    int
+	Bandwidth30d    int64  // bytes out, last 30 days
 	CreatedAt       string
 }
 
@@ -1652,6 +1653,40 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 			var c clientRow
 			if err := rows.Scan(&c.ID, &c.DisplayName, &c.EditDisplayName, &c.Email, &c.ExternalRef, &c.ServiceCount, &c.CreatedAt); err == nil {
 				d.Clients = append(d.Clients, c)
+			}
+		}
+	}
+
+	// fetch 30d bandwidth separately to avoid slow correlated sub-query inside paginated SELECT
+	if len(d.Clients) > 0 {
+		ids := make([]any, len(d.Clients))
+		for i, c := range d.Clients {
+			ids[i] = c.ID
+		}
+		ph := make([]string, len(ids))
+		for i := range ph {
+			ph[i] = "?"
+		}
+		bwSQL := `SELECT s.client_id, COALESCE(SUM(lr.bytes_resp), 0)
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id = lr.route_id
+		 JOIN services s ON s.id = r.service_id
+		 WHERE s.client_id IN (` + strings.Join(ph, ",") + `)
+		   AND lr.bucket_start >= NOW() - INTERVAL 30 DAY
+		 GROUP BY s.client_id`
+		bwRows, bwErr := db.QueryContext(ctx, bwSQL, ids...)
+		if bwErr == nil {
+			defer bwRows.Close()
+			bwMap := make(map[int64]int64, len(d.Clients))
+			for bwRows.Next() {
+				var cid int64
+				var bw int64
+				if bwRows.Scan(&cid, &bw) == nil {
+					bwMap[cid] = bw
+				}
+			}
+			for i := range d.Clients {
+				d.Clients[i].Bandwidth30d = bwMap[d.Clients[i].ID]
 			}
 		}
 	}
