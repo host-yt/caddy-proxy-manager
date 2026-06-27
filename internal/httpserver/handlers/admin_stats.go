@@ -277,10 +277,10 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 		        COUNT(DISTINCT c.id),
 		        COUNT(DISTINCT s.id),
 		        COUNT(r.id),
-		        SUM(CASE WHEN r.status="active" THEN 1 ELSE 0 END)
+		        SUM(CASE WHEN r.status='active' THEN 1 ELSE 0 END)
 		 FROM plans p
-		 LEFT JOIN clients c ON c.plan_id=p.id
-		 LEFT JOIN services s ON s.client_id=c.id
+		 LEFT JOIN services s ON s.plan_id=p.id
+		 LEFT JOIN clients c ON c.id=s.client_id
 		 LEFT JOIN routes r ON r.service_id=s.id
 		 GROUP BY p.id, p.name
 		 ORDER BY COUNT(DISTINCT c.id) DESC`)
