@@ -162,9 +162,18 @@
   function colorMap() {
     var svgEl = wrap.querySelector('svg');
     if (!svgEl) return;
-    svgEl.setAttribute('width', '100%');
-    svgEl.setAttribute('height', 'auto');
+    // Responsive scaling needs a viewBox; derive one if the asset lacks it,
+    // else width:100%+height:auto collapses to zero height (blank map).
+    if (!svgEl.getAttribute('viewBox')) {
+      var w = parseInt(svgEl.getAttribute('width') || '700', 10) || 700;
+      var h = parseInt(svgEl.getAttribute('height') || '700', 10) || 700;
+      svgEl.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    }
+    svgEl.removeAttribute('width');
+    svgEl.removeAttribute('height');
     svgEl.style.display = 'block';
+    svgEl.style.width = '100%';
+    svgEl.style.height = 'auto';
     svgEl.style.maxHeight = '480px';
 
     svgEl.querySelectorAll('path[id]').forEach(function(path){
