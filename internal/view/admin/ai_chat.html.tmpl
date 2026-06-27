@@ -4,10 +4,10 @@
   <!-- Session list (left column) -->
   <aside class="w-64 shrink-0 flex flex-col gap-3">
     <div class="flex items-center justify-between">
-      <p class="hpg-eyebrow">Conversations</p>
+      <p class="t-eyebrow">Conversations</p>
       {{if .AIConfigured}}
       <button id="ai-new-btn" type="button"
-        class="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
+        class="r-btn-primary flex items-center gap-1.5 px-2.5 py-1 t-caption font-medium cursor-pointer">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
         </svg>
@@ -16,32 +16,31 @@
       {{end}}
     </div>
 
-    <div id="ai-session-list" class="flex-1 overflow-y-auto rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 divide-y divide-slate-100 dark:divide-zinc-800">
-      <p id="ai-sessions-empty" class="px-4 py-6 text-xs text-slate-400 dark:text-slate-500 text-center">No conversations yet.</p>
+    <div id="ai-session-list" class="flex-1 overflow-y-auto rounded-xl" style="background:rgb(var(--surface));border:1px solid rgb(var(--border))">
+      <p id="ai-sessions-empty" class="px-4 py-6 t-caption text-center" style="color:rgb(var(--muted))">No conversations yet.</p>
     </div>
 
     {{if .DefaultProvider}}
-    <p class="text-[10px] text-slate-400 dark:text-slate-500 px-1">Provider: <span class="font-medium text-slate-500 dark:text-slate-400">{{.DefaultProvider}}</span></p>
+    <p class="t-caption px-1">Provider: <span class="font-medium">{{.DefaultProvider}}</span></p>
     {{end}}
   </aside>
 
   <!-- Thread + composer (right column) -->
-  <div class="flex-1 flex flex-col rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-800 overflow-hidden">
+  <div class="flex-1 flex flex-col rounded-xl overflow-hidden" style="background:rgb(var(--surface));border:1px solid rgb(var(--border))">
 
     {{if not .AIConfigured}}
     <!-- Not configured state -->
     <div class="flex-1 flex flex-col items-center justify-center gap-4 p-8 text-center">
-      <div class="w-14 h-14 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center">
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+      <div class="icon-chip w-14 h-14 rounded-2xl text-2xl">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-7 w-7" style="color:rgb(var(--accent))" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
         </svg>
       </div>
       <div>
-        <p class="font-semibold text-slate-800 dark:text-slate-100">AI assistant not configured</p>
-        <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Add an API key in Settings to enable AI chat.</p>
+        <p class="t-h3 font-semibold">AI assistant not configured</p>
+        <p class="mt-1 t-small" style="color:rgb(var(--muted))">Add an API key in Settings to enable AI chat.</p>
       </div>
-      <a href="/admin/settings#ai"
-        class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors">
+      <a href="/admin/settings#ai" class="r-btn-primary px-4 py-2 t-small font-medium">
         Open Settings - AI tab
       </a>
     </div>
@@ -50,39 +49,72 @@
     <!-- Thread area -->
     <div id="ai-thread" class="flex-1 overflow-y-auto p-5 space-y-4">
       <div id="ai-thread-empty" class="flex flex-col items-center justify-center h-full gap-3 text-center">
-        <div class="w-12 h-12 rounded-2xl bg-indigo-50 dark:bg-indigo-500/10 flex items-center justify-center">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+        <div class="icon-chip w-12 h-12 rounded-2xl">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" style="color:rgb(var(--accent))" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
           </svg>
         </div>
-        <p class="text-sm text-slate-400 dark:text-slate-500">Select a conversation or start a new one.</p>
+        <p class="t-small" style="color:rgb(var(--muted))">Select a conversation or start a new one.</p>
       </div>
     </div>
 
     <!-- Streaming error banner -->
-    <div id="ai-stream-error" class="hidden px-4 py-2 bg-rose-50 dark:bg-rose-500/10 border-t border-rose-200 dark:border-rose-500/20 text-xs text-rose-700 dark:text-rose-300"></div>
+    <div id="ai-stream-error" class="hidden px-4 py-2 t-caption" style="border-top:1px solid rgb(var(--danger)/.25);background:rgb(var(--danger)/.10);color:rgb(var(--danger))"></div>
 
     <!-- Composer -->
-    <div class="border-t border-slate-100 dark:border-zinc-800 p-4">
+    <div class="p-4" style="border-top:1px solid rgb(var(--border))">
       <div class="flex gap-2 items-end">
         <textarea id="ai-composer" rows="2" placeholder="Send a message..."
-          class="flex-1 resize-none rounded-lg px-3 py-2.5 text-sm border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-shadow placeholder-slate-400 dark:placeholder-zinc-500"
+          class="r-input flex-1 resize-none"
           disabled></textarea>
         <button id="ai-send-btn" type="button" disabled
-          class="shrink-0 flex items-center gap-1.5 px-3 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
+          class="r-btn-primary shrink-0 flex items-center gap-1.5 px-3 py-2.5 t-small font-medium disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"/>
           </svg>
           Send
         </button>
       </div>
-      <p id="ai-session-hint" class="mt-1.5 text-[10px] text-slate-400 dark:text-slate-500">Pick or start a conversation to enable input.</p>
+      <p id="ai-session-hint" class="mt-1.5 t-caption" style="color:rgb(var(--muted))">Pick or start a conversation to enable input.</p>
     </div>
     {{end}}
   </div>
 </div>
 
 {{if .AIConfigured}}
+<style nonce="{{.CSPNonce}}">
+/* AI chat bubble styles */
+.ai-bubble-user {
+  background: rgb(var(--accent) / .15);
+  color: rgb(var(--text));
+  border-radius: 1rem 1rem 0.2rem 1rem;
+  padding: 0.625rem 1rem;
+  max-width: 75%;
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  word-break: break-words;
+}
+.ai-bubble-assistant {
+  background: rgb(var(--surface-2));
+  color: rgb(var(--text));
+  border-radius: 1rem 1rem 1rem 0.2rem;
+  padding: 0.625rem 1rem;
+  max-width: 80%;
+  font-size: 0.875rem;
+  white-space: pre-wrap;
+  word-break: break-words;
+  border: 1px solid rgb(var(--border));
+}
+#ai-session-list [data-session-item] {
+  border-bottom: 1px solid rgb(var(--border));
+}
+#ai-session-list [data-session-item]:last-child {
+  border-bottom: none;
+}
+#ai-session-list [data-session-item].is-active {
+  background: rgb(var(--accent) / .10);
+}
+</style>
 <script nonce="{{.CSPNonce}}">
 (function(){
   'use strict';
@@ -159,19 +191,22 @@
     sessions.forEach(function(s){
       var item = document.createElement('div');
       item.setAttribute('data-session-item', s.id);
-      item.className = 'group flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer transition-colors hover:bg-slate-50 dark:hover:bg-zinc-800';
-      if (s.id === activeSessionID) item.classList.add('bg-indigo-50','dark:bg-indigo-500/10');
+      item.className = 'group flex items-center justify-between gap-2 px-3 py-2.5 cursor-pointer transition-colors';
+      if (s.id === activeSessionID) item.classList.add('is-active');
 
       var label = document.createElement('span');
-      label.className = 'flex-1 min-w-0 text-sm truncate text-slate-700 dark:text-slate-200';
+      label.className = 'flex-1 min-w-0 t-small truncate';
       label.textContent = s.title || 'Untitled';
       item.appendChild(label);
 
       var delBtn = document.createElement('button');
       delBtn.type = 'button';
       delBtn.title = 'Delete conversation';
-      delBtn.className = 'shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded text-slate-400 hover:text-rose-500 cursor-pointer';
+      delBtn.className = 'shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded cursor-pointer';
+      delBtn.style.color = 'rgb(var(--muted))';
       delBtn.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>';
+      delBtn.addEventListener('mouseenter', function(){ this.style.color = 'rgb(var(--danger))'; });
+      delBtn.addEventListener('mouseleave', function(){ this.style.color = 'rgb(var(--muted))'; });
       delBtn.addEventListener('click', function(e){
         e.stopPropagation();
         deleteSession(s.id);
@@ -189,8 +224,7 @@
   function highlightSession(id){
     listEl.querySelectorAll('[data-session-item]').forEach(function(el){
       var sid = parseInt(el.getAttribute('data-session-item'), 10);
-      el.classList.toggle('bg-indigo-50', sid === id);
-      el.classList.toggle('dark:bg-indigo-500/10', sid === id);
+      el.classList.toggle('is-active', sid === id);
     });
   }
 
@@ -285,8 +319,8 @@
 
     var bubble = document.createElement('div');
     bubble.className = role === 'user'
-      ? 'max-w-[75%] rounded-2xl rounded-br-sm bg-indigo-600 text-white px-4 py-2.5 text-sm whitespace-pre-wrap break-words'
-      : 'max-w-[80%] rounded-2xl rounded-bl-sm bg-slate-100 dark:bg-zinc-800 text-slate-800 dark:text-slate-100 px-4 py-2.5 text-sm whitespace-pre-wrap break-words';
+      ? 'ai-bubble-user'
+      : 'ai-bubble-assistant';
 
     // Use textContent to prevent XSS from model output
     bubble.textContent = content;

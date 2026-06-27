@@ -2,31 +2,35 @@
 <div class="space-y-4 max-w-7xl">
   <div class="flex items-center justify-between gap-4">
     <div>
-      <a href="/admin/hosts/{{.RouteID}}/edit" class="text-xs text-slate-500 hover:text-indigo-600">← edit host</a>
-      <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100 mt-0.5">
+      <a href="/admin/hosts/{{.RouteID}}/edit" class="t-caption" style="color:rgb(var(--muted))">
+        <svg class="inline h-3 w-3 mr-0.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+        edit host
+      </a>
+      <h2 class="t-h2 mt-0.5">
         Access logs
-        {{if .Domain}}<span class="text-sm font-normal text-slate-500 dark:text-slate-400 font-mono ml-1">{{.Domain}}</span>{{end}}
+        {{if .Domain}}<span class="t-small font-normal font-mono ml-1" style="color:rgb(var(--muted))">{{.Domain}}</span>{{end}}
       </h2>
     </div>
     <div class="flex items-center gap-2">
       <!-- Live tail toggle -->
       <button id="btn-tail" type="button"
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg ring-1 ring-emerald-300 dark:ring-emerald-700 text-emerald-700 dark:text-emerald-400 text-xs font-medium hover:bg-emerald-50 dark:hover:bg-emerald-500/10 cursor-pointer transition-colors">
-        <span id="tail-dot" class="w-2 h-2 rounded-full bg-slate-400"></span>
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg t-caption font-medium cursor-pointer transition-colors"
+        style="border:1px solid rgb(var(--success)/.40);color:rgb(var(--success))">
+        <span id="tail-dot" class="w-2 h-2 rounded-full" style="background:rgb(var(--muted))"></span>
         <span id="tail-label">Start live tail</span>
       </button>
-      <a href="/admin/hosts/{{.RouteID}}/logs.json" target="_blank"
-        class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+      <a href="/admin/hosts/{{.RouteID}}/logs.json" target="_blank" class="r-btn-ghost px-3 py-1.5 t-caption">
+        <svg class="inline h-3.5 w-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
         JSON
       </a>
-      <a href="/admin/hosts/{{.RouteID}}/rollups.csv?window=30d"
-        class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer">
+      <a href="/admin/hosts/{{.RouteID}}/rollups.csv?window=30d" class="r-btn-ghost px-3 py-1.5 t-caption cursor-pointer">
+        <svg class="inline h-3.5 w-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
         Rollup CSV
       </a>
       <!-- Export dropdown -->
       <div class="relative" id="export-wrap">
         <button type="button" id="btn-export"
-          class="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors">
+          class="r-btn-secondary inline-flex items-center gap-1 px-3 py-1.5 t-caption cursor-pointer">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M3 17a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zm3.293-7.707a1 1 0 011.414 0L9 10.586V3a1 1 0 112 0v7.586l1.293-1.293a1 1 0 111.414 1.414l-3 3a1 1 0 01-1.414 0l-3-3a1 1 0 010-1.414z" clip-rule="evenodd"/>
           </svg>
@@ -35,13 +39,14 @@
             <path fill-rule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clip-rule="evenodd"/>
           </svg>
         </button>
-        <div id="export-menu" class="hidden absolute right-0 mt-1 w-36 rounded-lg shadow-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 z-20 py-1">
+        <div id="export-menu" class="hidden absolute right-0 mt-1 w-36 rounded-xl z-20 py-1 overflow-hidden"
+          style="background:rgb(var(--surface));border:1px solid rgb(var(--border));box-shadow:0 4px 16px rgba(0,0,0,.12)">
           <a id="export-csv" href="#"
-            class="block px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+            class="block px-3 py-1.5 t-small transition-colors cursor-pointer hover:opacity-80">
             Export CSV
           </a>
           <a id="export-json" href="#"
-            class="block px-3 py-1.5 text-xs text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+            class="block px-3 py-1.5 t-small transition-colors cursor-pointer hover:opacity-80">
             Export JSON
           </a>
         </div>
@@ -50,65 +55,65 @@
   </div>
 
   {{if .Error}}
-  <div class="hpg-alert-err text-sm">{{.Error}}</div>
+  <div class="r-card t-small" style="background:rgb(var(--danger)/.10);border-color:rgb(var(--danger)/.30);color:rgb(var(--danger))">{{.Error}}</div>
   {{end}}
 
   <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Requests, 24h</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Requests, 24h</p>
       <div class="mt-2 flex items-baseline gap-2">
-        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{.AnalyticsTotal}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">total</span>
+        <span class="t-display tabular-nums">{{.AnalyticsTotal}}</span>
+        <span class="t-caption">total</span>
       </div>
       <div class="mt-3 flex flex-wrap gap-1.5">
         {{range .StatusBuckets}}
-        <span class="hpg-pill {{if eq .Bucket "2xx"}}hpg-pill-ok{{else if eq .Bucket "3xx"}}hpg-pill-warn{{else if or (eq .Bucket "4xx") (eq .Bucket "5xx")}}hpg-pill-err{{else}}hpg-pill-muted{{end}}">
+        <span class="r-pill {{if eq .Bucket "2xx"}}r-pill-success{{else if eq .Bucket "3xx"}}r-pill-info{{else if eq .Bucket "4xx"}}r-pill-warning{{else if eq .Bucket "5xx"}}r-pill-danger{{else}}r-pill-neutral{{end}} tabular-nums">
           {{.Bucket}} {{.Count}}
         </span>
         {{else}}
-        <span class="hpg-pill hpg-pill-muted">no traffic</span>
+        <span class="r-pill r-pill-neutral">no traffic</span>
         {{end}}
       </div>
     </div>
 
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Top paths</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Top paths</p>
       <div class="mt-3 space-y-2">
         {{range .TopPaths}}
         <div class="flex items-center justify-between gap-3">
-          <span class="min-w-0 truncate font-mono text-xs text-slate-700 dark:text-slate-300" title="{{.Path}}">{{.Path}}</span>
-          <span class="hpg-pill hpg-pill-muted tabular-nums">{{.Count}}</span>
+          <span class="min-w-0 truncate font-mono t-caption" title="{{.Path}}">{{.Path}}</span>
+          <span class="r-pill r-pill-neutral tabular-nums">{{.Count}}</span>
         </div>
         {{else}}
-        <p class="text-xs text-slate-500 dark:text-slate-400">No path data yet.</p>
+        <p class="t-caption">No path data yet.</p>
         {{end}}
       </div>
     </div>
 
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Remote IPs</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Remote IPs</p>
       <div class="mt-3 space-y-2">
         {{range .TopRemoteIPs}}
         <div class="flex items-center justify-between gap-3">
-          <span class="min-w-0 truncate font-mono text-xs text-slate-700 dark:text-slate-300" title="{{.RemoteIP}}">{{.RemoteIP}}</span>
-          <span class="hpg-pill hpg-pill-muted tabular-nums">{{.Count}}</span>
+          <span class="min-w-0 truncate font-mono t-caption" title="{{.RemoteIP}}">{{.RemoteIP}}</span>
+          <span class="r-pill r-pill-neutral tabular-nums">{{.Count}}</span>
         </div>
         {{else}}
-        <p class="text-xs text-slate-500 dark:text-slate-400">No IP data yet.</p>
+        <p class="t-caption">No IP data yet.</p>
         {{end}}
       </div>
     </div>
 
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Traffic trend</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Traffic trend</p>
       <div class="mt-3 grid grid-cols-6 gap-1.5">
         {{range .TrafficPoints}}
-        <div class="rounded-lg bg-slate-50 px-1.5 py-2 text-center ring-1 ring-slate-200/70 dark:bg-zinc-900 dark:ring-zinc-800">
-          <div class="font-mono text-[10px] text-slate-400">{{.Start.Format "15:04"}}</div>
-          <div class="mt-1 text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">{{.Count}}</div>
+        <div class="rounded-lg px-1.5 py-2 text-center" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">
+          <div class="font-mono t-caption">{{.Start.Format "15:04"}}</div>
+          <div class="mt-1 t-small font-semibold tabular-nums">{{.Count}}</div>
         </div>
         {{else}}
-        <p class="col-span-6 text-xs text-slate-500 dark:text-slate-400">No recent samples.</p>
+        <p class="col-span-6 t-caption">No recent samples.</p>
         {{end}}
       </div>
     </div>
@@ -116,239 +121,237 @@
 
   <section class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
     <!-- Transfer summary -->
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Transfer, 24h</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Transfer, 24h</p>
       <div class="mt-2 flex items-baseline gap-2">
         {{$tb := .BytesSummary.TotalBytes}}
         {{if ge $tb 1073741824}}
-        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{printf "%.1f" (divf $tb 1073741824)}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">GB</span>
+        <span class="t-display tabular-nums">{{printf "%.1f" (divf $tb 1073741824)}}</span>
+        <span class="t-caption">GB</span>
         {{else if ge $tb 1048576}}
-        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{printf "%.1f" (divf $tb 1048576)}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">MB</span>
+        <span class="t-display tabular-nums">{{printf "%.1f" (divf $tb 1048576)}}</span>
+        <span class="t-caption">MB</span>
         {{else if ge $tb 1024}}
-        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{printf "%.1f" (divf $tb 1024)}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">KB</span>
+        <span class="t-display tabular-nums">{{printf "%.1f" (divf $tb 1024)}}</span>
+        <span class="t-caption">KB</span>
         {{else}}
-        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{$tb}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">B</span>
+        <span class="t-display tabular-nums">{{$tb}}</span>
+        <span class="t-caption">B</span>
         {{end}}
       </div>
       {{if gt .BytesSummary.AvgBytes 0}}
-      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">avg {{formatBytes .BytesSummary.AvgBytes}}/req</p>
+      <p class="mt-1 t-caption">avg {{formatBytes .BytesSummary.AvgBytes}}/req</p>
       {{end}}
       {{if gt .BytesSummary.TotalBytesReq 0}}
-      <p class="mt-0.5 text-xs text-slate-400 dark:text-slate-500">&#8593; {{formatBytes .BytesSummary.TotalBytesReq}} upload</p>
+      <p class="mt-0.5 t-caption">&#8593; {{formatBytes .BytesSummary.TotalBytesReq}} upload</p>
       {{end}}
     </div>
 
     <!-- Bandwidth 7d from rollups -->
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Bandwidth, 7d</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Bandwidth, 7d</p>
       <div class="mt-2 flex items-baseline gap-2">
         {{$bw := .TotalBandwidth7d}}
         {{if ge $bw 1073741824}}
-        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{printf "%.1f" (divf $bw 1073741824)}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">GB</span>
+        <span class="t-display tabular-nums">{{printf "%.1f" (divf $bw 1073741824)}}</span>
+        <span class="t-caption">GB</span>
         {{else if ge $bw 1048576}}
-        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{printf "%.1f" (divf $bw 1048576)}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">MB</span>
+        <span class="t-display tabular-nums">{{printf "%.1f" (divf $bw 1048576)}}</span>
+        <span class="t-caption">MB</span>
         {{else if ge $bw 1024}}
-        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{printf "%.1f" (divf $bw 1024)}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">KB</span>
+        <span class="t-display tabular-nums">{{printf "%.1f" (divf $bw 1024)}}</span>
+        <span class="t-caption">KB</span>
         {{else}}
-        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{$bw}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">B</span>
+        <span class="t-display tabular-nums">{{$bw}}</span>
+        <span class="t-caption">B</span>
         {{end}}
       </div>
-      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">from rollups</p>
+      <p class="mt-1 t-caption">from rollups</p>
     </div>
 
     <!-- Protocol breakdown -->
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Protocol, 24h</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Protocol, 24h</p>
       <div class="mt-3 flex flex-wrap gap-1.5">
         {{range .ProtoBreakdown}}
-        <span class="hpg-pill {{if eq .Proto "h2"}}hpg-pill-indigo{{else if eq .Proto "h3"}}hpg-pill-violet{{else}}hpg-pill-muted{{end}}">
+        <span class="r-pill {{if eq .Proto "h2"}}r-pill-info{{else if eq .Proto "h3"}}r-pill-info{{else}}r-pill-neutral{{end}} tabular-nums">
           {{.Proto}} {{.Count}}
         </span>
         {{else}}
-        <span class="hpg-pill hpg-pill-muted">no data</span>
+        <span class="r-pill r-pill-neutral">no data</span>
         {{end}}
       </div>
     </div>
 
     <!-- Top Methods -->
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Methods</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Methods</p>
       <div class="mt-3 space-y-2">
         {{range .TopMethods}}
         <div class="flex items-center justify-between gap-3">
-          <span class="min-w-0 truncate font-mono text-xs font-semibold text-slate-700 dark:text-slate-300">{{.Method}}</span>
-          <span class="hpg-pill hpg-pill-muted tabular-nums">{{.Count}}</span>
+          <span class="min-w-0 truncate font-mono t-caption font-semibold">{{.Method}}</span>
+          <span class="r-pill r-pill-neutral tabular-nums">{{.Count}}</span>
         </div>
         {{else}}
-        <p class="text-xs text-slate-500 dark:text-slate-400">No method data yet.</p>
+        <p class="t-caption">No method data yet.</p>
         {{end}}
       </div>
     </div>
 
     <!-- Top User Agents -->
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">User agents</p>
+    <div class="r-card">
+      <p class="t-eyebrow">User agents</p>
       <div class="mt-3 space-y-2">
         {{range .TopUserAgents}}
         <div class="flex items-center justify-between gap-3">
-          <span class="min-w-0 truncate text-xs text-slate-700 dark:text-slate-300" title="{{.UserAgent}}">{{.UserAgent}}</span>
-          <span class="hpg-pill hpg-pill-muted tabular-nums flex-shrink-0">{{.Count}}</span>
+          <span class="min-w-0 truncate t-caption" title="{{.UserAgent}}">{{.UserAgent}}</span>
+          <span class="r-pill r-pill-neutral tabular-nums flex-shrink-0">{{.Count}}</span>
         </div>
         {{else}}
-        <p class="text-xs text-slate-500 dark:text-slate-400">No user-agent data yet.</p>
+        <p class="t-caption">No user-agent data yet.</p>
         {{end}}
       </div>
     </div>
 
     <!-- Top Countries -->
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Top countries</p>
-      <ul class="mt-3 divide-y divide-slate-100 dark:divide-zinc-800">
+    <div class="r-card">
+      <p class="t-eyebrow">Top countries</p>
+      <ul class="mt-3 divide-y" style="border-color:rgb(var(--border))">
         {{range .TopCountries}}
         <li class="flex items-center justify-between gap-2 py-1.5">
-          <span class="text-sm font-medium {{if .Country}}text-slate-700 dark:text-slate-200{{else}}text-slate-400 dark:text-slate-500{{end}}">
+          <span class="t-small font-medium {{if not .Country}}opacity-50{{end}}">
             {{if .Country}}{{.Country}}{{else}}Unknown{{end}}
           </span>
-          <span class="text-xs text-slate-500 dark:text-slate-400">{{.Count}}</span>
+          <span class="t-caption tabular-nums">{{.Count}}</span>
         </li>
         {{else}}
-        <li class="py-1.5 text-xs text-slate-500 dark:text-slate-400">No country data yet.</li>
+        <li class="py-1.5 t-caption">No country data yet.</li>
         {{end}}
       </ul>
     </div>
 
     <!-- Top ASNs -->
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Top ASNs</p>
-      <ul class="mt-3 divide-y divide-slate-100 dark:divide-zinc-800">
+    <div class="r-card">
+      <p class="t-eyebrow">Top ASNs</p>
+      <ul class="mt-3 divide-y" style="border-color:rgb(var(--border))">
         {{range .TopASNOrgs}}
         <li class="flex items-center justify-between gap-2 py-1.5">
-          <span class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate min-w-0" title="{{.Org}}">{{.Org}}</span>
-          <span class="text-xs text-slate-500 dark:text-slate-400 shrink-0">{{.Count}}</span>
+          <span class="t-small font-medium truncate min-w-0" title="{{.Org}}">{{.Org}}</span>
+          <span class="t-caption tabular-nums shrink-0">{{.Count}}</span>
         </li>
         {{else}}
-        <li class="py-1.5 text-xs text-slate-500 dark:text-slate-400">No ASN data yet.</li>
+        <li class="py-1.5 t-caption">No ASN data yet.</li>
         {{end}}
       </ul>
     </div>
 
     <!-- Latency -->
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Latency (ms)</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Latency (ms)</p>
       {{if gt .Latency.Max 0.0}}
       <div class="mt-3 space-y-2">
         <div class="flex items-center justify-between gap-3">
-          <span class="text-xs text-slate-500 dark:text-slate-400">avg</span>
-          <span class="font-mono text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">{{printf "%.1f" .Latency.Avg}}</span>
+          <span class="t-caption">avg</span>
+          <span class="font-mono t-caption font-semibold tabular-nums">{{printf "%.1f" .Latency.Avg}}</span>
         </div>
         <div class="flex items-center justify-between gap-3">
-          <span class="text-xs text-slate-500 dark:text-slate-400">p50</span>
-          <span class="font-mono text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">{{printf "%.1f" .Latency.P50}}</span>
+          <span class="t-caption">p50</span>
+          <span class="font-mono t-caption font-semibold tabular-nums">{{printf "%.1f" .Latency.P50}}</span>
         </div>
         <div class="flex items-center justify-between gap-3">
-          <span class="text-xs text-slate-500 dark:text-slate-400">p95</span>
-          <span class="font-mono text-xs font-semibold tabular-nums text-slate-800 dark:text-slate-100">{{printf "%.1f" .Latency.P95}}</span>
+          <span class="t-caption">p95</span>
+          <span class="font-mono t-caption font-semibold tabular-nums">{{printf "%.1f" .Latency.P95}}</span>
         </div>
         <div class="flex items-center justify-between gap-3">
-          <span class="text-xs text-slate-500 dark:text-slate-400">max</span>
-          <span class="font-mono text-xs font-semibold tabular-nums text-rose-600 dark:text-rose-400">{{printf "%.1f" .Latency.Max}}</span>
+          <span class="t-caption">max</span>
+          <span class="font-mono t-caption font-semibold tabular-nums" style="color:rgb(var(--danger))">{{printf "%.1f" .Latency.Max}}</span>
         </div>
       </div>
       {{else}}
-      <p class="mt-3 text-xs text-slate-500 dark:text-slate-400">No latency data yet.</p>
+      <p class="mt-3 t-caption">No latency data yet.</p>
       {{end}}
     </div>
 
     <!-- Error rate series -->
-    <div class="hpg-card">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Error rate, 24h</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Error rate, 24h</p>
       <div class="mt-3 grid grid-cols-6 gap-1.5">
         {{range .ErrorRateSeries}}
-        <div class="rounded-lg bg-slate-50 px-1.5 py-2 text-center ring-1 ring-slate-200/70 dark:bg-zinc-900 dark:ring-zinc-800 {{if and (gt .TotalCount 0) (gt .ErrorCount 0)}}ring-rose-200 dark:ring-rose-800/50{{end}}">
-          <div class="font-mono text-[10px] text-slate-400">{{.Start.Format "15:04"}}</div>
-          <div class="mt-1 text-xs font-semibold tabular-nums {{if and (gt .TotalCount 0) (gt .ErrorCount 0)}}text-rose-600 dark:text-rose-400{{else}}text-slate-800 dark:text-slate-100{{end}}">
+        <div class="rounded-lg px-1.5 py-2 text-center {{if and (gt .TotalCount 0) (gt .ErrorCount 0)}}ring-1{{end}}"
+          style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border));{{if and (gt .TotalCount 0) (gt .ErrorCount 0)}}border-color:rgb(var(--danger)/.35){{end}}">
+          <div class="font-mono t-caption">{{.Start.Format "15:04"}}</div>
+          <div class="mt-1 t-caption font-semibold tabular-nums {{if and (gt .TotalCount 0) (gt .ErrorCount 0)}}text-danger{{end}}"
+            style="{{if and (gt .TotalCount 0) (gt .ErrorCount 0)}}color:rgb(var(--danger)){{end}}">
             {{if gt .TotalCount 0}}{{.ErrorCount}}/{{.TotalCount}}{{else}}-{{end}}
           </div>
         </div>
         {{else}}
-        <p class="col-span-6 text-xs text-slate-500 dark:text-slate-400">No recent samples.</p>
+        <p class="col-span-6 t-caption">No recent samples.</p>
         {{end}}
       </div>
     </div>
   </section>
 
   <!-- Traffic chart section with 24h/7d/30d window toggle -->
-  <section class="hpg-card space-y-4" id="traffic-chart-section">
+  <section class="r-card space-y-4" id="traffic-chart-section">
     <div class="flex flex-wrap items-center justify-between gap-3">
-      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Traffic over time</p>
-      <div class="flex gap-1" id="chart-window-btns">
-        <button type="button" data-window="24h"
-          class="chart-win-btn px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors bg-indigo-600 text-white">24h</button>
-        <button type="button" data-window="7d"
-          class="chart-win-btn px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800">7d</button>
-        <button type="button" data-window="30d"
-          class="chart-win-btn px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800">30d</button>
+      <p class="t-eyebrow">Traffic over time</p>
+      <div class="r-segment" id="chart-window-btns">
+        <button type="button" data-window="24h" class="r-segment-item chart-win-btn cursor-pointer is-active">24h</button>
+        <button type="button" data-window="7d" class="r-segment-item chart-win-btn cursor-pointer">7d</button>
+        <button type="button" data-window="30d" class="r-segment-item chart-win-btn cursor-pointer">30d</button>
       </div>
     </div>
 
     <!-- Summary stat cards populated by JS -->
     <div id="chart-summary" class="grid grid-cols-2 md:grid-cols-4 gap-3">
-      <div class="rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900 px-4 py-3">
-        <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Requests</p>
-        <p id="cs-requests" class="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">-</p>
+      <div class="rounded-xl px-4 py-3" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">
+        <p class="t-eyebrow">Requests</p>
+        <p id="cs-requests" class="mt-1 t-display tabular-nums">-</p>
       </div>
-      <div class="rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900 px-4 py-3">
-        <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">4xx errors</p>
-        <p id="cs-4xx" class="mt-1 text-2xl font-semibold tabular-nums text-amber-600 dark:text-amber-400">-</p>
+      <div class="rounded-xl px-4 py-3" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">
+        <p class="t-eyebrow">4xx errors</p>
+        <p id="cs-4xx" class="mt-1 t-display tabular-nums" style="color:rgb(var(--warning))">-</p>
       </div>
-      <div class="rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900 px-4 py-3">
-        <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">5xx errors</p>
-        <p id="cs-5xx" class="mt-1 text-2xl font-semibold tabular-nums text-rose-600 dark:text-rose-400">-</p>
+      <div class="rounded-xl px-4 py-3" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">
+        <p class="t-eyebrow">5xx errors</p>
+        <p id="cs-5xx" class="mt-1 t-display tabular-nums" style="color:rgb(var(--danger))">-</p>
       </div>
-      <div class="rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900 px-4 py-3">
-        <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Avg / Max latency</p>
-        <p id="cs-latency" class="mt-1 text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">-</p>
+      <div class="rounded-xl px-4 py-3" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">
+        <p class="t-eyebrow">Avg / Max latency</p>
+        <p id="cs-latency" class="mt-1 t-display tabular-nums">-</p>
       </div>
     </div>
 
     <!-- SVG chart area -->
-    <div id="chart-wrap" class="relative overflow-hidden rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800 bg-white dark:bg-zinc-900" style="height:180px">
+    <div id="chart-wrap" class="relative overflow-hidden rounded-xl" style="height:180px;background:rgb(var(--surface));border:1px solid rgb(var(--border))">
       <svg id="traffic-svg" width="100%" height="100%" preserveAspectRatio="none" style="display:block"></svg>
-      <div id="chart-empty" class="hidden absolute inset-0 flex items-center justify-center text-sm text-slate-400 dark:text-slate-500">No traffic data for this window.</div>
-      <div id="chart-loading" class="absolute inset-0 flex items-center justify-center text-sm text-slate-400 dark:text-slate-500">Loading…</div>
+      <div id="chart-empty" class="hidden absolute inset-0 flex items-center justify-center t-small" style="color:rgb(var(--muted))">No traffic data for this window.</div>
+      <div id="chart-loading" class="absolute inset-0 flex items-center justify-center t-small" style="color:rgb(var(--muted))">Loading...</div>
     </div>
   </section>
 
   <!-- Filter form -->
   <form method="GET" action="/admin/hosts/{{.RouteID}}/logs"
         id="log-filter-form"
-        class="hpg-card flex flex-wrap gap-3 items-end">
+        class="r-card flex flex-wrap gap-3 items-end">
     <!-- Status range -->
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Status min</label>
+      <label class="t-caption font-medium">Status min</label>
       <input type="number" name="status_min" min="100" max="599" placeholder="e.g. 400"
         value="{{if .Filter.StatusMin}}{{.Filter.StatusMin}}{{end}}"
-        class="w-24 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+        class="r-input w-24 font-mono tabular-nums">
     </div>
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Status max</label>
+      <label class="t-caption font-medium">Status max</label>
       <input type="number" name="status_max" min="100" max="599" placeholder="e.g. 499"
         value="{{if .Filter.StatusMax}}{{.Filter.StatusMax}}{{end}}"
-        class="w-24 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+        class="r-input w-24 font-mono tabular-nums">
     </div>
     <!-- Method -->
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Method</label>
-      <select name="method"
-        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 cursor-pointer transition-colors">
+      <label class="t-caption font-medium">Method</label>
+      <select name="method" class="r-select cursor-pointer">
         <option value="">All</option>
         {{range $m := (slice "GET" "POST" "PUT" "PATCH" "DELETE" "HEAD" "OPTIONS")}}
         <option value="{{$m}}" {{if eq $.Filter.Method $m}}selected{{end}}>{{$m}}</option>
@@ -357,111 +360,111 @@
     </div>
     <!-- Remote IP -->
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Remote IP</label>
+      <label class="t-caption font-medium">Remote IP</label>
       <input type="text" name="remote_ip" placeholder="1.2.3.4"
         value="{{.Filter.RemoteIP}}"
-        class="w-32 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 font-mono transition-colors">
+        class="r-input w-32 font-mono">
     </div>
     <!-- URI pattern -->
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">URI contains</label>
+      <label class="t-caption font-medium">URI contains</label>
       <input type="text" name="uri" placeholder="/api/"
         value="{{.Filter.URIPattern}}"
-        class="w-36 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 font-mono transition-colors">
+        class="r-input w-36 font-mono">
     </div>
     <!-- Country -->
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Country (ISO2)</label>
+      <label class="t-caption font-medium">Country (ISO2)</label>
       <input type="text" name="country" maxlength="2" placeholder="e.g. US"
         value="{{.Filter.Country}}"
-        class="w-20 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 uppercase font-mono transition-colors">
+        class="r-input w-20 uppercase font-mono">
     </div>
     <!-- ASN org -->
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">ASN org</label>
+      <label class="t-caption font-medium">ASN org</label>
       <input type="text" name="asn_org" maxlength="128" placeholder="e.g. Google"
         value="{{.Filter.ASNOrg}}"
-        class="w-32 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+        class="r-input w-32">
     </div>
     <!-- Date from -->
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">From</label>
+      <label class="t-caption font-medium">From</label>
       <input type="date" name="from"
         value="{{if not .Filter.From.IsZero}}{{.Filter.From.Format "2006-01-02"}}{{end}}"
-        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+        class="r-input">
     </div>
     <!-- Date to -->
     <div class="flex flex-col gap-1">
-      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">To</label>
+      <label class="t-caption font-medium">To</label>
       <input type="date" name="to"
         value="{{if not .Filter.To.IsZero}}{{.Filter.To.Format "2006-01-02"}}{{end}}"
-        class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+        class="r-input">
     </div>
     <!-- Actions -->
     <div class="flex items-center gap-2 ml-auto">
-      <button type="submit"
-        class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium cursor-pointer transition-colors">
+      <button type="submit" class="r-btn-primary px-3 py-1.5 t-caption cursor-pointer">
+        <svg class="inline h-3.5 w-3.5 mr-1" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         Filter
       </button>
-      <a href="/admin/hosts/{{.RouteID}}/logs"
-        class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors">
+      <a href="/admin/hosts/{{.RouteID}}/logs" class="r-btn-ghost px-3 py-1.5 t-caption">
         Clear
       </a>
     </div>
   </form>
 
   {{if not .Entries}}
-  <div class="hpg-card text-sm text-slate-500 dark:text-slate-400 text-center py-12">
-    No log entries yet. Entries appear here once Caddy starts forwarding requests.
+  <div class="r-card text-center py-12">
+    <p class="t-small" style="color:rgb(var(--muted))">No log entries yet. Entries appear here once Caddy starts forwarding requests.</p>
   </div>
   {{end}}
 
-  <section class="hpg-card !p-0 overflow-hidden">
+  <section class="r-card !p-0 overflow-hidden">
     <div class="overflow-x-auto">
-      <table class="w-full text-sm" id="log-table">
+      <table class="r-table w-full" id="log-table">
         <thead>
-          <tr class="border-b border-slate-100 dark:border-zinc-800 text-left">
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">Time</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Method</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Proto</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Path</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Status</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Latency</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">↓ Resp</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">↑ Req</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Remote IP</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Country</th>
+          <tr>
+            <th class="whitespace-nowrap">Time</th>
+            <th>Method</th>
+            <th>Proto</th>
+            <th>Path</th>
+            <th>Status</th>
+            <th>Latency</th>
+            <th>&#8595; Resp</th>
+            <th>&#8593; Req</th>
+            <th>Remote IP</th>
+            <th>Country</th>
           </tr>
         </thead>
-        <tbody id="log-body" class="divide-y divide-slate-100 dark:divide-zinc-800">
+        <tbody id="log-body">
           {{range .Entries}}
-          <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
-            <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono">{{.TS.Format "2006-01-02 15:04:05"}}</td>
-            <td class="px-4 py-2"><span class="hpg-method-badge text-xs font-mono font-semibold">{{.Method}}</span></td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .Proto}}{{.Proto}}{{else}}-{{end}}</td>
-            <td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate" title="{{.URI}}">{{.URI}}</td>
-            <td class="px-4 py-2">
-              <span class="inline-block px-1.5 py-0.5 rounded text-xs font-semibold font-mono
-                {{if lt .Status 300}}text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10
-                {{else if lt .Status 400}}text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-emerald-500/10
-                {{else}}text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-500/10{{end}}">
+          <tr>
+            <td class="whitespace-nowrap font-mono tabular-nums t-caption">{{.TS.Format "2006-01-02 15:04:05"}}</td>
+            <td><span class="font-mono t-caption font-semibold">{{.Method}}</span></td>
+            <td class="font-mono t-caption tabular-nums">{{if .Proto}}{{.Proto}}{{else}}-{{end}}</td>
+            <td class="font-mono t-caption max-w-xs truncate" title="{{.URI}}">{{.URI}}</td>
+            <td>
+              <span class="r-pill font-mono tabular-nums
+                {{if lt .Status 300}}r-pill-success
+                {{else if lt .Status 400}}r-pill-info
+                {{else if lt .Status 500}}r-pill-warning
+                {{else}}r-pill-danger{{end}}">
                 {{.Status}}
               </span>
             </td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{.LatencyMS}}ms</td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .BytesResp}}{{formatBytes .BytesResp}}{{else}}-{{end}}</td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .BytesReq}}{{formatBytes .BytesReq}}{{else}}-{{end}}</td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{.RemoteIP}}</td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .Country}}{{.Country}}{{else}}-{{end}}</td>
+            <td class="font-mono t-caption tabular-nums">{{.LatencyMS}}ms</td>
+            <td class="font-mono t-caption tabular-nums">{{if .BytesResp}}{{formatBytes .BytesResp}}{{else}}-{{end}}</td>
+            <td class="font-mono t-caption tabular-nums">{{if .BytesReq}}{{formatBytes .BytesReq}}{{else}}-{{end}}</td>
+            <td class="font-mono t-caption">{{.RemoteIP}}</td>
+            <td class="font-mono t-caption">{{if .Country}}{{.Country}}{{else}}-{{end}}</td>
           </tr>
           {{end}}
         </tbody>
       </table>
     </div>
     {{if .Entries}}
-    <div class="px-4 py-2 border-t border-slate-100 dark:border-zinc-800 text-xs text-slate-400">
+    <div class="px-4 py-2 t-caption" style="border-top:1px solid rgb(var(--border));color:rgb(var(--muted))">
       Showing {{len .Entries}} entries.
-      <a href="?" class="text-indigo-500 hover:underline ml-1">Refresh</a>
+      <a href="?" class="ml-1 hover:underline" style="color:rgb(var(--accent))">Refresh</a>
     </div>
     {{end}}
   </section>
@@ -477,10 +480,11 @@
   var es = null;
   var maxRows = 200;
 
-  function statusClass(s){
-    if(s < 300) return 'text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10';
-    if(s < 400) return 'text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-amber-500/10';
-    return 'text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-500/10';
+  function statusPillClass(s){
+    if(s < 300) return 'r-pill r-pill-success';
+    if(s < 400) return 'r-pill r-pill-info';
+    if(s < 500) return 'r-pill r-pill-warning';
+    return 'r-pill r-pill-danger';
   }
 
   function cell(className, text, title){
@@ -494,29 +498,27 @@
   function prependRow(e){
     var ts = new Date(e.ts).toLocaleString('sv').replace('T',' ');
     var tr = document.createElement('tr');
-    tr.className = 'hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors';
-    tr.appendChild(cell('px-4 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono', ts));
+
+    tr.appendChild(cell('whitespace-nowrap font-mono tabular-nums t-caption', ts));
 
     var methodCell = document.createElement('td');
-    methodCell.className = 'px-4 py-2';
     var method = document.createElement('span');
-    method.className = 'text-xs font-mono font-semibold';
+    method.className = 'font-mono t-caption font-semibold';
     method.textContent = e.method || '';
     methodCell.appendChild(method);
     tr.appendChild(methodCell);
 
-    tr.appendChild(cell('px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate', e.uri || '', e.uri || ''));
+    tr.appendChild(cell('font-mono t-caption max-w-xs truncate', e.uri || '', e.uri || ''));
 
     var statusCell = document.createElement('td');
-    statusCell.className = 'px-4 py-2';
     var status = document.createElement('span');
-    status.className = 'inline-block px-1.5 py-0.5 rounded text-xs font-semibold font-mono ' + statusClass(Number(e.status) || 0);
+    status.className = statusPillClass(Number(e.status) || 0) + ' font-mono tabular-nums';
     status.textContent = e.status == null ? '' : String(e.status);
     statusCell.appendChild(status);
     tr.appendChild(statusCell);
 
-    tr.appendChild(cell('px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400', (e.latency_ms || 0) + 'ms'));
-    tr.appendChild(cell('px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400', e.remote_ip || ''));
+    tr.appendChild(cell('font-mono t-caption tabular-nums', (e.latency_ms || 0) + 'ms'));
+    tr.appendChild(cell('font-mono t-caption', e.remote_ip || ''));
     tbody.insertBefore(tr, tbody.firstChild);
     // Trim to maxRows
     while(tbody.rows.length > maxRows) tbody.deleteRow(tbody.rows.length-1);
@@ -529,12 +531,12 @@
       try{ prependRow(JSON.parse(ev.data)); }catch(e){}
     });
     es.onerror = function(){ stopTail(); };
-    dot.classList.replace('bg-slate-400','bg-emerald-500');
+    dot.style.background = 'rgb(var(--success))';
     label.textContent = 'Stop live tail';
   }
   function stopTail(){
     if(es){ es.close(); es=null; }
-    dot.classList.replace('bg-emerald-500','bg-slate-400');
+    dot.style.background = 'rgb(var(--muted))';
     label.textContent = 'Start live tail';
   }
 
@@ -600,10 +602,7 @@
   function setActiveBtn(win) {
     document.querySelectorAll('.chart-win-btn').forEach(function(b) {
       var active = b.dataset.window === win;
-      b.className = 'chart-win-btn px-2.5 py-1 rounded-lg text-xs font-medium cursor-pointer transition-colors ' +
-        (active
-          ? 'bg-indigo-600 text-white'
-          : 'ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800');
+      b.classList.toggle('is-active', active);
     });
   }
 
@@ -649,18 +648,18 @@
       var reqH  = (b.requests / maxReq) * chartH;
       var errH  = ((b.errors_4xx + b.errors_5xx) / maxReq) * chartH;
 
-      // Requests bar (indigo)
+      // Requests bar (accent)
       var rBar = document.createElementNS(ns, 'rect');
       rBar.setAttribute('x', x);
       rBar.setAttribute('y', padT + chartH - reqH);
       rBar.setAttribute('width', barW);
       rBar.setAttribute('height', reqH);
       rBar.setAttribute('rx', '2');
-      rBar.setAttribute('fill', '#6366f1');
+      rBar.setAttribute('fill', 'rgb(var(--accent))');
       rBar.setAttribute('opacity', '0.7');
       svg.appendChild(rBar);
 
-      // Error overlay (rose)
+      // Error overlay (danger)
       if (errH > 0) {
         var eBar = document.createElementNS(ns, 'rect');
         eBar.setAttribute('x', x);
@@ -668,7 +667,7 @@
         eBar.setAttribute('width', barW);
         eBar.setAttribute('height', errH);
         eBar.setAttribute('rx', '2');
-        eBar.setAttribute('fill', '#f43f5e');
+        eBar.setAttribute('fill', 'rgb(var(--danger))');
         eBar.setAttribute('opacity', '0.8');
         svg.appendChild(eBar);
       }
@@ -682,12 +681,12 @@
         t.setAttribute('font-size', '9');
         t.setAttribute('fill', 'currentColor');
         t.setAttribute('class', 'text-slate-400 dark:text-slate-500');
-        // Show date+time for ≥7d windows, just HH:MM for 24h
+        // Show date+time for >=7d windows, just HH:MM for 24h
         var d = new Date(b.bucket_start);
-        var label = activeWindow === '24h'
+        var lbl = activeWindow === '24h'
           ? d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})
           : (d.getMonth()+1)+'/'+d.getDate();
-        t.textContent = label;
+        t.textContent = lbl;
         svg.appendChild(t);
       }
     });
