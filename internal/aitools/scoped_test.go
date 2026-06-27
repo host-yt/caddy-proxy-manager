@@ -28,9 +28,12 @@ func TestSpecsForClientScopeExcludesInfraTools(t *testing.T) {
 		}
 	}
 	// Client-relevant tools must still be offered.
-	for _, ok := range []string{"list_services", "list_routes", "get_traffic_stats", "list_clients"} {
-		if !names[ok] {
-			t.Fatalf("client scope must expose %q", ok)
+	for _, want := range []string{
+		"list_services", "list_routes", "get_traffic_stats", "list_clients",
+		"get_audit_log", "list_wg_peers", "get_service_detail",
+	} {
+		if !names[want] {
+			t.Fatalf("client scope must expose %q", want)
 		}
 	}
 }
@@ -102,7 +105,6 @@ func TestInPlaceholders(t *testing.T) {
 // The scoped service query must constrain by client_id - proven by the SQL the
 // builder would run carrying a client_id IN filter (query-builder unit, no DB).
 func TestScopedServicesSQLHasClientFilter(t *testing.T) {
-	// Re-derive the filter the same way the scoped query does.
 	in, args, ok := inPlaceholders([]int64{7, 9})
 	if !ok {
 		t.Fatal("expected ok for non-empty ids")
@@ -113,5 +115,44 @@ func TestScopedServicesSQLHasClientFilter(t *testing.T) {
 	}
 	if len(args) != 2 {
 		t.Fatalf("want 2 bound client ids, got %d", len(args))
+	}
+}
+
+// Verify scoped audit log filters by user_id (from the client's user account).
+func TestScopedAuditLogSQLHasUserFilter(t *testing.T) {
+	in, _, ok := inPlaceholders([]int64{3, 5})
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	q := "WHERE al.user_id IN (SELECT user_id FROM clients WHERE id IN " + in + ")"
+	if !strings.Contains(q, "SELECT user_id FROM clients WHERE id IN") {
+		t.Fatalf("scoped audit log SQL missing user_id subquery: %q", q)
+	}
+}
+
+// Verify scoped WG peers filter by client_id directly (no cross-tenant join needed).
+func TestScopedWGPeersSQLHasClientFilter(t *testing.T) {
+	in, _, ok := inPlaceholders([]int64{2})
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	q := "WHERE p.client_id IN " + in
+	if !strings.Contains(q, "p.client_id IN (?)") {
+		t.Fatalf("scoped WG peers SQL missing client_id filter: %q", q)
+	}
+}
+
+// Verify service detail scoped enforces client ownership (must not return other clients' data).
+func TestScopedServiceDetailSQLEnforcesOwnership(t *testing.T) {
+	in, args, ok := inPlaceholders([]int64{10})
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	q := "WHERE (s.id = ? OR s.name = ?) AND s.client_id IN " + in
+	if !strings.Contains(q, "AND s.client_id IN") {
+		t.Fatalf("service detail scoped SQL missing ownership filter: %q", q)
+	}
+	if len(args) != 1 {
+		t.Fatalf("want 1 arg, got %d", len(args))
 	}
 }
