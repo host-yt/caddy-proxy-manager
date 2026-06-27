@@ -380,10 +380,10 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 	wafRows, wafErr := db.QueryContext(ctx,
 		`SELECT we.route_id, COALESCE(r.domain,'(deleted)'),
 		        COUNT(*) as cnt,
-		        SUM(we.action='block') as blocked
+		        SUM(we.action='blocked') as blocked
 		 FROM waf_events we
 		 LEFT JOIN routes r ON r.id = we.route_id
-		 WHERE we.created_at >= NOW() - INTERVAL 7 DAY
+		 WHERE we.ts >= NOW() - INTERVAL 7 DAY
 		 GROUP BY we.route_id, r.domain
 		 ORDER BY cnt DESC LIMIT 10`)
 	if wafErr == nil {
