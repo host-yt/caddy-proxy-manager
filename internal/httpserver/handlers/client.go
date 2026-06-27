@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
+	"encoding/csv"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -630,6 +631,57 @@ func (h *ClientHandlers) RouteMaintenance(w http.ResponseWriter, r *http.Request
 		}(id)
 	}
 	redirectWithFlash(w, r, "/app/routes", msg, "")
+}
+
+// RouteExport streams GET /app/routes/export.csv for the session client.
+func (h *ClientHandlers) RouteExport(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	db := h.DB()
+	if db == nil || sess == nil {
+		http.Error(w, "unavailable", 503)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		http.Error(w, "no client record", 403)
+		return
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT r.domain, COALESCE(r.path_prefix,""), r.upstream_port, r.status,
+		        r.ssl_enabled, COALESCE(r.maintenance_mode,0), s.name,
+		        DATE_FORMAT(r.created_at,"%Y-%m-%d")
+		 FROM routes r
+		 JOIN services s ON s.id = r.service_id
+		 WHERE s.client_id = ? ORDER BY r.id DESC`,
+		clientID)
+	if err != nil {
+		http.Error(w, "query failed", 500)
+		return
+	}
+	defer rows.Close()
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="my-routes.csv"`)
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"domain", "path_prefix", "upstream_port", "status", "ssl", "maintenance", "service", "created"})
+	for rows.Next() {
+		var domain, pathPfx, status, svcName, created string
+		var port, ssl, maint int
+		if err := rows.Scan(&domain, &pathPfx, &port, &status, &ssl, &maint, &svcName, &created); err != nil {
+			continue
+		}
+		sslStr := "no"
+		if ssl == 1 {
+			sslStr = "yes"
+		}
+		maintStr := "no"
+		if maint == 1 {
+			maintStr = "yes"
+		}
+		_ = cw.Write([]string{domain, pathPfx, strconv.Itoa(port), status, sslStr, maintStr, svcName, created})
+	}
+	cw.Flush()
 }
 
 func mapRouteErr(err error) string {

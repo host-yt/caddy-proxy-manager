@@ -6,7 +6,15 @@
       <h2 class="text-lg font-semibold text-slate-950 dark:text-white">Public routes</h2>
       <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track domain, path, service target, and DNS/SSL state in one place.</p>
     </div>
-    <a href="/app/routes/new" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New route</a>
+    <div class="flex items-center gap-3">
+      <a href="/app/routes/export.csv"
+         class="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+         download>
+        <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3v10m0 0-3-3m3 3 3-3M4 16h12"/></svg>
+        Export CSV
+      </a>
+      <a href="/app/routes/new" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New route</a>
+    </div>
   </div>
 
   <form method="GET" action="/app/routes" class="mb-4">
