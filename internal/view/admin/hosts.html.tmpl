@@ -102,6 +102,15 @@
       <label class="hpg-eyebrow mb-1 block">Backend IP</label>
       <input type="text" name="backend_ip" value="{{.BackendIPFilter}}" placeholder="192.168.1." class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none w-36">
     </div>
+    <div>
+      <label class="hpg-eyebrow mb-1 block">Group</label>
+      <select name="group_id" class="px-3.5 py-2 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none">
+        <option value="">any</option>
+        {{range .Groups}}
+        <option value="{{.ID}}" {{if eq .ID $.GroupFilter}}selected{{end}}>{{.Name}}</option>
+        {{end}}
+      </select>
+    </div>
     <div class="flex gap-1.5">
       <button class="px-4 py-2 rounded-full bg-indigo-600 text-white text-xs font-medium shadow-sm hover:bg-indigo-700">Filter</button>
       <a href="/admin/hosts" class="px-4 py-2 rounded-full ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800">Reset</a>
@@ -180,6 +189,7 @@
               {{if eq .GeoMode "deny"}}<span class="hpg-pill bg-rose-50 text-rose-600 dark:bg-rose-500/15 dark:text-rose-300" title="Geo: deny-list active">geo&#8203;✗</span>{{end}}
             </div>
             {{if .Tag}}<a href="/admin/hosts?tag={{.Tag}}" class="hpg-pill bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-slate-300 mt-1.5 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-500/15 dark:hover:text-indigo-300">{{.Tag}}</a>{{end}}
+            {{if .GroupName}}<a href="/admin/hosts?group_id={{.GroupID.Int64}}" class="inline-flex items-center gap-1 hpg-pill bg-slate-100 text-slate-700 dark:bg-zinc-800 dark:text-slate-300 mt-1 hover:bg-indigo-50 hover:text-indigo-600 dark:hover:bg-indigo-500/15 dark:hover:text-indigo-300 transition-colors"><span class="inline-block w-2 h-2 rounded-full flex-shrink-0" style="background:{{.GroupColor}}"></span>{{.GroupName}}</a>{{end}}
           </td>
           <td class="px-4 py-4 align-top font-mono text-xs text-slate-500 dark:text-slate-400">{{.BackendDisplay}}</td>
           <td class="px-4 py-4 align-top text-xs whitespace-nowrap">
@@ -358,6 +368,69 @@
     {{end}}
   </section>
 
+  <!-- Host groups management panel -->
+  <details class="hpg-card group">
+    <summary class="flex items-center justify-between cursor-pointer select-none px-5 py-4 -mx-5 -mt-4 -mb-0 rounded-xl">
+      <div>
+        <p class="hpg-eyebrow">Organisation</p>
+        <h3 class="font-semibold text-slate-800 dark:text-slate-100">Host groups <span class="hpg-chip ml-1">{{len .Groups}}</span></h3>
+      </div>
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="transition-transform group-open:rotate-180 text-slate-400" aria-hidden="true"><polyline points="6 9 12 15 18 9"/></svg>
+    </summary>
+    <div class="mt-4 space-y-4">
+      <!-- Create new group -->
+      <form method="POST" action="/admin/hosts/groups" class="flex flex-wrap gap-3 items-end text-sm">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <div class="flex-1 min-w-[160px]">
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">New group name</label>
+          <input name="name" required maxlength="128" placeholder="e.g. Production"
+            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm">
+        </div>
+        <div>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Color</label>
+          <input type="color" name="color" value="#6366f1"
+            class="w-10 h-9 rounded-lg cursor-pointer border ring-1 ring-slate-200 dark:ring-zinc-700 bg-transparent">
+        </div>
+        <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors cursor-pointer">Add group</button>
+      </form>
+      <!-- Existing groups list -->
+      {{if .Groups}}
+      <div class="divide-y divide-slate-100 dark:divide-zinc-800 rounded-xl ring-1 ring-slate-200 dark:ring-zinc-800 overflow-hidden">
+        {{range .Groups}}
+        <div class="flex items-center gap-3 px-4 py-2.5 bg-white dark:bg-zinc-900 group/gitem">
+          <span class="inline-block w-3 h-3 rounded-full flex-shrink-0" style="background:{{.Color}}"></span>
+          <span class="flex-1 text-sm text-slate-800 dark:text-slate-100">{{.Name}}</span>
+          <a href="/admin/hosts?group_id={{.ID}}" class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">filter</a>
+          <button type="button" class="hg-edit-btn text-xs text-slate-400 hover:text-indigo-600 dark:hover:text-indigo-400 cursor-pointer" data-id="{{.ID}}" data-name="{{.Name}}" data-color="{{.Color}}">edit</button>
+          <form method="POST" action="/admin/hosts/groups/{{.ID}}/delete" class="inline" onsubmit="return confirm('Delete group {{.Name}}? Routes will be ungrouped.')">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <button type="submit" class="text-xs text-rose-500 hover:text-rose-700 cursor-pointer">delete</button>
+          </form>
+        </div>
+        <!-- Inline edit row -->
+        <div id="hg-edit-{{.ID}}" class="hidden px-4 py-3 bg-slate-50 dark:bg-zinc-800/50">
+          <form method="POST" action="/admin/hosts/groups/{{.ID}}/update" class="flex flex-wrap gap-3 items-end text-sm">
+            <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+            <div class="flex-1 min-w-[160px]">
+              <input name="name" required maxlength="128" value="{{.Name}}"
+                class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-white dark:bg-zinc-800 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm">
+            </div>
+            <div>
+              <input type="color" name="color" value="{{.Color}}"
+                class="w-10 h-9 rounded-lg cursor-pointer border ring-1 ring-slate-200 dark:ring-zinc-700 bg-transparent">
+            </div>
+            <button type="submit" class="px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium cursor-pointer">Save</button>
+            <button type="button" class="hg-cancel-btn px-3 py-2 rounded-lg bg-slate-200 dark:bg-zinc-700 text-slate-700 dark:text-slate-200 text-sm hover:bg-slate-300 dark:hover:bg-zinc-600 cursor-pointer" data-id="{{.ID}}">Cancel</button>
+          </form>
+        </div>
+        {{end}}
+      </div>
+      {{else}}
+      <p class="text-sm text-slate-400">No groups yet.</p>
+      {{end}}
+    </div>
+  </details>
+
   <script nonce="{{.CSPNonce}}">
   (function(){
     /* ── Bulk action ───────────────────────────────────────────────── */
@@ -442,6 +515,20 @@
     // Escape key closes open menu.
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') closeOpen();
+    });
+
+    // host group inline edit
+    document.querySelectorAll('.hg-edit-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var el = document.getElementById('hg-edit-' + btn.dataset.id);
+        if (el) el.classList.toggle('hidden');
+      });
+    });
+    document.querySelectorAll('.hg-cancel-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var el = document.getElementById('hg-edit-' + btn.dataset.id);
+        if (el) el.classList.add('hidden');
+      });
     });
   })();
   </script>
