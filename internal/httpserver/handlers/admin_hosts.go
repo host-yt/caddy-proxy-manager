@@ -1514,6 +1514,29 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 			}
 			touchedNodes[oldNodeID] = struct{}{}
 			touchedNodes[destNodeID] = struct{}{}
+		case "maintenance_on":
+			if _, derr := h.DB().ExecContext(ctx,
+				"UPDATE routes SET maintenance_mode=1, updated_at=NOW() WHERE id=?", id); derr != nil {
+				fail++
+				continue
+			}
+			touchedNodes[nodeID] = struct{}{}
+		case "maintenance_off":
+			if _, derr := h.DB().ExecContext(ctx,
+				"UPDATE routes SET maintenance_mode=0, updated_at=NOW() WHERE id=?", id); derr != nil {
+				fail++
+				continue
+			}
+			touchedNodes[nodeID] = struct{}{}
+		case "retry_ssl":
+			// Only resets routes with ssl_enabled to trigger cert re-issue.
+			if _, derr := h.DB().ExecContext(ctx,
+				"UPDATE routes SET status=?, last_error=NULL, updated_at=NOW() WHERE id=? AND ssl_enabled=1",
+				"pending_ssl", id); derr != nil {
+				fail++
+				continue
+			}
+			touchedNodes[nodeID] = struct{}{}
 		default:
 			fail++
 			continue
