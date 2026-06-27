@@ -1,12 +1,13 @@
 {{define "hosts_new"}}
 <div class="max-w-xl space-y-6">
   <div class="flex items-start gap-3">
-    <span class="hpg-chip bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/></svg>
-    </span>
+    <div class="icon-chip" style="background:rgb(var(--accent-weak));flex-shrink:0">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" style="color:rgb(var(--accent))"><path stroke-linecap="round" stroke-linejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"/></svg>
+    </div>
     <div>
-      <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100">Add host</h2>
-      <p class="text-xs text-slate-500 dark:text-slate-400">Point a public domain at a backend, or 308-redirect it elsewhere. Plan + service rows are provisioned automatically under your admin account.</p>
+      <p class="t-eyebrow">Hosts</p>
+      <h2 class="t-h2">Add host</h2>
+      <p class="t-caption">Point a public domain at a backend, or 308-redirect it elsewhere. Plan + service rows are provisioned automatically under your admin account.</p>
     </div>
   </div>
 
@@ -14,56 +15,56 @@
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 
     <!-- CORE: the 90% path, always visible -->
-    <div class="hpg-card space-y-5">
-      <p class="hpg-eyebrow">Route</p>
+    <div class="r-card space-y-5">
+      <p class="t-eyebrow">Route</p>
 
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Route kind</label>
-        <select id="hpg-kind" name="kind" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <label class="t-eyebrow mb-1 block">Route kind</label>
+        <select id="hpg-kind" name="kind" class="r-select w-full">
           <option value="proxy" {{if ne .Form.Kind "redirect"}}selected{{end}}>Reverse proxy → backend</option>
           <option value="redirect" {{if eq .Form.Kind "redirect"}}selected{{end}}>Redirect → URL</option>
         </select>
       </div>
 
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Public domain</label>
+        <label class="t-eyebrow mb-1 block">Public domain</label>
         <div class="flex gap-2">
           <input id="hpg-domain" name="domain" value="{{.Form.Domain}}" required placeholder="app.example.com"
-                 class="flex-1 px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
-          <button type="button" id="hpg-dns-check" class="px-3 py-2 rounded-xl ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800">Check DNS</button>
+                 class="r-input flex-1">
+          <button type="button" id="hpg-dns-check" class="r-btn-secondary text-xs cursor-pointer">Check DNS</button>
         </div>
-        <p id="hpg-dns-result" class="text-[11px] mt-1 text-slate-500">DNS A record for this domain must point at the node's public IP before Let's Encrypt will issue a cert.</p>
+        <p id="hpg-dns-result" class="t-caption mt-1">DNS A record for this domain must point at the node's public IP before Let's Encrypt will issue a cert.</p>
       </div>
 
       <div id="hpg-proxy-fields" class="grid grid-cols-6 gap-3">
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Scheme</label>
-          <select name="upstream_scheme" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <label class="t-eyebrow mb-1 block">Scheme</label>
+          <select name="upstream_scheme" class="r-select w-full">
             <option value="http"  {{if ne .Form.UpstreamScheme "https"}}selected{{end}}>http</option>
             <option value="https" {{if eq .Form.UpstreamScheme "https"}}selected{{end}}>https</option>
           </select>
         </div>
         <div class="col-span-3">
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Backend host (IP or hostname)</label>
+          <label class="t-eyebrow mb-1 block">Backend host (IP or hostname)</label>
           <input name="backend_ip" value="{{.Form.BackendIP}}" placeholder="10.0.0.5 or backend.example.com"
-                 class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                 class="r-input w-full">
         </div>
         <div class="col-span-2">
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Port</label>
+          <label class="t-eyebrow mb-1 block">Port</label>
           <input name="port" value="{{.Form.Port}}" type="number" min="1" max="65535" placeholder="8080"
-                 class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                 class="r-input w-full">
         </div>
       </div>
 
       <div id="hpg-redirect-fields" class="grid grid-cols-4 gap-3 hidden">
         <div class="col-span-3">
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Destination URL</label>
+          <label class="t-eyebrow mb-1 block">Destination URL</label>
           <input name="redirect_url" value="{{.Form.RedirectURL}}" placeholder="https://target.example.com"
-                 class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                 class="r-input w-full">
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Code</label>
-          <select name="redirect_code" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <label class="t-eyebrow mb-1 block">Code</label>
+          <select name="redirect_code" class="r-select w-full">
             <option value="308" {{if eq .Form.RedirectCode "308"}}selected{{end}}>308 Permanent</option>
             <option value="301" {{if eq .Form.RedirectCode "301"}}selected{{end}}>301 Permanent (legacy)</option>
             <option value="307" {{if eq .Form.RedirectCode "307"}}selected{{end}}>307 Temporary</option>
@@ -73,62 +74,68 @@
       </div>
 
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Caddy node</label>
-        <select name="node_id" required class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+        <label class="t-eyebrow mb-1 block">Caddy node</label>
+        <select name="node_id" required class="r-select w-full">
           <option value="">-- pick a node --</option>
           {{range .Nodes}}
           <option value="{{.ID}}" {{if eq (printf "%d" .ID) $.Form.NodeID}}selected{{end}}>{{.Name}} ({{.Hostname}}, group: {{.Group}})</option>
           {{end}}
         </select>
-        {{if not .Nodes}}<p class="text-[11px] text-rose-600 mt-1">No approved + enabled nodes available. Add one under <a href="/admin/nodes" class="underline">Caddy nodes</a> first.</p>{{end}}
+        {{if not .Nodes}}<p class="t-caption mt-1" style="color:rgb(var(--danger,220 38 38))">No approved + enabled nodes available. Add one under <a href="/admin/nodes" class="underline">Caddy nodes</a> first.</p>{{end}}
       </div>
 
-      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-300"><input type="checkbox" name="ssl" value="1" {{if .Form.SSL}}checked{{end}}> Let's Encrypt SSL</label>
+      <label class="flex items-center gap-2 t-body cursor-pointer">
+        <input type="checkbox" name="ssl" value="1" {{if .Form.SSL}}checked{{end}} class="rounded cursor-pointer">
+        Let's Encrypt SSL
+      </label>
     </div>
 
     <!-- ADVANCED: collapsed accordion groups, visually subordinate to the core -->
-    <div class="hpg-card space-y-3">
-      <p class="hpg-eyebrow">Advanced (optional)</p>
+    <div class="r-card space-y-3">
+      <p class="t-eyebrow">Advanced (optional)</p>
 
       <!-- Protocols / WebSocket -->
-      <details class="hpg-adv group rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800">
-        <summary class="cursor-pointer select-none px-4 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-zinc-800/60 rounded-xl">
+      <details class="hpg-adv group rounded-xl" style="border:1px solid rgb(var(--border))">
+        <summary class="cursor-pointer select-none px-4 py-3 t-small font-medium flex items-center justify-between rounded-xl transition-colors" style="color:rgb(var(--text))">
           <span>Protocols</span>
-          <span class="text-slate-400 group-open:rotate-90 transition-transform">›</span>
+          <span style="color:rgb(var(--muted))" class="group-open:rotate-90 transition-transform">&#8250;</span>
         </summary>
         <div class="px-4 pb-4 pt-1 space-y-1">
-          <label id="hpg-ws-row" class="flex items-center gap-2 text-slate-700 dark:text-slate-300"><input type="checkbox" name="websocket" value="1" {{if .Form.WebSocket}}checked{{end}}> WebSocket passthrough</label>
+          <label id="hpg-ws-row" class="flex items-center gap-2 t-body cursor-pointer">
+            <input type="checkbox" name="websocket" value="1" {{if .Form.WebSocket}}checked{{end}} class="rounded cursor-pointer">
+            WebSocket passthrough
+          </label>
         </div>
       </details>
 
       <!-- External HTTPS upstream -->
-      <details class="hpg-adv group rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800">
-        <summary class="cursor-pointer select-none px-4 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-zinc-800/60 rounded-xl">
+      <details class="hpg-adv group rounded-xl" style="border:1px solid rgb(var(--border))">
+        <summary class="cursor-pointer select-none px-4 py-3 t-small font-medium flex items-center justify-between rounded-xl transition-colors" style="color:rgb(var(--text))">
           <span>External HTTPS upstream</span>
-          <span class="text-slate-400 group-open:rotate-90 transition-transform">›</span>
+          <span style="color:rgb(var(--muted))" class="group-open:rotate-90 transition-transform">&#8250;</span>
         </summary>
         <div class="px-4 pb-4 pt-1">
-          <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-700/60 bg-amber-50/60 dark:bg-amber-900/10 p-4 space-y-3">
-            <label class="flex items-center gap-2 text-slate-800 dark:text-slate-200 font-medium">
-              <input type="checkbox" name="upstream_external" value="1" {{if .Form.External}}checked{{end}}>
+          <div class="rounded-xl p-4 space-y-3" style="border:1px solid rgb(var(--warning,245 158 11)/.4);background:rgb(var(--warning,245 158 11)/.06)">
+            <label class="flex items-center gap-2 t-body font-medium cursor-pointer">
+              <input type="checkbox" name="upstream_external" value="1" {{if .Form.External}}checked{{end}} class="rounded cursor-pointer">
               External HTTPS upstream (proxy to an allowlisted public API)
             </label>
-            <p class="text-[11px] text-slate-600 dark:text-slate-400">
+            <p class="t-caption">
               Forwards <code>https://&lt;this domain&gt;/&lt;path&gt;</code> to the external origin over TLS
               (correct SNI + Host) from this node's egress IP. The host must be in
               <code>EXTERNAL_UPSTREAM_ALLOWLIST</code>; a one-time bearer is generated on save and callers
-              must send <code>Authorization: Bearer …</code>. When ticked, the Backend host/port above are ignored.
+              must send <code>Authorization: Bearer ...</code>. When ticked, the Backend host/port above are ignored.
             </p>
             <div class="grid grid-cols-2 gap-3">
               <div>
-                <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">External host (FQDN)</label>
+                <label class="t-eyebrow mb-1 block">External host (FQDN)</label>
                 <input name="external_host" value="{{.Form.ExternalHost}}" placeholder="adm.tools"
-                       class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="r-input w-full">
               </div>
               <div>
-                <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Host / SNI override (optional)</label>
+                <label class="t-eyebrow mb-1 block">Host / SNI override (optional)</label>
                 <input name="upstream_host_header" value="{{.Form.UpstreamHostHeader}}" placeholder="defaults to external host"
-                       class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                       class="r-input w-full">
               </div>
             </div>
           </div>
@@ -136,32 +143,35 @@
       </details>
 
       <!-- Wildcard cert (DNS-01) -->
-      <details class="hpg-adv group rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800">
-        <summary class="cursor-pointer select-none px-4 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-zinc-800/60 rounded-xl">
+      <details class="hpg-adv group rounded-xl" style="border:1px solid rgb(var(--border))">
+        <summary class="cursor-pointer select-none px-4 py-3 t-small font-medium flex items-center justify-between rounded-xl transition-colors" style="color:rgb(var(--text))">
           <span>Wildcard cert (DNS-01)</span>
-          <span class="text-slate-400 group-open:rotate-90 transition-transform">›</span>
+          <span style="color:rgb(var(--muted))" class="group-open:rotate-90 transition-transform">&#8250;</span>
         </summary>
         <div class="px-4 pb-4 pt-1 flex flex-wrap items-center gap-3">
-          <label class="flex items-center gap-2 text-slate-700 dark:text-slate-300"><input type="checkbox" name="wildcard_enabled" value="1" {{if .Form.WildcardEnabled}}checked{{end}}> Wildcard cert (DNS-01)</label>
-          <input name="wildcard_zone" value="{{.Form.WildcardZone}}" placeholder="zone e.g. customer.com" class="px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <label class="flex items-center gap-2 t-body cursor-pointer">
+            <input type="checkbox" name="wildcard_enabled" value="1" {{if .Form.WildcardEnabled}}checked{{end}} class="rounded cursor-pointer">
+            Wildcard cert (DNS-01)
+          </label>
+          <input name="wildcard_zone" value="{{.Form.WildcardZone}}" placeholder="zone e.g. customer.com" class="r-input">
         </div>
       </details>
 
       <!-- Routing metadata -->
-      <details class="hpg-adv group rounded-xl ring-1 ring-slate-200/70 dark:ring-zinc-800">
-        <summary class="cursor-pointer select-none px-4 py-3 text-xs font-medium text-slate-700 dark:text-slate-300 flex items-center justify-between hover:bg-slate-50 dark:hover:bg-zinc-800/60 rounded-xl">
+      <details class="hpg-adv group rounded-xl" style="border:1px solid rgb(var(--border))">
+        <summary class="cursor-pointer select-none px-4 py-3 t-small font-medium flex items-center justify-between rounded-xl transition-colors" style="color:rgb(var(--text))">
           <span>Tag / group</span>
-          <span class="text-slate-400 group-open:rotate-90 transition-transform">›</span>
+          <span style="color:rgb(var(--muted))" class="group-open:rotate-90 transition-transform">&#8250;</span>
         </summary>
         <div class="px-4 pb-4 pt-1 space-y-3">
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tag / group (optional)</label>
-            <input name="tag" value="{{.Form.Tag}}" placeholder="saas-customer-1" maxlength="64" class="w-full px-3 py-2 rounded-xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+            <label class="t-eyebrow mb-1 block">Tag (optional)</label>
+            <input name="tag" value="{{.Form.Tag}}" placeholder="saas-customer-1" maxlength="64" class="r-input w-full">
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Host group</label>
-            <select name="group_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm cursor-pointer">
-              <option value="0">— none —</option>
+            <label class="t-eyebrow mb-1 block">Host group</label>
+            <select name="group_id" class="r-select w-full cursor-pointer">
+              <option value="0">- none -</option>
               {{range .Groups}}
               <option value="{{.ID}}">{{.Name}}</option>
               {{end}}
@@ -172,8 +182,8 @@
     </div>
 
     <div class="flex justify-end gap-3 pt-1">
-      <a href="/admin/hosts" class="px-4 py-2 rounded-lg text-slate-600 dark:text-slate-300 text-sm hover:bg-slate-100 dark:hover:bg-zinc-800">Cancel</a>
-      <button class="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-semibold shadow-sm hover:bg-indigo-700">Add host</button>
+      <a href="/admin/hosts" class="r-btn-ghost">Cancel</a>
+      <button class="r-btn-primary cursor-pointer">Add host</button>
     </div>
   </form>
   <script nonce="{{.CSPNonce}}">
@@ -198,28 +208,28 @@
     var out    = document.getElementById('hpg-dns-result');
     var btn    = document.getElementById('hpg-dns-check');
     var seq = 0, timer = null;
-    function setPill(cls, text){ if (out){ out.textContent = text; out.className = 'text-[11px] mt-1 ' + cls; } }
+    function setPill(cls, text){ if (out){ out.textContent = text; out.className = 't-caption mt-1 ' + cls; } }
     function runDnsCheck(){
       var dom = (domEl && domEl.value || '').trim();
       var node = nodeEl ? nodeEl.value : '';
       if (!dom || !node) return;
       var my = ++seq;
-      setPill('text-slate-500', 'checking DNS…');
+      setPill('', 'checking DNS...');
       fetch('/admin/hosts/check-dns?domain='+encodeURIComponent(dom)+'&node_id='+node)
         .then(function(r){ return r.json(); })
         .then(function(j){
           if (my !== seq) return; // a newer check superseded this one
           if (j.error){
             var nx = /no such host|not found|nxdomain/i.test(j.error);
-            setPill('text-rose-600', nx ? '✗ does not resolve (NXDOMAIN)' : ('✗ lookup error: '+j.error));
+            setPill('text-rose-600', nx ? 'x does not resolve (NXDOMAIN)' : ('x lookup error: '+j.error));
             return;
           }
           var got = (j.resolved && j.resolved.length) ? j.resolved.join(', ') : '(none)';
           var want = j.expected_ip || j.node_hostname || 'node IP';
-          if (j.match) setPill('text-emerald-600', '✓ resolves → node ('+got+')');
-          else         setPill('text-amber-600', '△ mismatch: '+got+' ≠ '+want);
+          if (j.match) setPill('text-emerald-600', 'resolves to node ('+got+')');
+          else         setPill('text-amber-600', 'mismatch: '+got+' != '+want);
         })
-        .catch(function(){ if (my === seq) setPill('text-rose-600', '✗ lookup failed'); });
+        .catch(function(){ if (my === seq) setPill('text-rose-600', 'x lookup failed'); });
     }
     function schedule(){ clearTimeout(timer); timer = setTimeout(runDnsCheck, 250); }
     if (domEl)  domEl.addEventListener('blur', runDnsCheck);
