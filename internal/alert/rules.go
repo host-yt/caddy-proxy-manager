@@ -402,7 +402,55 @@ func highErrorRate(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 	return out
 }
 
+// wafAttackSurge fires when the WAF blocks many requests on a single host
+// within the rolling window. Fires once per host per cooldown window.
+func wafAttackSurge(ctx context.Context, db *sql.DB, cfg Config) []Alert {
+	window := cfg.WAFSurgeWindowMinutes
+	if window <= 0 {
+		window = 5
+	}
+	threshold := cfg.WAFSurgeThreshold
+	if threshold <= 0 {
+		threshold = 50
+	}
+	rows, err := db.QueryContext(ctx, `
+		SELECT host, COUNT(*) AS blocks
+		  FROM waf_events
+		 WHERE ts >= (NOW() - INTERVAL ? MINUTE)
+		   AND action = 'blocked'
+		 GROUP BY host
+		HAVING blocks >= ?
+		 ORDER BY blocks DESC
+		 LIMIT 10`,
+		window, threshold)
+	if err != nil {
+		var me *mysql.MySQLError
+		// Table not yet migrated - suppress false alert on first boot.
+		if errors.As(err, &me) && me.Number == 1146 {
+			return nil
+		}
+		return nil
+	}
+	defer rows.Close()
+	var out []Alert
+	for rows.Next() {
+		var host string
+		var blocks int64
+		if err := rows.Scan(&host, &blocks); err != nil {
+			continue
+		}
+		out = append(out, Alert{
+			RuleID:   "waf_attack_surge",
+			Severity: SeverityCritical,
+			Title:    fmt.Sprintf("WAF attack surge on %s", host),
+			Detail:   fmt.Sprintf("%d blocked requests in last %dm", blocks, window),
+			Labels:   map[string]string{"host": host, "blocks": strconv.FormatInt(blocks, 10)},
+		})
+	}
+	return out
+}
+
 // KnownRuleIDs is the canonical rule list used by the admin filter UI.
 func KnownRuleIDs() []string {
-	return []string{"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale", "db_pool_saturated", "drill_stale", "wg_key_not_fetched", "manual_cert_expiry", "high_error_rate"}
+	return []string{"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale", "db_pool_saturated", "drill_stale", "wg_key_not_fetched", "manual_cert_expiry", "high_error_rate", "waf_attack_surge"}
 }
