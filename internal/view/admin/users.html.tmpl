@@ -1,153 +1,152 @@
 {{define "users"}}
 <div class="space-y-5">
-  <section class="hpg-card overflow-hidden relative">
-    <div class="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-indigo-500 via-sky-500 to-emerald-500"></div>
-    <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4 pt-2">
+  <section class="r-card overflow-hidden relative">
+    <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
       <div class="max-w-3xl">
-        <p class="hpg-eyebrow">Access control</p>
-        <h2 class="text-2xl font-semibold tracking-tight text-slate-950 dark:text-white">Users, roles and client scope</h2>
-        <p class="mt-2 text-sm text-slate-600 dark:text-slate-300">Super admins see the whole installation. Admin and support accounts can be narrowed to selected clients; those limits are enforced on tunnels and host logs.</p>
+        <p class="t-eyebrow">Access control</p>
+        <h2 class="t-h2 mt-1">Users, roles and client scope</h2>
+        <p class="t-body mt-2">Super admins see the whole installation. Admin and support accounts can be narrowed to selected clients; those limits are enforced on tunnels and host logs.</p>
       </div>
       <button type="button" id="usr-new-btn"
-        class="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">
+        class="r-btn-primary inline-flex items-center justify-center gap-2 shrink-0 cursor-pointer">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
         New staff user
       </button>
     </div>
     <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mt-5 text-sm">
-      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-4 ring-1 ring-slate-200/70 dark:ring-zinc-700">
-        <div class="hpg-eyebrow">Super admin</div>
-        <div class="mt-2 text-slate-700 dark:text-slate-200">Global owner, billing, settings, security.</div>
+      <div class="rounded-xl bg-[rgb(var(--surface-2))] p-4 ring-1 ring-[rgb(var(--border))]">
+        <div class="t-eyebrow">Super admin</div>
+        <div class="t-body mt-2">Global owner, billing, settings, security.</div>
       </div>
-      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-4 ring-1 ring-slate-200/70 dark:ring-zinc-700">
-        <div class="hpg-eyebrow">Admin</div>
-        <div class="mt-2 text-slate-700 dark:text-slate-200">Operates assigned customers and infrastructure tasks.</div>
+      <div class="rounded-xl bg-[rgb(var(--surface-2))] p-4 ring-1 ring-[rgb(var(--border))]">
+        <div class="t-eyebrow">Admin</div>
+        <div class="t-body mt-2">Operates assigned customers and infrastructure tasks.</div>
       </div>
-      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-4 ring-1 ring-slate-200/70 dark:ring-zinc-700">
-        <div class="hpg-eyebrow">Support</div>
-        <div class="mt-2 text-slate-700 dark:text-slate-200">Reserved role; use admin with scope for panel access today.</div>
+      <div class="rounded-xl bg-[rgb(var(--surface-2))] p-4 ring-1 ring-[rgb(var(--border))]">
+        <div class="t-eyebrow">Support</div>
+        <div class="t-body mt-2">Reserved role; use admin with scope for panel access today.</div>
       </div>
-      <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 p-4 ring-1 ring-slate-200/70 dark:ring-zinc-700">
-        <div class="hpg-eyebrow">Client</div>
-        <div class="mt-2 text-slate-700 dark:text-slate-200">Self-service portal account managed under Clients.</div>
+      <div class="rounded-xl bg-[rgb(var(--surface-2))] p-4 ring-1 ring-[rgb(var(--border))]">
+        <div class="t-eyebrow">Client</div>
+        <div class="t-body mt-2">Self-service portal account managed under Clients.</div>
       </div>
     </div>
   </section>
 
-  <form method="GET" action="/admin/users" class="flex items-center gap-2 mb-4 flex-wrap">
+  <form method="GET" action="/admin/users" class="flex items-center gap-2 flex-wrap">
     <input type="search" name="q" value="{{.Q}}"
            placeholder="Email or name…"
-           class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none w-48">
-    <select name="role" class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none">
+           class="r-input w-48">
+    <select name="role" class="r-select">
       <option value="" {{if eq .Filter ""}}selected{{end}}>All roles</option>
       <option value="super_admin" {{if eq .Filter "super_admin"}}selected{{end}}>Super admin</option>
       <option value="admin" {{if eq .Filter "admin"}}selected{{end}}>Admin</option>
       <option value="client" {{if eq .Filter "client"}}selected{{end}}>Client</option>
       <option value="support" {{if eq .Filter "support"}}selected{{end}}>Support</option>
     </select>
-    <button type="submit" class="px-3 py-1.5 text-sm rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 transition-colors cursor-pointer">Filter</button>
-    {{if or .Q .Filter}}<a href="/admin/users" class="text-sm text-slate-500 hover:text-slate-700 transition-colors">Clear</a>{{end}}
+    <button type="submit" class="r-btn-primary cursor-pointer">Filter</button>
+    {{if or .Q .Filter}}<a href="/admin/users" class="t-small text-[rgb(var(--muted))] hover:text-[rgb(var(--text))] transition-colors">Clear</a>{{end}}
   </form>
 
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+  <section class="r-card !p-0 overflow-hidden">
+    <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-[rgb(var(--border))]">
       <div>
-        <p class="hpg-eyebrow">Accounts</p>
-        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Panel users</h2>
+        <p class="t-eyebrow">Accounts</p>
+        <h2 class="t-h3 mt-0.5">Panel users</h2>
       </div>
-      <span class="hpg-pill hpg-pill-muted">{{len .Users}} users</span>
+      <span class="r-pill r-pill-neutral">{{len .Users}} users</span>
     </div>
     <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left hpg-eyebrow">
+      <table class="r-table w-full text-sm">
+        <thead>
           <tr>
-            <th class="px-4 py-3">User</th>
-            <th class="px-4 py-3">Role</th>
-            <th class="px-4 py-3">Scope</th>
-            <th class="px-4 py-3">Security</th>
-            <th class="px-4 py-3">Last login</th>
-            <th class="px-4 py-3 text-right">Actions</th>
+            <th>User</th>
+            <th>Role</th>
+            <th>Scope</th>
+            <th>Security</th>
+            <th>Last login</th>
+            <th class="text-right">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        <tbody>
           {{range .Users}}
-          <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
-            <td class="px-4 py-3">
+          <tr>
+            <td>
               <div class="flex items-center gap-3 min-w-[15rem]">
-                <div class="h-9 w-9 rounded-xl bg-slate-100 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 grid place-items-center text-xs font-semibold text-slate-600 dark:text-slate-300 uppercase">{{printf "%.1s" .Email}}</div>
+                <div class="r-avatar">{{printf "%.1s" .Email}}</div>
                 <div class="min-w-0">
-                  <div class="font-medium text-slate-900 dark:text-white truncate">{{if .FullName}}{{.FullName}}{{else}}{{.Email}}{{end}}</div>
-                  <div class="text-xs text-slate-500 dark:text-slate-400 truncate">{{.Email}}</div>
+                  <div class="font-medium text-[rgb(var(--text))] truncate">{{if .FullName}}{{.FullName}}{{else}}{{.Email}}{{end}}</div>
+                  <div class="t-caption text-[rgb(var(--muted))] truncate">{{.Email}}</div>
                 </div>
               </div>
             </td>
-            <td class="px-4 py-3">
-              <span class="hpg-pill
-                {{if eq .Role "super_admin"}}bg-indigo-50 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300
-                {{else if eq .Role "admin"}}bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300
-                {{else if eq .Role "support"}}bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300
-                {{else if eq .Role "client"}}bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300
-                {{else}}hpg-pill-muted{{end}}">{{.Role}}</span>
+            <td>
+              <span class="r-pill
+                {{if eq .Role "super_admin"}}r-pill-info
+                {{else if eq .Role "admin"}}r-pill-info
+                {{else if eq .Role "support"}}r-pill-warning
+                {{else if eq .Role "client"}}r-pill-success
+                {{else}}r-pill-neutral{{end}}">{{.Role}}</span>
             </td>
-            <td class="px-4 py-3">
+            <td>
               {{if eq .Role "super_admin"}}
-                <span class="hpg-pill hpg-pill-ok">all clients</span>
+                <span class="r-pill r-pill-success">all clients</span>
               {{else if eq .Role "client"}}
-                <span class="hpg-pill hpg-pill-muted">own portal</span>
+                <span class="r-pill r-pill-neutral">own portal</span>
               {{else if gt .ScopeCount 0}}
-                <span class="hpg-pill bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">{{.ScopeCount}} clients</span>
+                <span class="r-pill r-pill-info">{{.ScopeCount}} clients</span>
               {{else}}
-                <span class="hpg-pill hpg-pill-warn">no clients</span>
+                <span class="r-pill r-pill-warning">no clients</span>
               {{end}}
             </td>
-            <td class="px-4 py-3">
+            <td>
               <div class="flex flex-wrap gap-1.5">
-                {{if .IsActive}}<span class="hpg-pill hpg-pill-ok">active</span>{{else}}<span class="hpg-pill hpg-pill-err">disabled</span>{{end}}
-                {{if .TOTPEnabled}}<span class="hpg-pill hpg-pill-ok">2FA</span>{{else}}<span class="hpg-pill hpg-pill-muted">2FA off</span>{{end}}
+                {{if .IsActive}}<span class="r-pill r-pill-success">active</span>{{else}}<span class="r-pill r-pill-danger">disabled</span>{{end}}
+                {{if .TOTPEnabled}}<span class="r-pill r-pill-success">2FA</span>{{else}}<span class="r-pill r-pill-neutral">2FA off</span>{{end}}
               </div>
             </td>
-            <td class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .LastLoginAt}}{{.LastLoginAt}}{{else}}never{{end}}</td>
-            <td class="px-4 py-3 text-right">
+            <td class="tabular-nums text-[rgb(var(--muted))] whitespace-nowrap">{{if .LastLoginAt}}{{.LastLoginAt}}{{else}}never{{end}}</td>
+            <td class="text-right">
               <div class="flex flex-wrap justify-end gap-2 whitespace-nowrap">
                 {{if ne .Role "client"}}
                 <button type="button"
-                  class="usr-edit-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 cursor-pointer"
+                  class="usr-edit-btn r-btn-ghost text-xs cursor-pointer"
                   data-id="{{.ID}}" data-fullname="{{.FullName}}" data-email="{{.Email}}" data-role="{{.Role}}" data-active="{{if .IsActive}}1{{else}}0{{end}}">Edit</button>
                 {{end}}
                 {{if and $.CanManageScopes (ne .Role "client") (ne .Role "super_admin")}}
                 <button type="button"
-                  class="usr-scope-btn px-2.5 py-1.5 rounded-lg text-xs font-medium text-sky-700 dark:text-sky-300 ring-1 ring-sky-200 dark:ring-sky-500/30 hover:bg-sky-50 dark:hover:bg-sky-500/10 cursor-pointer"
+                  class="usr-scope-btn r-btn-ghost text-xs cursor-pointer"
                   data-id="{{.ID}}" data-email="{{.Email}}" data-scope="{{.ScopeIDs}}">Scope</button>
                 {{end}}
                 {{if and (eq .Role "client") .IsActive}}
                 <form class="inline" method="POST" action="/admin/users/{{.ID}}/impersonate">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 cursor-pointer">Impersonate</button>
+                  <button class="r-btn-ghost text-xs cursor-pointer">Impersonate</button>
                 </form>
                 {{end}}
                 {{if .CanToggle}}
                 <form class="inline" method="POST" action="/admin/users/{{.ID}}/toggle">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer">{{if .IsActive}}Disable{{else}}Enable{{end}}</button>
+                  <button class="r-btn-secondary text-xs cursor-pointer">{{if .IsActive}}Disable{{else}}Enable{{end}}</button>
                 </form>
                 {{end}}
                 {{if and $.CanManageScopes .TOTPEnabled .CanToggle}}
                 <form class="inline" method="POST" action="/admin/users/{{.ID}}/reset-2fa" data-confirm="Reset 2FA for {{.Email}}? This clears TOTP, SMS, and email OTP.">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-700 dark:text-amber-300 ring-1 ring-amber-200 dark:ring-amber-500/30 hover:bg-amber-50 dark:hover:bg-amber-500/10 cursor-pointer">Reset 2FA</button>
+                  <button class="r-btn-ghost text-xs cursor-pointer">Reset 2FA</button>
                 </form>
                 {{end}}
                 {{if .CanDelete}}
                 <form class="inline" method="POST" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Email}}? This is permanent.">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-rose-700 dark:text-rose-300 ring-1 ring-rose-200 dark:ring-rose-500/30 hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer">Delete</button>
+                  <button class="r-btn-danger text-xs cursor-pointer">Delete</button>
                 </form>
                 {{end}}
               </div>
             </td>
           </tr>
           {{else}}
-          <tr><td colspan="6" class="px-4 py-14 text-center text-slate-500">No users.</td></tr>
+          <tr><td colspan="6" class="px-4 py-14 text-center text-[rgb(var(--muted))]">No users.</td></tr>
           {{end}}
         </tbody>
       </table>
@@ -156,45 +155,45 @@
 </div>
 
 <div id="usr-modal" class="fixed inset-0 z-50 hidden">
-  <div id="usr-modal-overlay" class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm"></div>
+  <div id="usr-modal-overlay" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
   <div class="absolute inset-0 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
-    <div class="hpg-card w-full max-w-lg my-8 relative rounded-2xl shadow-xl" role="dialog" aria-modal="true">
+    <div class="r-card w-full max-w-lg my-8 relative shadow-xl" role="dialog" aria-modal="true">
       <div class="flex items-start justify-between mb-5">
         <div>
-          <p class="hpg-eyebrow">Staff account</p>
-          <h2 id="usr-modal-title" class="font-semibold text-slate-900 dark:text-white">New staff user</h2>
+          <p class="t-eyebrow">Staff account</p>
+          <h2 id="usr-modal-title" class="t-h3 mt-0.5">New staff user</h2>
         </div>
-        <button type="button" id="usr-modal-close" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none cursor-pointer">&times;</button>
+        <button type="button" id="usr-modal-close" class="text-[rgb(var(--muted))] hover:text-[rgb(var(--text))] text-xl leading-none cursor-pointer">&times;</button>
       </div>
       <form id="usr-form" method="POST" action="/admin/users" class="space-y-4 text-sm">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Full name</label>
-          <input name="full_name" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">Full name</label>
+          <input name="full_name" required class="r-input w-full">
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Email</label>
-          <input name="email" type="email" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">Email</label>
+          <input name="email" type="email" required class="r-input w-full">
         </div>
         <div>
-          <label id="usr-pw-label" class="hpg-eyebrow block mb-1.5">Initial password</label>
-          <input id="usr-pw-input" name="password" type="password" minlength="12" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label id="usr-pw-label" class="t-eyebrow block mb-1.5">Initial password</label>
+          <input id="usr-pw-input" name="password" type="password" minlength="12" required class="r-input w-full">
         </div>
         <div>
-          <label class="hpg-eyebrow block mb-1.5">Role</label>
-          <select name="role" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="t-eyebrow block mb-1.5">Role</label>
+          <select name="role" required class="r-select w-full">
             <option value="support">Support (reserved)</option>
             <option value="admin">Admin</option>
             {{if .CanCreateSuperAdmin}}<option value="super_admin">Super admin</option>{{end}}
           </select>
         </div>
-        <label class="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
-          <input type="checkbox" name="is_active" value="1" checked class="rounded border-0 ring-1 ring-slate-200 dark:ring-zinc-700 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+        <label class="flex items-center gap-2 text-xs text-[rgb(var(--text))] cursor-pointer">
+          <input type="checkbox" name="is_active" value="1" checked class="rounded cursor-pointer">
           Active
         </label>
         <div class="flex items-center justify-end gap-2 pt-1">
-          <button type="button" id="usr-modal-cancel" class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer">Cancel</button>
-          <button type="submit" class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">Save user</button>
+          <button type="button" id="usr-modal-cancel" class="r-btn-secondary cursor-pointer">Cancel</button>
+          <button type="submit" class="r-btn-primary cursor-pointer">Save user</button>
         </div>
       </form>
     </div>
@@ -203,34 +202,34 @@
 
 {{if .CanManageScopes}}
 <div id="usr-scope-modal" class="fixed inset-0 z-50 hidden">
-  <div id="usr-scope-overlay" class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm"></div>
+  <div id="usr-scope-overlay" class="absolute inset-0 bg-black/50 backdrop-blur-sm"></div>
   <div class="absolute inset-0 flex items-start justify-center overflow-y-auto p-4 sm:p-6">
-    <div class="hpg-card w-full max-w-2xl my-8 relative rounded-2xl shadow-xl" role="dialog" aria-modal="true">
+    <div class="r-card w-full max-w-2xl my-8 relative shadow-xl" role="dialog" aria-modal="true">
       <div class="flex items-start justify-between mb-5">
         <div>
-          <p class="hpg-eyebrow">Client scope</p>
-          <h2 id="usr-scope-title" class="font-semibold text-slate-900 dark:text-white">Assign clients</h2>
+          <p class="t-eyebrow">Client scope</p>
+          <h2 id="usr-scope-title" class="t-h3 mt-0.5">Assign clients</h2>
         </div>
-        <button type="button" id="usr-scope-close" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 text-xl leading-none cursor-pointer">&times;</button>
+        <button type="button" id="usr-scope-close" class="text-[rgb(var(--muted))] hover:text-[rgb(var(--text))] text-xl leading-none cursor-pointer">&times;</button>
       </div>
       <form id="usr-scope-form" method="POST" action="/admin/users/0/scope" class="space-y-4 text-sm">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <div class="rounded-xl bg-slate-50 dark:bg-zinc-800/60 ring-1 ring-slate-200 dark:ring-zinc-700 p-3 max-h-80 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div class="rounded-xl bg-[rgb(var(--surface-2))] ring-1 ring-[rgb(var(--border))] p-3 max-h-80 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
           {{range .ScopeClients}}
-          <label class="scope-client flex items-start gap-2 rounded-lg bg-white dark:bg-zinc-900 ring-1 ring-slate-200/70 dark:ring-zinc-700 p-3 cursor-pointer hover:ring-indigo-300 dark:hover:ring-indigo-500/50">
-            <input type="checkbox" name="client_ids" value="{{.ID}}" class="mt-1 rounded border-0 ring-1 ring-slate-300 dark:ring-zinc-600 focus:ring-2 focus:ring-indigo-500">
+          <label class="scope-client flex items-start gap-2 rounded-lg bg-[rgb(var(--surface))] ring-1 ring-[rgb(var(--border))] p-3 cursor-pointer hover:ring-[rgb(var(--accent))]">
+            <input type="checkbox" name="client_ids" value="{{.ID}}" class="mt-1 rounded cursor-pointer">
             <span class="min-w-0">
-              <span class="block font-medium text-slate-900 dark:text-white truncate">{{.DisplayName}}</span>
-              <span class="block text-xs text-slate-500 dark:text-slate-400 truncate">{{.Email}}</span>
+              <span class="block font-medium text-[rgb(var(--text))] truncate">{{.DisplayName}}</span>
+              <span class="block t-caption text-[rgb(var(--muted))] truncate">{{.Email}}</span>
             </span>
           </label>
           {{else}}
-          <div class="sm:col-span-2 py-8 text-center text-slate-500">No clients yet.</div>
+          <div class="sm:col-span-2 py-8 text-center text-[rgb(var(--muted))]">No clients yet.</div>
           {{end}}
         </div>
         <div class="flex items-center justify-end gap-2 pt-1">
-          <button type="button" id="usr-scope-cancel" class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer">Cancel</button>
-          <button type="submit" class="px-4 py-2.5 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">Save scope</button>
+          <button type="button" id="usr-scope-cancel" class="r-btn-secondary cursor-pointer">Cancel</button>
+          <button type="submit" class="r-btn-primary cursor-pointer">Save scope</button>
         </div>
       </form>
     </div>
