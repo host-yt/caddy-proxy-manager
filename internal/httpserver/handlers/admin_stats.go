@@ -320,13 +320,15 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 		ntrRows.Close()
 	}
 
-	// --- Hourly traffic (last 24h, from host_access_log) ----------------
+	// --- Hourly traffic (last 24h, from log_rollups) --------------------
+	// Rollups are written in real-time per request so data is current.
+	// Avoids a full scan of raw host_access_log on large installations.
 	htRows, _ := db.QueryContext(ctx,
-		`SELECT DATE_FORMAT(ts, "%H:00") AS hr,
-		        COUNT(*) AS reqs,
-		        SUM(status >= 400) AS errs
-		 FROM host_access_log
-		 WHERE ts >= NOW() - INTERVAL 24 HOUR
+		`SELECT DATE_FORMAT(bucket_start, "%H:00") AS hr,
+		        SUM(requests) AS reqs,
+		        SUM(errors_4xx + errors_5xx) AS errs
+		 FROM log_rollups
+		 WHERE bucket_start >= NOW() - INTERVAL 24 HOUR
 		 GROUP BY hr ORDER BY hr ASC`)
 	if htRows != nil {
 		for htRows.Next() {
