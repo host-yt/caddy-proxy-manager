@@ -1,211 +1,203 @@
 {{define "node_detail"}}
 <div class="space-y-6">
   <div>
-    <a href="/admin/nodes" class="text-xs text-slate-500 hover:text-indigo-600">← all nodes</a>
-    <p class="text-xs text-slate-500 dark:text-slate-400 font-mono mt-1">{{.Node.PublicHost}}{{if .Node.PublicIP}} · {{.Node.PublicIP}}{{end}} · group {{.Node.GroupName}}</p>
+    <a href="/admin/nodes" class="t-caption hover:text-[rgb(var(--accent))] transition-colors">
+      <svg class="w-3 h-3 inline-block mr-1" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 3L5 8l5 5"/></svg>
+      all nodes
+    </a>
+    <p class="t-caption font-mono mt-1">{{.Node.PublicHost}}{{if .Node.PublicIP}} · {{.Node.PublicIP}}{{end}} · group {{.Node.GroupName}}</p>
   </div>
 
   <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
-    <div class="hpg-card">
-      <div class="hpg-eyebrow">Health</div>
-      <div class="hpg-stat-num mt-1">
-        {{if eq .Node.Health "healthy"}}<span class="text-emerald-600">healthy</span>{{else if eq .Node.Health "unhealthy"}}<span class="text-rose-600">unhealthy</span>{{else}}<span class="text-slate-500">{{.Node.Health}}</span>{{end}}
+    <div class="r-card">
+      <div class="t-eyebrow">Health</div>
+      <div class="t-display mt-1">
+        {{if eq .Node.Health "healthy"}}<span style="color:rgb(var(--success))">healthy</span>{{else if eq .Node.Health "unhealthy"}}<span style="color:rgb(var(--danger))">unhealthy</span>{{else}}<span class="text-[rgb(var(--muted))]">{{.Node.Health}}</span>{{end}}
       </div>
-      <div class="text-xs text-slate-500 mt-1">{{if .Node.LastSeen}}seen {{.Node.LastSeen}}{{else}}never seen{{end}}</div>
+      <div class="t-caption mt-1">{{if .Node.LastSeen}}seen {{.Node.LastSeen}}{{else}}never seen{{end}}</div>
     </div>
-    <div class="hpg-card">
-      <div class="hpg-eyebrow">Routes</div>
-      <div class="hpg-stat-num mt-1">{{.ActiveRoutes}} / {{.RouteCount}}</div>
-      <div class="text-xs text-slate-500 mt-1">active / total · cap {{.Node.MaxRoutes}}</div>
+    <div class="r-card">
+      <div class="t-eyebrow">Routes</div>
+      <div class="t-display mt-1 tabular-nums">{{.ActiveRoutes}} / {{.RouteCount}}</div>
+      <div class="t-caption mt-1">active / total · cap {{.Node.MaxRoutes}}</div>
     </div>
-    <div class="hpg-card">
-      <div class="hpg-eyebrow">Failed</div>
-      <div class="hpg-stat-num mt-1 {{if .FailedRoutes}}text-rose-600{{else}}text-slate-700 dark:text-slate-200{{end}}">{{.FailedRoutes}}</div>
+    <div class="r-card">
+      <div class="t-eyebrow">Failed</div>
+      <div class="t-display mt-1 tabular-nums {{if .FailedRoutes}}text-[rgb(var(--danger))]{{end}}">{{.FailedRoutes}}</div>
     </div>
-    <div class="hpg-card">
-      <div class="hpg-eyebrow">Approval</div>
-      <div class="mt-2">
-        {{if .Node.Approved}}<span class="hpg-pill hpg-pill-ok">approved</span>{{else}}<span class="hpg-pill hpg-pill-warn">pending</span>{{end}}
-      </div>
-      <div class="mt-2">
-        {{if .Node.Enabled}}<span class="hpg-pill hpg-pill-ok">enabled</span>{{else}}<span class="hpg-pill hpg-pill-muted">disabled</span>{{end}}
+    <div class="r-card">
+      <div class="t-eyebrow">Status</div>
+      <div class="mt-2 flex flex-col gap-1.5">
+        {{if .Node.Approved}}<span class="r-pill r-pill-success">approved</span>{{else}}<span class="r-pill r-pill-warning">pending</span>{{end}}
+        {{if .Node.Enabled}}<span class="r-pill r-pill-success">enabled</span>{{else}}<span class="r-pill r-pill-neutral">disabled</span>{{end}}
       </div>
     </div>
   </div>
 
   {{if .Node.TunnelEnabled}}
-  <section class="hpg-card">
-    <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3">WG tunnel health</h3>
-    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
-        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">MTU</div>
-        <div class="font-semibold text-slate-800 dark:text-slate-100">
-          {{if .Node.TunnelMTU.Valid}}{{.Node.TunnelMTU.Int32}}{{else}}<span class="text-slate-400">unknown</span>{{end}}
+  <section class="r-card">
+    <h3 class="t-h3 mb-3">WG tunnel health</h3>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="rounded-lg p-3" style="background:rgb(var(--surface-2))">
+        <div class="t-eyebrow mb-1">MTU</div>
+        <div class="font-semibold tabular-nums">
+          {{if .Node.TunnelMTU.Valid}}{{.Node.TunnelMTU.Int32}}{{else}}<span class="text-[rgb(var(--muted))]">unknown</span>{{end}}
         </div>
       </div>
-      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
-        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Keepalive</div>
-        <div class="font-semibold text-slate-800 dark:text-slate-100">{{.Node.WGKeepalive}}s</div>
+      <div class="rounded-lg p-3" style="background:rgb(var(--surface-2))">
+        <div class="t-eyebrow mb-1">Keepalive</div>
+        <div class="font-semibold tabular-nums">{{.Node.WGKeepalive}}s</div>
       </div>
-      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
-        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">ip_forward</div>
+      <div class="rounded-lg p-3" style="background:rgb(var(--surface-2))">
+        <div class="t-eyebrow mb-1">ip_forward</div>
         <div class="font-semibold">
           {{if .Node.FwdIPForward.Valid}}
-            {{if .Node.FwdIPForward.Bool}}<span class="text-emerald-600">enabled</span>{{else}}<span class="text-rose-600">DISABLED</span>{{end}}
-          {{else}}<span class="text-slate-400">unknown</span>{{end}}
+            {{if .Node.FwdIPForward.Bool}}<span style="color:rgb(var(--success))">enabled</span>{{else}}<span style="color:rgb(var(--danger))">DISABLED</span>{{end}}
+          {{else}}<span class="text-[rgb(var(--muted))]">unknown</span>{{end}}
         </div>
       </div>
-      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
-        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Firewall</div>
-        <div class="font-semibold text-slate-800 dark:text-slate-100">
-          {{if .Node.FwdFirewallBackend.Valid}}{{.Node.FwdFirewallBackend.String}}{{else}}<span class="text-slate-400">unknown</span>{{end}}
+      <div class="rounded-lg p-3" style="background:rgb(var(--surface-2))">
+        <div class="t-eyebrow mb-1">Firewall</div>
+        <div class="font-semibold">
+          {{if .Node.FwdFirewallBackend.Valid}}{{.Node.FwdFirewallBackend.String}}{{else}}<span class="text-[rgb(var(--muted))]">unknown</span>{{end}}
         </div>
       </div>
       {{if .Node.WstunnelHealthy.Valid}}
-      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2">
-        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">wstunnel</div>
+      <div class="rounded-lg p-3" style="background:rgb(var(--surface-2))">
+        <div class="t-eyebrow mb-1">wstunnel</div>
         <div class="font-semibold">
-          {{if .Node.WstunnelHealthy.Bool}}<span class="text-emerald-600">healthy</span>{{else}}<span class="text-rose-600">down</span>{{end}}
+          {{if .Node.WstunnelHealthy.Bool}}<span style="color:rgb(var(--success))">healthy</span>{{else}}<span style="color:rgb(var(--danger))">down</span>{{end}}
         </div>
       </div>
       {{end}}
       {{if .Node.FwdPolicyDrop.Valid}}{{if .Node.FwdPolicyDrop.Bool}}
       {{if and .Node.FwdDockerRules.Valid .Node.FwdDockerRules.Bool}}
       {{/* DROP exists but DOCKER-USER accept is active -> Docker-routed forward is covered. Info, not alarm. */}}
-      <div class="rounded-lg bg-slate-50 dark:bg-zinc-800/60 px-3 py-2 col-span-2">
-        <div class="text-[10px] uppercase tracking-wide text-slate-500 dark:text-slate-400 mb-1">Forward policy</div>
-        <div class="text-slate-600 dark:text-slate-300">Host has FORWARD policy DROP, but Docker forwarding is covered by an active DOCKER-USER accept rule. Backends reached outside Docker (bare-metal/LAN) would still need a host FORWARD accept for wg-tun0.</div>
+      <div class="rounded-lg p-3 col-span-2" style="background:rgb(var(--surface-2))">
+        <div class="t-eyebrow mb-1">Forward policy</div>
+        <div class="t-small">Host has FORWARD policy DROP, but Docker forwarding is covered by an active DOCKER-USER accept rule. Backends reached outside Docker (bare-metal/LAN) would still need a host FORWARD accept for wg-tun0.</div>
       </div>
       {{else}}
-      <div class="rounded-lg bg-amber-50 dark:bg-amber-900/20 px-3 py-2 col-span-2">
-        <div class="text-[10px] uppercase tracking-wide text-amber-600 dark:text-amber-400 mb-1">Forward policy DROP</div>
-        <div class="text-amber-700 dark:text-amber-300">Host firewall drops forwarded traffic and no DOCKER-USER accept covers it - tunnel-to-backend may be silently blackholed. Add a FORWARD accept for wg-tun0 (firewalld/ufw/nft).</div>
+      <div class="rounded-lg p-3 col-span-2" style="background:rgb(var(--warning)/0.08);border:1px solid rgb(var(--warning)/0.3)">
+        <div class="t-eyebrow mb-1" style="color:rgb(var(--warning))">Forward policy DROP</div>
+        <div class="t-small" style="color:rgb(var(--warning))">Host firewall drops forwarded traffic and no DOCKER-USER accept covers it - tunnel-to-backend may be silently blackholed. Add a FORWARD accept for wg-tun0 (firewalld/ufw/nft).</div>
       </div>
       {{end}}
       {{end}}{{end}}
       {{if .Node.FwdLastSetupError.Valid}}{{if .Node.FwdLastSetupError.String}}
-      <div class="rounded-lg bg-rose-50 dark:bg-rose-900/20 px-3 py-2 col-span-4">
-        <div class="text-[10px] uppercase tracking-wide text-rose-600 dark:text-rose-400 mb-1">Last setup error</div>
-        <div class="font-mono text-rose-700 dark:text-rose-300 break-all">{{.Node.FwdLastSetupError.String}}</div>
+      <div class="rounded-lg p-3 col-span-4" style="background:rgb(var(--danger)/0.08);border:1px solid rgb(var(--danger)/0.3)">
+        <div class="t-eyebrow mb-1" style="color:rgb(var(--danger))">Last setup error</div>
+        <div class="font-mono t-small break-all" style="color:rgb(var(--danger))">{{.Node.FwdLastSetupError.String}}</div>
       </div>
       {{end}}{{end}}
     </div>
     {{if .Node.FwdReportedAt.Valid}}{{if .Node.FwdReportedAt.String}}
-    <p class="mt-2 text-[11px] text-slate-400 dark:text-slate-500">Last agent report: {{.Node.FwdReportedAt.String}}</p>
+    <p class="mt-2 t-caption">Last agent report: {{.Node.FwdReportedAt.String}}</p>
     {{end}}{{end}}
   </section>
   {{end}}
 
   <!-- Module capabilities badges -->
-  <section class="hpg-card">
-    <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">Module capabilities</h3>
-    <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-3">Which custom Caddy modules are installed on this node</p>
+  <section class="r-card">
+    <h3 class="t-h3 mb-1">Module capabilities</h3>
+    <p class="t-caption mb-3">Which custom Caddy modules are installed on this node</p>
     <div class="flex flex-wrap gap-2">
       {{if .Node.HasWAF}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+        <span class="r-pill r-pill-success">
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           WAF (Coraza)
         </span>
       {{else}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-          WAF (Coraza)
-        </span>
+        <span class="r-pill r-pill-neutral">WAF (Coraza)</span>
       {{end}}
       {{if .Node.HasL4}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+        <span class="r-pill r-pill-success">
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           L4 Streams
         </span>
       {{else}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-          L4 Streams
-        </span>
+        <span class="r-pill r-pill-neutral">L4 Streams</span>
       {{end}}
       {{if .Node.HasDNSModule}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+        <span class="r-pill r-pill-success">
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           DNS-01
         </span>
       {{else}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-          DNS-01
-        </span>
+        <span class="r-pill r-pill-neutral">DNS-01</span>
       {{end}}
       {{if .Node.HasRateLimit}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+        <span class="r-pill r-pill-success">
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           Rate limit
         </span>
       {{else}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-          Rate limit
-        </span>
+        <span class="r-pill r-pill-neutral">Rate limit</span>
       {{end}}
       {{if .Node.HasGeoIP}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+        <span class="r-pill r-pill-success">
+          <svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           GeoIP
         </span>
       {{else}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
-          GeoIP
-        </span>
+        <span class="r-pill r-pill-neutral">GeoIP</span>
       {{end}}
       {{if .Node.CaddyVersion}}
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
-          Caddy v{{.Node.CaddyVersion}}
-        </span>
+        <span class="r-pill r-pill-info">Caddy v{{.Node.CaddyVersion}}</span>
       {{end}}
     </div>
     {{if .Node.HasGeoIP}}
-    <div class="mt-3 pt-3 border-t border-slate-100 dark:border-zinc-800 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-3">
-      <span class="font-medium text-slate-600 dark:text-slate-300">GeoIP DB:</span>
+    <div class="mt-3 pt-3 border-t border-[rgb(var(--border))] t-caption flex flex-wrap items-center gap-3">
+      <span class="font-medium">GeoIP DB:</span>
       {{if .GeoIPMeta.Available}}
-        <span class="text-emerald-600 dark:text-emerald-400">loaded</span>
+        <span style="color:rgb(var(--success))">loaded</span>
       {{else}}
-        <span class="text-amber-600 dark:text-amber-400">not loaded</span>
+        <span style="color:rgb(var(--warning))">not loaded</span>
       {{end}}
       {{if .GeoIPMeta.FetchedAt}}
         <span>fetched {{.GeoIPMeta.FetchedAt}}</span>
         {{if .GeoIPMeta.SizeHuman}}<span>{{.GeoIPMeta.SizeHuman}}</span>{{end}}
-        {{if .GeoIPMeta.SHA256Short}}<span class="font-mono">{{.GeoIPMeta.SHA256Short}}…</span>{{end}}
+        {{if .GeoIPMeta.SHA256Short}}<span class="font-mono">{{.GeoIPMeta.SHA256Short}}...</span>{{end}}
       {{else}}
-        <span class="text-slate-400">not downloaded yet</span>
+        <span class="text-[rgb(var(--muted))]">not downloaded yet</span>
       {{end}}
       {{if .GeoIPMeta.LastError}}
-        <span class="text-rose-600 dark:text-rose-400" title="Last refresh error">⚠ {{.GeoIPMeta.LastError}}</span>
+        <span style="color:rgb(var(--danger))" title="Last refresh error">
+          <svg class="w-3 h-3 inline" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l6 11H2L8 2z"/><path d="M8 7v3M8 12h.01"/></svg>
+          {{.GeoIPMeta.LastError}}
+        </span>
       {{end}}
       {{if .GeoIPMeta.LastAttempt}}
-        <span class="text-slate-400">last attempt {{.GeoIPMeta.LastAttempt}}</span>
+        <span class="text-[rgb(var(--muted))]">last attempt {{.GeoIPMeta.LastAttempt}}</span>
       {{end}}
     </div>
     {{end}}
     <div class="mt-3 flex items-center gap-3">
       <button id="btn-reprobe" data-node-id="{{.Node.ID}}"
-        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer">
-        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+        class="r-btn-secondary text-xs cursor-pointer inline-flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>
         </svg>
         Re-probe
       </button>
-      <span id="reprobe-result" class="text-xs"></span>
+      <span id="reprobe-result" class="t-caption"></span>
     </div>
   </section>
 
   {{if .ModuleMismatches}}
-  <section class="hpg-card border border-amber-200 dark:border-amber-800/60 bg-amber-50/40 dark:bg-amber-900/10">
+  <section class="r-card" style="border-color:rgb(var(--warning)/0.4);background:rgb(var(--warning)/0.05)">
     <div class="flex items-start gap-2 mb-3">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-0.5 shrink-0 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <svg class="h-4 w-4 mt-0.5 shrink-0" style="color:rgb(var(--warning))" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
       <div>
-        <p class="text-sm font-semibold text-amber-800 dark:text-amber-200">Module mismatch - {{len .ModuleMismatches}} route{{if gt (len .ModuleMismatches) 1}}s{{end}}</p>
-        <p class="text-xs text-amber-700 dark:text-amber-300 mt-0.5">These routes require a Caddy module not detected on this node. Features are silently skipped when pushed.</p>
+        <p class="t-h3" style="color:rgb(var(--warning))">Module mismatch - {{len .ModuleMismatches}} route{{if gt (len .ModuleMismatches) 1}}s{{end}}</p>
+        <p class="t-caption mt-0.5">These routes require a Caddy module not detected on this node. Features are silently skipped when pushed.</p>
       </div>
     </div>
     <div class="space-y-1.5">
       {{range .ModuleMismatches}}
-      <div class="flex items-center gap-3 text-xs">
-        <span class="hpg-pill bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 shrink-0">{{.Missing}}</span>
-        <a href="/admin/hosts/{{.RouteID}}/edit" class="font-mono text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 truncate">{{.Domain}}</a>
+      <div class="flex items-center gap-3 t-caption">
+        <span class="r-pill r-pill-warning shrink-0">{{.Missing}}</span>
+        <a href="/admin/hosts/{{.RouteID}}/edit" class="font-mono hover:text-[rgb(var(--accent))] truncate transition-colors">{{.Domain}}</a>
       </div>
       {{end}}
     </div>
@@ -213,25 +205,25 @@
   {{end}}
 
   {{if or .NodeBandwidth24h .NodeRequests24h}}
-  <section class="hpg-card">
-    <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3">Traffic · last 24h</h3>
+  <section class="r-card">
+    <h3 class="t-h3 mb-3">Traffic - last 24h</h3>
     <div class="grid grid-cols-2 gap-4 mb-4">
       <div>
-        <p class="text-2xl font-bold text-sky-600 dark:text-sky-400">{{formatBytes .NodeBandwidth24h}}</p>
-        <p class="text-xs text-slate-500 mt-0.5">Bandwidth out</p>
+        <p class="t-display tabular-nums" style="color:rgb(var(--accent))">{{formatBytes .NodeBandwidth24h}}</p>
+        <p class="t-caption mt-0.5">Bandwidth out</p>
       </div>
       <div>
-        <p class="text-2xl font-bold text-slate-800 dark:text-slate-100">{{.NodeRequests24h}}</p>
-        <p class="text-xs text-slate-500 mt-0.5">Requests</p>
+        <p class="t-display tabular-nums">{{.NodeRequests24h}}</p>
+        <p class="t-caption mt-0.5">Requests</p>
       </div>
     </div>
     {{if .TopRoutesBW}}
     <ul class="space-y-1.5">
       {{range .TopRoutesBW}}
       <li class="flex items-center gap-2">
-        <a href="/admin/hosts/{{.RouteID}}/logs" class="text-xs font-medium text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 truncate flex-1">{{.Domain}}</a>
-        <span class="text-xs text-slate-500 dark:text-slate-400 flex-shrink-0">{{formatBytes .BytesResp}}</span>
-        <span class="text-xs text-slate-400 dark:text-slate-500 flex-shrink-0">{{.Requests}} req</span>
+        <a href="/admin/hosts/{{.RouteID}}/logs" class="t-small font-medium hover:text-[rgb(var(--accent))] truncate flex-1 transition-colors">{{.Domain}}</a>
+        <span class="t-caption tabular-nums flex-shrink-0">{{formatBytes .BytesResp}}</span>
+        <span class="t-caption tabular-nums flex-shrink-0">{{.Requests}} req</span>
       </li>
       {{end}}
     </ul>
@@ -240,42 +232,44 @@
   {{end}}
 
   {{if .NodeAlerts}}
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="px-5 py-3 flex items-center gap-2">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 text-amber-500 flex-shrink-0">
+  <section class="r-card p-0 overflow-hidden">
+    <div class="px-5 py-3 flex items-center gap-2 border-b border-[rgb(var(--border))]">
+      <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 flex-shrink-0" style="color:rgb(var(--warning))">
         <path fill-rule="evenodd" d="M10 2a6 6 0 0 0-6 6c0 1.887-.454 3.665-1.257 5.234a.75.75 0 0 0 .515 1.076 32.91 32.91 0 0 0 3.256.508 3.5 3.5 0 0 0 6.972 0 32.903 32.903 0 0 0 3.256-.508.75.75 0 0 0 .515-1.076A11.448 11.448 0 0 1 16 8a6 6 0 0 0-6-6ZM8.05 14.943a33.54 33.54 0 0 0 3.9 0 2 2 0 0 1-3.9 0Z" clip-rule="evenodd"/>
       </svg>
-      <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Recent alerts</h3>
+      <h3 class="t-h3">Recent alerts</h3>
     </div>
-    <div class="overflow-x-auto"><table class="w-full text-xs">
-      <thead class="text-left uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        <tr><th class="px-5 py-2">Severity</th><th class="px-5 py-2">Title</th><th class="px-5 py-2">Time</th></tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        {{range .NodeAlerts}}
-        <tr>
-          <td class="px-5 py-3">
-            {{if eq .Severity "critical"}}<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300">critical</span>
-            {{else if eq .Severity "warning"}}<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300">warning</span>
-            {{else}}<span class="inline-block px-2 py-0.5 rounded-full text-[10px] font-semibold bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">{{.Severity}}</span>{{end}}
-          </td>
-          <td class="px-5 py-3 text-slate-700 dark:text-slate-200">{{.Title}}</td>
-          <td class="px-5 py-3 font-mono text-slate-500 dark:text-slate-400">{{.FiredAt}}</td>
-        </tr>
-        {{end}}
-      </tbody>
-    </table></div>
+    <div class="overflow-x-auto">
+      <table class="r-table">
+        <thead>
+          <tr><th>Severity</th><th>Title</th><th>Time</th></tr>
+        </thead>
+        <tbody>
+          {{range .NodeAlerts}}
+          <tr>
+            <td>
+              {{if eq .Severity "critical"}}<span class="r-pill r-pill-danger">critical</span>
+              {{else if eq .Severity "warning"}}<span class="r-pill r-pill-warning">warning</span>
+              {{else}}<span class="r-pill r-pill-neutral">{{.Severity}}</span>{{end}}
+            </td>
+            <td>{{.Title}}</td>
+            <td class="font-mono t-caption tabular-nums">{{.FiredAt}}</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
   </section>
   {{end}}
 
   <div class="flex items-center gap-3 flex-wrap">
     <form method="POST" action="/admin/nodes/{{.Node.ID}}/resync">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Resync from DB</button>
+      <button class="r-btn-primary cursor-pointer">Resync from DB</button>
     </form>
     <button type="button" id="btn-failover-preview" data-node-id="{{.Node.ID}}"
-      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg ring-1 ring-amber-300 dark:ring-amber-700 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-50 dark:hover:bg-amber-500/10 cursor-pointer transition-colors">
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+      class="r-btn-secondary inline-flex items-center gap-1.5 text-xs cursor-pointer" style="border-color:rgb(var(--warning)/0.4);color:rgb(var(--warning))">
+      <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
         <path fill-rule="evenodd" d="M9.661 2.237a.531.531 0 0 1 .678 0 11.947 11.947 0 0 0 7.078 2.749.5.5 0 0 1 .479.425c.069.52.104 1.05.104 1.589 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 0 1-.332 0C5.26 16.563 2 12.162 2 7c0-.539.035-1.069.104-1.589a.5.5 0 0 1 .48-.425 11.947 11.947 0 0 0 7.077-2.749Zm2.56 5.349a.75.75 0 1 0-1.06-1.06L9.25 8.44l-.711-.711a.75.75 0 0 0-1.06 1.06l1.241 1.242a.75.75 0 0 0 1.06 0l2.44-2.445Z" clip-rule="evenodd"/>
       </svg>
       Preview failover
@@ -283,78 +277,84 @@
     <form method="POST" action="/admin/nodes/{{.Node.ID}}/drain"
       onsubmit="return confirm('Drain node? All active routes will be moved to a healthy peer in the same group. This disables the node.');">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg ring-1 ring-rose-300 dark:ring-rose-700 text-rose-700 dark:text-rose-400 text-xs font-medium hover:bg-rose-50 dark:hover:bg-rose-500/10 cursor-pointer transition-colors">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+      <button class="r-btn-ghost inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color:rgb(var(--danger))">
+        <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
           <path fill-rule="evenodd" d="M10 18a8 8 0 1 0 0-16 8 8 0 0 0 0 16ZM8.28 7.22a.75.75 0 0 0-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 1 0 1.06 1.06L10 11.06l1.72 1.72a.75.75 0 1 0 1.06-1.06L11.06 10l1.72-1.72a.75.75 0 0 0-1.06-1.06L10 8.94 8.28 7.22Z" clip-rule="evenodd"/>
         </svg>
         Drain node
       </button>
     </form>
-    <span class="text-xs text-slate-500 dark:text-slate-400">Rebuild the full Caddy config from the database and POST /load on this node.</span>
+    <span class="t-caption">Rebuild the full Caddy config from the database and POST /load on this node.</span>
   </div>
 
   <!-- Failover preview modal -->
   <div id="hpg-failover-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-    <div class="hpg-card max-w-2xl w-full relative">
+    <div class="r-card max-w-2xl w-full relative">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Failover preview</h3>
+        <h3 class="t-h3">Failover preview</h3>
         <button type="button" data-action="close-failover-modal"
-          class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer transition-colors">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
+          class="cursor-pointer text-[rgb(var(--muted))] hover:text-[rgb(var(--text))] transition-colors">
+          <svg viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
             <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/>
           </svg>
         </button>
       </div>
-      <div id="hpg-failover-modal-body" class="text-sm text-slate-700 dark:text-slate-300">
+      <div id="hpg-failover-modal-body" class="t-small">
         Loading...
       </div>
     </div>
   </div>
 
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="px-5 py-3">
-      <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Recent routes (latest 25)</h3>
+  <section class="r-card p-0 overflow-hidden">
+    <div class="px-5 py-3 border-b border-[rgb(var(--border))]">
+      <h3 class="t-h3">Recent routes (latest 25)</h3>
     </div>
-    <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        <tr><th class="px-5 py-2">Domain</th><th class="px-5 py-2">Upstream</th><th class="px-5 py-2">Client</th><th class="px-5 py-2">Status</th></tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        {{range .RecentRoutes}}
-        <tr>
-          <td class="px-5 py-3 font-mono text-xs">{{.Domain}}</td>
-          <td class="px-5 py-3 font-mono text-xs">{{.BackendIP}}:{{.UpstreamPort}}</td>
-          <td class="px-5 py-3 text-xs">{{.ClientEmail}}</td>
-          <td class="px-5 py-3 text-xs">{{.Status}}{{if .LastError}}<span class="ml-1 text-rose-600" title="{{.LastError}}">⚠</span>{{end}}</td>
-        </tr>
-        {{else}}
-        <tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No routes assigned.</td></tr>
-        {{end}}
-      </tbody>
-    </table></div>
+    <div class="overflow-x-auto">
+      <table class="r-table">
+        <thead>
+          <tr><th>Domain</th><th>Upstream</th><th>Client</th><th>Status</th></tr>
+        </thead>
+        <tbody>
+          {{range .RecentRoutes}}
+          <tr>
+            <td class="font-mono text-xs">{{.Domain}}</td>
+            <td class="font-mono text-xs tabular-nums">{{.BackendIP}}:{{.UpstreamPort}}</td>
+            <td class="t-small">{{.ClientEmail}}</td>
+            <td class="t-small">{{.Status}}{{if .LastError}}<span class="ml-1" style="color:rgb(var(--danger))" title="{{.LastError}}">
+              <svg class="w-3.5 h-3.5 inline" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 2l6 11H2L8 2z"/><path d="M8 7v3M8 12h.01"/></svg>
+            </span>{{end}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="px-5 py-6 text-center t-caption">No routes assigned.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
   </section>
 
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="px-5 py-3">
-      <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Recent audit (latest 20)</h3>
+  <section class="r-card p-0 overflow-hidden">
+    <div class="px-5 py-3 border-b border-[rgb(var(--border))]">
+      <h3 class="t-h3">Recent audit (latest 20)</h3>
     </div>
-    <div class="overflow-x-auto"><table class="w-full text-xs">
-      <thead class="text-left uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        <tr><th class="px-5 py-2">When</th><th class="px-5 py-2">Actor</th><th class="px-5 py-2">Action</th><th class="px-5 py-2">Meta</th></tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        {{range .RecentAudit}}
-        <tr>
-          <td class="px-5 py-3 font-mono">{{.When}}</td>
-          <td class="px-5 py-3">{{.Email}}</td>
-          <td class="px-5 py-3 font-mono">{{.Action}}</td>
-          <td class="px-5 py-3 font-mono text-slate-500 truncate max-w-md">{{.Meta}}</td>
-        </tr>
-        {{else}}
-        <tr><td colspan="4" class="px-5 py-6 text-center text-slate-500">No node-scoped audit entries yet.</td></tr>
-        {{end}}
-      </tbody>
-    </table></div>
+    <div class="overflow-x-auto">
+      <table class="r-table">
+        <thead>
+          <tr><th>When</th><th>Actor</th><th>Action</th><th>Meta</th></tr>
+        </thead>
+        <tbody>
+          {{range .RecentAudit}}
+          <tr>
+            <td class="font-mono tabular-nums">{{.When}}</td>
+            <td>{{.Email}}</td>
+            <td class="font-mono">{{.Action}}</td>
+            <td class="font-mono t-caption truncate max-w-md">{{.Meta}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="4" class="px-5 py-6 text-center t-caption">No node-scoped audit entries yet.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
   </section>
 </div>
 
@@ -366,53 +366,52 @@
       var nodeID = document.getElementById('btn-failover-preview').dataset.nodeId;
       var modal = document.getElementById('hpg-failover-modal');
       var body = document.getElementById('hpg-failover-modal-body');
-      body.innerHTML = '<p class="text-slate-500">Loading…</p>';
+      body.innerHTML = '<p class="text-[rgb(var(--muted))]">Loading...</p>';
       modal.classList.remove('hidden');
       fetch('/admin/nodes/' + nodeID + '/failover-preview', {credentials: 'same-origin', headers: {Accept: 'application/json'}})
         .then(function (r) { return r.json(); })
         .then(function (d) {
-          if (d.error) { body.innerHTML = '<p class="text-rose-600">' + d.error + '</p>'; return; }
+          if (d.error) { body.innerHTML = '<p style="color:rgb(var(--danger))">' + d.error + '</p>'; return; }
           var html = '';
           // Mode warning for non-failover groups.
           if (d.mode === 'single' || d.mode === '') {
-            html += '<p class="text-amber-700 dark:text-amber-400">This node group does not have failover mode. No automatic route movement would occur.</p>';
+            html += '<p style="color:rgb(var(--warning))">This node group does not have failover mode. No automatic route movement would occur.</p>';
             body.innerHTML = html;
             return;
           }
           // Eligible targets.
           if (!d.eligible_targets || d.eligible_targets.length === 0) {
-            html += '<p class="text-rose-600 mb-3">No healthy sibling nodes available for failover.</p>';
+            html += '<p style="color:rgb(var(--danger))" class="mb-3">No healthy sibling nodes available for failover.</p>';
           } else {
-            html += '<p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Eligible target nodes: ';
-            html += d.eligible_targets.map(function (t) { return '<span class="font-medium text-emerald-600">' + t.name + '</span>'; }).join(', ');
+            html += '<p class="t-caption mb-2">Eligible target nodes: ';
+            html += d.eligible_targets.map(function (t) { return '<span class="font-medium" style="color:rgb(var(--success))">' + t.name + '</span>'; }).join(', ');
             html += '</p>';
           }
           // Routes table.
           if (!d.routes_to_move || d.routes_to_move.length === 0) {
-            html += '<p class="text-slate-500">No active routes on this node.</p>';
+            html += '<p class="t-caption">No active routes on this node.</p>';
           } else {
-            html += '<div class="overflow-x-auto"><table class="w-full text-xs">';
-            html += '<thead class="text-left uppercase tracking-wide text-slate-500 dark:text-slate-400"><tr>';
-            html += '<th class="px-3 py-2">Domain</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Can move</th></tr></thead>';
-            html += '<tbody class="divide-y divide-slate-100 dark:divide-zinc-800">';
+            html += '<div class="overflow-x-auto"><table class="r-table">';
+            html += '<thead><tr><th>Domain</th><th>Status</th><th>Can move</th></tr></thead>';
+            html += '<tbody>';
             d.routes_to_move.forEach(function (route) {
               var indicator = route.can_move
-                ? '<span class="text-emerald-600 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>yes</span>'
-                : '<span class="text-rose-600 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>no' + (route.reason ? ' (' + route.reason + ')' : '') + '</span>';
-              html += '<tr><td class="px-3 py-2 font-mono">' + route.domain + '</td>';
-              html += '<td class="px-3 py-2">' + route.status + '</td>';
-              html += '<td class="px-3 py-2">' + indicator + '</td></tr>';
+                ? '<span style="color:rgb(var(--success))" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>yes</span>'
+                : '<span style="color:rgb(var(--danger))" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>no' + (route.reason ? ' (' + route.reason + ')' : '') + '</span>';
+              html += '<tr><td class="font-mono">' + route.domain + '</td>';
+              html += '<td>' + route.status + '</td>';
+              html += '<td>' + indicator + '</td></tr>';
             });
             html += '</tbody></table></div>';
             // Summary.
-            html += '<p class="mt-3 text-xs text-slate-500 dark:text-slate-400">';
-            html += '<span class="text-emerald-600 font-medium">' + d.movable_count + '</span> routes can move, ';
-            html += '<span class="text-rose-600 font-medium">' + d.blocked_count + '</span> blocked';
+            html += '<p class="mt-3 t-caption">';
+            html += '<span style="color:rgb(var(--success))" class="font-medium">' + d.movable_count + '</span> routes can move, ';
+            html += '<span style="color:rgb(var(--danger))" class="font-medium">' + d.blocked_count + '</span> blocked';
             html += '</p>';
           }
           body.innerHTML = html;
         })
-        .catch(function () { body.innerHTML = '<p class="text-rose-600">Request failed.</p>'; });
+        .catch(function () { body.innerHTML = '<p style="color:rgb(var(--danger))">Request failed.</p>'; });
       return;
     }
     if (e.target.closest('[data-action="close-failover-modal"]')) {
@@ -431,34 +430,37 @@
       var nodeID = btnReprobe.dataset.nodeId;
       var result = document.getElementById('reprobe-result');
       btnReprobe.disabled = true;
-      btnReprobe.textContent = 'Probing…';
+      btnReprobe.textContent = 'Probing...';
       result.textContent = '';
-      result.className = 'text-xs';
+      result.className = 't-caption';
       fetch('/admin/nodes/' + nodeID + '/probe-capabilities', {method: 'POST', credentials: 'same-origin', headers: {Accept: 'application/json'}})
         .then(function (r) { return r.json(); })
         .then(function (d) {
           if (!d.ok) {
             result.textContent = d.error || 'Probe failed';
-            result.className = 'text-xs text-rose-600 dark:text-rose-400';
+            result.className = 't-caption';
+            result.style.color = 'rgb(var(--danger))';
             return;
           }
           var parts = [
-            'WAF ' + (d.has_waf ? '✓' : '✗'),
-            'L4 ' + (d.has_l4 ? '✓' : '✗'),
-            'DNS ' + (d.has_dns ? '✓' : '✗'),
-            'Rate limit ' + (d.has_rate_limit ? '✓' : '✗'),
-            'GeoIP ' + (d.has_geoip ? '✓' : '✗'),
+            'WAF ' + (d.has_waf ? 'ok' : 'n/a'),
+            'L4 ' + (d.has_l4 ? 'ok' : 'n/a'),
+            'DNS ' + (d.has_dns ? 'ok' : 'n/a'),
+            'Rate limit ' + (d.has_rate_limit ? 'ok' : 'n/a'),
+            'GeoIP ' + (d.has_geoip ? 'ok' : 'n/a'),
           ];
           result.textContent = 'Updated: ' + parts.join(', ');
-          result.className = 'text-xs text-emerald-600 dark:text-emerald-400';
+          result.className = 't-caption';
+          result.style.color = 'rgb(var(--success))';
         })
         .catch(function () {
           result.textContent = 'Request failed';
-          result.className = 'text-xs text-rose-600 dark:text-rose-400';
+          result.className = 't-caption';
+          result.style.color = 'rgb(var(--danger))';
         })
         .finally(function () {
           btnReprobe.disabled = false;
-          btnReprobe.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg> Re-probe';
+          btnReprobe.innerHTML = '<svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg> Re-probe';
         });
     });
   }
