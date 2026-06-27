@@ -110,6 +110,7 @@ func TestAdminTwofaEnrollNoHiddenSecret(t *testing.T) {
 // UNIX_TIMESTAMP(NOW() ... ) compared against a DATETIME column always passes
 // because MySQL coerces DATETIME to YYYYMMDDHHMMSS (a 14-digit integer) which
 // always exceeds any unix timestamp; the WHERE clause becomes a no-op.
+// Also guards against action='block' (node-agent stores 'blocked', not 'block').
 func TestNoSQLAntiPatterns(t *testing.T) {
 	entries, err := os.ReadDir(".")
 	if err != nil {
@@ -137,6 +138,12 @@ func TestNoSQLAntiPatterns(t *testing.T) {
 		if strings.Contains(code, "unix_timestamp(now()") && strings.Contains(code, "interval") {
 			if strings.Contains(code, ">= unix_timestamp(now()") || strings.Contains(code, "> unix_timestamp(now()") {
 				t.Errorf("%s: DATETIME compared to UNIX_TIMESTAMP(NOW()) always passes - use NOW() - INTERVAL directly", e.Name())
+			}
+		}
+		// WAF action values: node-agent writes 'blocked'/'detected'; 'block'/'detect' never match.
+		if strings.Contains(code, "waf_events") {
+			if strings.Contains(code, "action='block'") || strings.Contains(code, `action = 'block'`) {
+				t.Errorf("%s: WAF action='block' never matches - node-agent stores 'blocked'", e.Name())
 			}
 		}
 	}
