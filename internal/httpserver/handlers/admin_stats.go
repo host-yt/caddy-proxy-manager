@@ -8,6 +8,8 @@ import (
 	"html/template"
 	"net/http"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
 )
 
 type nodeStatRow struct {
@@ -59,6 +61,11 @@ type statsData struct {
 	Cache    cacheSummary
 	Security securitySummary
 	Ops      opsSummary
+
+	// Access-log analytics: protocol breakdown and byte totals over 24h.
+	ProtoBreakdown  []accesslog.ProtoHit
+	BytesTotal24h   int64
+	BytesTotalHuman string
 
 	// Pre-serialised JSON for Chart.js (avoids template-side escaping woes).
 	RouteStatusLabels jsonRaw
@@ -207,6 +214,17 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 	// --- Security + ops (24h) -----------------------------------------
 	d.Security = h.securitySummaryFor(ctx, db)
 	d.Ops = h.opsSummaryFor(ctx, db)
+
+	// --- Access-log analytics (bytes + protocol, global, 24h) ---------
+	if h.AccessLogs != nil {
+		protos, _ := h.AccessLogs.ProtoBreakdown(ctx, accesslog.AnalyticsFilter{})
+		d.ProtoBreakdown = protos
+		bytesSummary, _ := h.AccessLogs.BytesSummary(ctx, accesslog.AnalyticsFilter{})
+		d.BytesTotal24h = bytesSummary.TotalBytes
+		if bytesSummary.TotalBytes > 0 {
+			d.BytesTotalHuman = humanBytes(uint64(bytesSummary.TotalBytes))
+		}
+	}
 
 	// --- Chart data ---------------------------------------------------
 	d.RouteStatusLabels = jsonRaw(mustJSON([]string{"active", "pending", "failed", "disabled"}))
