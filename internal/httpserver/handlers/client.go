@@ -137,11 +137,14 @@ func clientIDFor(ctx context.Context, db *sql.DB, userID int64) (int64, error) {
 
 type clientDashboardData struct {
 	baseAppData
-	ServiceCount     int
-	ActiveRoutes     int
-	PendingRoutes    int
-	FailedRoutes     int
-	TotalBandwidth7d string // formatted bytes for last 7 days
+	ServiceCount      int
+	ActiveRoutes      int
+	PendingRoutes     int
+	FailedRoutes      int
+	TotalBandwidth7d  string // formatted bytes for last 7 days
+	Bandwidth30dDays  []accesslog.BandwidthDayBucket // 30-day daily totals
+	Bandwidth30dTotal int64                           // sum across Bandwidth30dDays
+	MaxDay30dBytes    int64                           // max bucket for bar scaling
 }
 
 func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
@@ -177,6 +180,37 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		 JOIN services s ON s.id=r.service_id
 		 WHERE s.client_id=? AND lr.bucket_start >= NOW()-INTERVAL 7 DAY`, clientID).Scan(&bw7d)
 	d.TotalBandwidth7d = formatBytes(bw7d)
+	// 30-day per-day bandwidth for the chart.
+	rows, err2 := db.QueryContext(ctx,
+		`SELECT DATE(l.ts) AS day, COALESCE(SUM(l.bytes_resp),0)
+		 FROM host_access_log l
+		 JOIN routes r ON r.id = l.route_id
+		 JOIN services s ON s.id = r.service_id
+		 WHERE s.client_id = ? AND l.ts >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+		 GROUP BY DATE(l.ts)
+		 ORDER BY day ASC`, clientID)
+	if err2 == nil {
+		for rows.Next() {
+			var day string
+			var bytes int64
+			if rows.Scan(&day, &bytes) == nil {
+				t, terr := time.Parse("2006-01-02", day)
+				if terr != nil {
+					continue
+				}
+				d.Bandwidth30dDays = append(d.Bandwidth30dDays, accesslog.BandwidthDayBucket{
+					Label:      t.Format("Mon 02"),
+					ShortLabel: t.Format("Mon"),
+					Bytes:      bytes,
+				})
+				d.Bandwidth30dTotal += bytes
+				if bytes > d.MaxDay30dBytes {
+					d.MaxDay30dBytes = bytes
+				}
+			}
+		}
+		_ = rows.Close()
+	}
 	h.render(w, "dashboard", d)
 }
 
