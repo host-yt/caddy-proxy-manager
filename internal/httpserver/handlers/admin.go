@@ -1343,6 +1343,8 @@ type planRow struct {
 	WGKeyRotationDays int   // 0 => no rotation; carried for the edit modal
 	NodeGroupID       int64 // carried for the edit modal preselect
 	NodeGroupName     string
+	ServiceCount      int
+	RouteCount        int
 }
 
 type nodeGroup struct {
@@ -1389,6 +1391,30 @@ func (h *AdminHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 				}
 				d.Plans = append(d.Plans, p)
 			}
+		}
+	}
+
+	// fetch per-plan service + route counts in one pass
+	type planUsage struct{ svc, route int }
+	usage := map[int64]planUsage{}
+	urows, err := db.QueryContext(ctx,
+		`SELECT s.plan_id, COUNT(DISTINCT s.id), COUNT(r.id)
+		 FROM services s
+		 LEFT JOIN routes r ON r.service_id = s.id
+		 GROUP BY s.plan_id`)
+	if err == nil {
+		defer urows.Close()
+		for urows.Next() {
+			var pid int64
+			var u planUsage
+			urows.Scan(&pid, &u.svc, &u.route) //nolint:errcheck
+			usage[pid] = u
+		}
+	}
+	for i, p := range d.Plans {
+		if u, ok := usage[p.ID]; ok {
+			d.Plans[i].ServiceCount = u.svc
+			d.Plans[i].RouteCount = u.route
 		}
 	}
 

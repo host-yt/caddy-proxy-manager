@@ -29,6 +29,8 @@
           <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Ext proxy</th>
           <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Node group</th>
           <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">WG key rotation</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Services</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Routes</th>
           <th class="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Actions</th>
         </tr>
       </thead>
@@ -47,6 +49,8 @@
           <td class="px-4 py-3.5">{{if .ExternalProxy}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">yes</span>{{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">no</span>{{end}}</td>
           <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.NodeGroupName}}</td>
           <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{if .WGKeyRotationDays}}{{.WGKeyRotationDays}}d{{else}}<span class="text-slate-400">inherit</span>{{end}}</td>
+          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{if .ServiceCount}}{{.ServiceCount}}{{else}}-{{end}}</td>
+          <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{if .RouteCount}}{{.RouteCount}}{{else}}-{{end}}</td>
           <td class="px-4 py-3.5 text-right whitespace-nowrap">
             <div class="inline-flex items-center gap-3">
               <button type="button"
@@ -73,7 +77,7 @@
         </tr>
         {{else}}
         <!-- empty state with centered icon -->
-        <tr><td colspan="11" class="px-4 py-16 text-center">
+        <tr><td colspan="13" class="px-4 py-16 text-center">
           <div class="flex flex-col items-center gap-3">
             <svg class="w-10 h-10 text-slate-300 dark:text-zinc-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>
             <p class="text-sm font-medium text-slate-600 dark:text-slate-300">No plans yet</p>
