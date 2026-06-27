@@ -131,6 +131,18 @@ func (r *Registry) builtins() []Tool {
 			Schema:      identifierSchema,
 			Exec:        r.nodeDetail,
 		},
+		{
+			Name:        "list_active_alerts",
+			Description: "List alerts fired in the last N hours (default 24, max 720). Filter by severity (info/warning/critical). Returns rule_id, severity, title, fired_at. Useful for system health checks.",
+			Schema:      listActiveAlertsSchema,
+			Exec:        r.listActiveAlerts,
+		},
+		{
+			Name:        "list_ssl_certs",
+			Description: "List manual SSL certificates sorted by expiry (soonest first). Returns name, common_name, SANs, not_after, days_left (negative = already expired).",
+			Schema:      limitSchema(50),
+			Exec:        r.listSSLCerts,
+		},
 	}
 }
 
@@ -175,6 +187,12 @@ var wafEventsSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"additionalProperties":false}`)
 
 var identifierSchema = json.RawMessage(`{"type":"object","properties":{"identifier":{"type":"string","description":"email address or numeric ID"}},"required":["identifier"],"additionalProperties":false}`)
+
+var listActiveAlertsSchema = json.RawMessage(`{"type":"object","properties":{` +
+	`"hours":{"type":"integer","description":"lookback window in hours (default 24, max 720)","minimum":1,"maximum":720},` +
+	`"severity":{"type":"string","description":"filter by severity: info, warning, critical"},` +
+	`"limit":{"type":"integer","description":"max rows (default 50)","minimum":1,"maximum":200}},` +
+	`"additionalProperties":false}`)
 
 // systemSummary gathers top-level counts in a single round-trip set.
 func (r *Registry) systemSummary(ctx context.Context, _ json.RawMessage) (string, error) {
@@ -1046,6 +1064,98 @@ func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string,
 		return "", err
 	}
 	return toJSON(res)
+}
+
+func (r *Registry) listActiveAlerts(ctx context.Context, raw json.RawMessage) (string, error) {
+	var args struct {
+		Hours    int    `json:"hours"`
+		Severity string `json:"severity"`
+		Limit    int    `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	if args.Hours <= 0 || args.Hours > 720 {
+		args.Hours = 24
+	}
+	if args.Limit <= 0 || args.Limit > 200 {
+		args.Limit = 50
+	}
+	db := r.db
+	if db == nil {
+		return `{"error":"db unavailable"}`, nil
+	}
+	type row struct {
+		RuleID   string `json:"rule_id"`
+		Severity string `json:"severity"`
+		Title    string `json:"title"`
+		FiredAt  string `json:"fired_at"`
+	}
+	var qargs []any
+	q := `SELECT rule_id, severity, title, DATE_FORMAT(fired_at,'%Y-%m-%dT%H:%i:%sZ') FROM alert_log WHERE fired_at >= NOW() - INTERVAL ? HOUR`
+	qargs = append(qargs, args.Hours)
+	if args.Severity != "" {
+		q += " AND severity = ?"
+		qargs = append(qargs, args.Severity)
+	}
+	q += " ORDER BY fired_at DESC LIMIT ?"
+	qargs = append(qargs, args.Limit)
+	rows, err := db.QueryContext(ctx, q, qargs...)
+	if err != nil {
+		return `{"error":"query failed"}`, nil
+	}
+	defer rows.Close()
+	var out []row
+	for rows.Next() {
+		var ro row
+		if rows.Scan(&ro.RuleID, &ro.Severity, &ro.Title, &ro.FiredAt) == nil {
+			out = append(out, ro)
+		}
+	}
+	if out == nil {
+		out = []row{}
+	}
+	b, _ := json.Marshal(map[string]any{"alerts": out, "hours": args.Hours, "total": len(out)})
+	return string(b), nil
+}
+
+func (r *Registry) listSSLCerts(ctx context.Context, raw json.RawMessage) (string, error) {
+	var args limitArgs
+	_ = json.Unmarshal(raw, &args)
+	if args.Limit <= 0 || args.Limit > 200 {
+		args.Limit = 50
+	}
+	db := r.db
+	if db == nil {
+		return `{"error":"db unavailable"}`, nil
+	}
+	type row struct {
+		ID         int64  `json:"id"`
+		Name       string `json:"name"`
+		CommonName string `json:"common_name"`
+		Sans       string `json:"sans"`
+		NotAfter   string `json:"not_after"`
+		DaysLeft   int    `json:"days_left"`
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, name, common_name, sans,
+		        DATE_FORMAT(not_after,'%Y-%m-%dT%H:%i:%sZ'),
+		        TIMESTAMPDIFF(DAY, NOW(), not_after)
+		 FROM manual_certs ORDER BY not_after ASC LIMIT ?`, args.Limit)
+	if err != nil {
+		return `{"error":"query failed"}`, nil
+	}
+	defer rows.Close()
+	var out []row
+	for rows.Next() {
+		var ro row
+		if rows.Scan(&ro.ID, &ro.Name, &ro.CommonName, &ro.Sans, &ro.NotAfter, &ro.DaysLeft) == nil {
+			out = append(out, ro)
+		}
+	}
+	if out == nil {
+		out = []row{}
+	}
+	b, _ := json.Marshal(map[string]any{"certs": out, "total": len(out)})
+	return string(b), nil
 }
 
 // itoa is a tiny helper; strconv is also used by clientDetail/nodeDetail.
