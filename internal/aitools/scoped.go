@@ -186,17 +186,19 @@ func (r *Registry) trafficStatsScoped(ctx context.Context, scope Scope, raw json
 	// route_id IN (routes owned by the caller's clients) is the tenant boundary.
 	routeFilter := `route_id IN (SELECT r.id FROM routes r JOIN services s ON s.id = r.service_id WHERE s.client_id IN ` + in + `)`
 
-	var total int64
-	var errors4xx, errors5xx sql.NullInt64
+	// Totals from rollups (pre-aggregated, avoids full access-log scan).
+	var total, errors4xxRaw, errors5xxRaw int64
 	totArgs := append([]any{since}, idArgs...)
 	row := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*),
-		        SUM(CASE WHEN status BETWEEN 400 AND 499 THEN 1 ELSE 0 END),
-		        SUM(CASE WHEN status BETWEEN 500 AND 599 THEN 1 ELSE 0 END)
-		 FROM host_access_log WHERE ts >= ? AND `+routeFilter, totArgs...)
-	if err := row.Scan(&total, &errors4xx, &errors5xx); err != nil {
+		`SELECT COALESCE(SUM(requests),0),
+		        COALESCE(SUM(errors_4xx),0),
+		        COALESCE(SUM(errors_5xx),0)
+		 FROM log_rollups WHERE bucket_start >= ? AND `+routeFilter, totArgs...)
+	if err := row.Scan(&total, &errors4xxRaw, &errors5xxRaw); err != nil {
 		return "", err
 	}
+	errors4xx := sql.NullInt64{Int64: errors4xxRaw, Valid: true}
+	errors5xx := sql.NullInt64{Int64: errors5xxRaw, Valid: true}
 
 	topHosts, err := r.scopedTopHosts(ctx, since, top, in, idArgs)
 	if err != nil {
@@ -222,11 +224,11 @@ func (r *Registry) trafficStatsScoped(ctx context.Context, scope Scope, raw json
 }
 
 func (r *Registry) scopedTopHosts(ctx context.Context, since time.Time, limit int, in string, idArgs []any) ([]countHit, error) {
-	q := `SELECT rt.domain, COUNT(*) c
-	      FROM host_access_log hal
-	      JOIN routes rt ON rt.id = hal.route_id
+	q := `SELECT rt.domain, SUM(lr.requests) c
+	      FROM log_rollups lr
+	      JOIN routes rt ON rt.id = lr.route_id
 	      JOIN services s ON s.id = rt.service_id
-	      WHERE hal.ts >= ? AND s.client_id IN ` + in + `
+	      WHERE lr.bucket_start >= ? AND s.client_id IN ` + in + `
 	      GROUP BY rt.domain ORDER BY c DESC, rt.domain ASC LIMIT ?`
 	args := append(append([]any{since}, idArgs...), limit)
 	return scanCountHitsArgs(ctx, r.db, q, args)
