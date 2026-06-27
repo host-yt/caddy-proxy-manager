@@ -51,7 +51,8 @@
                 data-pstart="{{.PortStart}}"
                 data-pend="{{.PortEnd}}"
                 data-plan="{{.PlanID}}"
-                data-extref="{{.ExternalRef}}">edit</button>
+                data-extref="{{.ExternalRef}}"
+                data-notes="{{.Notes}}">edit</button>
               <form method="POST" action="/admin/services/{{.ID}}/delete" data-confirm="Delete service {{.Name}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button class="text-xs font-medium text-rose-600 hover:text-rose-700 hover:underline">delete</button>
               </form>
@@ -134,6 +135,11 @@
           <label class="hpg-eyebrow block mb-1.5">External reference (FOSSBilling order ID)</label>
           <input name="external_reference" class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none">
         </div>
+        <div>
+          <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Internal notes</label>
+          <textarea name="notes" rows="3" placeholder="Visible to admins only"
+                    class="w-full px-3 py-2 text-sm rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none resize-y"></textarea>
+        </div>
         <div class="flex items-center justify-end gap-2 pt-1">
           <button type="button" id="svc-modal-cancel"
             class="px-3.5 py-2.5 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">Cancel</button>
@@ -182,6 +188,7 @@
       setVal("port_end", d.pend);
       setVal("plan_id", d.plan);
       setVal("external_reference", d.extref);
+      setVal("notes", d.notes);
       open();
     });
   }
