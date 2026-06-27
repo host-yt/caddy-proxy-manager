@@ -58,6 +58,13 @@
               {{else if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err">failed</span>
               {{else if eq .Status "dns_ok"}}<span class="hpg-pill bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">DNS ok</span>
               {{else}}<span class="hpg-pill hpg-pill-warn">{{.Status}}</span>{{end}}
+              {{if ge .CertDaysLeft 0}}{{if le .CertDaysLeft 30}}
+              {{if le .CertDaysLeft 7}}
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title="Manual cert expires in {{.CertDaysLeft}} days">cert {{.CertDaysLeft}}d</span>
+              {{else}}
+              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" title="Manual cert expires in {{.CertDaysLeft}} days">cert {{.CertDaysLeft}}d</span>
+              {{end}}
+              {{end}}{{end}}
               {{if .LastError}}<div class="text-xs text-rose-600 dark:text-rose-400 mt-1 max-w-sm truncate" title="{{.LastError}}">{{.LastError}}</div>{{end}}
             </td>
             <td class="px-4 py-3 text-right">

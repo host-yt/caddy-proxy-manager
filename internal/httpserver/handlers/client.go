@@ -117,9 +117,11 @@ func clientIDFor(ctx context.Context, db *sql.DB, userID int64) (int64, error) {
 
 type clientDashboardData struct {
 	baseAppData
-	ServiceCount  int
-	ActiveRoutes  int
-	PendingRoutes int
+	ServiceCount     int
+	ActiveRoutes     int
+	PendingRoutes    int
+	FailedRoutes     int
+	TotalBandwidth7d string // formatted bytes for last 7 days
 }
 
 func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
@@ -144,6 +146,17 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	_ = db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id
 		 WHERE s.client_id = ? AND r.status IN ('pending_dns','dns_ok','pending_ssl')`, clientID).Scan(&d.PendingRoutes)
+	_ = db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id
+		 WHERE s.client_id = ? AND r.status='failed'`, clientID).Scan(&d.FailedRoutes)
+	var bw7d int64
+	_ = db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(lr.bytes_resp),0)
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id=lr.route_id
+		 JOIN services s ON s.id=r.service_id
+		 WHERE s.client_id=? AND lr.bucket_start >= NOW()-INTERVAL 7 DAY`, clientID).Scan(&bw7d)
+	d.TotalBandwidth7d = formatBytes(bw7d)
 	h.render(w, "dashboard", d)
 }
 
@@ -329,6 +342,7 @@ type clientRouteRow struct {
 	LastError       string
 	MaintenanceMode bool
 	SvcStatus       string // parent service status
+	CertDaysLeft    int    // -1 = no manual cert, 0+ = days until expiry
 }
 
 type clientRoutesData struct {
@@ -357,8 +371,10 @@ func (h *ClientHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 	d.Q = q
 
 	// build WHERE clause dynamically to support optional search filter
-	query := `SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port, s.name, r.status, COALESCE(r.last_error,''), COALESCE(r.maintenance_mode,0), s.status
+	query := `SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port, s.name, r.status, COALESCE(r.last_error,''), COALESCE(r.maintenance_mode,0), s.status,
+		        COALESCE(DATEDIFF(mc.not_after, NOW()), -1)
 		 FROM routes r JOIN services s ON s.id = r.service_id
+		 LEFT JOIN manual_certs mc ON mc.route_id = r.id
 		 WHERE s.client_id = ?`
 	args := []any{clientID}
 	if q != "" {
@@ -373,7 +389,7 @@ func (h *ClientHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var rr clientRouteRow
-			if err := rows.Scan(&rr.ID, &rr.Domain, &rr.PathPrefix, &rr.UpstreamPort, &rr.ServiceName, &rr.Status, &rr.LastError, &rr.MaintenanceMode, &rr.SvcStatus); err == nil {
+			if err := rows.Scan(&rr.ID, &rr.Domain, &rr.PathPrefix, &rr.UpstreamPort, &rr.ServiceName, &rr.Status, &rr.LastError, &rr.MaintenanceMode, &rr.SvcStatus, &rr.CertDaysLeft); err == nil {
 				if rr.SvcStatus == "suspended" {
 					d.HasSuspendedService = true
 				}
