@@ -180,3 +180,102 @@ func shaPrefix(s string) string {
 	}
 	return s
 }
+
+// GeoIPASNUpdateJob downloads GeoLite2-ASN.mmdb, sharing creds with GeoIPUpdateJob.
+type GeoIPASNUpdateJob struct {
+	DB       func() *sql.DB
+	State    *installstate.Manager
+	Logger   *slog.Logger
+	Interval time.Duration
+}
+
+func (j *GeoIPASNUpdateJob) interval() time.Duration {
+	if j.Interval > 0 {
+		return j.Interval
+	}
+	return geoipDefaultInterval
+}
+
+// Run blocks until ctx is cancelled, refreshing on each interval tick.
+func (j *GeoIPASNUpdateJob) Run(ctx context.Context) {
+	j.RunOnce(ctx)
+	t := time.NewTimer(j.interval())
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		j.RunOnce(ctx)
+		t.Reset(j.interval())
+	}
+}
+
+// RunOnce performs a single ASN DB refresh.
+func (j *GeoIPASNUpdateJob) RunOnce(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			j.Logger.Error("geoip-asn: panic", "panic", r)
+		}
+	}()
+	if err := j.refresh(ctx); err != nil {
+		j.Logger.Warn("geoip-asn: refresh failed", "err", err)
+	}
+}
+
+func (j *GeoIPASNUpdateJob) refresh(ctx context.Context) error {
+	db := j.DB()
+	if db == nil {
+		return errors.New("db not ready")
+	}
+	// Reuse same credentials as GeoIPUpdateJob - MaxMind account is shared.
+	rows, err := db.QueryContext(ctx,
+		"SELECT `key`, value, is_encrypted FROM settings WHERE `key` IN ('geoip.account_id','geoip.license_key')")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	var accountID, licenseKey string
+	for rows.Next() {
+		var k, v string
+		var enc bool
+		if err2 := rows.Scan(&k, &v, &enc); err2 != nil {
+			continue
+		}
+		if enc {
+			if dec, derr := j.State.Decrypt(v); derr == nil {
+				v = dec
+			} else {
+				v = ""
+			}
+		}
+		switch k {
+		case "geoip.account_id":
+			accountID = v
+		case "geoip.license_key":
+			licenseKey = v
+		}
+	}
+	if accountID == "" || licenseKey == "" {
+		j.Logger.Info("geoip-asn: not configured, skipping")
+		return nil
+	}
+	dlCtx, cancel := context.WithTimeout(ctx, 130*time.Second)
+	defer cancel()
+	data, err := geoip.DownloadASNMMDB(dlCtx, accountID, licenseKey)
+	if err != nil {
+		return err
+	}
+	newSHA := geoip.SHA256Hex(data)
+	curSHA, _ := geoip.FileSHA256Hex(geoip.ASNDBPath)
+	if curSHA == newSHA && curSHA != "" {
+		j.Logger.Info("geoip-asn: unchanged", "sha256_prefix", shaPrefix(newSHA))
+		return nil
+	}
+	if err := geoip.WriteAtomic(geoip.ASNDBPath, data); err != nil {
+		return err
+	}
+	j.Logger.Info("geoip-asn: updated", "size", len(data), "sha256_prefix", shaPrefix(newSHA))
+	return nil
+}

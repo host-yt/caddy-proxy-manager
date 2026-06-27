@@ -654,6 +654,12 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	adminH.GeoIPJob = geoipJob
 	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "geoip-update", geoipJob.Run))
 
+	// GeoIP ASN DB - same credentials, same leader-only/daily cadence.
+	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "geoip-asn-update", (&jobs.GeoIPASNUpdateJob{
+		DB: wizard.DB, State: state, Logger: logger,
+		Interval: envDurationOr("HPG_GEOIP_INTERVAL", 24*time.Hour),
+	}).Run))
+
 	statusPageH := &handlers.StatusPageHandlers{
 		DB:        wizard.DB,
 		Templates: statusTpls,
