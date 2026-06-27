@@ -146,6 +146,32 @@
   </table></div>
 </section>
 {{end}}
+
+{{if .ModuleMismatches}}
+<section class="hpg-card mb-6 border border-amber-200 dark:border-amber-700/50">
+  <h2 class="font-semibold text-amber-700 dark:text-amber-400 mb-3">Module mismatches (routes using unavailable Caddy modules)</h2>
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead class="text-left hpg-eyebrow">
+      <tr>
+        <th class="px-3 py-2">Domain</th>
+        <th class="px-3 py-2">Node</th>
+        <th class="px-3 py-2">Missing module</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-amber-100 dark:divide-amber-900/40">
+      {{range .ModuleMismatches}}
+      <tr>
+        <td class="px-3 py-2">
+          <a href="/admin/hosts?q={{.Domain}}" class="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer transition-colors font-mono">{{.Domain}}</a>
+        </td>
+        <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.NodeName}}</td>
+        <td class="px-3 py-2 text-amber-700 dark:text-amber-400 font-medium">{{.Feature}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table></div>
+</section>
+{{end}}
 </div><!-- /Overview -->
 
 <!-- Traffic -->
