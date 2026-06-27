@@ -76,6 +76,14 @@ type moduleMismatchRow struct {
 	Feature  string // "WAF", "GeoIP", "Rate limit"
 }
 
+// wafTopRouteRow holds per-route WAF event counts for the stats top-10 table.
+type wafTopRouteRow struct {
+	RouteID    int64
+	Domain     string
+	EventCount int64
+	Blocked    int64 // action="block" count
+}
+
 type statsData struct {
 	baseAdminData
 
@@ -97,6 +105,7 @@ type statsData struct {
 	NodeTraffic      []nodeTrafficRow
 	PlanViolations   []planViolationRow
 	ModuleMismatches []moduleMismatchRow
+	WAFTopRoutes     []wafTopRouteRow
 
 	Cache    cacheSummary
 	Security securitySummary
@@ -314,6 +323,26 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		mmRows.Close()
+	}
+
+	// --- Top WAF-blocked routes (7d) - skip gracefully if table missing ----
+	wafRows, wafErr := db.QueryContext(ctx,
+		`SELECT we.route_id, COALESCE(r.domain,'(deleted)'),
+		        COUNT(*) as cnt,
+		        SUM(we.action='block') as blocked
+		 FROM waf_events we
+		 LEFT JOIN routes r ON r.id = we.route_id
+		 WHERE we.created_at >= NOW() - INTERVAL 7 DAY
+		 GROUP BY we.route_id, r.domain
+		 ORDER BY cnt DESC LIMIT 10`)
+	if wafErr == nil {
+		for wafRows.Next() {
+			var row wafTopRouteRow
+			if err := wafRows.Scan(&row.RouteID, &row.Domain, &row.EventCount, &row.Blocked); err == nil {
+				d.WAFTopRoutes = append(d.WAFTopRoutes, row)
+			}
+		}
+		wafRows.Close()
 	}
 
 	// --- Plan violations (clients exceeding limits, max 20, dedup by client) ----
