@@ -28,7 +28,7 @@
 <body class="h-full bg-slate-50 dark:bg-zinc-950 text-slate-900 dark:text-slate-100">
 
 <!-- Mobile overlay -->
-<div id="sidebar-overlay" class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm hidden" onclick="closeSidebar()"></div>
+<div id="sidebar-overlay" class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm hidden" data-action="close-sidebar"></div>
 
 <!-- Sidebar -->
 <aside id="sidebar" class="fixed inset-y-0 left-0 z-40 flex flex-col w-64 bg-white/95 dark:bg-zinc-950/95 backdrop-blur border-r border-slate-200 dark:border-zinc-800 -translate-x-full lg:translate-x-0 transition-transform duration-200 ease-in-out">
@@ -143,7 +143,7 @@
 
   <!-- Mobile top bar (hamburger) -->
   <header class="sticky top-0 z-20 bg-white dark:bg-zinc-900 border-b border-slate-200 dark:border-zinc-800 px-4 py-3 flex items-center gap-3 lg:hidden shrink-0">
-    <button onclick="openSidebar()" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer" aria-label="Open menu">
+    <button data-action="open-sidebar" class="text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 cursor-pointer" aria-label="Open menu">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
     </button>
     <span class="font-semibold text-sm text-slate-900 dark:text-slate-100 truncate">{{.Data.Title}}</span>
@@ -291,6 +291,16 @@ document.addEventListener('DOMContentLoaded', function(){
       });
     });
   });
+});
+
+// Delegated handler - CSP blocks inline on* attributes, nonce only covers <script>.
+document.addEventListener('click', function(e) {
+  var el = e.target.closest('[data-action]');
+  if (!el) return;
+  switch (el.getAttribute('data-action')) {
+    case 'open-sidebar':  openSidebar();  break;
+    case 'close-sidebar': closeSidebar(); break;
+  }
 });
 
 function openSidebar() {

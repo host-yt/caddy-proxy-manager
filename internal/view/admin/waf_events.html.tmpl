@@ -208,7 +208,9 @@
                 {{if not .Suppressed}}
                 <!-- Suppress this rule (opens inline form) -->
                 <button type="button" title="Suppress rule"
-                  onclick="wafShowSuppress('{{.RuleID}}', {{if .RouteID.Valid}}{{.RouteID.Int64}}{{else}}0{{end}})"
+                  data-action="waf-show-suppress"
+                  data-rule-id="{{.RuleID}}"
+                  data-route-id="{{if .RouteID.Valid}}{{.RouteID.Int64}}{{else}}0{{end}}"
                   class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs ring-1 ring-amber-200 dark:ring-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20 cursor-pointer transition-colors text-amber-700 dark:text-amber-400">
                   <!-- Ban icon -->
                   <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -267,12 +269,11 @@
             </td>
             <td class="px-3 py-2 text-slate-400 whitespace-nowrap font-mono">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
             <td class="px-3 py-2">
-              <form method="POST" action="/admin/waf/suppressions/{{.ID}}/delete" class="inline">
+              <form method="POST" action="/admin/waf/suppressions/{{.ID}}/delete" class="inline" data-confirm="Delete this suppression?">
                 <input type="hidden" name="csrf" value="{{$.CSRF}}">
                 {{if .RouteID.Valid}}<input type="hidden" name="route_id" value="{{.RouteID.Int64}}">{{end}}
                 <button type="submit"
-                  class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs ring-1 ring-rose-200 dark:ring-rose-700 hover:bg-rose-50 dark:hover:bg-rose-900/20 cursor-pointer transition-colors text-rose-600 dark:text-rose-400"
-                  onclick="return confirm('Delete this suppression?')">
+                  class="inline-flex items-center gap-1 px-2 py-1 rounded text-xs ring-1 ring-rose-200 dark:ring-rose-700 hover:bg-rose-50 dark:hover:bg-rose-900/20 cursor-pointer transition-colors text-rose-600 dark:text-rose-400">
                   <!-- Trash icon -->
                   <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                     <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
@@ -321,7 +322,7 @@
             class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
         </div>
         <div class="flex justify-end gap-2 pt-1">
-          <button type="button" onclick="wafHideSuppress()"
+          <button type="button" data-action="waf-hide-suppress"
             class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors">
             Cancel
           </button>
@@ -367,6 +368,19 @@ function wafShowSuppress(ruleID, routeID) {
 function wafHideSuppress() {
   document.getElementById('waf-suppress-modal').classList.add('hidden');
 }
+// Delegated handler - CSP blocks inline on* attributes, nonce only covers <script>.
+document.addEventListener('click', function(e) {
+  var el = e.target.closest('[data-action]');
+  if (!el) return;
+  switch (el.getAttribute('data-action')) {
+    case 'waf-show-suppress':
+      wafShowSuppress(el.getAttribute('data-rule-id'), parseInt(el.getAttribute('data-route-id'), 10));
+      break;
+    case 'waf-hide-suppress':
+      wafHideSuppress();
+      break;
+  }
+});
 // Close modal on backdrop click.
 document.getElementById('waf-suppress-modal').addEventListener('click', function(e){
   if (e.target === this) { wafHideSuppress(); }
