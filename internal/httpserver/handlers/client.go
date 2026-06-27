@@ -301,13 +301,14 @@ func (h *ClientHandlers) ServiceEdit(w http.ResponseWriter, r *http.Request) {
 // ---- Routes -------------------------------------------------------------
 
 type clientRouteRow struct {
-	ID           int64
-	Domain       string
-	PathPrefix   string
-	UpstreamPort int
-	ServiceName  string
-	Status       string
-	LastError    string
+	ID              int64
+	Domain          string
+	PathPrefix      string
+	UpstreamPort    int
+	ServiceName     string
+	Status          string
+	LastError       string
+	MaintenanceMode bool
 }
 
 type clientRoutesData struct {
@@ -331,14 +332,14 @@ func (h *ClientHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port, s.name, r.status, COALESCE(r.last_error,'')
+		`SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port, s.name, r.status, COALESCE(r.last_error,''), COALESCE(r.maintenance_mode,0)
 		 FROM routes r JOIN services s ON s.id = r.service_id
 		 WHERE s.client_id = ? ORDER BY r.id DESC`, clientID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var rr clientRouteRow
-			if err := rows.Scan(&rr.ID, &rr.Domain, &rr.PathPrefix, &rr.UpstreamPort, &rr.ServiceName, &rr.Status, &rr.LastError); err == nil {
+			if err := rows.Scan(&rr.ID, &rr.Domain, &rr.PathPrefix, &rr.UpstreamPort, &rr.ServiceName, &rr.Status, &rr.LastError, &rr.MaintenanceMode); err == nil {
 				d.Routes = append(d.Routes, rr)
 			}
 		}
@@ -512,6 +513,70 @@ func (h *ClientHandlers) RouteVerifyDNS(w http.ResponseWriter, r *http.Request) 
 func (h *ClientHandlers) RouteRetrySSL(w http.ResponseWriter, r *http.Request) {
 	// MVP: re-checking DNS triggers a re-push too. SSL retry is the same path.
 	h.RouteVerifyDNS(w, r)
+}
+
+// RouteMaintenance toggles maintenance_mode for a client-owned route.
+func (h *ClientHandlers) RouteMaintenance(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
+	db := h.DB()
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		http.Error(w, "no client", http.StatusForbidden)
+		return
+	}
+	// Verify ownership.
+	var ownerClientID int64
+	if err := db.QueryRowContext(ctx,
+		`SELECT s.client_id FROM routes r JOIN services s ON s.id = r.service_id WHERE r.id = ?`, id,
+	).Scan(&ownerClientID); err != nil {
+		redirectWithFlash(w, r, "/app/routes", "", "route not found")
+		return
+	}
+	if ownerClientID != clientID {
+		redirectWithFlash(w, r, "/app/routes", "", "not your route")
+		return
+	}
+	// Read current state and toggle.
+	var current int
+	_ = db.QueryRowContext(ctx, "SELECT COALESCE(maintenance_mode,0) FROM routes WHERE id = ?", id).Scan(&current)
+	next := 0
+	msg := "Maintenance mode disabled"
+	if current == 0 {
+		next = 1
+		msg = "Maintenance mode enabled"
+	}
+	if _, err := db.ExecContext(ctx, "UPDATE routes SET maintenance_mode = ?, updated_at = NOW() WHERE id = ?", next, id); err != nil {
+		redirectWithFlash(w, r, "/app/routes", "", "update failed")
+		return
+	}
+	uid := sess.UserID
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: &uid, Action: "route.maintenance.toggle", Entity: "route",
+		EntityID: strconv.FormatInt(id, 10),
+		Meta:     map[string]any{"maintenance_mode": next},
+	})
+	// Re-push affected node so Caddy picks up the change immediately.
+	if h.Routes != nil {
+		go func(routeID int64) {
+			defer recoverBg(h.Logger, "client-maintenance-resync")
+			bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
+			defer cancel()
+			var nid int64
+			if err := db.QueryRowContext(bg,
+				`SELECT caddy_node_id FROM routes WHERE id = ? AND caddy_node_id IS NOT NULL`, routeID,
+			).Scan(&nid); err == nil {
+				h.Routes.SchedulePush(nid)
+			}
+		}(id)
+	}
+	redirectWithFlash(w, r, "/app/routes", msg, "")
 }
 
 func mapRouteErr(err error) string {
