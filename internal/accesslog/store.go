@@ -27,6 +27,7 @@ type Entry struct {
 	BytesReq  int64
 	Proto     string
 	Country   string
+	ASNOrg    string
 }
 
 // Store persists and reads access log entries.
@@ -64,9 +65,9 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 		return nil
 	}
 	if _, err := db.ExecContext(ctx,
-		`INSERT INTO host_access_log (route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-		e.RouteID, e.TS, e.Method, e.URI, e.Status, e.LatencyMS, e.RemoteIP, e.UserAgent, e.BytesResp, e.BytesReq, e.Proto, e.Country,
+		`INSERT INTO host_access_log (route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country,asn_org)
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		e.RouteID, e.TS, e.Method, e.URI, e.Status, e.LatencyMS, e.RemoteIP, e.UserAgent, e.BytesResp, e.BytesReq, e.Proto, e.Country, e.ASNOrg,
 	); err != nil {
 		return err
 	}
@@ -165,7 +166,7 @@ func (s *Store) Recent(ctx context.Context, routeID int64, n int) ([]Entry, erro
 		n = s.MaxPerRoute
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id,route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country
+		`SELECT id,route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country,asn_org
 		 FROM host_access_log
 		 WHERE route_id = ?
 		 ORDER BY ts DESC, id DESC
@@ -181,7 +182,7 @@ func (s *Store) Recent(ctx context.Context, routeID int64, n int) ([]Entry, erro
 		var e Entry
 		if err := rows.Scan(&e.ID, &e.RouteID, &e.TS,
 			&e.Method, &e.URI, &e.Status, &e.LatencyMS, &e.RemoteIP, &e.UserAgent,
-			&e.BytesResp, &e.BytesReq, &e.Proto, &e.Country,
+			&e.BytesResp, &e.BytesReq, &e.Proto, &e.Country, &e.ASNOrg,
 		); err == nil {
 			out = append(out, e)
 		}
@@ -269,7 +270,7 @@ func (s *Store) Filtered(ctx context.Context, routeID int64, f Filter) ([]Entry,
 		args = append(args, f.To)
 	}
 
-	q := `SELECT id,route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country
+	q := `SELECT id,route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country,asn_org
 	      FROM host_access_log
 	      WHERE ` + strings.Join(conds, " AND ") + `
 	      ORDER BY ts DESC, id DESC
@@ -286,7 +287,7 @@ func (s *Store) Filtered(ctx context.Context, routeID int64, f Filter) ([]Entry,
 		var e Entry
 		if err := rows.Scan(&e.ID, &e.RouteID, &e.TS,
 			&e.Method, &e.URI, &e.Status, &e.LatencyMS, &e.RemoteIP, &e.UserAgent,
-			&e.BytesResp, &e.BytesReq, &e.Proto, &e.Country,
+			&e.BytesResp, &e.BytesReq, &e.Proto, &e.Country, &e.ASNOrg,
 		); err == nil {
 			out = append(out, e)
 		}
