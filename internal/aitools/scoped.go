@@ -335,7 +335,7 @@ func (r *Registry) routeLogsScoped(ctx context.Context, scope Scope, raw json.Ra
 	if a.ErrorsOnly {
 		cond += " AND status >= 400"
 	}
-	q := `SELECT ts, method, uri, status, latency_ms, remote_ip, bytes_resp
+	q := `SELECT DATE_FORMAT(ts,'%Y-%m-%dT%H:%i:%s.%fZ'), method, uri, status, latency_ms, remote_ip, bytes_resp
 	      FROM host_access_log WHERE ` + cond + ` ORDER BY ts DESC, id DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := r.db.QueryContext(ctx, q, args...)
