@@ -100,6 +100,8 @@
             {{if eq .CertStatus "active"}}<span class="hpg-pill hpg-pill-ok">active</span>
             {{else if eq .CertStatus "pending"}}<span class="hpg-pill hpg-pill-warn">pending</span>
             {{else}}<span class="hpg-pill hpg-pill-muted">off</span>{{end}}
+            {{if ge .CertDaysLeft 0}}{{if le .CertDaysLeft 7}}<span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1 bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300">exp in {{.CertDaysLeft}}d</span>
+            {{else if le .CertDaysLeft 30}}<span class="text-[10px] font-bold px-1.5 py-0.5 rounded-full ml-1 bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">exp in {{.CertDaysLeft}}d</span>{{end}}{{end}}
             {{if .IssuedAt}}<div class="mt-1 text-[10px] text-slate-400" title="Certificate issued">{{.IssuedAt}}</div>{{end}}
           </td>
           <td class="px-4 py-4 align-top text-xs whitespace-nowrap">
