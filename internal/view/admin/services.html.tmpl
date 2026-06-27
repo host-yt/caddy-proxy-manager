@@ -1,4 +1,11 @@
 {{define "services"}}
+<!-- Hidden bulk form - submitted via JS to avoid nested form issues -->
+<form method="POST" action="/admin/services/bulk" id="svc-bulk-form" class="hidden">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <input type="hidden" name="action" id="svc-bulk-action">
+  <div id="svc-bulk-ids"></div>
+</form>
+
 <section class="hpg-card !p-0 overflow-hidden">
   <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
     <div class="flex items-center gap-3">
@@ -30,10 +37,24 @@
       {{end}}
     </form>
   </div>
+  <!-- Bulk action bar - hidden until a checkbox is selected -->
+  {{if .Services}}
+  <div id="svc-bulk-bar" class="hidden px-5 py-3 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+    <span class="hpg-eyebrow">Bulk action</span>
+    <select id="svc-bulk-select" class="px-3 py-1.5 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs outline-none">
+      <option value="suspend">Suspend selected</option>
+      <option value="resume">Resume selected</option>
+      <option value="delete">Delete selected</option>
+    </select>
+    <button type="button" id="svc-bulk-apply" class="px-3 py-1.5 rounded-full bg-slate-800 dark:bg-zinc-700 text-white text-xs hover:bg-slate-900 cursor-pointer">Apply</button>
+    <span id="svc-bulk-count" class="text-slate-400"></span>
+  </div>
+  {{end}}
   <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <thead class="bg-slate-50/95 dark:bg-zinc-800/95 backdrop-blur text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
         <tr>
+          <th class="pl-5 pr-2 py-3 w-8"><input type="checkbox" data-check-all="ids[]" class="rounded"></th>
           <th class="px-5 py-3 font-medium">Service</th>
           <th class="px-5 py-3 font-medium">Client</th>
           <th class="px-5 py-3 font-medium">Backend</th>
@@ -46,6 +67,7 @@
       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
         {{range .Services}}
         <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
+          <td class="pl-5 pr-2 py-3.5"><input type="checkbox" name="ids[]" value="{{.ID}}" class="rounded svc-row-chk"></td>
           <td class="px-5 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}</td>
           <td class="px-5 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.ClientName}}</td>
           <td class="px-5 py-3.5"><code class="font-mono text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-zinc-800 rounded px-1.5 py-0.5">{{.BackendIP}}</code></td>
@@ -88,7 +110,7 @@
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="7" class="px-5 py-12 text-center text-slate-500 dark:text-slate-400">No services yet.</td></tr>
+        <tr><td colspan="8" class="px-5 py-12 text-center text-slate-500 dark:text-slate-400">No services yet.</td></tr>
         {{end}}
       </tbody>
     </table>
@@ -168,8 +190,60 @@
   </div>
 </div>
 
-<script nonce="{{.CSPNonce}}">
+<script nonce="{{$.CSPNonce}}">
 (function () {
+  /* ── Bulk action bar ──────────────────────────────────────────── */
+  var bar = document.getElementById('svc-bulk-bar');
+  var bulkSel = document.getElementById('svc-bulk-select');
+  var bulkApply = document.getElementById('svc-bulk-apply');
+  var bulkCount = document.getElementById('svc-bulk-count');
+
+  function updateBar() {
+    var checked = document.querySelectorAll('tbody input.svc-row-chk:checked');
+    if (!bar) return;
+    if (checked.length > 0) {
+      bar.classList.remove('hidden');
+      if (bulkCount) bulkCount.textContent = checked.length + ' selected';
+    } else {
+      bar.classList.add('hidden');
+    }
+  }
+
+  // Attach change handler to row checkboxes and the select-all header checkbox.
+  document.querySelectorAll('tbody input.svc-row-chk').forEach(function(c) {
+    c.addEventListener('change', updateBar);
+  });
+  document.querySelectorAll('[data-check-all]').forEach(function(c) {
+    c.addEventListener('change', updateBar);
+  });
+
+  // Apply bulk action on button click.
+  if (bulkApply) {
+    bulkApply.addEventListener('click', function () {
+      var action = bulkSel ? bulkSel.value : '';
+      var ids = Array.from(document.querySelectorAll('tbody input.svc-row-chk:checked')).map(function(c) { return c.value; });
+      if (ids.length === 0) { window.hpgToast && window.hpgToast('Select at least one row.', 'warn'); return; }
+      var msg = action === 'delete' ? 'Delete ' + ids.length + ' service(s)? This cannot be undone.' : action + ' ' + ids.length + ' service(s)?';
+      var go = function () {
+        document.getElementById('svc-bulk-action').value = action;
+        var box = document.getElementById('svc-bulk-ids');
+        box.innerHTML = '';
+        ids.forEach(function (v) {
+          var inp = document.createElement('input');
+          inp.type = 'hidden'; inp.name = 'ids[]'; inp.value = v;
+          box.appendChild(inp);
+        });
+        document.getElementById('svc-bulk-form').submit();
+      };
+      if (window.hpgConfirm) {
+        window.hpgConfirm(msg).then(function (ok) { if (ok) go(); });
+      } else if (confirm(msg)) {
+        go();
+      }
+    });
+  }
+
+  /* ── Modal open/close ─────────────────────────────────────────── */
   var modal = document.getElementById("svc-modal");
   var form = document.getElementById("svc-form");
   var title = document.getElementById("svc-modal-title");
