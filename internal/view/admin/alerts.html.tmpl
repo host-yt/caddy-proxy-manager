@@ -1,6 +1,16 @@
 {{define "alerts"}}
 <div class="space-y-6">
 
+  <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
+    <span></span>
+    <form method="POST" action="/admin/alerts/test-fire" class="inline">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <button class="px-3 py-1.5 rounded-lg ring-1 ring-amber-300 dark:ring-amber-600 text-amber-700 dark:text-amber-300 text-sm hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors cursor-pointer">
+        Send test alert
+      </button>
+    </form>
+  </div>
+
   <div class="flex flex-wrap items-center gap-2 text-sm">
     <a href="/admin/alerts" class="px-3 py-1 rounded-full {{if eq .RuleFilter ""}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-700{{end}}">All</a>
     {{range $r := .KnownRules}}

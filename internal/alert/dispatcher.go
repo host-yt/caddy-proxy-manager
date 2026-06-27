@@ -103,6 +103,18 @@ func (e *Evaluator) resolveAdminEmail(ctx context.Context, db *sql.DB) string {
 	return email
 }
 
+// TestFire dispatches a one-off alert bypassing cooldown deduplication.
+func (e *Evaluator) TestFire(ctx context.Context, a Alert) {
+	if e.DB == nil {
+		return
+	}
+	db := e.DB()
+	if db == nil {
+		return
+	}
+	go e.dispatch(context.Background(), db, a)
+}
+
 // pruneLog bounds table size by dropping rows past the retention window.
 func (e *Evaluator) pruneLog(ctx context.Context, db *sql.DB) {
 	_, _ = db.ExecContext(ctx,

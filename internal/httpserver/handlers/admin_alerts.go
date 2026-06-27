@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/alert"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 type alertRow struct {
@@ -131,4 +133,30 @@ func (h *AdminHandlers) AlertsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, "alerts", d)
+}
+
+// AlertsTestFire handles POST /admin/alerts/test-fire - dispatches a manual test alert.
+func (h *AdminHandlers) AlertsTestFire(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	a := alert.Alert{
+		RuleID:   "test_fire",
+		Severity: alert.SeverityWarning,
+		Title:    "HPG Alert Test",
+		Detail:   "This is a test alert triggered by the admin. If you received it, all channels are working.",
+		Labels:   map[string]string{"source": "manual_test"},
+	}
+	if h.AlertEval != nil {
+		h.AlertEval.TestFire(r.Context(), a)
+	}
+	db := h.DB()
+	if db != nil {
+		audit.Write(r.Context(), db, h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess), Action: "admin.alert.test_fire", Entity: "alert", EntityID: "test_fire",
+		})
+	}
+	redirectWithFlash(w, r, "/admin/alerts", "Test alert dispatched to all channels", "")
 }

@@ -116,6 +116,8 @@ type AdminHandlers struct {
 	AITools *aitools.Registry
 	// AlertCfg holds alert thresholds for display on the alerts page.
 	AlertCfg alert.Config
+	// AlertEval is the running evaluator; used to TestFire on-demand.
+	AlertEval *alert.Evaluator
 }
 
 // adminConfigRefs holds pointers admin settings handlers can flip at runtime.
