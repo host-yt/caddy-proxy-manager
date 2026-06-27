@@ -608,6 +608,11 @@ X-Authentik-Meta-Version</pre>
         <strong>Module not available.</strong> Needs Caddy built with <code>github.com/corazawaf/coraza-caddy/v2</code> + <code>WAF_MODULE_AVAILABLE=1</code>. Saving works, but no WAF is pushed until the gate is on fleet-wide.
       </div>
       {{end}}
+      {{if and .WAFEnabled (not .NodeHasWAF)}}
+      <div class="rounded-xl ring-1 ring-rose-200 dark:ring-rose-800/60 bg-rose-50/60 dark:bg-rose-900/10 p-3 text-xs text-rose-800 dark:text-rose-300">
+        <strong>Node capability missing.</strong> WAF is enabled but this node has not confirmed the WAF module. Enable it in Node settings or disable WAF here.
+      </div>
+      {{end}}
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="waf_enabled" value="1" {{if .WAFEnabled}}checked{{end}} id="hpg-waf-toggle"> Enable WAF (OWASP CRS)</label>
       <div id="hpg-waf-fields" class="{{if not .WAFEnabled}}hidden{{end}} space-y-3">
         <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="waf_blocking" value="1" {{if .WAFBlocking}}checked{{end}}> Blocking mode (off = detection-only, logs but never blocks)</label>
@@ -623,6 +628,11 @@ X-Authentik-Meta-Version</pre>
       {{if not .GeoModuleAvailable}}
       <div class="rounded-xl ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 p-3 text-xs text-amber-800 dark:text-amber-300">
         <strong>Module not available.</strong> Needs Caddy built with the maxmind geolocation module + <code>GEOIP_AVAILABLE=1</code>. Saving works, but no geo rule is pushed until the gate is on fleet-wide.
+      </div>
+      {{end}}
+      {{if and (ne .GeoMode "off") (not .NodeHasGeoIP)}}
+      <div class="rounded-xl ring-1 ring-rose-200 dark:ring-rose-800/60 bg-rose-50/60 dark:bg-rose-900/10 p-3 text-xs text-rose-800 dark:text-rose-300">
+        <strong>Node capability missing.</strong> Geo filtering is active but this node has not confirmed the GeoIP module. Enable it in Node settings or set mode to Off.
       </div>
       {{end}}
       <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Mode</span>
