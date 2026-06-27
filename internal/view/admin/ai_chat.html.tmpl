@@ -1,4 +1,5 @@
 {{define "ai_chat"}}
+<script src="/static/js/mdlite.js" nonce="{{.CSPNonce}}"></script>
 <div class="flex gap-4 h-[calc(100vh-10rem)] min-h-[32rem]">
 
   <!-- Session list (left column) -->
@@ -47,7 +48,7 @@
     {{else}}
 
     <!-- Thread area -->
-    <div id="ai-thread" class="flex-1 overflow-y-auto p-5 space-y-4">
+    <div id="ai-thread" class="flex-1 overflow-y-auto p-5 space-y-4 min-h-0">
       <div id="ai-thread-empty" class="flex flex-col items-center justify-center h-full gap-3 text-center">
         <div class="icon-chip w-12 h-12 rounded-2xl">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" style="color:rgb(var(--accent))" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -91,7 +92,6 @@
   padding: 0.625rem 1rem;
   max-width: 75%;
   font-size: 0.875rem;
-  white-space: pre-wrap;
   word-break: break-words;
 }
 .ai-bubble-assistant {
@@ -101,10 +101,23 @@
   padding: 0.625rem 1rem;
   max-width: 80%;
   font-size: 0.875rem;
-  white-space: pre-wrap;
   word-break: break-words;
   border: 1px solid rgb(var(--border));
 }
+/* md-body: minimal markdown rendering styles */
+.ai-bubble-assistant h1,.ai-bubble-assistant h2,.ai-bubble-assistant h3{font-weight:600;margin:.5em 0 .25em;}
+.ai-bubble-assistant h1{font-size:1.1em;}
+.ai-bubble-assistant h2{font-size:1em;}
+.ai-bubble-assistant h3{font-size:.95em;}
+.ai-bubble-assistant p{margin:.25em 0;}
+.ai-bubble-assistant ul,.ai-bubble-assistant ol{margin:.25em 0;padding-left:1.25em;}
+.ai-bubble-assistant li{margin:.1em 0;}
+.ai-bubble-assistant code{font-family:ui-monospace,monospace;font-size:.85em;padding:.1em .3em;border-radius:4px;background:rgb(var(--surface-2));border:1px solid rgb(var(--border));}
+.ai-bubble-assistant pre{margin:.4em 0;border-radius:8px;overflow-x:auto;background:rgb(var(--bg));border:1px solid rgb(var(--border));padding:.6em .8em;}
+.ai-bubble-assistant pre code{background:none;border:none;padding:0;}
+.ai-bubble-assistant a{color:rgb(var(--accent));text-decoration:underline;}
+.ai-bubble-assistant strong{font-weight:600;}
+.ai-bubble-assistant em{font-style:italic;}
 #ai-session-list [data-session-item] {
   border-bottom: 1px solid rgb(var(--border));
 }
@@ -132,15 +145,6 @@
   var sendBtn   = document.getElementById('ai-send-btn');
   var newBtn    = document.getElementById('ai-new-btn');
   var hintEl    = document.getElementById('ai-session-hint');
-
-  // ---- Helpers ----
-  function esc(s){
-    return String(s)
-      .replace(/&/g,'&amp;')
-      .replace(/</g,'&lt;')
-      .replace(/>/g,'&gt;')
-      .replace(/"/g,'&quot;');
-  }
 
   // CSRF token for state-changing fetches; the server requires X-CSRF-Token.
   function csrf(){
@@ -231,8 +235,6 @@
   // ---- Session CRUD ----
   function newSession(){
     if (streaming) return;
-    // No upfront title prompt - just start chatting; the title auto-fills once
-    // the thread has a few turns (server-side).
     fetch('/admin/ai/chat/sessions', {
       method: 'POST',
       credentials: 'same-origin',
@@ -322,8 +324,17 @@
       ? 'ai-bubble-user'
       : 'ai-bubble-assistant';
 
-    // Use textContent to prevent XSS from model output
-    bubble.textContent = content;
+    if (role === 'user') {
+      // USER: textContent only - no markdown, safe
+      bubble.textContent = content;
+    } else {
+      // ASSISTANT: render via mdlite (XSS-safe: escapes HTML first, then transforms)
+      if (window.mdlite) {
+        bubble.innerHTML = window.mdlite(content);
+      } else {
+        bubble.textContent = content;
+      }
+    }
 
     if (live) bubble.setAttribute('data-live-bubble', '1');
 
@@ -376,7 +387,7 @@
       var msg = (e && e.msg) ? e.msg : (e && e.message) ? e.message : 'Streaming error.';
       showStreamError(msg);
       // Remove empty assistant bubble if nothing was written
-      if (aiBubble && !aiBubble.textContent){
+      if (aiBubble && !aiBubble.textContent && !aiBubble.innerHTML.trim()){
         var parent = aiBubble.parentElement;
         if (parent) parent.remove();
       }
@@ -390,6 +401,7 @@
       var decoder = new TextDecoder();
       var buf = '';
       var currentEvent = '';
+      var acc = '';
 
       function pump(){
         reader.read().then(function(result){
@@ -409,7 +421,6 @@
               try {
                 var obj = JSON.parse(raw);
                 if (currentEvent === 'done'){
-                  // natural end; resolve
                   resolve();
                   return;
                 }
@@ -419,7 +430,13 @@
                 }
                 // Default: delta text chunk
                 if (obj.text){
-                  bubble.textContent += obj.text;
+                  acc += obj.text;
+                  // Re-render entire bubble from accumulated text (never += innerHTML)
+                  if (window.mdlite) {
+                    bubble.innerHTML = window.mdlite(acc);
+                  } else {
+                    bubble.textContent = acc;
+                  }
                   scrollThread();
                 }
               } catch(e){}

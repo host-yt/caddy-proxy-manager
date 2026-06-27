@@ -1,3 +1,15 @@
+{{define "r_page_header"}}
+{{- /* dict: Eyebrow, Title, Subtitle, ActionHTML template.HTML (optional, right side) */ -}}
+<div class="flex items-start justify-between gap-4 mb-6">
+  <div class="min-w-0">
+    {{if .Eyebrow}}<div class="t-eyebrow">{{.Eyebrow}}</div>{{end}}
+    <h1 class="t-h2 truncate">{{.Title}}</h1>
+    {{if .Subtitle}}<p class="t-small mt-0.5">{{.Subtitle}}</p>{{end}}
+  </div>
+  {{if .ActionHTML}}<div class="flex items-center gap-2 shrink-0">{{.ActionHTML}}</div>{{end}}
+</div>
+{{end}}
+
 {{define "r_kpi"}}
 {{- /* Args (via dict): Label string, Value string, Trend string, TrendUp bool, Class string */ -}}
 <div class="r-card flex flex-col gap-2 {{if .Class}}{{.Class}}{{end}}">

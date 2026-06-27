@@ -1,5 +1,5 @@
 /* Progressive a11y + perceived-speed enhancements layered on top of the
-   prebuilt Tailwind bundle. Hand-written so no Tailwind rebuild is needed. */
+   prebuilt Tailwind bundle. Dark-ops component overrides added 2026-06-28. */
 
 /* Visible keyboard focus everywhere, without affecting mouse users. */
 :focus-visible {
@@ -1096,3 +1096,90 @@
 @media (prefers-reduced-motion: reduce) {
   .nav-link, .nav-group-btn, .nav-chevron { transition: none; }
 }
+
+/* ── Dark-ops component overrides ────────────────────────────────────── */
+/* These override legacy hpg-* hardcoded-hex rules above to use tokens.  */
+
+/* r-card interactive hover uses accent token. */
+.r-card:hover { border-color: rgb(var(--accent) / .25); }
+
+/* Accent-gradient for hero KPI/CTA only. */
+.accent-gradient { background: var(--accent-gradient); }
+
+/* r-btn-primary / secondary / ghost / danger: extra ensure height on <a> tags. */
+a.r-btn-primary, a.r-btn-secondary, a.r-btn-ghost, a.r-btn-danger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+  line-height: 1;
+}
+
+/* r-input select option dark bg. */
+.r-select option { background: rgb(var(--surface-2)); color: rgb(var(--text)); }
+
+/* r-table numeric column helper. */
+.r-table td.num, .r-table th.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tighten hpg-act-menu/item to use token colors where possible. */
+.hpg-act-menu {
+  background: rgb(var(--surface));
+  border-color: rgb(var(--border));
+}
+.hpg-act-item { color: rgb(var(--muted)); }
+.hpg-act-item:hover { background: rgb(var(--surface-2)); color: rgb(var(--text)); }
+.hpg-act-item.is-danger { color: rgb(var(--danger)); }
+.hpg-act-item.is-danger:hover { background: rgb(var(--danger) / .1); }
+
+/* Nav link active: use accent token. */
+.hpg-nav-link.is-active {
+  background: rgb(var(--accent) / .1);
+  color: rgb(var(--accent));
+  border-left-color: rgb(var(--accent));
+}
+
+/* Sidebar: use surface token. */
+.hpg-sidebar { background: rgb(var(--surface)); border-right-color: rgb(var(--border)); }
+
+/* Topology map: use token border. */
+.hpg-topology-shell { border-color: rgb(var(--border)); }
+.hpg-topology-head { border-bottom-color: rgb(var(--border)); }
+.hpg-topology-inspector { border-top-color: rgb(var(--border)); background: rgb(var(--surface-2) / .5); }
+
+/* Stat card: use surface token. */
+.hpg-stat-card { background: rgb(var(--surface)); border-color: rgb(var(--border)); }
+.hpg-stat-card:hover { border-color: rgb(var(--accent) / .3); }
+.hpg-stat-num { color: rgb(var(--text)); }
+
+/* General card: use surface token. */
+.hpg-card { background: rgb(var(--surface)); border-color: rgb(var(--border)); }
+
+/* Icon chip: use accent token. */
+.icon-chip { background: rgb(var(--accent) / .12); color: rgb(var(--accent)); }
+
+/* Status badges: use semantic tokens. */
+.hpg-badge-online { background: rgb(var(--success) / .12); color: rgb(var(--success)); }
+.hpg-badge-offline { background: rgb(var(--danger) / .12); color: rgb(var(--danger)); }
+.hpg-badge-warning { background: rgb(var(--warning) / .12); color: rgb(var(--warning)); }
+
+/* Page header: use token colors. */
+.hpg-page-title { color: rgb(var(--text)); }
+.hpg-page-sub { color: rgb(var(--muted)); }
+.hpg-eyebrow { color: rgb(var(--accent)); }
+
+/* Skeleton: token-aware shimmer. */
+.hpg-skel { background: rgb(var(--surface-2)); }
+
+/* Skip link: use accent token. */
+.skip-link { background: rgb(var(--accent)); color: rgb(var(--accent-text-on)); }
+
+/* Table thead: use token bg. */
+.hpg-table thead th { background: rgb(var(--surface-2)); color: rgb(var(--muted)); border-bottom-color: rgb(var(--border)); }
+.hpg-table tbody td { border-bottom-color: rgb(var(--border)); color: rgb(var(--text)); }
+.hpg-table tbody tr:hover { background: rgb(var(--surface-2) / .6) !important; }
+
+/* Skel shimmer light strip stays white regardless of theme. */
+.hpg-skel::after { background: linear-gradient(90deg, transparent, rgb(255 255 255 / .06), transparent); }
