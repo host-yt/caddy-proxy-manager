@@ -528,16 +528,16 @@ func (h *AdminHandlers) planViolationsFor(ctx context.Context, db *sql.DB) []pla
 	seen := map[int64]struct{}{}
 	var out []planViolationRow
 
-	// Check 1: active routes > max_domains.
+	// Check 1: active routes per service > service plan max_domains.
 	r1, err := db.QueryContext(ctx,
 		`SELECT c.id, COALESCE(NULLIF(c.display_name,''), u.email), p.name, COUNT(r.id), p.max_domains
-		 FROM clients c
+		 FROM services s
+		 JOIN clients c ON c.id=s.client_id
 		 JOIN users u ON u.id=c.user_id
-		 JOIN plans p ON p.id=c.plan_id
-		 JOIN services s ON s.client_id=c.id
+		 JOIN plans p ON p.id=s.plan_id
 		 JOIN routes r ON r.service_id=s.id
 		 WHERE r.status IN ('active','pending_dns','dns_ok','pending_ssl')
-		 GROUP BY c.id, c.display_name, u.email, p.name, p.max_domains
+		 GROUP BY s.id, c.id, c.display_name, u.email, p.name, p.max_domains
 		 HAVING COUNT(r.id) > p.max_domains AND p.max_domains > 0`)
 	if err == nil {
 		defer r1.Close()
@@ -559,15 +559,15 @@ func (h *AdminHandlers) planViolationsFor(ctx context.Context, db *sql.DB) []pla
 		}
 	}
 
-	// Check 2: WebSocket routes used without plan.websocket.
+	// Check 2: WebSocket routes used without plan.websocket_enabled.
 	r2, err := db.QueryContext(ctx,
 		`SELECT c.id, COALESCE(NULLIF(c.display_name,''), u.email), p.name
 		 FROM clients c
 		 JOIN users u ON u.id=c.user_id
-		 JOIN plans p ON p.id=c.plan_id
 		 JOIN services s ON s.client_id=c.id
+		 JOIN plans p ON p.id=s.plan_id
 		 JOIN routes r ON r.service_id=s.id
-		 WHERE r.websocket=1 AND p.websocket=0 AND r.status NOT IN ('disabled','deleted')
+		 WHERE r.websocket=1 AND p.websocket_enabled=0 AND r.status NOT IN ('disabled','deleted')
 		 GROUP BY c.id, c.display_name, u.email, p.name`)
 	if err == nil {
 		defer r2.Close()

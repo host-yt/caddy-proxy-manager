@@ -1431,43 +1431,43 @@ func (r *Registry) planViolations(ctx context.Context, _ json.RawMessage) (strin
 	seen := map[string]struct{}{}
 	var out []violation
 
-	// Routes exceed plan max_domains.
+	// Routes per service exceed plan max_domains (checked per-service, matching UI enforcement).
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT COALESCE(NULLIF(c.display_name,''), u.email), p.name, COUNT(r.id), p.max_domains
-		 FROM clients c
+		`SELECT COALESCE(NULLIF(c.display_name,''), u.email), p.name, s.name, COUNT(r.id), p.max_domains
+		 FROM services s
+		 JOIN clients c ON c.id=s.client_id
 		 JOIN users u ON u.id=c.user_id
-		 JOIN plans p ON p.id=c.plan_id
-		 JOIN services s ON s.client_id=c.id
+		 JOIN plans p ON p.id=s.plan_id
 		 JOIN routes r ON r.service_id=s.id
 		 WHERE r.status IN ('active','pending_dns','dns_ok','pending_ssl')
-		 GROUP BY c.id, c.display_name, u.email, p.name, p.max_domains
+		 GROUP BY s.id, c.display_name, u.email, p.name, s.name, p.max_domains
 		 HAVING COUNT(r.id) > p.max_domains AND p.max_domains > 0
 		 LIMIT 50`)
 	if err == nil {
 		for rows.Next() {
-			var email, plan string
+			var email, plan, svc string
 			var cnt, max int
-			if rows.Scan(&email, &plan, &cnt, &max) == nil {
-				key := email + ":domains"
+			if rows.Scan(&email, &plan, &svc, &cnt, &max) == nil {
+				key := email + ":domains:" + svc
 				if _, dup := seen[key]; !dup {
 					seen[key] = struct{}{}
 					out = append(out, violation{ClientEmail: email, PlanName: plan,
-						Reason: fmt.Sprintf("routes (%d) > max_domains (%d)", cnt, max)})
+						Reason: fmt.Sprintf("service %q: routes (%d) > max_domains (%d)", svc, cnt, max)})
 				}
 			}
 		}
 		rows.Close()
 	}
 
-	// WebSocket routes without plan.websocket.
+	// WebSocket routes without plan.websocket (per-service plan, matching UI enforcement).
 	rows, err = r.db.QueryContext(ctx,
 		`SELECT COALESCE(NULLIF(c.display_name,''), u.email), p.name
 		 FROM clients c
 		 JOIN users u ON u.id=c.user_id
-		 JOIN plans p ON p.id=c.plan_id
 		 JOIN services s ON s.client_id=c.id
+		 JOIN plans p ON p.id=s.plan_id
 		 JOIN routes r ON r.service_id=s.id
-		 WHERE r.websocket=1 AND p.websocket=0
+		 WHERE r.websocket=1 AND p.websocket_enabled=0
 		   AND r.status NOT IN ('disabled')
 		 GROUP BY c.id, c.display_name, u.email, p.name
 		 LIMIT 50`)
