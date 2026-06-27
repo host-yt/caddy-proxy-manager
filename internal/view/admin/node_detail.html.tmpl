@@ -176,12 +176,37 @@
     {{end}}
   </section>
 
-  <div class="flex items-center gap-3">
+  <div class="flex items-center gap-3 flex-wrap">
     <form method="POST" action="/admin/nodes/{{.Node.ID}}/resync">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Resync from DB</button>
     </form>
+    <button type="button" id="btn-failover-preview" data-node-id="{{.Node.ID}}"
+      class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg ring-1 ring-amber-300 dark:ring-amber-700 text-amber-700 dark:text-amber-400 text-xs font-medium hover:bg-amber-50 dark:hover:bg-amber-500/10 cursor-pointer transition-colors">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+        <path fill-rule="evenodd" d="M9.661 2.237a.531.531 0 0 1 .678 0 11.947 11.947 0 0 0 7.078 2.749.5.5 0 0 1 .479.425c.069.52.104 1.05.104 1.589 0 5.162-3.26 9.563-7.834 11.256a.48.48 0 0 1-.332 0C5.26 16.563 2 12.162 2 7c0-.539.035-1.069.104-1.589a.5.5 0 0 1 .48-.425 11.947 11.947 0 0 0 7.077-2.749Zm2.56 5.349a.75.75 0 1 0-1.06-1.06L9.25 8.44l-.711-.711a.75.75 0 0 0-1.06 1.06l1.241 1.242a.75.75 0 0 0 1.06 0l2.44-2.445Z" clip-rule="evenodd"/>
+      </svg>
+      Preview failover
+    </button>
     <span class="text-xs text-slate-500 dark:text-slate-400">Rebuild the full Caddy config from the database and POST /load on this node.</span>
+  </div>
+
+  <!-- Failover preview modal -->
+  <div id="hpg-failover-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+    <div class="hpg-card max-w-2xl w-full relative">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100">Failover preview</h3>
+        <button type="button" data-action="close-failover-modal"
+          class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 cursor-pointer transition-colors">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5">
+            <path d="M6.28 5.22a.75.75 0 0 0-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 1 0 1.06 1.06L10 11.06l3.72 3.72a.75.75 0 1 0 1.06-1.06L11.06 10l3.72-3.72a.75.75 0 0 0-1.06-1.06L10 8.94 6.28 5.22Z"/>
+          </svg>
+        </button>
+      </div>
+      <div id="hpg-failover-modal-body" class="text-sm text-slate-700 dark:text-slate-300">
+        Loading...
+      </div>
+    </div>
   </div>
 
   <section class="hpg-card !p-0 overflow-hidden">
@@ -230,4 +255,72 @@
     </table></div>
   </section>
 </div>
+
+<script nonce="{{.CSPNonce}}">
+(function () {
+  // Open/close failover preview modal.
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('#btn-failover-preview')) {
+      var nodeID = document.getElementById('btn-failover-preview').dataset.nodeId;
+      var modal = document.getElementById('hpg-failover-modal');
+      var body = document.getElementById('hpg-failover-modal-body');
+      body.innerHTML = '<p class="text-slate-500">Loading…</p>';
+      modal.classList.remove('hidden');
+      fetch('/admin/nodes/' + nodeID + '/failover-preview', {credentials: 'same-origin', headers: {Accept: 'application/json'}})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (d.error) { body.innerHTML = '<p class="text-rose-600">' + d.error + '</p>'; return; }
+          var html = '';
+          // Mode warning for non-failover groups.
+          if (d.mode === 'single' || d.mode === '') {
+            html += '<p class="text-amber-700 dark:text-amber-400">This node group does not have failover mode. No automatic route movement would occur.</p>';
+            body.innerHTML = html;
+            return;
+          }
+          // Eligible targets.
+          if (!d.eligible_targets || d.eligible_targets.length === 0) {
+            html += '<p class="text-rose-600 mb-3">No healthy sibling nodes available for failover.</p>';
+          } else {
+            html += '<p class="text-xs text-slate-500 dark:text-slate-400 mb-2">Eligible target nodes: ';
+            html += d.eligible_targets.map(function (t) { return '<span class="font-medium text-emerald-600">' + t.name + '</span>'; }).join(', ');
+            html += '</p>';
+          }
+          // Routes table.
+          if (!d.routes_to_move || d.routes_to_move.length === 0) {
+            html += '<p class="text-slate-500">No active routes on this node.</p>';
+          } else {
+            html += '<div class="overflow-x-auto"><table class="w-full text-xs">';
+            html += '<thead class="text-left uppercase tracking-wide text-slate-500 dark:text-slate-400"><tr>';
+            html += '<th class="px-3 py-2">Domain</th><th class="px-3 py-2">Status</th><th class="px-3 py-2">Can move</th></tr></thead>';
+            html += '<tbody class="divide-y divide-slate-100 dark:divide-zinc-800">';
+            d.routes_to_move.forEach(function (route) {
+              var indicator = route.can_move
+                ? '<span class="text-emerald-600 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>yes</span>'
+                : '<span class="text-rose-600 flex items-center gap-1"><svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>no' + (route.reason ? ' (' + route.reason + ')' : '') + '</span>';
+              html += '<tr><td class="px-3 py-2 font-mono">' + route.domain + '</td>';
+              html += '<td class="px-3 py-2">' + route.status + '</td>';
+              html += '<td class="px-3 py-2">' + indicator + '</td></tr>';
+            });
+            html += '</tbody></table></div>';
+            // Summary.
+            html += '<p class="mt-3 text-xs text-slate-500 dark:text-slate-400">';
+            html += '<span class="text-emerald-600 font-medium">' + d.movable_count + '</span> routes can move, ';
+            html += '<span class="text-rose-600 font-medium">' + d.blocked_count + '</span> blocked';
+            html += '</p>';
+          }
+          body.innerHTML = html;
+        })
+        .catch(function () { body.innerHTML = '<p class="text-rose-600">Request failed.</p>'; });
+      return;
+    }
+    if (e.target.closest('[data-action="close-failover-modal"]')) {
+      document.getElementById('hpg-failover-modal').classList.add('hidden');
+    }
+    // Close on backdrop click.
+    if (e.target === document.getElementById('hpg-failover-modal')) {
+      document.getElementById('hpg-failover-modal').classList.add('hidden');
+    }
+  });
+})();
+</script>
 {{end}}
