@@ -289,6 +289,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// Pointer set after construction; backup.Run reads it lazily.
 
 	whSvc := webhook.New(wizard.DB, state, logger)
+	whSvc.Metrics = mtr
 	backupSvc.Webhooks = whSvc
 	smsSvc := sms.New(wizard.DB(), logger)
 	smsSvc.State = state

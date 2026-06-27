@@ -45,10 +45,16 @@ const (
 )
 
 // Service dispatches events.
+// webhookMetrics records delivery outcomes.
+type webhookMetrics interface {
+	WebhookDelivery(outcome string, seconds float64)
+}
+
 type Service struct {
-	DB     func() *sql.DB
-	State  *installstate.Manager
-	Logger *slog.Logger
+	DB      func() *sql.DB
+	State   *installstate.Manager
+	Logger  *slog.Logger
+	Metrics webhookMetrics // nil-safe
 
 	hc *http.Client
 }
@@ -147,6 +153,7 @@ func (s *Service) Dispatch(ctx context.Context) {
 }
 
 func (s *Service) attempt(ctx context.Context, deliveryID, epID int64, body string, attempts int) {
+	start := time.Now()
 	db := s.DB()
 	if db == nil {
 		return
@@ -189,6 +196,9 @@ func (s *Service) attempt(ctx context.Context, deliveryID, epID int64, body stri
 	}
 	resp, err := s.hc.Do(req)
 	if err != nil {
+		if s.Metrics != nil {
+			s.Metrics.WebhookDelivery("error", time.Since(start).Seconds())
+		}
 		s.markFail(ctx, deliveryID, attempts, 0, err.Error())
 		return
 	}
@@ -199,7 +209,13 @@ func (s *Service) attempt(ctx context.Context, deliveryID, epID int64, body stri
 			`UPDATE webhook_deliveries SET status='success', http_code=?, delivered_at=NOW(),
 			 attempts=attempts+1, last_error=NULL WHERE id = ?`,
 			resp.StatusCode, deliveryID)
+		if s.Metrics != nil {
+			s.Metrics.WebhookDelivery("success", time.Since(start).Seconds())
+		}
 		return
+	}
+	if s.Metrics != nil {
+		s.Metrics.WebhookDelivery("fail", time.Since(start).Seconds())
 	}
 	s.markFail(ctx, deliveryID, attempts, resp.StatusCode, fmt.Sprintf("HTTP %d", resp.StatusCode))
 }
