@@ -1331,12 +1331,16 @@ func (r *Registry) listSSLCerts(ctx context.Context, raw json.RawMessage) (strin
 		Sans       string `json:"sans"`
 		NotAfter   string `json:"not_after"`
 		DaysLeft   int    `json:"days_left"`
+		Domain     string `json:"domain,omitempty"`
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, name, common_name, sans,
-		        DATE_FORMAT(not_after,'%Y-%m-%dT%H:%i:%sZ'),
-		        TIMESTAMPDIFF(DAY, NOW(), not_after)
-		 FROM manual_certs ORDER BY not_after ASC LIMIT ?`, args.Limit)
+		`SELECT mc.id, mc.name, mc.common_name, mc.sans,
+		        DATE_FORMAT(mc.not_after,'%Y-%m-%dT%H:%i:%sZ'),
+		        TIMESTAMPDIFF(DAY, NOW(), mc.not_after),
+		        COALESCE(rt.domain,'')
+		 FROM manual_certs mc
+		 LEFT JOIN routes rt ON rt.id = mc.route_id
+		 ORDER BY mc.not_after ASC LIMIT ?`, args.Limit)
 	if err != nil {
 		return `{"error":"query failed"}`, nil
 	}
@@ -1344,7 +1348,7 @@ func (r *Registry) listSSLCerts(ctx context.Context, raw json.RawMessage) (strin
 	var out []row
 	for rows.Next() {
 		var ro row
-		if rows.Scan(&ro.ID, &ro.Name, &ro.CommonName, &ro.Sans, &ro.NotAfter, &ro.DaysLeft) == nil {
+		if rows.Scan(&ro.ID, &ro.Name, &ro.CommonName, &ro.Sans, &ro.NotAfter, &ro.DaysLeft, &ro.Domain) == nil {
 			out = append(out, ro)
 		}
 	}

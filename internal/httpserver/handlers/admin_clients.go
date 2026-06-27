@@ -142,7 +142,7 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 		 FROM host_access_log l
 		 JOIN routes r ON r.id = l.route_id
 		 JOIN services s ON s.id = r.service_id
-		 WHERE s.client_id = ? AND l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)`, id,
+		 WHERE s.client_id = ? AND l.ts >= NOW() - INTERVAL 7 DAY`, id,
 	).Scan(&d.BandwidthBytes7d)
 
 	// Load routes for all services owned by this client (up to 200).

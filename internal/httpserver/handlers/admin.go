@@ -635,7 +635,7 @@ func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB) []da
 	rows, err := db.QueryContext(ctx,
 		`SELECT l.route_id, r.domain, COUNT(*) AS reqs
 		 FROM host_access_log l JOIN routes r ON r.id = l.route_id
-		 WHERE l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR)
+		 WHERE l.ts >= NOW() - INTERVAL 24 HOUR
 		 GROUP BY l.route_id, r.domain
 		 ORDER BY reqs DESC LIMIT 5`)
 	if err != nil {
@@ -661,7 +661,7 @@ func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB) []d
 		 JOIN services s ON s.id = r.service_id
 		 JOIN clients c ON c.id = s.client_id
 		 JOIN users u ON u.id = c.user_id
-		 WHERE l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)
+		 WHERE l.ts >= NOW() - INTERVAL 7 DAY
 		 GROUP BY s.client_id, c.display_name, u.email, u.full_name
 		 ORDER BY bw DESC LIMIT 5`)
 	if err != nil {
