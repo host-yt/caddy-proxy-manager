@@ -104,13 +104,14 @@ type hostRow struct {
 
 type hostsData struct {
 	baseAdminData
-	Hosts        []hostRow
-	Total        int // total rows matching filters, across all pages
-	Q            string
-	Status       string
-	NodeIDFilter int64
-	TagFilter    string
-	NodeOptions  []hostsNewNode
+	Hosts           []hostRow
+	Total           int // total rows matching filters, across all pages
+	Q               string
+	Status          string
+	NodeIDFilter    int64
+	TagFilter       string
+	BackendIPFilter string
+	NodeOptions     []hostsNewNode
 
 	// Pagination. Page links must preserve active filters via FilterQS.
 	Page       int
@@ -153,6 +154,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	d.Status = strings.TrimSpace(r.URL.Query().Get("status"))
 	d.NodeIDFilter, _ = strconv.ParseInt(r.URL.Query().Get("node_id"), 10, 64)
 	d.TagFilter = strings.TrimSpace(r.URL.Query().Get("tag"))
+	d.BackendIPFilter = strings.TrimSpace(r.URL.Query().Get("backend_ip"))
 
 	where := []string{"1=1"}
 	args := []any{}
@@ -172,6 +174,11 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	if d.TagFilter != "" {
 		where = append(where, "r.tag = ?")
 		args = append(args, d.TagFilter)
+	}
+	if d.BackendIPFilter != "" {
+		// filter on effective backend: override or service IP
+		where = append(where, "COALESCE(NULLIF(r.backend_ip_override,''), s.backend_ip) LIKE ?")
+		args = append(args, "%"+d.BackendIPFilter+"%")
 	}
 	whereSQL := strings.Join(where, " AND ")
 
@@ -214,7 +221,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	if d.NextPage > d.TotalPages {
 		d.NextPage = d.TotalPages
 	}
-	d.FilterQS = hostsFilterQuery(d.Q, d.Status, d.NodeIDFilter, d.TagFilter)
+	d.FilterQS = hostsFilterQuery(d.Q, d.Status, d.NodeIDFilter, d.TagFilter, d.BackendIPFilter)
 
 	q := `SELECT r.id, r.domain, r.path_prefix, r.upstream_port,
 	             r.status, COALESCE(r.last_error,''),
@@ -300,6 +307,7 @@ func (h *AdminHandlers) HostsExport(w http.ResponseWriter, r *http.Request) {
 	status := strings.TrimSpace(r.URL.Query().Get("status"))
 	nodeID, _ := strconv.ParseInt(r.URL.Query().Get("node_id"), 10, 64)
 	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+	backendIP := strings.TrimSpace(r.URL.Query().Get("backend_ip"))
 
 	where := []string{"1=1"}
 	args := []any{}
@@ -319,6 +327,11 @@ func (h *AdminHandlers) HostsExport(w http.ResponseWriter, r *http.Request) {
 	if tag != "" {
 		where = append(where, "r.tag = ?")
 		args = append(args, tag)
+	}
+	if backendIP != "" {
+		// filter on effective backend: override or service IP
+		where = append(where, "COALESCE(NULLIF(r.backend_ip_override,''), s.backend_ip) LIKE ?")
+		args = append(args, "%"+backendIP+"%")
 	}
 	whereSQL := strings.Join(where, " AND ")
 
@@ -394,7 +407,7 @@ func (h *AdminHandlers) HostsExport(w http.ResponseWriter, r *http.Request) {
 // hostsFilterQuery builds the "&key=val" suffix appended to page links so
 // the active filters survive pagination. The leading "page=" is added by
 // the template; everything here is already URL-escaped.
-func hostsFilterQuery(q, status string, nodeID int64, tag string) string {
+func hostsFilterQuery(q, status string, nodeID int64, tag, backendIP string) string {
 	v := url.Values{}
 	if q != "" {
 		v.Set("q", q)
@@ -407,6 +420,9 @@ func hostsFilterQuery(q, status string, nodeID int64, tag string) string {
 	}
 	if tag != "" {
 		v.Set("tag", tag)
+	}
+	if backendIP != "" {
+		v.Set("backend_ip", backendIP)
 	}
 	if len(v) == 0 {
 		return ""

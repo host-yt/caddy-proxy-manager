@@ -44,6 +44,10 @@
       <label class="hpg-eyebrow mb-1 block">Tag</label>
       <input name="tag" value="{{.TagFilter}}" placeholder="saas-customer-1" class="px-3.5 py-2 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none">
     </div>
+    <div>
+      <label class="hpg-eyebrow mb-1 block">Backend IP</label>
+      <input type="text" name="backend_ip" value="{{.BackendIPFilter}}" placeholder="192.168.1." class="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 focus:ring-2 focus:ring-indigo-400 outline-none w-36">
+    </div>
     <div class="flex gap-1.5">
       <button class="px-4 py-2 rounded-full bg-indigo-600 text-white text-xs font-medium shadow-sm hover:bg-indigo-700">Filter</button>
       <a href="/admin/hosts" class="px-4 py-2 rounded-full ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800">Reset</a>
