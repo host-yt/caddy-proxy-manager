@@ -179,6 +179,7 @@ type clientServiceRow struct {
 	RateLimitRPM     int // 0 = unlimited
 	PathRouting      bool
 	RouteCountPct    int // 0-100 for quota bar
+	Notes            string
 }
 
 type clientServicesData struct {
@@ -204,7 +205,8 @@ func (h *ClientHandlers) Services(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT s.id, s.name, s.backend_ip, s.allowed_port_start, s.allowed_port_end, p.name, p.kind, s.status,
 		        (SELECT COUNT(*) FROM routes r WHERE r.service_id = s.id),
-		        p.max_domains, p.ssl_enabled, p.websocket_enabled, COALESCE(p.rate_limit_rpm,0), p.path_routing_enabled
+		        p.max_domains, p.ssl_enabled, p.websocket_enabled, COALESCE(p.rate_limit_rpm,0), p.path_routing_enabled,
+		        COALESCE(s.notes,"")
 		 FROM services s JOIN plans p ON p.id = s.plan_id
 		 WHERE s.client_id = ? ORDER BY s.id DESC`, clientID)
 	if err == nil {
@@ -215,6 +217,7 @@ func (h *ClientHandlers) Services(w http.ResponseWriter, r *http.Request) {
 				&s.ID, &s.Name, &s.BackendIP, &s.PortStart, &s.PortEnd,
 				&s.PlanName, &s.PlanKind, &s.Status, &s.RouteCount,
 				&s.MaxDomains, &s.SSLEnabled, &s.WebsocketEnabled, &s.RateLimitRPM, &s.PathRouting,
+				&s.Notes,
 			); err == nil {
 				// compute route quota percentage for progress bar
 				if s.MaxDomains > 0 {
