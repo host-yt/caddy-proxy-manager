@@ -81,28 +81,30 @@ func TestItoa(t *testing.T) {
 // Line comments are stripped first so the explanatory notes (which name the
 // excluded columns on purpose) do not trip the scan.
 func TestNoSecretColumns(t *testing.T) {
-	src, err := os.ReadFile("tools.go")
-	if err != nil {
-		t.Fatalf("read tools.go: %v", err)
-	}
-	var code strings.Builder
-	for _, line := range strings.Split(string(src), "\n") {
-		if i := strings.Index(line, "//"); i >= 0 {
-			line = line[:i]
-		}
-		code.WriteString(line)
-		code.WriteString("\n")
-	}
-	lower := strings.ToLower(code.String())
 	forbidden := []string{
 		"password_hash", "totp_secret", "code_hash", "key_hash",
 		"_enc", "_key", "privkey", "private_key", "agent_token", "token_hash",
 		"recovery_code", "tunnel_privkey", "key_prefix",
 		"insert ", "update ", "delete ", "drop ", "alter ", "truncate ",
 	}
-	for _, f := range forbidden {
-		if strings.Contains(lower, f) {
-			t.Fatalf("tools.go must not reference %q (secret column or mutation)", f)
+	for _, fname := range []string{"tools.go", "scoped.go"} {
+		src, err := os.ReadFile(fname)
+		if err != nil {
+			t.Fatalf("read %s: %v", fname, err)
+		}
+		var code strings.Builder
+		for _, line := range strings.Split(string(src), "\n") {
+			if i := strings.Index(line, "//"); i >= 0 {
+				line = line[:i]
+			}
+			code.WriteString(line)
+			code.WriteString("\n")
+		}
+		lower := strings.ToLower(code.String())
+		for _, f := range forbidden {
+			if strings.Contains(lower, f) {
+				t.Fatalf("%s must not reference %q (secret column or mutation)", fname, f)
+			}
 		}
 	}
 }
