@@ -923,7 +923,7 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 	var planWebSocket bool
 	var caddyNodeID sql.NullInt64
 	if err := db.QueryRowContext(ctx,
-		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket, r.caddy_node_id
+		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket_enabled, r.caddy_node_id
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN plans p ON p.id = s.plan_id
