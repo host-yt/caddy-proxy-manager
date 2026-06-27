@@ -804,6 +804,18 @@ type nodeDetailData struct {
 	RecentRoutes []hostRow
 	// GeoIPMeta surfaces DB status next to the GeoIP capability badge.
 	GeoIPMeta geoipView
+	// 24h traffic aggregates for this node.
+	NodeBandwidth24h int64
+	NodeRequests24h  int64
+	TopRoutesBW      []nodeBWRoute
+}
+
+// nodeBWRoute holds per-route 24h bandwidth summary for the node detail cockpit.
+type nodeBWRoute struct {
+	RouteID   int64
+	Domain    string
+	BytesResp int64
+	Requests  int64
 }
 
 type nodeDetailRow struct {
@@ -950,6 +962,32 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Load global GeoIP DB status so the template can show it next to the badge.
 	d.GeoIPMeta = h.loadGeoIPView(ctx, db)
+
+	// 24h total bandwidth + request count for all routes on this node.
+	_ = db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(l.bytes_resp),0), COUNT(*)
+		 FROM host_access_log l
+		 JOIN routes r ON r.id = l.route_id
+		 WHERE r.caddy_node_id = ? AND l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR)`, id,
+	).Scan(&d.NodeBandwidth24h, &d.NodeRequests24h)
+
+	// Top 5 routes by 24h bandwidth on this node.
+	bwrows, err := db.QueryContext(ctx,
+		`SELECT l.route_id, r.domain, COALESCE(SUM(l.bytes_resp),0), COUNT(*)
+		 FROM host_access_log l
+		 JOIN routes r ON r.id = l.route_id
+		 WHERE r.caddy_node_id = ? AND l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR)
+		 GROUP BY l.route_id, r.domain
+		 ORDER BY SUM(l.bytes_resp) DESC LIMIT 5`, id)
+	if err == nil {
+		defer bwrows.Close()
+		for bwrows.Next() {
+			var bw nodeBWRoute
+			if e := bwrows.Scan(&bw.RouteID, &bw.Domain, &bw.BytesResp, &bw.Requests); e == nil {
+				d.TopRoutesBW = append(d.TopRoutesBW, bw)
+			}
+		}
+	}
 
 	h.render(w, "node_detail", d)
 }
