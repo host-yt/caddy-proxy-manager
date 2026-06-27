@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/aichat"
+	"github.com/host-yt/caddy-proxy-manager/internal/aitools"
 	"github.com/host-yt/caddy-proxy-manager/internal/chatstore"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
@@ -239,10 +240,12 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 	// Build the model input: bounded prior history + this user turn. When tools
 	// are available we prepend a system prompt so the model knows it can query
 	// live HPG state via the read-only tools.
-	// Tools expose client/service/route/traffic data (and send it to the external
-	// provider), so gate them to admin roles. Support may open the chat via the
-	// read-only allow-list but must NOT reach that data. See adversarial review 2026-06-27.
-	toolsAvailable := h.AITools != nil && providerSupportsTools(client.Provider()) && aiToolsAllowedFor(r)
+	// Scope is derived SERVER-SIDE from the session role: super_admin / unscoped
+	// admin -> all clients; scoped admin -> assigned clients; client -> own
+	// client only; support -> no tools at all. Every tool query is then filtered
+	// to that scope so a client can never reach infra or another tenant's data.
+	scope, toolsAllowed := h.aiToolScope(r)
+	toolsAvailable := h.AITools != nil && providerSupportsTools(client.Provider()) && toolsAllowed
 	msgs := buildChatMessages(history, content)
 	if toolsAvailable {
 		msgs = append([]aichat.Message{{Role: aichat.RoleSystem, Content: aiToolsSystemPrompt}}, msgs...)
@@ -264,7 +267,7 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 
 	var reply string
 	if toolsAvailable {
-		answer, err := h.runToolLoop(streamCtx, client, msgs)
+		answer, err := h.runToolLoop(streamCtx, client, msgs, scope)
 		if err != nil && !errors.Is(err, aichat.ErrToolsUnsupported) {
 			h.Logger.Warn("ai chat tool loop", "err", err)
 			sseError(w, rc, "stream error")
@@ -355,16 +358,58 @@ const aiToolsSystemPrompt = "You are the HPG (Hostyt Proxy Gateway) admin assist
 	"You can call read-only tools to inspect live state (nodes, routes, clients, services, traffic). " +
 	"Use them when the user asks about current state, then answer concisely. The tools never expose secrets."
 
-// roleCanUseAITools gates the data-access tools to admin roles. Support is
-// read-only via the allow-list but must not reach client/service/traffic data.
+// roleCanUseAITools gates the data-access tools by role. super_admin/admin get
+// the full or scoped tool set; client gets a strictly scoped tool set (own
+// tenant only). Support is read-only via the allow-list but must NOT reach any
+// client/service/traffic data, so it gets NO tools.
 func roleCanUseAITools(role string) bool {
-	return role == "super_admin" || role == "admin"
+	return role == "super_admin" || role == "admin" || role == "client"
 }
 
-// aiToolsAllowedFor reports whether the request's caller may invoke AI tools.
-func aiToolsAllowedFor(r *http.Request) bool {
+// aiToolScope derives the caller's tool scope from the session role. The bool is
+// false when the caller gets no tools at all (support / unknown / no session).
+// The scope is the ONLY source of the client-id filter - model args are never
+// trusted. An admin whose AdminScope resolves to a specific client list is
+// scoped; an empty scoped list yields no rows (never all).
+func (h *AdminHandlers) aiToolScope(r *http.Request) (aitools.Scope, bool) {
 	sess := middleware.SessionFromContext(r.Context())
-	return sess != nil && roleCanUseAITools(sess.Role)
+	if sess == nil || !roleCanUseAITools(sess.Role) {
+		return aitools.Scope{}, false
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	switch sess.Role {
+	case "super_admin":
+		return aitools.Scope{AllClients: true}, true
+	case "admin":
+		// Unscoped admin (no AdminScope wired) sees all; scoped admin is limited
+		// to assigned clients. An admin with zero assignments sees no client data.
+		if h.AdminScope == nil {
+			return aitools.Scope{AllClients: true}, true
+		}
+		ids, all, err := h.AdminScope.ScopeFilter(ctx, sess.UserID)
+		if err != nil {
+			h.Logger.Warn("ai tool scope: admin scope filter", "err", err)
+			return aitools.Scope{}, false
+		}
+		if all {
+			return aitools.Scope{AllClients: true}, true
+		}
+		return aitools.Scope{ClientIDs: ids}, true
+	case "client":
+		db := h.DB()
+		if db == nil {
+			return aitools.Scope{}, false
+		}
+		cid, err := clientIDFor(ctx, db, sess.UserID)
+		if err != nil {
+			// No client record -> empty scope -> no rows, but tools still gated.
+			return aitools.Scope{ClientIDs: nil}, true
+		}
+		return aitools.Scope{ClientIDs: []int64{cid}}, true
+	default:
+		return aitools.Scope{}, false
+	}
 }
 
 // providerSupportsTools reports whether the provider has a tool-calling adapter.
@@ -382,8 +427,8 @@ func providerSupportsTools(provider string) bool {
 // results, and call again until the model returns a final text answer or the
 // iteration cap is hit. Returns ErrToolsUnsupported when the provider has no
 // tool path so the caller can fall back to plain streaming.
-func (h *AdminHandlers) runToolLoop(ctx context.Context, client aichat.Client, msgs []aichat.Message) (string, error) {
-	specs := h.AITools.Specs()
+func (h *AdminHandlers) runToolLoop(ctx context.Context, client aichat.Client, msgs []aichat.Message, scope aitools.Scope) (string, error) {
+	specs := h.AITools.SpecsFor(scope)
 	for i := 0; i < aiToolLoopCap; i++ {
 		turn, err := client.ChatWithTools(ctx, msgs, aichat.Options{Temperature: -1}, specs)
 		if err != nil {
@@ -397,7 +442,7 @@ func (h *AdminHandlers) runToolLoop(ctx context.Context, client aichat.Client, m
 		msgs = append(msgs, aichat.Message{Role: aichat.RoleAssistant, Content: turn.Text, ToolCalls: turn.ToolCalls})
 		for _, call := range turn.ToolCalls {
 			callCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
-			result, cerr := h.AITools.Call(callCtx, call.Name, call.Arguments)
+			result, cerr := h.AITools.CallScoped(callCtx, scope, call.Name, call.Arguments)
 			cancel()
 			if cerr != nil {
 				h.Logger.Warn("ai tool call", "tool", call.Name, "err", cerr)

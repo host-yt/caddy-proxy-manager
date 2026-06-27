@@ -604,6 +604,17 @@ func (s *Server) routes() {
 			})
 		}
 		r.Post("/status-page/toggle", s.deps.Client.StatusPageToggle)
+		// AI chat for the client role. Reuses the AdminHandlers AIChat* methods:
+		// they read userID from the session (chatstore is user-scoped) and derive
+		// a per-client tool scope by role, so a client only ever sees its own
+		// conversations and its own tenant data. Same JSON+SSE shapes as /admin.
+		r.Route("/ai", func(r chi.Router) {
+			r.Get("/chat/sessions", s.deps.Admin.AIChatListSessions)
+			r.Post("/chat/sessions", s.deps.Admin.AIChatCreateSession)
+			r.Get("/chat/sessions/{id}", s.deps.Admin.AIChatGetSession)
+			r.Delete("/chat/sessions/{id}", s.deps.Admin.AIChatDeleteSession)
+			r.Post("/chat/sessions/{id}/message", s.deps.Admin.AIChatSendMessage)
+		})
 	})
 
 	// REST API v1 - bearer-token auth.
