@@ -64,6 +64,8 @@ func CommonFuncs() template.FuncMap {
 			}
 			return float64(a) / float64(b)
 		},
+		// mulf multiplies two float64 values; used to format percentages.
+		"mulf": func(a, b float64) float64 { return a * b },
 	}
 }
 

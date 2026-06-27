@@ -24,6 +24,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
 	"github.com/host-yt/caddy-proxy-manager/internal/aichat"
 	"github.com/host-yt/caddy-proxy-manager/internal/aitools"
+	"github.com/host-yt/caddy-proxy-manager/internal/alert"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/backup"
@@ -113,6 +114,8 @@ type AdminHandlers struct {
 	ChatStore *chatstore.Store
 	// AITools is the read-only HPG tool registry the assistant may call (nil-safe).
 	AITools *aitools.Registry
+	// AlertCfg holds alert thresholds for display on the alerts page.
+	AlertCfg alert.Config
 }
 
 // adminConfigRefs holds pointers admin settings handlers can flip at runtime.

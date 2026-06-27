@@ -8,6 +8,44 @@
     {{end}}
   </div>
 
+  <!-- rules summary: 7-day fire count per known rule -->
+  {{if .RulesStatus}}
+  <section class="hpg-card mb-4">
+    <h2 class="font-semibold mb-3 text-slate-800 dark:text-slate-100">Alert rules (7d)</h2>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead><tr class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 border-b dark:border-zinc-800">
+          <th class="px-4 py-3 text-left">Rule</th><th class="px-4 py-3 text-left">Last fired</th><th class="px-4 py-3 text-left">7d count</th><th class="px-4 py-3 text-left">Description</th>
+        </tr></thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .RulesStatus}}
+          <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
+            <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{{.RuleID}}</td>
+            <td class="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">{{if .LastFired}}{{.LastFired.Format "2006-01-02 15:04"}}{{else}}<span class="text-slate-400">never</span>{{end}}</td>
+            <td class="px-4 py-3 tabular-nums text-xs {{if gt .FireCount 0}}text-amber-600 dark:text-amber-400 font-medium{{else}}text-slate-400{{end}}">{{.FireCount}}</td>
+            <td class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{{.Description}}</td>
+          </tr>
+        {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+  {{end}}
+
+  <!-- alert thresholds from AlertCfg (set via ALERT_* env vars) -->
+  <section class="hpg-card mb-4">
+    <h2 class="font-semibold mb-3 text-slate-800 dark:text-slate-100">Alert thresholds</h2>
+    <dl class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 text-sm">
+      <div><dt class="hpg-eyebrow">Node offline after</dt><dd class="font-medium mt-0.5">{{.AlertCfg.NodeOfflineMinutes}} min</dd></div>
+      <div><dt class="hpg-eyebrow">WG stale after</dt><dd class="font-medium mt-0.5">{{.AlertCfg.WGStaleSeconds}} s</dd></div>
+      <div><dt class="hpg-eyebrow">Cert stuck after</dt><dd class="font-medium mt-0.5">{{.AlertCfg.CertStuckMinutes}} min</dd></div>
+      <div><dt class="hpg-eyebrow">Error rate threshold</dt><dd class="font-medium mt-0.5">{{.ErrorRatePct100}}%</dd></div>
+      <div><dt class="hpg-eyebrow">Error rate window</dt><dd class="font-medium mt-0.5">{{.AlertCfg.ErrorRateWindowMinutes}} min</dd></div>
+      <div><dt class="hpg-eyebrow">Cooldown</dt><dd class="font-medium mt-0.5">{{.AlertCfg.CooldownSeconds}} s</dd></div>
+    </dl>
+    <p class="text-xs text-slate-400 mt-3">Configure via ALERT_* environment variables. See docs/DEPLOY.md.</p>
+  </section>
+
   {{if .Rows}}
   <section class="hpg-card !p-0 overflow-hidden">
     <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">

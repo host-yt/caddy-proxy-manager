@@ -389,6 +389,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	adminH.ResyncNode = routesSvc.Resync
 	adminH.Routes = routesSvc
 	adminH.WriteWGConfig = writeWG
+	adminH.AlertCfg = alertEval.Cfg
 	clientH := &handlers.ClientHandlers{
 		DB: wizard.DB, Sessions: sessions, Templates: appTpls, Routes: routesSvc, Logger: logger,
 		State: state, SMS: smsSvc, Mailer: mailer,
