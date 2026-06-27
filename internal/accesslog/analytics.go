@@ -64,6 +64,12 @@ type MethodHit struct {
 	Count  int64
 }
 
+// CountryHit is a counted ISO 3166-1 alpha-2 country code from GeoIP.
+type CountryHit struct {
+	Country string // empty string = unknown/no GeoIP data
+	Count   int64
+}
+
 // ProtoHit is a counted HTTP protocol version.
 type ProtoHit struct {
 	Proto string
@@ -189,6 +195,19 @@ func (s *Store) TopUserAgents(ctx context.Context, f AnalyticsFilter, limit int)
 	out := make([]UserAgentHit, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, UserAgentHit{UserAgent: row.value, Count: row.count})
+	}
+	return out, nil
+}
+
+// TopCountries returns the most frequent country codes from GeoIP data.
+func (s *Store) TopCountries(ctx context.Context, f AnalyticsFilter, limit int) ([]CountryHit, error) {
+	rows, err := s.topTextValues(ctx, f, "country", "", limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]CountryHit, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, CountryHit{Country: row.value, Count: row.count})
 	}
 	return out, nil
 }
