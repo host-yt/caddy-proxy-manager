@@ -1567,6 +1567,7 @@ type planRow struct {
 	NodeGroupName     string
 	ServiceCount      int
 	RouteCount        int
+	ClientCount       int
 }
 
 type nodeGroup struct {
@@ -1616,11 +1617,11 @@ func (h *AdminHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// fetch per-plan service + route counts in one pass
-	type planUsage struct{ svc, route int }
+	// fetch per-plan service + route + client counts in one pass
+	type planUsage struct{ svc, route, clients int }
 	usage := map[int64]planUsage{}
 	urows, err := db.QueryContext(ctx,
-		`SELECT s.plan_id, COUNT(DISTINCT s.id), COUNT(r.id)
+		`SELECT s.plan_id, COUNT(DISTINCT s.id), COUNT(DISTINCT r.id), COUNT(DISTINCT s.client_id)
 		 FROM services s
 		 LEFT JOIN routes r ON r.service_id = s.id
 		 GROUP BY s.plan_id`)
@@ -1629,7 +1630,7 @@ func (h *AdminHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 		for urows.Next() {
 			var pid int64
 			var u planUsage
-			urows.Scan(&pid, &u.svc, &u.route) //nolint:errcheck
+			urows.Scan(&pid, &u.svc, &u.route, &u.clients) //nolint:errcheck
 			usage[pid] = u
 		}
 	}
@@ -1637,6 +1638,7 @@ func (h *AdminHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 		if u, ok := usage[p.ID]; ok {
 			d.Plans[i].ServiceCount = u.svc
 			d.Plans[i].RouteCount = u.route
+			d.Plans[i].ClientCount = u.clients
 		}
 	}
 
