@@ -444,6 +444,51 @@ func (s *Store) TotalBandwidthBytes(ctx context.Context, routeID int64, from, to
 	return total, err
 }
 
+// BandwidthDayBucket aggregates response bytes for a single calendar day.
+type BandwidthDayBucket struct {
+	Label      string // "Mon 23"
+	ShortLabel string // "Mon" - weekday abbreviation for narrow bars
+	Bytes      int64
+}
+
+// BandwidthDaySeries returns daily byte totals for the days in [from,to].
+func (s *Store) BandwidthDaySeries(ctx context.Context, routeID int64, from, to time.Time) ([]BandwidthDayBucket, error) {
+	db := s.db()
+	if db == nil {
+		return nil, nil
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT DATE(ts) AS day, COALESCE(SUM(bytes_resp),0)
+		 FROM host_access_log
+		 WHERE route_id=? AND ts>=? AND ts<=?
+		 GROUP BY day
+		 ORDER BY day ASC`,
+		routeID, from.UTC(), to.UTC(),
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []BandwidthDayBucket
+	for rows.Next() {
+		var day string
+		var bytes int64
+		if err := rows.Scan(&day, &bytes); err != nil {
+			continue
+		}
+		t, err := time.Parse("2006-01-02", day)
+		if err != nil {
+			continue
+		}
+		out = append(out, BandwidthDayBucket{
+			Label:      t.Format("Mon 02"),
+			ShortLabel: t.Format("Mon"),
+			Bytes:      bytes,
+		})
+	}
+	return out, rows.Err()
+}
+
 // BytesSummary returns total and average response bytes over the filter window.
 func (s *Store) BytesSummary(ctx context.Context, f AnalyticsFilter) (BytesSummary, error) {
 	db := s.db()
