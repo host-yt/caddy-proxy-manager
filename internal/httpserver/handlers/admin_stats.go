@@ -50,6 +50,14 @@ type planUsageRow struct {
 	ActiveRoutes int
 }
 
+// planViolationRow represents a client exceeding their plan limits.
+type planViolationRow struct {
+	ClientID    int64
+	ClientEmail string
+	PlanName    string
+	Reason      string // e.g. "routes (12) exceeds max_domains (10)"
+}
+
 // nodeTrafficRow holds per-node 7d bandwidth + route count for the stats table.
 type nodeTrafficRow struct {
 	NodeID       int64
@@ -74,11 +82,12 @@ type statsData struct {
 	Requests24h  string
 	Errors24h    string
 
-	NodeStats    []nodeStatRow
-	TopClients   []topClientRow
-	RecentRoutes []recentRouteRow
-	PlanUsage    []planUsageRow
-	NodeTraffic  []nodeTrafficRow
+	NodeStats      []nodeStatRow
+	TopClients     []topClientRow
+	RecentRoutes   []recentRouteRow
+	PlanUsage      []planUsageRow
+	NodeTraffic    []nodeTrafficRow
+	PlanViolations []planViolationRow
 
 	Cache    cacheSummary
 	Security securitySummary
@@ -269,6 +278,9 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 		ntrRows.Close()
 	}
 
+	// --- Plan violations (clients exceeding limits, max 20, dedup by client) ----
+	d.PlanViolations = h.planViolationsFor(ctx, db)
+
 	// --- Recent routes ------------------------------------------------
 	rrows, _ := db.QueryContext(ctx,
 		`SELECT r.domain, COALESCE(r.path_prefix,''), r.upstream_port, n.name, r.status,
@@ -350,6 +362,77 @@ func (h *AdminHandlers) cacheSummaryFor(ctx context.Context, db *sql.DB) cacheSu
 			out.TopCachedHosts = append(out.TopCachedHosts, row)
 		}
 	}
+	return out
+}
+
+// planViolationsFor returns up to 20 clients exceeding plan limits (deduped by client).
+func (h *AdminHandlers) planViolationsFor(ctx context.Context, db *sql.DB) []planViolationRow {
+	if db == nil {
+		return nil
+	}
+	seen := map[int64]struct{}{}
+	var out []planViolationRow
+
+	// Check 1: active routes > max_domains.
+	r1, err := db.QueryContext(ctx,
+		`SELECT c.id, COALESCE(NULLIF(c.display_name,''), u.email), p.name, COUNT(r.id), p.max_domains
+		 FROM clients c
+		 JOIN users u ON u.id=c.user_id
+		 JOIN plans p ON p.id=c.plan_id
+		 JOIN services s ON s.client_id=c.id
+		 JOIN routes r ON r.service_id=s.id
+		 WHERE r.status IN ('active','pending_dns','dns_ok','pending_ssl')
+		 GROUP BY c.id, c.display_name, u.email, p.name, p.max_domains
+		 HAVING COUNT(r.id) > p.max_domains AND p.max_domains > 0`)
+	if err == nil {
+		defer r1.Close()
+		for r1.Next() {
+			var v planViolationRow
+			var count, max int
+			if err := r1.Scan(&v.ClientID, &v.ClientEmail, &v.PlanName, &count, &max); err != nil {
+				continue
+			}
+			if _, dup := seen[v.ClientID]; dup {
+				continue
+			}
+			seen[v.ClientID] = struct{}{}
+			v.Reason = fmt.Sprintf("routes (%d) exceeds max_domains (%d)", count, max)
+			out = append(out, v)
+			if len(out) >= 20 {
+				return out
+			}
+		}
+	}
+
+	// Check 2: WebSocket routes used without plan.websocket.
+	r2, err := db.QueryContext(ctx,
+		`SELECT c.id, COALESCE(NULLIF(c.display_name,''), u.email), p.name
+		 FROM clients c
+		 JOIN users u ON u.id=c.user_id
+		 JOIN plans p ON p.id=c.plan_id
+		 JOIN services s ON s.client_id=c.id
+		 JOIN routes r ON r.service_id=s.id
+		 WHERE r.websocket=1 AND p.websocket=0 AND r.status NOT IN ('disabled','deleted')
+		 GROUP BY c.id, c.display_name, u.email, p.name`)
+	if err == nil {
+		defer r2.Close()
+		for r2.Next() {
+			var v planViolationRow
+			if err := r2.Scan(&v.ClientID, &v.ClientEmail, &v.PlanName); err != nil {
+				continue
+			}
+			if _, dup := seen[v.ClientID]; dup {
+				continue
+			}
+			seen[v.ClientID] = struct{}{}
+			v.Reason = "WebSocket routes not allowed in plan"
+			out = append(out, v)
+			if len(out) >= 20 {
+				return out
+			}
+		}
+	}
+
 	return out
 }
 
