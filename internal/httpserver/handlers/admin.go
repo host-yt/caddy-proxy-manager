@@ -354,6 +354,20 @@ type dashTraffic struct {
 	Total  uint64
 }
 
+// dashTopRoute holds request count for one route over 24h.
+type dashTopRoute struct {
+	RouteID  int64
+	Domain   string
+	Requests int64
+}
+
+// dashTopClient holds bandwidth total for one client over 7d.
+type dashTopClient struct {
+	ClientID       int64
+	DisplayName    string
+	BandwidthBytes int64
+}
+
 type dashboardData struct {
 	baseAdminData
 	Attention    []AttentionItem
@@ -361,6 +375,8 @@ type dashboardData struct {
 	Counts       dashCounts
 	RecentEvents []dashEvent
 	Traffic      dashTraffic
+	TopRoutes    []dashTopRoute
+	TopClients   []dashTopClient
 }
 
 // Cap below the max number of distinct attention items (currently 7) so the
@@ -382,6 +398,8 @@ func (h *AdminHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	d.Attention, d.Truncated = h.dashboardAttention(ctx, db)
 	d.RecentEvents = h.dashboardRecentEvents(ctx, db)
 	d.Traffic = h.dashboardTraffic(ctx, db)
+	d.TopRoutes = h.dashboardTopRoutes(ctx, db)
+	d.TopClients = h.dashboardTopClients(ctx, db)
 
 	h.render(w, "dashboard", d)
 }
@@ -526,6 +544,54 @@ func (h *AdminHandlers) dashboardRecentEvents(ctx context.Context, db *sql.DB) [
 		var e dashEvent
 		if err := rows.Scan(&e.When, &e.Actor, &e.Action, &e.Entity); err == nil {
 			out = append(out, e)
+		}
+	}
+	return out
+}
+
+// dashboardTopRoutes returns the 5 busiest routes by request count in the last 24h.
+func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB) []dashTopRoute {
+	rows, err := db.QueryContext(ctx,
+		`SELECT l.route_id, r.domain, COUNT(*) AS reqs
+		 FROM host_access_log l JOIN routes r ON r.id = l.route_id
+		 WHERE l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 24 HOUR)
+		 GROUP BY l.route_id, r.domain
+		 ORDER BY reqs DESC LIMIT 5`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []dashTopRoute
+	for rows.Next() {
+		var row dashTopRoute
+		if err := rows.Scan(&row.RouteID, &row.Domain, &row.Requests); err == nil {
+			out = append(out, row)
+		}
+	}
+	return out
+}
+
+// dashboardTopClients returns the 5 highest-bandwidth clients over the last 7d.
+func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB) []dashTopClient {
+	rows, err := db.QueryContext(ctx,
+		`SELECT s.client_id, COALESCE(c.display_name, u.full_name, u.email), SUM(l.bytes_resp) AS bw
+		 FROM host_access_log l
+		 JOIN routes r ON r.id = l.route_id
+		 JOIN services s ON s.id = r.service_id
+		 JOIN clients c ON c.id = s.client_id
+		 JOIN users u ON u.id = c.user_id
+		 WHERE l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)
+		 GROUP BY s.client_id, c.display_name, u.email, u.full_name
+		 ORDER BY bw DESC LIMIT 5`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []dashTopClient
+	for rows.Next() {
+		var row dashTopClient
+		if err := rows.Scan(&row.ClientID, &row.DisplayName, &row.BandwidthBytes); err == nil {
+			out = append(out, row)
 		}
 	}
 	return out
