@@ -156,6 +156,7 @@
           <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Plan</th>
           <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Node</th>
           <th class="px-4 py-3 w-24 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Req 24h</th>
+          <th class="px-4 py-3 w-20 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Err 24h</th>
           <th class="pl-2 pr-5 py-3 w-px text-right text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Actions</th>
         </tr>
       </thead>
@@ -206,6 +207,7 @@
           </td>
           <td class="px-4 py-4 align-top text-xs text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.NodeName}} <span class="text-slate-400">{{.NodeHostname}}</span></td>
           <td class="px-4 py-4 align-top text-xs text-right text-slate-600 dark:text-slate-300 whitespace-nowrap">{{if gt .Req24h 0}}{{printf "%d" .Req24h}}{{else}}-{{end}}</td>
+          <td class="px-4 py-4 align-top text-xs text-right whitespace-nowrap">{{if gt .Err24h 0}}<span class="text-rose-600 dark:text-rose-400 font-medium">{{printf "%d" .Err24h}}</span>{{else}}<span class="text-slate-400">-</span>{{end}}</td>
           <td class="pl-2 pr-5 py-4 align-top text-right relative">
             <!-- Desktop: full inline button row (hidden on mobile via CSS). -->
             <div class="hpg-act-desktop inline-flex items-center gap-1.5 text-xs whitespace-nowrap">

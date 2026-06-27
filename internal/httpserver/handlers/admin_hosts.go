@@ -99,6 +99,8 @@ type hostRow struct {
 
 	// Req24h is total requests from log_rollups in the last 24 hours.
 	Req24h int64
+	// Err24h is total 4xx+5xx errors from log_rollups in the last 24 hours.
+	Err24h int64
 
 	// Derived view-model fields for the at-a-glance table (filled below).
 	BackendDisplay string
@@ -262,7 +264,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	             CASE WHEN r.mtls_ca_id IS NOT NULL AND mca.status='active' THEN 1 ELSE 0 END,
 	             COALESCE(NULLIF(mca.name,''), mca.common_name, ''),
 	             COALESCE(r.geo_mode,'off'),
-	             COALESCE(lr.req24h, 0)
+	             COALESCE(lr.req24h, 0), COALESCE(lr.err24h, 0)
 	      FROM routes r
 	      JOIN services s    ON s.id = r.service_id
 	      JOIN clients c     ON c.id = s.client_id
@@ -272,7 +274,8 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	      LEFT JOIN manual_certs mc ON mc.route_id = r.id
 	      LEFT JOIN mtls_cas mca ON mca.id = r.mtls_ca_id
 	      LEFT JOIN (
-	        SELECT route_id, SUM(requests) AS req24h
+	        SELECT route_id, SUM(requests) AS req24h,
+	               SUM(errors_4xx+errors_5xx) AS err24h
 	        FROM log_rollups
 	        WHERE bucket_start >= DATE_SUB(NOW(), INTERVAL 1 DAY)
 	        GROUP BY route_id
@@ -307,7 +310,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 			&hr.SSOProviderURL, &hr.SSOStrictMode,
 			&hr.CertDaysLeft, &hr.MaintenanceMode,
 			&hr.RequireClientCert, &hr.MTLSCAActive, &hr.MTLSCAName, &hr.GeoMode,
-			&hr.Req24h,
+			&hr.Req24h, &hr.Err24h,
 		); err == nil {
 			hr.ExternalHost = extHostHeader
 			hr.BackendDisplay = hostBackendDisplay(hr)
