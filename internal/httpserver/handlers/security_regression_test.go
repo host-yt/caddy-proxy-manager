@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -101,5 +103,41 @@ func TestAdminTwofaEnrollNoHiddenSecret(t *testing.T) {
 	}
 	if strings.Contains(html, `name="secret" value=`) {
 		t.Fatal("'secret' value attribute found in admin template form")
+	}
+}
+
+// TestNoSQLAntiPatterns guards against known bad SQL patterns in handler files.
+// UNIX_TIMESTAMP(NOW() ... ) compared against a DATETIME column always passes
+// because MySQL coerces DATETIME to YYYYMMDDHHMMSS (a 14-digit integer) which
+// always exceeds any unix timestamp; the WHERE clause becomes a no-op.
+func TestNoSQLAntiPatterns(t *testing.T) {
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatalf("readdir: %v", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
+			continue
+		}
+		src, err := os.ReadFile(filepath.Join(".", e.Name()))
+		if err != nil {
+			t.Fatalf("read %s: %v", e.Name(), err)
+		}
+		lower := strings.ToLower(string(src))
+		// Remove line comments so doc examples don't trip the check.
+		var clean strings.Builder
+		for _, line := range strings.Split(lower, "\n") {
+			if i := strings.Index(line, "//"); i >= 0 {
+				line = line[:i]
+			}
+			clean.WriteString(line)
+			clean.WriteString("\n")
+		}
+		code := clean.String()
+		if strings.Contains(code, "unix_timestamp(now()") && strings.Contains(code, "interval") {
+			if strings.Contains(code, ">= unix_timestamp(now()") || strings.Contains(code, "> unix_timestamp(now()") {
+				t.Errorf("%s: DATETIME compared to UNIX_TIMESTAMP(NOW()) always passes - use NOW() - INTERVAL directly", e.Name())
+			}
+		}
 	}
 }
