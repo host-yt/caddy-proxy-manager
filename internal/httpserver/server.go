@@ -361,6 +361,7 @@ func (s *Server) routes() {
 			r.Post("/{id}/reveal-secret", s.deps.Admin.HostsRevealSecret)
 			r.Post("/{id}/delete", s.deps.Admin.HostsDelete)
 			r.Post("/{id}/toggle", s.deps.Admin.HostsToggle)
+			r.Post("/{id}/toggle-maintenance", s.deps.Admin.HostsToggleMaintenance)
 			r.Post("/{id}/retry", s.deps.Admin.HostsRetry)
 			r.Post("/bulk", s.deps.Admin.HostsBulk)
 			r.Get("/{id}/logs", s.deps.Admin.HostsLogs)
