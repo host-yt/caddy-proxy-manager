@@ -1312,13 +1312,30 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		wstHealthy     sql.NullBool
 		wstFresh       sql.NullBool
 	)
+	var nodeHasWAF, nodeHasL4, nodeHasGeoIP, nodeHasRateLimit, nodeHasDNS sql.NullBool
 	if err := s.DB.QueryRowContext(ctx,
 		`SELECT api_url, tunnel_transport, tunnel_wstunnel_port, tunnel_endpoint, tunnel_enabled,
 		        tunnel_wstunnel_healthy,
-		        tunnel_wstunnel_reported_at > NOW() - INTERVAL 3 MINUTE
+		        tunnel_wstunnel_reported_at > NOW() - INTERVAL 3 MINUTE,
+		        CASE WHEN modules_probed_at IS NOT NULL THEN has_waf       ELSE NULL END,
+		        CASE WHEN modules_probed_at IS NOT NULL THEN has_l4        ELSE NULL END,
+		        CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip     ELSE NULL END,
+		        CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit ELSE NULL END,
+		        CASE WHEN modules_probed_at IS NOT NULL THEN has_dns_module ELSE NULL END
 		   FROM caddy_nodes WHERE id = ?`,
-		nodeID).Scan(&apiURL, &transport, &wstunnelPort, &tunnelEndpoint, &tunnelEnabled, &wstHealthy, &wstFresh); err != nil {
+		nodeID).Scan(&apiURL, &transport, &wstunnelPort, &tunnelEndpoint, &tunnelEnabled,
+		&wstHealthy, &wstFresh,
+		&nodeHasWAF, &nodeHasL4, &nodeHasGeoIP, &nodeHasRateLimit, &nodeHasDNS); err != nil {
 		return nil, err
+	}
+	// If the node has been probed, its per-node capability flags are authoritative.
+	// Unprobed nodes fall back to the global env-configured flags so existing
+	// deployments are not affected before the first probe runs.
+	probedOr := func(probed sql.NullBool, global bool) bool {
+		if probed.Valid {
+			return probed.Bool
+		}
+		return global
 	}
 	streams := s.buildStreamsForNode(ctx, nodeID)
 	branding := s.loadErrorBranding(ctx)
@@ -1359,11 +1376,11 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		AskURL:                   s.AskURL,
 		PanelRoute:               s.panelRoute(),
 		CacheModuleAvailable:     s.CacheModuleAvailable,
-		Layer4ModuleAvailable:    s.Layer4ModuleAvailable,
-		RateLimitModuleAvailable: s.RateLimitModuleAvailable,
-		WAFModuleAvailable:       s.WAFModuleAvailable,
-		GeoModuleAvailable:       s.GeoModuleAvailable,
-		DNS01ModuleAvailable:     s.DNS01ModuleAvailable,
+		Layer4ModuleAvailable:    probedOr(nodeHasL4, s.Layer4ModuleAvailable),
+		RateLimitModuleAvailable: probedOr(nodeHasRateLimit, s.RateLimitModuleAvailable),
+		WAFModuleAvailable:       probedOr(nodeHasWAF, s.WAFModuleAvailable),
+		GeoModuleAvailable:       probedOr(nodeHasGeoIP, s.GeoModuleAvailable),
+		DNS01ModuleAvailable:     probedOr(nodeHasDNS, s.DNS01ModuleAvailable),
 		WildcardPolicies:         s.buildWildcardPolicies(ctx, nodeID),
 		StreamRoutes:             streams,
 		ErrorBranding:            branding,
