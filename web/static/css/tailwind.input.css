@@ -146,4 +146,49 @@
     background: rgb(var(--accent-weak));
     color: rgb(var(--accent));
   }
+
+  /* === icon-chip / r-avatar === */
+  .icon-chip {
+    @apply grid place-items-center w-9 h-9 rounded-[var(--r-md,12px)] shrink-0;
+    background: rgb(var(--accent-weak));
+    color: rgb(var(--accent));
+  }
+  .r-avatar {
+    @apply grid place-items-center w-10 h-10 rounded-full shrink-0 text-sm font-semibold;
+    background: rgb(var(--accent-weak));
+    color: rgb(var(--accent));
+  }
+
+  /* === r-toggle (iOS-style switch) === */
+  .r-toggle {
+    @apply relative inline-flex items-center w-10 h-6 rounded-full cursor-pointer transition-colors;
+    background: rgb(var(--border));
+  }
+  .r-toggle:has(input:checked) {
+    background: rgb(var(--accent));
+  }
+  .r-toggle input { @apply sr-only; }
+  .r-toggle-thumb {
+    @apply absolute left-1 w-4 h-4 rounded-full bg-white shadow-sm transition-transform;
+  }
+  .r-toggle:has(input:checked) .r-toggle-thumb { @apply translate-x-4; }
+  @media (prefers-reduced-motion: reduce) {
+    .r-toggle, .r-toggle-thumb { transition: none; }
+  }
+
+  /* === r-table (airy admin variant) === */
+  .r-table { @apply w-full text-sm border-collapse; }
+  .r-table th {
+    @apply px-4 py-2.5 text-left font-medium text-[11px] uppercase tracking-wider;
+    color: rgb(var(--muted));
+    background: rgb(var(--surface));
+    border-bottom: 1px solid rgb(var(--border));
+  }
+  .r-table td {
+    @apply px-4 py-3 tabular-nums;
+    color: rgb(var(--text));
+    border-bottom: 1px solid rgb(var(--border));
+  }
+  .r-table tbody tr:hover td { background: rgb(var(--surface-2)); }
+  .r-table tbody tr:last-child td { border-bottom: none; }
 }
