@@ -4006,12 +4006,15 @@ type apiKeyRow struct {
 	CreatedAt  string
 	ExpiresAt  string
 	Revoked    bool
+	ViewAll    bool   // true when super_admin is viewing all keys
+	OwnerEmail string // populated only in ViewAll mode
 }
 
 type apiKeysData struct {
 	baseAdminData
 	Keys     []apiKeyRow
 	NewPlain string // shown ONCE after creation
+	ViewAll  bool   // true when super_admin requested all=1
 	// Pagination/sort/search.
 	Page         int
 	Size         int
@@ -4051,11 +4054,26 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	where := "user_id = ?"
-	args := []any{sess.UserID}
+	// super_admin with ?all=1 sees every user's keys.
+	viewAll := sess.Role == "super_admin" && r.URL.Query().Get("all") == "1"
+	d.ViewAll = viewAll
+
+	var (
+		where    string
+		args     []any
+		fromClause string
+	)
+	if viewAll {
+		fromClause = "api_keys k LEFT JOIN users u ON u.id = k.user_id"
+		where = "1=1"
+	} else {
+		fromClause = "api_keys k"
+		where = "k.user_id = ?"
+		args = []any{sess.UserID}
+	}
 	if lp.Q != "" {
 		like := likeContains(lp.Q)
-		where += ` AND (name LIKE ? ESCAPE '\\' OR key_prefix LIKE ? ESCAPE '\\' OR scopes LIKE ? ESCAPE '\\')`
+		where += ` AND (k.name LIKE ? ESCAPE '\\' OR k.key_prefix LIKE ? ESCAPE '\\' OR k.scopes LIKE ? ESCAPE '\\')`
 		args = append(args, like, like, like)
 	}
 
@@ -4066,23 +4084,45 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var total int
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM api_keys WHERE "+where, args...).Scan(&total)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM "+fromClause+" WHERE "+where, args...).Scan(&total)
 
-	selectSQL := `SELECT id, name, key_prefix, scopes,
-		        COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i'),''),
-		        last_used_ip,
-		        DATE_FORMAT(created_at,'%Y-%m-%d'),
-		        COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d'),''),
-		        revoked_at IS NOT NULL
-		 FROM api_keys WHERE ` + where + ` ORDER BY ` + orderCol + ` ` + dir + ` LIMIT ? OFFSET ?`
-	queryArgs := append(args, lp.Size, lp.Offset())
+	var (
+		selectSQL string
+		queryArgs []any
+	)
+	if viewAll {
+		selectSQL = `SELECT k.id, k.name, k.key_prefix, k.scopes,
+			        COALESCE(DATE_FORMAT(k.last_used_at,'%Y-%m-%d %H:%i'),''),
+			        k.last_used_ip,
+			        DATE_FORMAT(k.created_at,'%Y-%m-%d'),
+			        COALESCE(DATE_FORMAT(k.expires_at,'%Y-%m-%d'),''),
+			        k.revoked_at IS NOT NULL,
+			        COALESCE(u.email,'')
+			 FROM ` + fromClause + ` WHERE ` + where + ` ORDER BY ` + orderCol + ` ` + dir + ` LIMIT ? OFFSET ?`
+	} else {
+		selectSQL = `SELECT k.id, k.name, k.key_prefix, k.scopes,
+			        COALESCE(DATE_FORMAT(k.last_used_at,'%Y-%m-%d %H:%i'),''),
+			        k.last_used_ip,
+			        DATE_FORMAT(k.created_at,'%Y-%m-%d'),
+			        COALESCE(DATE_FORMAT(k.expires_at,'%Y-%m-%d'),''),
+			        k.revoked_at IS NOT NULL
+			 FROM ` + fromClause + ` WHERE ` + where + ` ORDER BY ` + orderCol + ` ` + dir + ` LIMIT ? OFFSET ?`
+	}
+	queryArgs = append(args, lp.Size, lp.Offset())
 
 	rows, err := db.QueryContext(ctx, selectSQL, queryArgs...)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var k apiKeyRow
-			if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
+			k.ViewAll = viewAll
+			var scanErr error
+			if viewAll {
+				scanErr = rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked, &k.OwnerEmail)
+			} else {
+				scanErr = rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked)
+			}
+			if scanErr == nil {
 				d.Keys = append(d.Keys, k)
 			}
 		}
