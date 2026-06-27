@@ -1495,6 +1495,80 @@ func dnsTestErrorCategory(err error) string {
 	return "DNS lookup failed"
 }
 
+// HostsTestBackend makes a TCP dial to the route's upstream backend and returns
+// reachability + latency. Useful for operators debugging why a route isn't
+// forwarding — confirms the panel host can reach the backend before Caddy is
+// even involved. RFC1918 is allowed (WG mesh peers live there); loopback and
+// link-local are blocked via IsDangerousProxyBackend.
+func (h *AdminHandlers) HostsTestBackend(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
+	if id == 0 {
+		apiJSON(w, http.StatusBadRequest, map[string]any{"error": "bad route id"})
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		apiJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "db unavailable"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	var backendHost string
+	var upstreamPort int
+	err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(NULLIF(r.backend_ip_override,''), s.backend_ip), r.upstream_port
+		   FROM routes r JOIN services s ON s.id = r.service_id WHERE r.id = ?`, id,
+	).Scan(&backendHost, &upstreamPort)
+	if err != nil {
+		apiJSON(w, http.StatusNotFound, map[string]any{"error": "route not found"})
+		return
+	}
+	// Resolve hostname if needed, then SSRF-check the resulting IP.
+	ip := net.ParseIP(backendHost)
+	if ip == nil {
+		// hostname — resolve first so the SSRF check sees the real IP
+		addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", backendHost)
+		if err != nil || len(addrs) == 0 {
+			apiJSON(w, http.StatusOK, map[string]any{
+				"reachable": false,
+				"error":     "hostname resolution failed",
+				"host":      backendHost,
+				"port":      upstreamPort,
+			})
+			return
+		}
+		ip = addrs[0].AsSlice()
+	}
+	if security.IsDangerousProxyBackend(ip) {
+		apiJSON(w, http.StatusForbidden, map[string]any{"error": "backend address not allowed"})
+		return
+	}
+	addr := net.JoinHostPort(backendHost, strconv.Itoa(upstreamPort))
+	dialCtx, dialCancel := context.WithTimeout(ctx, 5*time.Second)
+	defer dialCancel()
+	start := time.Now()
+	conn, dialErr := (&net.Dialer{}).DialContext(dialCtx, "tcp", addr)
+	latencyMs := time.Since(start).Milliseconds()
+	if dialErr != nil {
+		apiJSON(w, http.StatusOK, map[string]any{
+			"reachable":  false,
+			"latency_ms": latencyMs,
+			"error":      "connection refused or timed out",
+			"host":       backendHost,
+			"port":       upstreamPort,
+		})
+		return
+	}
+	_ = conn.Close()
+	apiJSON(w, http.StatusOK, map[string]any{
+		"reachable":  true,
+		"latency_ms": latencyMs,
+		"host":       backendHost,
+		"port":       upstreamPort,
+	})
+}
+
 // HostsRetry re-runs the DNS check on a single route and re-pushes the
 // node config. Surfaces "force a renewal" semantically - Caddy's on-
 // demand TLS issues / renews certs as part of evaluating the pushed

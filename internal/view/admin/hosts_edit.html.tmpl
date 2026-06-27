@@ -803,6 +803,20 @@ X-Authentik-Meta-Version</pre>
         <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Forces the resolver lookup type. Only takes effect when a custom resolver (IP or WG peer) is configured above.</p>
       </div>
 
+      <!-- Backend reachability test -->
+      <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
+        <div class="flex items-center gap-2 mb-2">
+          <p class="text-xs font-medium text-slate-700 dark:text-slate-300">Test backend</p>
+          <button type="button" id="hpg-backend-test-btn"
+            class="px-3 py-1.5 rounded-lg ring-1 ring-emerald-200 dark:ring-emerald-800 text-emerald-700 dark:text-emerald-300 text-xs hover:bg-emerald-50 dark:hover:bg-emerald-500/10 transition-colors cursor-pointer inline-flex items-center gap-1">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+            TCP probe
+          </button>
+        </div>
+        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-2">Tests a TCP connection from this panel host to the route's backend IP and upstream port (saved values). Confirms layer-4 reachability before Caddy is involved.</p>
+        <div id="hpg-backend-test-result" class="hidden rounded-lg p-3 text-xs font-mono space-y-1"></div>
+      </div>
+
       <!-- DNS resolver test -->
       <div class="border-t border-slate-100 dark:border-zinc-800 pt-3">
         <div class="flex items-center gap-2 mb-2">
@@ -1027,6 +1041,38 @@ X-Authentik-Meta-Version</pre>
         egressRow.classList.toggle('hidden', egressMode.value !== 'fixed');
       });
     }
+
+    // Backend TCP probe button.
+    (function() {
+      var btn = document.getElementById('hpg-backend-test-btn');
+      var res = document.getElementById('hpg-backend-test-result');
+      if (!btn || !res) return;
+      btn.addEventListener('click', function() {
+        res.className = 'rounded-lg p-3 text-xs font-mono bg-slate-50 dark:bg-zinc-800 text-slate-500';
+        res.textContent = 'Probing...';
+        fetch('/admin/hosts/{{.RouteID}}/backend/test', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': '{{.CSRF}}' },
+          credentials: 'same-origin'
+        }).then(function(r) { return r.json(); })
+          .then(function(j) {
+            var ok = j.reachable === true;
+            res.className = ok
+              ? 'rounded-lg p-3 text-xs font-mono space-y-1 bg-emerald-50 dark:bg-emerald-900/20 text-emerald-800 dark:text-emerald-300'
+              : 'rounded-lg p-3 text-xs font-mono space-y-1 bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300';
+            var lines = [ok ? '✓ reachable' : '✗ not reachable'];
+            if (j.host) lines.push('host: ' + j.host);
+            if (j.port) lines.push('port: ' + j.port);
+            if (j.latency_ms !== undefined) lines.push('latency: ' + j.latency_ms + ' ms');
+            if (j.error) lines.push('error: ' + j.error);
+            res.textContent = lines.join('\n');
+          })
+          .catch(function(err) {
+            res.className = 'rounded-lg p-3 text-xs font-mono bg-rose-50 dark:bg-rose-900/20 text-rose-800 dark:text-rose-300';
+            res.textContent = 'request failed: ' + err;
+          });
+      });
+    })();
 
     // DNS resolver test button.
     var dnsTestBtn = document.getElementById('hpg-dns-test-btn');
