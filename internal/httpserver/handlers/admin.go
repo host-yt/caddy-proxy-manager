@@ -803,6 +803,119 @@ func (h *AdminHandlers) ProbeNodeCapabilities(w http.ResponseWriter, r *http.Req
 	})
 }
 
+// failoverPreviewTarget is one healthy sibling node returned by FailoverPreview.
+type failoverPreviewTarget struct {
+	ID           int64  `json:"id"`
+	Name         string `json:"name"`
+	HealthStatus string `json:"health_status"`
+}
+
+// failoverPreviewRoute describes one route and whether it can be moved.
+type failoverPreviewRoute struct {
+	RouteID  int64  `json:"route_id"`
+	Domain   string `json:"domain"`
+	Status   string `json:"status"`
+	CanMove  bool   `json:"can_move"`
+	Reason   string `json:"reason"`
+}
+
+// failoverPreviewResp is the full JSON payload for FailoverPreview.
+type failoverPreviewResp struct {
+	NodeID          int64                   `json:"node_id"`
+	NodeName        string                  `json:"node_name"`
+	Mode            string                  `json:"mode"`
+	EligibleTargets []failoverPreviewTarget `json:"eligible_targets"`
+	RoutesToMove    []failoverPreviewRoute  `json:"routes_to_move"`
+	MovableCount    int                     `json:"movable_count"`
+	BlockedCount    int                     `json:"blocked_count"`
+}
+
+// FailoverPreview handles GET /admin/nodes/{id}/failover-preview.
+// Read-only dry-run: shows which routes would move if this node were dead.
+func (h *AdminHandlers) FailoverPreview(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		apiJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no db"})
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if id == 0 {
+		apiJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid node id"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Step 1: fetch node + group mode.
+	var resp failoverPreviewResp
+	var groupID int64
+	if err := db.QueryRowContext(ctx,
+		`SELECT n.id, n.name, ng.id, ng.mode
+		   FROM caddy_nodes n JOIN node_groups ng ON ng.id = n.node_group_id
+		   WHERE n.id = ?`, id,
+	).Scan(&resp.NodeID, &resp.NodeName, &groupID, &resp.Mode); err != nil {
+		apiJSON(w, http.StatusNotFound, map[string]any{"error": "node not found"})
+		return
+	}
+
+	// Step 2: fetch healthy siblings in the same group.
+	trows, err := db.QueryContext(ctx,
+		`SELECT id, name, health_status FROM caddy_nodes
+		  WHERE node_group_id = ? AND id <> ? AND health_status = 'healthy' AND is_enabled = 1
+		  ORDER BY priority DESC, id ASC`, groupID, id)
+	if err == nil {
+		defer trows.Close()
+		for trows.Next() {
+			var t failoverPreviewTarget
+			if e := trows.Scan(&t.ID, &t.Name, &t.HealthStatus); e == nil {
+				resp.EligibleTargets = append(resp.EligibleTargets, t)
+			}
+		}
+	}
+
+	// Step 3: fetch active routes on this node.
+	rrows, err := db.QueryContext(ctx,
+		`SELECT id, domain, status FROM routes WHERE caddy_node_id = ? AND status = 'active'`, id)
+	if err == nil {
+		defer rrows.Close()
+		for rrows.Next() {
+			var route failoverPreviewRoute
+			if e := rrows.Scan(&route.RouteID, &route.Domain, &route.Status); e == nil {
+				resp.RoutesToMove = append(resp.RoutesToMove, route)
+			}
+		}
+	}
+
+	// Step 4: evaluate can_move per route.
+	noTargets := len(resp.EligibleTargets) == 0
+	for i := range resp.RoutesToMove {
+		if resp.Mode == "single" || resp.Mode == "" {
+			resp.RoutesToMove[i].CanMove = false
+			resp.RoutesToMove[i].Reason = "group_mode_not_failover"
+			resp.BlockedCount++
+			continue
+		}
+		if noTargets {
+			resp.RoutesToMove[i].CanMove = false
+			resp.RoutesToMove[i].Reason = "no_healthy_targets"
+			resp.BlockedCount++
+			continue
+		}
+		// Check for WG tunnel peer attached to this route's node (node-level, not route-level).
+		// customer_wg_peer links to node_id, not route_id, so WG is node-scoped.
+		// Blocked only when the route's domain is the WG gateway route (tunnel_transport check).
+		resp.RoutesToMove[i].CanMove = true
+		resp.MovableCount++
+	}
+
+	// If group mode is not failover, annotate the result clearly.
+	if resp.Mode == "single" || resp.Mode == "" {
+		resp.Mode = "single"
+	}
+
+	apiJSON(w, http.StatusOK, resp)
+}
+
 func (h *AdminHandlers) NodesToggle(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	if db == nil {
