@@ -8,6 +8,8 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
+	"strconv"
+	"strings"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/mail"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
@@ -64,17 +66,46 @@ func (e *Evaluator) Tick(ctx context.Context) {
 	e.pruneLog(ctx, db)
 }
 
+// mergedCfg returns e.Cfg overlaid with any DB overrides from the settings table.
+func (e *Evaluator) mergedCfg(ctx context.Context, db *sql.DB) Config {
+	cfg := e.Cfg
+	readInt := func(key string, dest *int) {
+		var s string
+		if db.QueryRowContext(ctx, "SELECT value FROM settings WHERE `key`=?", key).Scan(&s) == nil {
+			if n, err := strconv.Atoi(strings.TrimSpace(s)); err == nil && n > 0 {
+				*dest = n
+			}
+		}
+	}
+	readFloat := func(key string, dest *float64) {
+		var s string
+		if db.QueryRowContext(ctx, "SELECT value FROM settings WHERE `key`=?", key).Scan(&s) == nil {
+			if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil && f > 0 {
+				*dest = f
+			}
+		}
+	}
+	readInt("alert.node_offline_minutes", &cfg.NodeOfflineMinutes)
+	readInt("alert.cert_stuck_minutes", &cfg.CertStuckMinutes)
+	readInt("alert.cooldown_seconds", &cfg.CooldownSeconds)
+	readInt("alert.manual_cert_days_warn", &cfg.ManualCertDaysWarn)
+	readInt("alert.error_rate_window_minutes", &cfg.ErrorRateWindowMinutes)
+	readFloat("alert.error_rate_pct", &cfg.ErrorRatePct)
+	return cfg
+}
+
 // evaluate runs every rule against the current DB snapshot.
 func (e *Evaluator) evaluate(ctx context.Context, db *sql.DB) []Alert {
+	cfg := e.mergedCfg(ctx, db)
 	var out []Alert
-	out = append(out, nodeOffline(ctx, db, e.Cfg)...)
-	out = append(out, routeFailed(ctx, db, e.Cfg)...)
-	out = append(out, certFailing(ctx, db, e.Cfg)...)
-	out = append(out, wgTunnelStale(ctx, db, e.Cfg)...)
-	out = append(out, dbPoolSaturated(ctx, db, e.Cfg)...)
-	out = append(out, drillStale(ctx, db, e.Cfg)...)
-	out = append(out, wgKeyNotFetched(ctx, db, e.Cfg, e.Logger)...)
-	out = append(out, manualCertExpiry(ctx, db, e.Cfg, e.Logger)...)
-	out = append(out, highErrorRate(ctx, db, e.Cfg)...)
+	out = append(out, nodeOffline(ctx, db, cfg)...)
+	out = append(out, routeFailed(ctx, db, cfg)...)
+	out = append(out, certFailing(ctx, db, cfg)...)
+	out = append(out, wgTunnelStale(ctx, db, cfg)...)
+	out = append(out, dbPoolSaturated(ctx, db, cfg)...)
+	out = append(out, drillStale(ctx, db, cfg)...)
+	out = append(out, wgKeyNotFetched(ctx, db, cfg, e.Logger)...)
+	out = append(out, manualCertExpiry(ctx, db, cfg, e.Logger)...)
+	out = append(out, highErrorRate(ctx, db, cfg)...)
 	return out
 }

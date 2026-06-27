@@ -559,6 +559,7 @@ func (s *Server) routes() {
 			r.Post("/ai/test", s.deps.Admin.SettingsAITest)
 			r.Get("/ai/models", s.deps.Admin.SettingsAIModels)
 			r.Post("/failover", s.deps.Admin.SettingsFailover)
+			r.Post("/alert", s.deps.Admin.SettingsAlert)
 		})
 	})
 
