@@ -1145,7 +1145,7 @@ func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string,
 	err := r.db.QueryRowContext(ctx,
 		`SELECT n.id, n.name, n.health_status, COALESCE(n.public_ip,''), n.is_enabled,
 		        n.max_routes, n.current_routes, n.priority,
-		        COALESCE(DATE_FORMAT(n.last_seen_at,'%Y-%m-%dT%H:%i:%SZ'),'never')
+		        COALESCE(DATE_FORMAT(n.last_seen_at,'%Y-%m-%dT%H:%i:%sZ'),'never')
 		 FROM caddy_nodes n
 		 WHERE n.id = ? OR n.name = ?`,
 		numID, a.Identifier,
