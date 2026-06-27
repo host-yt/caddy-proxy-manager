@@ -185,6 +185,24 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 	_ = db.QueryRowContext(ctx, "SELECT COALESCE(notes,'') FROM clients WHERE id=?", id).Scan(&notes)
 	d.Notes = notes.String
 
+	// Load all plans for plan-change select.
+	prows, perr := db.QueryContext(ctx, "SELECT id, name FROM plans ORDER BY name")
+	if perr == nil {
+		defer prows.Close()
+		for prows.Next() {
+			var p planRow
+			if scanErr := prows.Scan(&p.ID, &p.Name); scanErr == nil {
+				d.AllPlans = append(d.AllPlans, p)
+			}
+		}
+	}
+	// Detect current plan from first service.
+	if len(d.Services) > 0 {
+		_ = db.QueryRowContext(ctx,
+			"SELECT COALESCE(plan_id,0) FROM services WHERE client_id=? ORDER BY id LIMIT 1", id,
+		).Scan(&d.CurrentPlanID)
+	}
+
 	h.render(w, "client_detail", d)
 }
 
@@ -232,6 +250,8 @@ type clientDetailData struct {
 	BandwidthBytes7d int64            // last 7 days from host_access_log
 	Notes            string           // admin-only internal notes
 	ClientAudit      []clientAuditRow // last 15 audit entries for this client
+	AllPlans         []planRow        // for plan change select
+	CurrentPlanID    int64            // plan_id of the first service (representative)
 }
 
 // ClientsExport streams the full client list as a CSV download.
@@ -303,4 +323,47 @@ func (h *AdminHandlers) ClientsUpdateNotes(w http.ResponseWriter, r *http.Reques
 		Action: "admin.client.notes.update", Entity: "client", EntityID: itoa64(id),
 	})
 	redirectWithFlash(w, r, fmt.Sprintf("/admin/clients/%d", id), "Notes saved", "")
+}
+
+// ClientChangePlan updates plan_id for all services of a client.
+func (h *AdminHandlers) ClientChangePlan(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	db := h.DB()
+	if db == nil || id == 0 {
+		redirectWithFlash(w, r, "/admin/clients", "", "invalid id")
+		return
+	}
+	_ = r.ParseForm()
+	newPlanID, _ := strconv.ParseInt(r.FormValue("plan_id"), 10, 64)
+	if newPlanID == 0 {
+		redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "plan required")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	// Verify plan exists.
+	var planName string
+	if err := db.QueryRowContext(ctx, "SELECT name FROM plans WHERE id=?", newPlanID).Scan(&planName); err != nil {
+		redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "plan not found")
+		return
+	}
+
+	// Update all services for this client to the new plan.
+	_, err := db.ExecContext(ctx,
+		"UPDATE services SET plan_id=?, updated_at=NOW() WHERE client_id=?",
+		newPlanID, id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "update failed")
+		return
+	}
+
+	sess := middleware.SessionFromContext(r.Context())
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "admin.client.change_plan", Entity: "client",
+		EntityID: itoa64(id), Meta: map[string]any{"new_plan_id": newPlanID, "plan_name": planName},
+	})
+
+	redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "Plan changed to "+planName, "")
 }
