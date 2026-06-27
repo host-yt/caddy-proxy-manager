@@ -1372,6 +1372,9 @@ type clientRouteLogsData struct {
 	BandwidthDays    []accesslog.BandwidthDayBucket // 7-day daily totals
 	BandwidthTotal7d int64                          // sum across BandwidthDays
 	MaxDayBytes      int64                          // max bucket for bar scaling
+	Bandwidth30dDays  []accesslog.BandwidthDayBucket // 30-day daily totals
+	Bandwidth30dTotal int64                          // sum across Bandwidth30dDays
+	MaxDay30dBytes    int64                          // max bucket for 30-day bar scaling
 }
 
 // RouteLogs renders GET /app/routes/{id}/logs for the owning client.
@@ -1444,6 +1447,17 @@ func (h *ClientHandlers) RouteLogs(w http.ResponseWriter, r *http.Request) {
 				d.BandwidthTotal7d += b.Bytes
 				if b.Bytes > d.MaxDayBytes {
 					d.MaxDayBytes = b.Bytes
+				}
+			}
+		}
+		// 30-day daily bandwidth chart.
+		bw30From := now.Add(-30 * 24 * time.Hour)
+		if days, err := h.AccessLogs.BandwidthDaySeries(ctx, id, bw30From, now); err == nil {
+			d.Bandwidth30dDays = days
+			for _, b := range days {
+				d.Bandwidth30dTotal += b.Bytes
+				if b.Bytes > d.MaxDay30dBytes {
+					d.MaxDay30dBytes = b.Bytes
 				}
 			}
 		}
