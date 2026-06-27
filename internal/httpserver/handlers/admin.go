@@ -633,10 +633,10 @@ func (h *AdminHandlers) dashboardRecentEvents(ctx context.Context, db *sql.DB) [
 // dashboardTopRoutes returns the 5 busiest routes by request count in the last 24h.
 func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB) []dashTopRoute {
 	rows, err := db.QueryContext(ctx,
-		`SELECT l.route_id, r.domain, COUNT(*) AS reqs
-		 FROM host_access_log l JOIN routes r ON r.id = l.route_id
-		 WHERE l.ts >= NOW() - INTERVAL 24 HOUR
-		 GROUP BY l.route_id, r.domain
+		`SELECT lr.route_id, r.domain, SUM(lr.requests) AS reqs
+		 FROM log_rollups lr JOIN routes r ON r.id = lr.route_id
+		 WHERE lr.bucket_start >= NOW() - INTERVAL 24 HOUR
+		 GROUP BY lr.route_id, r.domain
 		 ORDER BY reqs DESC LIMIT 5`)
 	if err != nil {
 		return nil
@@ -655,13 +655,13 @@ func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB) []da
 // dashboardTopClients returns the 5 highest-bandwidth clients over the last 7d.
 func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB) []dashTopClient {
 	rows, err := db.QueryContext(ctx,
-		`SELECT s.client_id, COALESCE(c.display_name, u.full_name, u.email), SUM(l.bytes_resp) AS bw
-		 FROM host_access_log l
-		 JOIN routes r ON r.id = l.route_id
+		`SELECT s.client_id, COALESCE(c.display_name, u.full_name, u.email), SUM(lr.bytes_resp) AS bw
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id = lr.route_id
 		 JOIN services s ON s.id = r.service_id
 		 JOIN clients c ON c.id = s.client_id
 		 JOIN users u ON u.id = c.user_id
-		 WHERE l.ts >= NOW() - INTERVAL 7 DAY
+		 WHERE lr.bucket_start >= NOW() - INTERVAL 7 DAY
 		 GROUP BY s.client_id, c.display_name, u.email, u.full_name
 		 ORDER BY bw DESC LIMIT 5`)
 	if err != nil {
