@@ -592,6 +592,9 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		if n, err := audit.Prune(ctx, db); err == nil && n > 0 {
 			logger.Info("audit retention prune", "rows", n)
 		}
+		if n, err := accesslog.PruneRollups(ctx, db); err == nil && n > 0 {
+			logger.Info("rollup retention prune", "rows", n)
+		}
 	}))
 
 	// Idempotency key purge — leader-only, daily; run once 30s after boot to
