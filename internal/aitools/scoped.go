@@ -357,6 +357,74 @@ func (r *Registry) routeLogsScoped(ctx context.Context, scope Scope, raw json.Ra
 	return toJSON(map[string]any{"route_id": routeID, "count": len(out), "entries": out})
 }
 
+// wafEventsScoped returns WAF events limited to the caller's routes.
+func (r *Registry) wafEventsScoped(ctx context.Context, scope Scope, raw json.RawMessage) (string, error) {
+	var a struct {
+		Domain   string `json:"domain"`
+		Severity string `json:"severity"`
+		Action   string `json:"action"`
+		Hours    int    `json:"hours"`
+		Limit    int    `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	hours := clampLimit(a.Hours, 24, 720)
+	limit := clampLimit(a.Limit, 30, 100)
+	since := time.Now().UTC().Add(-time.Duration(hours) * time.Hour)
+
+	in, idArgs, ok := inPlaceholders(scope.ClientIDs)
+	if !ok {
+		return toJSON(map[string]any{"window_hours": hours, "count": 0, "events": []any{}})
+	}
+	routeFilter := `route_id IN (SELECT r.id FROM routes r JOIN services s ON s.id = r.service_id WHERE s.client_id IN ` + in + `)`
+
+	q := `SELECT DATE_FORMAT(ts,'%Y-%m-%dT%H:%i:%sZ'), severity, rule_id, action, remote_ip, host, uri, message
+	      FROM waf_events WHERE ts >= ? AND ` + routeFilter
+	args := append([]any{since}, idArgs...)
+	if a.Severity != "" {
+		q += " AND severity = ?"
+		args = append(args, a.Severity)
+	}
+	if a.Action != "" {
+		q += " AND action = ?"
+		args = append(args, a.Action)
+	}
+	if a.Domain != "" {
+		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
+		q += " AND host LIKE ? ESCAPE '\\'"
+		args = append(args, pattern)
+	}
+	q += " ORDER BY ts DESC, id DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type event struct {
+		TS       string `json:"ts"`
+		Severity string `json:"severity"`
+		RuleID   string `json:"rule_id"`
+		Action   string `json:"action"`
+		RemoteIP string `json:"remote_ip"`
+		Host     string `json:"host"`
+		URI      string `json:"uri"`
+		Message  string `json:"message"`
+	}
+	out := make([]event, 0, limit)
+	for rows.Next() {
+		var e event
+		if err := rows.Scan(&e.TS, &e.Severity, &e.RuleID, &e.Action, &e.RemoteIP, &e.Host, &e.URI, &e.Message); err != nil {
+			return "", err
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"window_hours": hours, "count": len(out), "events": out})
+}
+
 // scanCountHitsArgs runs a value+count query with an arbitrary arg list.
 func scanCountHitsArgs(ctx context.Context, db *sql.DB, q string, args []any) ([]countHit, error) {
 	rows, err := db.QueryContext(ctx, q, args...)
