@@ -29,6 +29,12 @@ type Config struct {
 	WGRotationFetchGraceHours int // ALERT_WG_FETCH_GRACE_HOURS, default 48
 	// Days before expiry to alert for manually imported certs.
 	ManualCertDaysWarn int // ALERT_MANUAL_CERT_DAYS_WARN, default 30
+	// 5xx ratio (0-1) within the window that triggers a high-error-rate alert.
+	ErrorRatePct float64 // ALERT_ERROR_RATE_PCT, default 0.25
+	// Rolling window size for the error rate calculation.
+	ErrorRateWindowMinutes int // ALERT_ERROR_RATE_WINDOW_MIN, default 10
+	// Minimum requests in the window required before the rule can fire.
+	ErrorRateMinRequests int // ALERT_ERROR_RATE_MIN_REQS, default 10
 }
 
 // LoadConfig reads env with sane defaults. Invalid numerics fall back to
@@ -46,6 +52,9 @@ func LoadConfig() Config {
 		DrillStaleDays:            envInt("ALERT_DRILL_STALE_DAYS", 7),
 		WGRotationFetchGraceHours: envInt("ALERT_WG_FETCH_GRACE_HOURS", 48),
 		ManualCertDaysWarn:        envInt("ALERT_MANUAL_CERT_DAYS_WARN", 30),
+		ErrorRatePct:              envFloat("ALERT_ERROR_RATE_PCT", 0.25),
+		ErrorRateWindowMinutes:    envInt("ALERT_ERROR_RATE_WINDOW_MIN", 10),
+		ErrorRateMinRequests:      envInt("ALERT_ERROR_RATE_MIN_REQS", 10),
 	}
 }
 
