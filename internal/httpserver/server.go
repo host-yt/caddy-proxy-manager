@@ -583,6 +583,7 @@ func (s *Server) routes() {
 			r.Get("/{id}/edit", s.deps.Client.RouteEdit)
 			r.Post("/{id}/edit", s.deps.Client.RouteEditSave)
 			r.Get("/{id}/logs", s.deps.Client.RouteLogs)
+			r.Get("/{id}/logs/export.csv", s.deps.Client.RouteLogsCSV)
 		})
 		r.Route("/2fa", func(r chi.Router) {
 			r.Get("/", s.deps.Client.TwoFAPage)

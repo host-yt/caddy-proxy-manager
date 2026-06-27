@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -1448,6 +1449,84 @@ func (h *ClientHandlers) RouteLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.render(w, "client_route_logs", d)
+}
+
+// routeCSVLimiter rate-limits CSV exports: 1 per routeID per 10 seconds.
+var routeCSVLimiter sync.Map
+
+// RouteLogsCSV serves GET /app/routes/{id}/logs/export.csv for the owning client.
+func (h *ClientHandlers) RouteLogsCSV(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	db := h.DB()
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if db == nil || sess == nil || id == 0 || h.AccessLogs == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+
+	// Rate limit: 1 export per route per 10 s.
+	key := strconv.FormatInt(id, 10)
+	now := time.Now()
+	if last, ok := routeCSVLimiter.Load(key); ok {
+		if t, ok := last.(time.Time); ok && now.Sub(t) < 10*time.Second {
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+	}
+	routeCSVLimiter.Store(key, now)
+
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		http.Error(w, "no client record", http.StatusForbidden)
+		return
+	}
+
+	// Verify route belongs to this client.
+	var domain string
+	err = db.QueryRowContext(ctx,
+		`SELECT r.domain FROM routes r
+		 JOIN services s ON s.id = r.service_id
+		 WHERE r.id = ? AND s.client_id = ?`, id, clientID,
+	).Scan(&domain)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	f := parseLogsFilter(r)
+	f.Limit = accesslog.MaxExportRows
+
+	entries, err := h.AccessLogs.Filtered(ctx, id, f)
+	if err != nil {
+		h.Logger.Warn("client route logs csv export", "id", id, "err", err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+
+	filename := fmt.Sprintf("route-%d-logs.csv", id)
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"timestamp", "method", "path", "status", "bytes", "duration_ms", "ip", "country"})
+	for i, e := range entries {
+		_ = cw.Write(csvSafeRow([]string{
+			e.TS.UTC().Format(time.RFC3339),
+			e.Method,
+			e.URI,
+			strconv.Itoa(e.Status),
+			strconv.FormatInt(e.BytesResp, 10),
+			strconv.Itoa(e.LatencyMS),
+			e.RemoteIP,
+			e.Country,
+		}))
+		if (i+1)%100 == 0 {
+			cw.Flush()
+		}
+	}
+	cw.Flush()
 }
 
 // ---- Contact support form ----------------------------------------------
