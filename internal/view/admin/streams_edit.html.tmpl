@@ -17,6 +17,14 @@
     <button type="button" data-tab="security" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-slate-500 dark:text-slate-400 hover:text-slate-700 cursor-pointer">Security (CIDR)</button>
   </nav>
 
+  <!-- Experimental features notice -->
+  <div class="flex items-start gap-2.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 px-3.5 py-3 text-xs text-amber-800 dark:text-amber-300">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+      <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+    </svg>
+    <span>Some L4 stream options are experimental and require a custom Caddy build with <code class="font-mono">caddy-l4</code> module. They are marked <span class="inline-block text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">Experimental</span>.</span>
+  </div>
+
   <form method="POST" action="/admin/streams/{{.Stream.ID}}/edit" class="space-y-4 text-sm" id="hpg-edit-form">
     <input type="hidden" name="active_tab" id="hpg-active-tab" value="match">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
@@ -35,9 +43,9 @@
           <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Match mode</label>
           <select name="match_mode" id="hpg-match-mode"
                   class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
-            <option value="any"       {{if eq .Stream.MatchMode "any"}}selected{{end}}>Any (plain forward)</option>
-            <option value="sni"       {{if eq .Stream.MatchMode "sni"}}selected{{end}}>SNI (TLS server name) - experimental</option>
-            <option value="http_host" {{if eq .Stream.MatchMode "http_host"}}selected{{end}}>HTTP Host header - experimental</option>
+            <option value="any"       {{if eq .Stream.MatchMode "any"}}selected{{end}}>Any (plain forward) [stable]</option>
+            <option value="sni"       {{if eq .Stream.MatchMode "sni"}}selected{{end}}>SNI (TLS server name) [experimental]</option>
+            <option value="http_host" {{if eq .Stream.MatchMode "http_host"}}selected{{end}}>HTTP Host header [experimental]</option>
           </select>
         </div>
         <div id="hpg-match-values-wrap" class="{{if eq .Stream.MatchMode "any"}}hidden{{end}}">
@@ -48,7 +56,10 @@
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">PROXY protocol in (listener wrapper) - experimental</label>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+            PROXY protocol in (listener wrapper)
+            <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
+          </label>
           <select name="proxy_proto_in"
                   class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
             <option value="none" {{if eq .Stream.ProxyProtoIn "none"}}selected{{end}}>None</option>
@@ -57,7 +68,10 @@
           </select>
         </div>
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">PROXY protocol out (upstream) - experimental</label>
+          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+            PROXY protocol out (upstream)
+            <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
+          </label>
           <select name="proxy_proto_out"
                   class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
             <option value="none" {{if eq .Stream.ProxyProtoOut "none"}}selected{{end}}>None</option>
@@ -93,7 +107,10 @@
         <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Saving with an empty textarea removes all additional upstreams (falls back to single-upstream).</p>
       </div>
       <div>
-        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">LB policy (used when multiple upstreams) - experimental</label>
+        <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">
+          LB policy (used when multiple upstreams)
+          <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
+        </label>
         <select name="lb_policy"
                 class="w-full sm:w-64 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 cursor-pointer">
           <option value="round_robin" {{if eq .Stream.LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
@@ -107,10 +124,13 @@
     <!-- Security pane -->
     <section data-pane="security" class="hpg-pane hidden hpg-card space-y-4">
       <div>
-        <p class="hpg-eyebrow">CIDR access control</p>
+        <p class="hpg-eyebrow">
+          CIDR access control
+          <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
+        </p>
         <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
           Deny is evaluated first and short-circuits. Allow (if non-empty) permits only matching sources.
-          Empty allow = allow all not denied. Uses caddy-l4 remote_ip handler (experimental).
+          Empty allow = allow all not denied. Uses caddy-l4 remote_ip handler.
         </p>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
