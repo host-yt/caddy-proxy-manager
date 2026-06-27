@@ -1,4 +1,11 @@
 {{define "clients"}}
+<!-- Hidden bulk form - submitted via JS to avoid nested form issues -->
+<form method="POST" action="/admin/clients/bulk" id="cli-bulk-form" class="hidden">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <input type="hidden" name="action" id="cli-bulk-action">
+  <div id="cli-bulk-ids"></div>
+</form>
+
 <div class="space-y-4">
 
 <!-- Search bar -->
@@ -55,11 +62,24 @@
       </button>
     </div>
   </div>
+  <!-- Bulk action bar - hidden until a checkbox is selected -->
+  {{if .Clients}}
+  <div id="cli-bulk-bar" class="hidden px-5 py-3 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+    <span class="hpg-eyebrow">Bulk action</span>
+    <select id="cli-bulk-select" class="px-3 py-1.5 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs outline-none">
+      <option value="suspend">Suspend selected</option>
+      <option value="activate">Activate selected</option>
+    </select>
+    <button type="button" id="cli-bulk-apply" class="px-3 py-1.5 rounded-full bg-slate-800 dark:bg-zinc-700 text-white text-xs hover:bg-slate-900 cursor-pointer">Apply</button>
+    <span id="cli-bulk-count" class="text-slate-400"></span>
+  </div>
+  {{end}}
   <div class="overflow-x-auto">
     <table class="w-full text-sm">
       <!-- sticky header stays visible while scrolling tall tables -->
       <thead class="sticky top-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm z-10 text-left border-b border-slate-100 dark:border-zinc-800">
         <tr>
+          <th class="pl-5 pr-2 py-3 w-8"><input type="checkbox" id="cli-chk-all" class="rounded cursor-pointer"></th>
           <th class="px-5 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
             <a href="/admin/clients?q={{.Q}}&sort=display_name&dir={{if and (eq .Sort "display_name") (eq .Dir "asc")}}desc{{else}}asc{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
               Name
@@ -87,6 +107,7 @@
       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
         {{range .Clients}}
         <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors cursor-pointer">
+          <td class="pl-5 pr-2 py-3.5"><input type="checkbox" name="ids" value="{{.ID}}" class="rounded cursor-pointer cli-row-chk"></td>
           <td class="px-5 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.DisplayName}}</td>
           <td class="px-5 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.Email}}</td>
           <td class="px-5 py-3.5 text-slate-500 dark:text-slate-400">{{.ExternalRef}}</td>
@@ -115,7 +136,7 @@
         </tr>
         {{else}}
         <!-- centered empty state with icon and primary CTA -->
-        <tr><td colspan="7" class="px-5 py-16 text-center">
+        <tr><td colspan="8" class="px-5 py-16 text-center">
           <div class="flex flex-col items-center gap-3">
             <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" class="text-slate-300 dark:text-zinc-600" aria-hidden="true"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             <p class="text-sm font-medium text-slate-600 dark:text-slate-300">{{if .Q}}No clients match your search{{else}}No clients yet{{end}}</p>
@@ -284,6 +305,51 @@
   if (sfClose) sfClose.addEventListener("click", sfClose2);
   if (sfCancel) sfCancel.addEventListener("click", sfClose2);
   if (sfOverlay) sfOverlay.addEventListener("click", sfClose2);
+
+  // Bulk selection logic.
+  var bar = document.getElementById("cli-bulk-bar");
+  var bulkSel = document.getElementById("cli-bulk-select");
+  var bulkApply = document.getElementById("cli-bulk-apply");
+  var bulkCount = document.getElementById("cli-bulk-count");
+  var chkAll = document.getElementById("cli-chk-all");
+
+  function updateBulkBar() {
+    var checked = document.querySelectorAll("tbody input.cli-row-chk:checked");
+    if (bar) bar.classList.toggle("hidden", checked.length === 0);
+    if (bulkCount) bulkCount.textContent = checked.length + " selected";
+  }
+
+  // Wire row checkboxes and select-all.
+  document.querySelectorAll("tbody input.cli-row-chk").forEach(function (chk) {
+    chk.addEventListener("change", updateBulkBar);
+  });
+  if (chkAll) {
+    chkAll.addEventListener("change", function () {
+      document.querySelectorAll("tbody input.cli-row-chk").forEach(function (c) {
+        c.checked = chkAll.checked;
+      });
+      updateBulkBar();
+    });
+  }
+
+  // Apply bulk action.
+  if (bulkApply) {
+    bulkApply.addEventListener("click", function () {
+      var action = bulkSel ? bulkSel.value : "";
+      var ids = Array.from(document.querySelectorAll("tbody input.cli-row-chk:checked")).map(function (c) { return c.value; });
+      if (ids.length === 0) { window.hpgToast && window.hpgToast("Select at least one row.", "warn"); return; }
+      if (!confirm(action + " " + ids.length + " client(s)?")) return;
+      document.getElementById("cli-bulk-action").value = action;
+      var box = document.getElementById("cli-bulk-ids");
+      box.innerHTML = "";
+      ids.forEach(function (v) {
+        var inp = document.createElement("input");
+        inp.type = "hidden"; inp.name = "ids"; inp.value = v;
+        box.appendChild(inp);
+      });
+      document.getElementById("cli-bulk-form").submit();
+    });
+  }
 })();
 </script>
 </div>
