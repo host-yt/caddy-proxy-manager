@@ -286,6 +286,77 @@ func (r *Registry) scopedTopCountries(ctx context.Context, since time.Time, limi
 	return out, nil
 }
 
+// routeLogsScoped returns recent access log entries scoped to the caller's routes.
+func (r *Registry) routeLogsScoped(ctx context.Context, scope Scope, raw json.RawMessage) (string, error) {
+	var a struct {
+		Domain     string `json:"domain"`
+		RouteID    int64  `json:"route_id"`
+		Limit      int    `json:"limit"`
+		ErrorsOnly bool   `json:"errors_only"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 30, 100)
+
+	in, idArgs, ok := inPlaceholders(scope.ClientIDs)
+	if !ok {
+		return toJSON(map[string]any{"entries": []any{}, "count": 0})
+	}
+
+	var routeID int64
+	if a.RouteID > 0 {
+		// Verify route belongs to the scoped clients before accepting it.
+		_ = r.db.QueryRowContext(ctx,
+			`SELECT rt.id FROM routes rt JOIN services s ON s.id = rt.service_id
+			 WHERE rt.id = ? AND s.client_id IN `+in,
+			append([]any{a.RouteID}, idArgs...)...).Scan(&routeID)
+	} else if a.Domain != "" {
+		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
+		args := append([]any{pattern}, idArgs...)
+		_ = r.db.QueryRowContext(ctx,
+			`SELECT rt.id FROM routes rt JOIN services s ON s.id = rt.service_id
+			 WHERE rt.domain LIKE ? ESCAPE '\\' AND s.client_id IN `+in+` ORDER BY rt.id LIMIT 1`,
+			args...).Scan(&routeID)
+	}
+	if routeID == 0 {
+		return toJSON(map[string]any{"error": "route not found", "entries": []any{}})
+	}
+
+	cond := "route_id = ?"
+	args := []any{routeID}
+	if a.ErrorsOnly {
+		cond += " AND status >= 400"
+	}
+	q := `SELECT ts, method, uri, status, latency_ms, remote_ip, bytes_resp
+	      FROM host_access_log WHERE ` + cond + ` ORDER BY ts DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type entry struct {
+		TS        string `json:"ts"`
+		Method    string `json:"method"`
+		URI       string `json:"uri"`
+		Status    int    `json:"status"`
+		LatencyMS int64  `json:"latency_ms"`
+		RemoteIP  string `json:"remote_ip"`
+		BytesResp int64  `json:"bytes_resp"`
+	}
+	out := make([]entry, 0, limit)
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.TS, &e.Method, &e.URI, &e.Status, &e.LatencyMS, &e.RemoteIP, &e.BytesResp); err != nil {
+			return "", err
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"route_id": routeID, "count": len(out), "entries": out})
+}
+
 // scanCountHitsArgs runs a value+count query with an arbitrary arg list.
 func scanCountHitsArgs(ctx context.Context, db *sql.DB, q string, args []any) ([]countHit, error) {
 	rows, err := db.QueryContext(ctx, q, args...)

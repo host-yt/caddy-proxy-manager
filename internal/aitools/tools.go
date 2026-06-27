@@ -78,6 +78,14 @@ func (r *Registry) builtins() []Tool {
 			Schema:      searchRoutesSchema,
 			Exec:        r.searchRoutes,
 		},
+		{
+			Name:           "get_route_logs",
+			Description:    "Return the most recent access log entries for a specific domain (or route ID). Useful for debugging 4xx/5xx errors on a specific site.",
+			Schema:         routeLogsSchema,
+			Exec:           r.routeLogs,
+			clientRelevant: true,
+			scopedExec:     r.routeLogsScoped,
+		},
 	}
 }
 
@@ -104,6 +112,13 @@ var trafficSchema = json.RawMessage(`{"type":"object","properties":{` +
 var searchRoutesSchema = json.RawMessage(`{"type":"object","required":["query"],"properties":{` +
 	`"query":{"type":"string","description":"domain substring to search for","minLength":1,"maxLength":253},` +
 	`"limit":{"type":"integer","minimum":1,"maximum":100}},` +
+	`"additionalProperties":false}`)
+
+var routeLogsSchema = json.RawMessage(`{"type":"object","properties":{` +
+	`"domain":{"type":"string","description":"exact or partial domain to look up; if omitted, route_id must be set"},` +
+	`"route_id":{"type":"integer","description":"route ID (alternative to domain)"},` +
+	`"limit":{"type":"integer","minimum":1,"maximum":100},` +
+	`"errors_only":{"type":"boolean","description":"when true, only return status >= 400"}},` +
 	`"additionalProperties":false}`)
 
 // list_nodes: caddy_nodes carries no secret columns; agent_token_hash and WG
@@ -576,6 +591,66 @@ func (r *Registry) searchRoutes(ctx context.Context, raw json.RawMessage) (strin
 		return "", err
 	}
 	return toJSON(map[string]any{"routes": out, "count": len(out)})
+}
+
+// routeLogs returns recent access log entries for a specific route.
+func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a struct {
+		Domain     string `json:"domain"`
+		RouteID    int64  `json:"route_id"`
+		Limit      int    `json:"limit"`
+		ErrorsOnly bool   `json:"errors_only"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 30, 100)
+
+	var routeID int64
+	if a.RouteID > 0 {
+		routeID = a.RouteID
+	} else if a.Domain != "" {
+		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
+		_ = r.db.QueryRowContext(ctx,
+			`SELECT id FROM routes WHERE domain LIKE ? ESCAPE '\\' ORDER BY id LIMIT 1`, pattern,
+		).Scan(&routeID)
+	}
+	if routeID == 0 {
+		return toJSON(map[string]any{"error": "route not found", "entries": []any{}})
+	}
+
+	cond := "route_id = ?"
+	args := []any{routeID}
+	if a.ErrorsOnly {
+		cond += " AND status >= 400"
+	}
+	qFull := `SELECT ts, method, uri, status, latency_ms, remote_ip, bytes_resp
+	           FROM host_access_log WHERE ` + cond + ` ORDER BY ts DESC, id DESC LIMIT ?`
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, qFull, args...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type entry struct {
+		TS        string `json:"ts"`
+		Method    string `json:"method"`
+		URI       string `json:"uri"`
+		Status    int    `json:"status"`
+		LatencyMS int64  `json:"latency_ms"`
+		RemoteIP  string `json:"remote_ip"`
+		BytesResp int64  `json:"bytes_resp"`
+	}
+	out := make([]entry, 0, limit)
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.TS, &e.Method, &e.URI, &e.Status, &e.LatencyMS, &e.RemoteIP, &e.BytesResp); err != nil {
+			return "", err
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"route_id": routeID, "count": len(out), "entries": out})
 }
 
 // itoa is a tiny strconv.Itoa to avoid an import only used in schema strings.
