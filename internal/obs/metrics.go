@@ -65,6 +65,9 @@ type Metrics struct {
 
 	// On-Demand TLS /internal/ask
 	askDecisions *prometheus.CounterVec // labels: host, outcome
+
+	// WAF events ingested from node agents
+	wafEvents *prometheus.CounterVec // labels: severity, action
 }
 
 // New returns a Metrics with all collectors registered against a fresh
@@ -211,6 +214,10 @@ func New() *Metrics {
 		Name: "hpg_ask_decisions_total",
 		Help: "/internal/ask On-Demand TLS decisions by outcome.",
 	}, []string{"outcome"})
+	m.wafEvents = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "hpg_waf_events_total",
+		Help: "WAF events ingested from node agents, by severity and action.",
+	}, []string{"severity", "action"})
 
 	reg.MustRegister(m.requestCount, m.requestDur, m.requestSize, m.respSize, m.inflight,
 		m.caddyPush, m.caddyPushDur, m.caddyDrift, m.nodeProbeFail,
@@ -220,7 +227,7 @@ func New() *Metrics {
 		m.cacheOps, m.mailSends, m.smsSends,
 		m.routeOps, m.dnsCheck,
 		m.webhookDeliveries, m.webhookDur,
-		m.rateLimitHits, m.askDecisions)
+		m.rateLimitHits, m.askDecisions, m.wafEvents)
 	// Runtime collectors: enables go_goroutines + process_resident_memory_bytes
 	// + GC stats — required to spot leaks during soak.
 	reg.MustRegister(collectors.NewGoCollector())
@@ -368,6 +375,14 @@ func (m *Metrics) AskDecision(outcome string) {
 		return
 	}
 	m.askDecisions.WithLabelValues(outcome).Inc()
+}
+
+// WAFEvent records one WAF event ingested from a node agent.
+func (m *Metrics) WAFEvent(severity, action string) {
+	if m == nil {
+		return
+	}
+	m.wafEvents.WithLabelValues(severity, action).Inc()
 }
 
 // NodePushDuration records the wall time of a Caddy push to a specific node.

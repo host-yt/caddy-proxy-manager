@@ -48,11 +48,17 @@ var (
 	validActions    = map[string]struct{}{"detected": {}, "blocked": {}}
 )
 
+// wafMetrics is the subset of obs.Metrics used by NodeWAFIngestHandler.
+type wafMetrics interface {
+	WAFEvent(severity, action string)
+}
+
 // NodeWAFIngestHandler receives WAF events from node-local custom Caddy modules.
 type NodeWAFIngestHandler struct {
 	DB        func() *sql.DB
 	WAFEvents *wafevents.Store
 	Logger    *slog.Logger
+	Metrics   wafMetrics
 }
 
 // authNode verifies the per-node bearer token against caddy_nodes.agent_token_hash.
@@ -137,6 +143,9 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		if err := h.WAFEvents.Insert(ctx, e); err != nil {
 			h.Logger.Warn("waf ingest insert", "err", err)
 			continue
+		}
+		if h.Metrics != nil {
+			h.Metrics.WAFEvent(e.Severity, e.Action)
 		}
 		accepted++
 	}
