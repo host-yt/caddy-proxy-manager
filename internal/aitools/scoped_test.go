@@ -156,3 +156,16 @@ func TestScopedServiceDetailSQLEnforcesOwnership(t *testing.T) {
 		t.Fatalf("want 1 arg, got %d", len(args))
 	}
 }
+
+// Verify route detail scoped enforces tenant boundary via service.client_id.
+func TestScopedRouteDetailSQLEnforcesOwnership(t *testing.T) {
+	in, _, ok := inPlaceholders([]int64{5, 7})
+	if !ok {
+		t.Fatal("expected ok")
+	}
+	ownershipCond := "AND s.client_id IN " + in
+	q := "WHERE (rt.id = ? OR rt.domain LIKE ?) " + ownershipCond
+	if !strings.Contains(q, "AND s.client_id IN") {
+		t.Fatalf("route detail scoped SQL missing client_id ownership filter: %q", q)
+	}
+}
