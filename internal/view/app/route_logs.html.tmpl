@@ -2,14 +2,14 @@
 <div class="space-y-4 max-w-5xl">
   <div class="flex items-start justify-between gap-3">
     <div>
-      <a href="/app/routes" class="text-xs text-slate-500 hover:text-indigo-600 transition-colors">← routes</a>
-      <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100 mt-0.5">
+      <a href="/app/routes" class="text-xs transition-colors" style="color:rgb(var(--muted))">← routes</a>
+      <h2 class="text-lg font-semibold mt-0.5" style="color:rgb(var(--text))">
         Access logs
-        {{if .Domain}}<span class="text-sm font-normal font-mono text-slate-500 dark:text-slate-400 ml-1">{{.Domain}}</span>{{end}}
+        {{if .Domain}}<span class="text-sm font-normal font-mono ml-1" style="color:rgb(var(--muted))">{{.Domain}}</span>{{end}}
       </h2>
     </div>
     {{if .RouteID}}
-    <a href="/app/routes/{{.RouteID}}/logs/export.csv" class="hpg-btn-sm bg-slate-100 hover:bg-slate-200 dark:bg-zinc-700 dark:hover:bg-zinc-600 text-slate-700 dark:text-slate-200 transition-colors cursor-pointer">Download CSV</a>
+    <a href="/app/routes/{{.RouteID}}/logs/export.csv" class="r-btn-secondary cursor-pointer">Download CSV</a>
     {{end}}
   </div>
 
@@ -20,88 +20,88 @@
   <!-- Stat cards -->
   <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
     <!-- Requests / status buckets -->
-    <div class="hpg-card">
-      <p class="hpg-eyebrow">Requests, 24h</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Requests, 24h</p>
       <div class="mt-2 flex items-baseline gap-2">
-        <span class="hpg-stat-num">{{.AnalyticsTotal}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">total</span>
+        <span class="t-display">{{.AnalyticsTotal}}</span>
+        <span class="text-xs" style="color:rgb(var(--muted))">total</span>
       </div>
       <div class="mt-3 flex flex-wrap gap-1.5">
         {{range .StatusBuckets}}
-        <span class="hpg-pill {{if eq .Bucket "2xx"}}hpg-pill-ok{{else if eq .Bucket "3xx"}}hpg-pill-warn{{else if or (eq .Bucket "4xx") (eq .Bucket "5xx")}}hpg-pill-err{{else}}hpg-pill-muted{{end}}">
+        <span class="r-pill {{if eq .Bucket "2xx"}}r-pill-success{{else if eq .Bucket "3xx"}}r-pill-warning{{else if or (eq .Bucket "4xx") (eq .Bucket "5xx")}}r-pill-danger{{else}}r-pill-neutral{{end}}">
           {{.Bucket}} {{.Count}}
         </span>
         {{else}}
-        <span class="hpg-pill hpg-pill-muted">no traffic</span>
+        <span class="r-pill r-pill-neutral">no traffic</span>
         {{end}}
       </div>
     </div>
 
     <!-- Transfer -->
-    <div class="hpg-card">
-      <p class="hpg-eyebrow">Transfer, 24h</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Transfer, 24h</p>
       <div class="mt-2 flex items-baseline gap-2">
         {{$tb := .BytesSummary.TotalBytes}}
         {{if ge $tb 1073741824}}
-        <span class="hpg-stat-num">{{printf "%.1f" (divf $tb 1073741824)}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">GB</span>
+        <span class="t-display">{{printf "%.1f" (divf $tb 1073741824)}}</span>
+        <span class="text-xs" style="color:rgb(var(--muted))">GB</span>
         {{else if ge $tb 1048576}}
-        <span class="hpg-stat-num">{{printf "%.1f" (divf $tb 1048576)}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">MB</span>
+        <span class="t-display">{{printf "%.1f" (divf $tb 1048576)}}</span>
+        <span class="text-xs" style="color:rgb(var(--muted))">MB</span>
         {{else if ge $tb 1024}}
-        <span class="hpg-stat-num">{{printf "%.1f" (divf $tb 1024)}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">KB</span>
+        <span class="t-display">{{printf "%.1f" (divf $tb 1024)}}</span>
+        <span class="text-xs" style="color:rgb(var(--muted))">KB</span>
         {{else}}
-        <span class="hpg-stat-num">{{$tb}}</span>
-        <span class="text-xs text-slate-500 dark:text-slate-400">B</span>
+        <span class="t-display">{{$tb}}</span>
+        <span class="text-xs" style="color:rgb(var(--muted))">B</span>
         {{end}}
       </div>
       {{if gt .BytesSummary.AvgBytes 0}}
-      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">avg {{formatBytes .BytesSummary.AvgBytes}}/req</p>
+      <p class="mt-1 text-xs" style="color:rgb(var(--muted))">avg {{formatBytes .BytesSummary.AvgBytes}}/req</p>
       {{end}}
       {{if gt .BytesSummary.TotalBytesReq 0}}
-      <p class="mt-0.5 text-xs text-slate-400 dark:text-slate-500">&#8593; {{formatBytes .BytesSummary.TotalBytesReq}} upload</p>
+      <p class="mt-0.5 text-xs" style="color:rgb(var(--muted))">&#8593; {{formatBytes .BytesSummary.TotalBytesReq}} upload</p>
       {{end}}
     </div>
 
     <!-- Protocol -->
-    <div class="hpg-card">
-      <p class="hpg-eyebrow">Protocol, 24h</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Protocol, 24h</p>
       <div class="mt-3 flex flex-wrap gap-1.5">
         {{range .ProtoBreakdown}}
-        <span class="hpg-pill {{if eq .Proto "h2"}}hpg-pill-indigo{{else if eq .Proto "h3"}}hpg-pill-violet{{else}}hpg-pill-muted{{end}}">
+        <span class="r-pill {{if eq .Proto "h2"}}r-pill-info{{else if eq .Proto "h3"}}r-pill-info{{else}}r-pill-neutral{{end}}">
           {{.Proto}} {{.Count}}
         </span>
         {{else}}
-        <span class="hpg-pill hpg-pill-muted">no data</span>
+        <span class="r-pill r-pill-neutral">no data</span>
         {{end}}
       </div>
     </div>
 
     <!-- Top paths -->
-    <div class="hpg-card">
-      <p class="hpg-eyebrow">Top paths, 24h</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Top paths, 24h</p>
       <div class="mt-3 space-y-2">
         {{range .TopPaths}}
         <div class="flex items-center justify-between gap-3">
-          <span class="min-w-0 truncate font-mono text-xs text-slate-700 dark:text-slate-300" title="{{.Path}}">{{.Path}}</span>
-          <span class="hpg-pill hpg-pill-muted tabular-nums flex-shrink-0">{{.Count}}</span>
+          <span class="min-w-0 truncate font-mono text-xs" style="color:rgb(var(--text))" title="{{.Path}}">{{.Path}}</span>
+          <span class="r-pill r-pill-neutral tabular-nums flex-shrink-0">{{.Count}}</span>
         </div>
         {{else}}
-        <p class="text-xs text-slate-500 dark:text-slate-400">No path data yet.</p>
+        <p class="text-xs" style="color:rgb(var(--muted))">No path data yet.</p>
         {{end}}
       </div>
     </div>
 
     <!-- Top IPs -->
     {{if .TopRemoteIPs}}
-    <div class="hpg-card">
-      <p class="hpg-eyebrow">Top IPs, 24h</p>
-      <ul class="mt-3 divide-y divide-slate-100 dark:divide-zinc-800">
+    <div class="r-card">
+      <p class="t-eyebrow">Top IPs, 24h</p>
+      <ul class="mt-3 divide-y" style="border-color:rgb(var(--border))">
         {{range .TopRemoteIPs}}
         <li class="flex items-center justify-between gap-2 py-1.5">
-          <span class="text-sm font-mono text-slate-700 dark:text-slate-200 truncate min-w-0">{{.RemoteIP}}</span>
-          <span class="text-xs text-slate-500 dark:text-slate-400 shrink-0">{{.Count}}</span>
+          <span class="text-sm font-mono truncate min-w-0" style="color:rgb(var(--text))">{{.RemoteIP}}</span>
+          <span class="text-xs shrink-0" style="color:rgb(var(--muted))">{{.Count}}</span>
         </li>
         {{end}}
       </ul>
@@ -110,13 +110,13 @@
 
     <!-- Top ASNs -->
     {{if .TopASNOrgs}}
-    <div class="hpg-card">
-      <p class="hpg-eyebrow">Top ASNs, 24h</p>
-      <ul class="mt-3 divide-y divide-slate-100 dark:divide-zinc-800">
+    <div class="r-card">
+      <p class="t-eyebrow">Top ASNs, 24h</p>
+      <ul class="mt-3 divide-y" style="border-color:rgb(var(--border))">
         {{range .TopASNOrgs}}
         <li class="flex items-center justify-between gap-2 py-1.5">
-          <span class="text-sm font-medium text-slate-700 dark:text-slate-200 truncate min-w-0" title="{{.Org}}">{{.Org}}</span>
-          <span class="text-xs text-slate-500 dark:text-slate-400 shrink-0">{{.Count}}</span>
+          <span class="text-sm font-medium truncate min-w-0" style="color:rgb(var(--text))" title="{{.Org}}">{{.Org}}</span>
+          <span class="text-xs shrink-0" style="color:rgb(var(--muted))">{{.Count}}</span>
         </li>
         {{end}}
       </ul>
@@ -125,19 +125,18 @@
   </section>
 
   {{if .BandwidthDays}}
-  <section class="hpg-card p-4">
+  <section class="r-card p-4">
     <div class="flex items-baseline justify-between mb-3">
-      <h3 class="hpg-eyebrow">Bandwidth · last 7 days</h3>
-      <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{formatBytes .BandwidthTotal7d}}</span>
+      <h3 class="t-eyebrow">Bandwidth · last 7 days</h3>
+      <span class="text-sm font-semibold" style="color:rgb(var(--text))">{{formatBytes .BandwidthTotal7d}}</span>
     </div>
     <div class="flex items-end gap-1.5" style="height:48px">
       {{range .BandwidthDays}}
       {{$pct := divf .Bytes $.MaxDayBytes}}
       {{$h := mulf $pct 48.0}}
       <div class="flex-1 flex flex-col items-center gap-0.5 h-full justify-end" title="{{.Label}}: {{formatBytes .Bytes}}">
-        <div class="w-full rounded-t bg-indigo-400 dark:bg-indigo-500 transition-all cursor-default"
-             style="height: {{printf "%.0f" $h}}px; min-height: 2px"></div>
-        <span class="text-[9px] text-slate-400 leading-none select-none">{{.ShortLabel}}</span>
+        <div class="w-full rounded-t transition-all cursor-default" style="background:rgb(var(--accent));height: {{printf "%.0f" $h}}px; min-height: 2px"></div>
+        <span class="text-[9px] leading-none select-none" style="color:rgb(var(--muted))">{{.ShortLabel}}</span>
       </div>
       {{end}}
     </div>
@@ -145,18 +144,17 @@
   {{end}}
 
   {{if gt .Bandwidth30dTotal 0}}
-  <section class="hpg-card p-4">
+  <section class="r-card p-4">
     <div class="flex items-baseline justify-between mb-3">
-      <h3 class="hpg-eyebrow">Bandwidth · last 30 days</h3>
-      <span class="text-sm font-semibold text-slate-700 dark:text-slate-200">{{formatBytes .Bandwidth30dTotal}}</span>
+      <h3 class="t-eyebrow">Bandwidth · last 30 days</h3>
+      <span class="text-sm font-semibold" style="color:rgb(var(--text))">{{formatBytes .Bandwidth30dTotal}}</span>
     </div>
     <div class="flex items-end gap-0.5" style="height:48px">
       {{range .Bandwidth30dDays}}
       {{$pct := divf .Bytes $.MaxDay30dBytes}}
       {{$h := mulf $pct 48.0}}
       <div class="flex-1 flex flex-col items-center gap-0.5 h-full justify-end" title="{{.Label}}: {{formatBytes .Bytes}}">
-        <div class="w-full rounded-t bg-sky-400 dark:bg-sky-500 transition-all cursor-default"
-             style="height: {{printf "%.0f" $h}}px; min-height: 2px"></div>
+        <div class="w-full rounded-t transition-all cursor-default" style="background:rgb(var(--accent-info,var(--accent)));height: {{printf "%.0f" $h}}px; min-height: 2px"></div>
       </div>
       {{end}}
     </div>
@@ -164,56 +162,56 @@
   {{end}}
 
   {{if not .Entries}}
-  <div class="hpg-card text-sm text-slate-500 dark:text-slate-400 text-center py-12">
+  <div class="r-card text-sm text-center py-12" style="color:rgb(var(--muted))">
     No log entries yet. Entries appear here once Caddy starts forwarding requests to this route.
   </div>
   {{end}}
 
   <!-- Log table -->
-  <section class="hpg-card !p-0 overflow-hidden">
+  <section class="r-card !p-0 overflow-hidden">
     <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="border-b border-slate-100 dark:border-zinc-800 text-left">
+      <table class="r-table w-full text-sm">
+        <thead class="text-left" style="border-bottom:1px solid rgb(var(--border))">
           <tr>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs whitespace-nowrap">Time</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Method</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Proto</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Path</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Status</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Latency</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">↓ Resp</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Remote IP</th>
-            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Country</th>
+            <th class="px-4 py-2.5 font-medium text-xs whitespace-nowrap" style="color:rgb(var(--muted))">Time</th>
+            <th class="px-4 py-2.5 font-medium text-xs" style="color:rgb(var(--muted))">Method</th>
+            <th class="px-4 py-2.5 font-medium text-xs" style="color:rgb(var(--muted))">Proto</th>
+            <th class="px-4 py-2.5 font-medium text-xs" style="color:rgb(var(--muted))">Path</th>
+            <th class="px-4 py-2.5 font-medium text-xs" style="color:rgb(var(--muted))">Status</th>
+            <th class="px-4 py-2.5 font-medium text-xs" style="color:rgb(var(--muted))">Latency</th>
+            <th class="px-4 py-2.5 font-medium text-xs" style="color:rgb(var(--muted))">↓ Resp</th>
+            <th class="px-4 py-2.5 font-medium text-xs" style="color:rgb(var(--muted))">Remote IP</th>
+            <th class="px-4 py-2.5 font-medium text-xs" style="color:rgb(var(--muted))">Country</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        <tbody class="divide-y" style="border-color:rgb(var(--border))">
           {{range .Entries}}
           <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
-            <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap font-mono">{{.TS.Format "2006-01-02 15:04:05"}}</td>
+            <td class="px-4 py-2 text-xs whitespace-nowrap font-mono" style="color:rgb(var(--muted))">{{.TS.Format "2006-01-02 15:04:05"}}</td>
             <td class="px-4 py-2"><span class="hpg-method-badge text-xs font-mono font-semibold">{{.Method}}</span></td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .Proto}}{{.Proto}}{{else}}-{{end}}</td>
-            <td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate" title="{{.URI}}">{{.URI}}</td>
+            <td class="px-4 py-2 text-xs font-mono" style="color:rgb(var(--muted))">{{if .Proto}}{{.Proto}}{{else}}-{{end}}</td>
+            <td class="px-4 py-2 font-mono text-xs max-w-xs truncate" style="color:rgb(var(--text))" title="{{.URI}}">{{.URI}}</td>
             <td class="px-4 py-2">
-              <span class="inline-block px-1.5 py-0.5 rounded text-xs font-semibold font-mono
-                {{if lt .Status 300}}text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10
-                {{else if lt .Status 400}}text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-amber-500/10
-                {{else}}text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-500/10{{end}}">
+              <span class="r-pill font-mono text-xs font-semibold
+                {{if lt .Status 300}}r-pill-success
+                {{else if lt .Status 400}}r-pill-warning
+                {{else}}r-pill-danger{{end}}">
                 {{.Status}}
               </span>
             </td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{.LatencyMS}}ms</td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .BytesResp}}{{formatBytes .BytesResp}}{{else}}-{{end}}</td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{.RemoteIP}}</td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .Country}}{{.Country}}{{else}}-{{end}}</td>
+            <td class="px-4 py-2 text-xs font-mono" style="color:rgb(var(--muted))">{{.LatencyMS}}ms</td>
+            <td class="px-4 py-2 text-xs font-mono" style="color:rgb(var(--muted))">{{if .BytesResp}}{{formatBytes .BytesResp}}{{else}}-{{end}}</td>
+            <td class="px-4 py-2 text-xs font-mono" style="color:rgb(var(--muted))">{{.RemoteIP}}</td>
+            <td class="px-4 py-2 text-xs font-mono" style="color:rgb(var(--muted))">{{if .Country}}{{.Country}}{{else}}-{{end}}</td>
           </tr>
           {{end}}
         </tbody>
       </table>
     </div>
     {{if .Entries}}
-    <div class="px-4 py-2 border-t border-slate-100 dark:border-zinc-800 text-xs text-slate-400">
+    <div class="px-4 py-2 text-xs" style="border-top:1px solid rgb(var(--border));color:rgb(var(--muted))">
       Showing {{len .Entries}} entries.
-      <a href="?" class="text-indigo-500 hover:underline ml-1">Refresh</a>
+      <a href="?" class="ml-1" style="color:rgb(var(--accent))">Refresh</a>
     </div>
     {{end}}
   </section>
