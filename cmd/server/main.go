@@ -310,7 +310,13 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	audit.SetDefaultForwarder(siemFwd)
 	// Access log store + live-tail broker. RouteByDomain resolves the host to a
 	// route_id so the ingest handler can tag each log line.
-	alStore := accesslog.New(wizard.DB)
+	alRetention := 500
+	if v := os.Getenv("LOG_RETENTION_PER_ROUTE"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			alRetention = n
+		}
+	}
+	alStore := accesslog.New(wizard.DB, alRetention)
 	alBroker := accesslog.NewBroker()
 	alIngest := &accesslog.IngestHandler{
 		Store:  alStore,

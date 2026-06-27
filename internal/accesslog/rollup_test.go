@@ -56,7 +56,7 @@ func TestRollupSeriesAndSummary(t *testing.T) {
 	ensureRollupTable(t, db)
 
 	ctx := context.Background()
-	store := New(func() *sql.DB { return db })
+	store := New(func() *sql.DB { return db }, 0)
 
 	// Unique route ID so parallel test runs don't collide.
 	routeID := time.Now().UnixNano()
@@ -171,7 +171,7 @@ func TestRollupPruneSafety(t *testing.T) {
 	ensureRollupTable(t, db)
 
 	ctx := context.Background()
-	store := New(func() *sql.DB { return db })
+	store := New(func() *sql.DB { return db }, 0)
 
 	routeID := time.Now().UnixNano() + 1 // distinct from other test
 
@@ -180,8 +180,8 @@ func TestRollupPruneSafety(t *testing.T) {
 		_, _ = db.ExecContext(ctx, "DELETE FROM host_access_log WHERE route_id=?", routeID)
 	})
 
-	// Insert maxPerHost+50 entries all in the same hour.
-	total := maxPerHost + 50
+	// Insert defaultMaxPerRoute+50 entries all in the same hour.
+	total := defaultMaxPerRoute + 50
 	bucket := time.Date(2026, 2, 1, 8, 0, 0, 0, time.UTC)
 	for i := 0; i < total; i++ {
 		e := Entry{
@@ -205,8 +205,8 @@ func TestRollupPruneSafety(t *testing.T) {
 	).Scan(&rawCount); err != nil {
 		t.Fatalf("count raw rows: %v", err)
 	}
-	if rawCount > maxPerHost {
-		t.Errorf("raw rows = %d, expected <= %d (prune not working)", rawCount, maxPerHost)
+	if rawCount > defaultMaxPerRoute {
+		t.Errorf("raw rows = %d, expected <= %d (prune not working)", rawCount, defaultMaxPerRoute)
 	}
 
 	// Rollup bucket must still hold the full total.

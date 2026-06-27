@@ -225,6 +225,66 @@ func TestBuildLayer4AppCIDR(t *testing.T) {
 	}
 }
 
+// TestBuildLayer4AppProxyProtocol checks v2 proxy-protocol on both listener wrapper and upstream handler.
+// NOT fixture-validated against real Caddy - schema assumed from caddy-l4 docs.
+func TestBuildLayer4AppProxyProtocol(t *testing.T) {
+	routes := []StreamRoute{
+		{
+			ID: 10, Protocol: "tcp", ListenPort: 5432,
+			UpstreamIP: "10.0.0.3", UpstreamPort: 5432,
+			ProxyProtoIn:  "v2",
+			ProxyProtoOut: "v2",
+		},
+	}
+	app := buildLayer4App(routes)
+	b, _ := json.Marshal(app)
+	s := string(b)
+
+	for _, want := range []string{
+		`"listener_wrappers"`,
+		`"wrapper":"proxy_protocol"`,
+		`"versions":["2"]`,
+		`"proxy_protocol"`,
+		`"version":"2"`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("proxy-protocol v2 in+out missing %q\nfull: %s", want, s)
+		}
+	}
+}
+
+// TestBuildLayer4AppCIDRDeny checks remote_ip handler with both deny and allow CIDR arrays.
+// NOT fixture-validated against real Caddy - schema assumed from caddy-l4 docs.
+func TestBuildLayer4AppCIDRDeny(t *testing.T) {
+	routes := []StreamRoute{
+		{
+			ID: 11, Protocol: "tcp", ListenPort: 8080,
+			UpstreamIP: "10.0.1.1", UpstreamPort: 8080,
+			CIDRDeny:  []string{"192.168.0.0/16"},
+			CIDRAllow: []string{"10.0.0.0/8"},
+		},
+	}
+	app := buildLayer4App(routes)
+	b, _ := json.Marshal(app)
+	s := string(b)
+
+	for _, want := range []string{
+		`"handler":"remote_ip"`,
+		`"deny":["192.168.0.0/16"]`,
+		`"allow":["10.0.0.0/8"]`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("CIDR deny/allow missing %q\nfull: %s", want, s)
+		}
+	}
+	// deny must appear before proxy in handler chain.
+	remoteIPIdx := strings.Index(s, `"remote_ip"`)
+	proxyIdx := strings.Index(s, `"proxy"`)
+	if remoteIPIdx == -1 || proxyIdx == -1 || remoteIPIdx > proxyIdx {
+		t.Errorf("remote_ip handler must precede proxy handler\nfull: %s", s)
+	}
+}
+
 // TestBuildLayer4AppFullAdvanced exercises all advanced features together.
 // All caddy-l4 specific fields are NOT fixture-validated against real Caddy.
 func TestBuildLayer4AppFullAdvanced(t *testing.T) {
