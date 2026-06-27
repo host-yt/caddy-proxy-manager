@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Hostyt Proxy Gateway API",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "## Introduction\n\nHostyt Proxy Gateway (HPG) is a self-hosted control panel for a fleet of Caddy reverse-proxy nodes.\nCustomers receive a VPS with a fixed backend IP and an allowed port range (e.g. `30000-30019`).\nThrough this API they map their own domains to those ports; Caddy config is pushed automatically.\n\n## Authentication\n\nMost endpoints require a **Bearer API key** issued from `/admin/api-keys` (admin) or `/app/api-keys` (client).\n\n```\nAuthorization: Bearer hpg_live_xxxx...\n```\n\n**Node-agent endpoints** use a per-node agent token stored as a SHA-256 hash in `caddy_nodes.agent_token_hash`.\nPass it the same way: `Authorization: Bearer <token>` or `?node_token=<token>`.\n\n**WireGuard bootstrap endpoints** are authenticated by a single-shot 192-hex-char token passed as `?token=`.\nEach token has a 24 h TTL and is invalidated after first use.\n\n## Roles\n\n| Role    | Can do |\n|---------|--------|\n| `admin` | All operations |\n| `client`| Read own services/routes, create/delete own routes |\n\n`backend_ip` is admin-only — clients can never set or change it.\nAllowed ports come from the service record; the server validates membership.\n\n## Rate limits\n\nAll authenticated API endpoints share a per-key quota enforced in Redis.\nBootstrap endpoints are rate-limited to 10 req/min per IP.\nExceeding any limit returns `429 Too Many Requests`.\n\n## Async operations\n\nCaddy config changes (route create/delete, resync) are pushed in the background.\nSSL certificate provisioning is asynchronous — poll `GET /api/v1/services/{id}/routes` and watch `status`.\n"
   },
   "servers": [
@@ -161,6 +161,28 @@
           "current_routes": { "type": "integer", "example": 127 },
           "enabled": { "type": "boolean", "example": true },
           "health": { "type": "string", "enum": ["healthy", "degraded", "unknown"], "example": "healthy" }
+        }
+      },
+      "NodeDetailObject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 1 },
+          "name": { "type": "string", "example": "ams-node-01" },
+          "admin_url": { "type": "string", "example": "http://10.8.0.2:2019" },
+          "health_status": { "type": "string", "enum": ["healthy", "degraded", "unknown"], "example": "healthy" },
+          "node_group_id": { "type": "integer", "format": "int64", "example": 1 },
+          "has_waf": { "type": "boolean", "example": false },
+          "has_l4": { "type": "boolean", "example": false },
+          "has_geoip": { "type": "boolean", "example": true },
+          "has_rate_limit": { "type": "boolean", "example": true },
+          "has_dns_module": { "type": "boolean", "example": false },
+          "caddy_version": { "type": "string", "example": "v2.9.1" },
+          "is_enabled": { "type": "boolean", "example": true },
+          "current_routes": { "type": "integer", "example": 127 },
+          "max_routes": { "type": "integer", "example": 500 },
+          "public_hostname": { "type": "string", "example": "ams01.proxy.host.yt" },
+          "public_ip": { "type": "string", "format": "ipv4", "example": "185.10.20.30" },
+          "created_at": { "type": "string", "format": "date-time" }
         }
       },
       "WgPeerStats": {
@@ -669,6 +691,42 @@
         }
       }
     },
+    "/api/v1/routes/": {
+      "get": {
+        "tags": ["Routes"],
+        "summary": "List routes",
+        "operationId": "routesList",
+        "description": "Admin gets all routes; clients get only routes belonging to their own services. Optional `service_id` filter.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "service_id",
+            "required": false,
+            "schema": { "type": "integer", "format": "int64" },
+            "description": "Filter routes by service ID."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Route list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "routes": { "type": "array", "items": { "$ref": "#/components/schemas/RouteObject" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Forbidden", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
     "/api/v1/routes": {
       "post": {
         "tags": ["Routes"],
@@ -711,6 +769,70 @@
       }
     },
     "/api/v1/routes/{id}": {
+      "get": {
+        "tags": ["Routes"],
+        "summary": "Get a route by ID",
+        "operationId": "routeGet",
+        "description": "Returns a single route. Clients can only fetch routes belonging to their own services.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Route", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RouteObject" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Forbidden", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "patch": {
+        "tags": ["Routes"],
+        "summary": "Update a route",
+        "operationId": "routeUpdate",
+        "description": "Admin-only. Updates route settings. Caddy config is resynced asynchronously after the update.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "upstream_port": { "type": "integer", "example": 30006 },
+                  "ssl_enabled": { "type": "boolean" },
+                  "websocket": { "type": "boolean" },
+                  "force_https": { "type": "boolean" },
+                  "path_prefix": { "type": "string", "example": "/api" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated route",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/RouteObject" },
+                    { "type": "object", "properties": { "resync_required": { "type": "boolean", "example": true } } }
+                  ]
+                }
+              }
+            }
+          },
+          "400": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Internal error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
       "delete": {
         "tags": ["Routes"],
         "summary": "Delete a route",
@@ -863,6 +985,75 @@
         }
       }
     },
+    "/api/v1/nodes/{id}": {
+      "get": {
+        "tags": ["Nodes"],
+        "summary": "Get a node",
+        "operationId": "nodeGet",
+        "description": "Admin-only. Returns full node detail including Caddy module capability flags.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Node detail", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/NodeDetailObject" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "patch": {
+        "tags": ["Nodes"],
+        "summary": "Update a node",
+        "operationId": "nodeUpdate",
+        "description": "Admin-only. Updates node name and/or enabled state.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string", "example": "ams-node-02" },
+                  "is_enabled": { "type": "boolean", "example": false }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "updated": { "type": "boolean" } } } } } },
+          "400": { "description": "Validation error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "500": { "description": "Database error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "delete": {
+        "tags": ["Nodes"],
+        "summary": "Delete a node",
+        "operationId": "nodeDelete",
+        "description": "Admin-only. Deletes the node. Fails with 409 if the node has active routes.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Node has active routes", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
     "/api/v1/services": {
       "get": {
         "tags": ["Services"],
@@ -896,24 +1087,6 @@
           "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "409": { "description": "Service has active routes", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
-        }
-      }
-    },
-    "/api/v1/routes/{id}": {
-      "get": {
-        "tags": ["Routes"],
-        "summary": "Get a route by ID",
-        "operationId": "routeGet",
-        "description": "Returns a single route. Clients can only fetch routes belonging to their own services.",
-        "security": [{ "bearerAuth": [] }],
-        "parameters": [
-          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
-        ],
-        "responses": {
-          "200": { "description": "Route", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RouteObject" } } } },
-          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "403": { "description": "Forbidden", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },
