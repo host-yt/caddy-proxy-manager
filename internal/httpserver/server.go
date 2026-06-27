@@ -595,13 +595,6 @@ func (s *Server) routes() {
 		})
 		r.Get("/account", s.deps.Client.AccountPage)
 		r.Post("/account", s.deps.Client.AccountUpdate)
-		r.Route("/ai/chat", func(r chi.Router) {
-			r.Get("/sessions", s.deps.Client.AppAIChatListSessions)
-			r.Post("/sessions", s.deps.Client.AppAIChatCreateSession)
-			r.Get("/sessions/{id}", s.deps.Client.AppAIChatGetSession)
-			r.Delete("/sessions/{id}", s.deps.Client.AppAIChatDeleteSession)
-			r.Post("/sessions/{id}/message", s.deps.Client.AppAIChatSendMessage)
-		})
 		if s.deps.OAuthIdentity != nil {
 			r.Route("/oauth-identities", func(r chi.Router) {
 				r.Get("/", s.deps.OAuthIdentity.List)
@@ -611,11 +604,14 @@ func (s *Server) routes() {
 			})
 		}
 		r.Post("/status-page/toggle", s.deps.Client.StatusPageToggle)
-		// AI chat for the client role. Reuses the AdminHandlers AIChat* methods:
-		// they read userID from the session (chatstore is user-scoped) and derive
-		// a per-client tool scope by role, so a client only ever sees its own
-		// conversations and its own tenant data. Same JSON+SSE shapes as /admin.
+		// AI chat: AdminHandlers derive a per-user tool scope from session role,
+		// so clients only see their own tenant data. Rate-limited per IP.
 		r.Route("/ai", func(r chi.Router) {
+			r.Use(mw.RateLimit(mw.RateLimitConfig{
+				RDB:         s.deps.RDB,
+				PerIPPerMin: 30,
+				KeyPrefix:   "hpg:rl:client-ai",
+			}))
 			r.Get("/chat/sessions", s.deps.Admin.AIChatListSessions)
 			r.Post("/chat/sessions", s.deps.Admin.AIChatCreateSession)
 			r.Get("/chat/sessions/{id}", s.deps.Admin.AIChatGetSession)
