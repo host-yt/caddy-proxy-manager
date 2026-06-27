@@ -303,7 +303,7 @@ func (r *Registry) listRoutes(ctx context.Context, raw json.RawMessage) (string,
 	var a routesArgs
 	_ = json.Unmarshal(raw, &a)
 	limit := clampLimit(a.Limit, 50, 200)
-	q := `SELECT rt.domain, rt.path_prefix, rt.status, rt.ssl_enabled, cn.name
+	q := `SELECT rt.domain, rt.path_prefix, rt.upstream_port, rt.status, rt.ssl_enabled, cn.name
 	      FROM routes rt JOIN caddy_nodes cn ON cn.id = rt.caddy_node_id`
 	args := []any{}
 	if a.Status != "" {
@@ -318,16 +318,17 @@ func (r *Registry) listRoutes(ctx context.Context, raw json.RawMessage) (string,
 	}
 	defer rows.Close()
 	type route struct {
-		Domain string `json:"domain"`
-		Path   string `json:"path,omitempty"`
-		Status string `json:"status"`
-		SSL    bool   `json:"ssl"`
-		Node   string `json:"node"`
+		Domain       string `json:"domain"`
+		Path         string `json:"path,omitempty"`
+		UpstreamPort int    `json:"upstream_port"`
+		Status       string `json:"status"`
+		SSL          bool   `json:"ssl"`
+		Node         string `json:"node"`
 	}
 	out := make([]route, 0, limit)
 	for rows.Next() {
 		var rt route
-		if err := rows.Scan(&rt.Domain, &rt.Path, &rt.Status, &rt.SSL, &rt.Node); err != nil {
+		if err := rows.Scan(&rt.Domain, &rt.Path, &rt.UpstreamPort, &rt.Status, &rt.SSL, &rt.Node); err != nil {
 			return "", err
 		}
 		out = append(out, rt)
@@ -585,7 +586,7 @@ func (r *Registry) recentAlerts(ctx context.Context, raw json.RawMessage) (strin
 	var a limitArgs
 	_ = json.Unmarshal(raw, &a)
 	limit := clampLimit(a.Limit, 20, 100)
-	const q = `SELECT rule_id, severity, title, COALESCE(detail,''), fired_at
+	const q = `SELECT rule_id, severity, title, COALESCE(detail,''), COALESCE(labels_json,'{}'), fired_at
 	           FROM alert_log ORDER BY fired_at DESC LIMIT ?`
 	rows, err := r.db.QueryContext(ctx, q, limit)
 	if err != nil {
@@ -593,18 +594,23 @@ func (r *Registry) recentAlerts(ctx context.Context, raw json.RawMessage) (strin
 	}
 	defer rows.Close()
 	type alert struct {
-		RuleID   string `json:"rule_id"`
-		Severity string `json:"severity"`
-		Title    string `json:"title"`
-		Detail   string `json:"detail,omitempty"`
-		FiredAt  string `json:"fired_at"`
+		RuleID   string          `json:"rule_id"`
+		Severity string          `json:"severity"`
+		Title    string          `json:"title"`
+		Detail   string          `json:"detail,omitempty"`
+		Labels   json.RawMessage `json:"labels,omitempty"`
+		FiredAt  string          `json:"fired_at"`
 	}
 	out := make([]alert, 0, limit)
 	for rows.Next() {
 		var a alert
 		var firedAt time.Time
-		if err := rows.Scan(&a.RuleID, &a.Severity, &a.Title, &a.Detail, &firedAt); err != nil {
+		var labelsRaw string
+		if err := rows.Scan(&a.RuleID, &a.Severity, &a.Title, &a.Detail, &labelsRaw, &firedAt); err != nil {
 			return "", err
+		}
+		if labelsRaw != "{}" && labelsRaw != "" {
+			a.Labels = json.RawMessage(labelsRaw)
 		}
 		a.FiredAt = firedAt.UTC().Format(time.RFC3339)
 		out = append(out, a)

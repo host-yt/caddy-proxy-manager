@@ -89,7 +89,7 @@ func (r *Registry) listRoutesScoped(ctx context.Context, scope Scope, raw json.R
 	if !ok {
 		return emptyResult("routes")
 	}
-	q := `SELECT rt.domain, COALESCE(rt.path_prefix,''), rt.status, rt.ssl_enabled, s.name
+	q := `SELECT rt.domain, COALESCE(rt.path_prefix,''), rt.upstream_port, rt.status, rt.ssl_enabled, s.name
 	      FROM routes rt
 	      JOIN services s ON s.id = rt.service_id
 	      WHERE s.client_id IN ` + in
@@ -105,16 +105,17 @@ func (r *Registry) listRoutesScoped(ctx context.Context, scope Scope, raw json.R
 	}
 	defer rows.Close()
 	type route struct {
-		Domain  string `json:"domain"`
-		Path    string `json:"path,omitempty"`
-		Status  string `json:"status"`
-		SSL     bool   `json:"ssl"`
-		Service string `json:"service"`
+		Domain       string `json:"domain"`
+		Path         string `json:"path,omitempty"`
+		UpstreamPort int    `json:"upstream_port"`
+		Status       string `json:"status"`
+		SSL          bool   `json:"ssl"`
+		Service      string `json:"service"`
 	}
 	out := make([]route, 0, limit)
 	for rows.Next() {
 		var rt route
-		if err := rows.Scan(&rt.Domain, &rt.Path, &rt.Status, &rt.SSL, &rt.Service); err != nil {
+		if err := rows.Scan(&rt.Domain, &rt.Path, &rt.UpstreamPort, &rt.Status, &rt.SSL, &rt.Service); err != nil {
 			return "", err
 		}
 		out = append(out, rt)
