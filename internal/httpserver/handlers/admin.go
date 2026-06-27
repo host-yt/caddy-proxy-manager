@@ -1044,6 +1044,80 @@ func (h *AdminHandlers) FailoverPreview(w http.ResponseWriter, r *http.Request) 
 	apiJSON(w, http.StatusOK, resp)
 }
 
+// preflightMismatch is a route that requires a capability the node lacks.
+type preflightMismatch struct {
+	RouteID int64  `json:"route_id"`
+	Domain  string `json:"domain"`
+	Reason  string `json:"reason"`
+}
+
+// NodePreflight handles GET /admin/nodes/{id}/preflight.json.
+// Returns routes whose capability requirements exceed what the node provides.
+func (h *AdminHandlers) NodePreflight(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		apiJSON(w, http.StatusServiceUnavailable, map[string]any{"ok": false, "error": "no db"})
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if id == 0 {
+		apiJSON(w, http.StatusBadRequest, map[string]any{"ok": false, "error": "invalid node id"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	var hasWAF, hasGeoIP, hasRateLimit bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(has_waf,0), COALESCE(has_geoip,0), COALESCE(has_rate_limit,0)
+		   FROM caddy_nodes WHERE id = ?`, id,
+	).Scan(&hasWAF, &hasGeoIP, &hasRateLimit); err != nil {
+		apiJSON(w, http.StatusNotFound, map[string]any{"ok": false, "error": "node not found"})
+		return
+	}
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, domain, COALESCE(waf_enabled,0), COALESCE(geo_mode,'off'), COALESCE(rate_limit_rpm,0)
+		   FROM routes WHERE caddy_node_id = ? AND status = 'active'`, id)
+	if err != nil {
+		apiJSON(w, http.StatusInternalServerError, map[string]any{"ok": false, "error": sanitizeErr(err)})
+		return
+	}
+	defer rows.Close()
+
+	var mismatches []preflightMismatch
+	total := 0
+	for rows.Next() {
+		total++
+		var routeID int64
+		var domain, geoMode string
+		var wafEnabled bool
+		var rateLimitRPM int64
+		if e := rows.Scan(&routeID, &domain, &wafEnabled, &geoMode, &rateLimitRPM); e != nil {
+			continue
+		}
+		if wafEnabled && !hasWAF {
+			mismatches = append(mismatches, preflightMismatch{RouteID: routeID, Domain: domain, Reason: "waf_required"})
+		}
+		if geoMode != "off" && !hasGeoIP {
+			mismatches = append(mismatches, preflightMismatch{RouteID: routeID, Domain: domain, Reason: "geoip_required"})
+		}
+		if rateLimitRPM > 0 && !hasRateLimit {
+			mismatches = append(mismatches, preflightMismatch{RouteID: routeID, Domain: domain, Reason: "rate_limit_required"})
+		}
+	}
+	if mismatches == nil {
+		mismatches = []preflightMismatch{}
+	}
+
+	apiJSON(w, http.StatusOK, map[string]any{
+		"ok":         true,
+		"node_id":    id,
+		"mismatches": mismatches,
+		"total":      total,
+	})
+}
+
 func (h *AdminHandlers) NodesToggle(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	if db == nil {
