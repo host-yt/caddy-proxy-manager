@@ -432,6 +432,8 @@ func (s *Server) routes() {
 			r.Post("/", s.deps.Admin.ServicesCreate)
 			r.Post("/{id}/edit", s.deps.Admin.ServicesUpdate)
 			r.Post("/{id}/delete", s.deps.Admin.ServicesDelete)
+			r.Post("/{id}/suspend", s.deps.Admin.ServicesSuspend)
+			r.Post("/{id}/resume", s.deps.Admin.ServicesResume)
 		})
 		r.Route("/users", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.UsersList)

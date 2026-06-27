@@ -55,6 +55,17 @@
               <form method="POST" action="/admin/services/{{.ID}}/delete" data-confirm="Delete service {{.Name}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button class="text-xs font-medium text-rose-600 hover:text-rose-700 hover:underline">delete</button>
               </form>
+              {{if eq .Status "active"}}
+              <form method="POST" action="/admin/services/{{.ID}}/suspend" class="inline" data-confirm="Suspend all routes for {{.Name}}?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="text-xs font-medium text-amber-600 hover:text-amber-700 hover:underline cursor-pointer">suspend</button>
+              </form>
+              {{else if eq .Status "suspended"}}
+              <form method="POST" action="/admin/services/{{.ID}}/resume" class="inline">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="text-xs font-medium text-emerald-600 hover:text-emerald-700 hover:underline cursor-pointer">resume</button>
+              </form>
+              {{end}}
             </div>
           </td>
         </tr>

@@ -2028,6 +2028,143 @@ func (h *AdminHandlers) ServicesDelete(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/services", "Service deleted", "")
 }
 
+// ServicesSuspend sets a service to 'suspended' and disables all active routes in a transaction.
+func (h *AdminHandlers) ServicesSuspend(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if id == 0 {
+		redirectWithFlash(w, r, "/admin/services", "", "invalid service id")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Collect distinct caddy_node_ids for affected active routes before disabling.
+	rows, err := db.QueryContext(ctx,
+		"SELECT DISTINCT caddy_node_id FROM routes WHERE service_id = ? AND status = 'active' AND caddy_node_id IS NOT NULL", id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "query failed: "+sanitizeErr(err))
+		return
+	}
+	var nodeIDs []int64
+	for rows.Next() {
+		var nid int64
+		if rows.Scan(&nid) == nil {
+			nodeIDs = append(nodeIDs, nid)
+		}
+	}
+	rows.Close()
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "tx begin failed")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	res, err := tx.ExecContext(ctx,
+		"UPDATE services SET status = 'suspended' WHERE id = ? AND status = 'active'", id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		redirectWithFlash(w, r, "/admin/services", "", "service not found or already suspended")
+		return
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE routes SET status = 'disabled' WHERE service_id = ? AND status IN ('active','dns_ok','pending_ssl')", id); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "route disable failed: "+sanitizeErr(err))
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "commit failed")
+		return
+	}
+
+	// Push config to each affected node after commit.
+	if h.Routes != nil {
+		for _, nid := range nodeIDs {
+			h.Routes.SchedulePush(nid)
+		}
+	}
+
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
+		Action: "admin.service.suspend", Entity: "service", EntityID: fmt.Sprintf("%d", id),
+	})
+	redirectWithFlash(w, r, "/admin/services", "Service suspended", "")
+}
+
+// ServicesResume reactivates a suspended service and re-enables its disabled routes.
+func (h *AdminHandlers) ServicesResume(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if id == 0 {
+		redirectWithFlash(w, r, "/admin/services", "", "invalid service id")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Collect distinct node IDs before updating so we know which nodes to push.
+	rows, err := db.QueryContext(ctx,
+		"SELECT DISTINCT caddy_node_id FROM routes WHERE service_id = ? AND caddy_node_id IS NOT NULL", id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "query failed: "+sanitizeErr(err))
+		return
+	}
+	var nodeIDs []int64
+	for rows.Next() {
+		var nid int64
+		if rows.Scan(&nid) == nil {
+			nodeIDs = append(nodeIDs, nid)
+		}
+	}
+	rows.Close()
+
+	res, err := db.ExecContext(ctx,
+		"UPDATE services SET status = 'active' WHERE id = ? AND status = 'suspended'", id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		redirectWithFlash(w, r, "/admin/services", "", "service not found or not suspended")
+		return
+	}
+
+	// Re-enable all disabled routes for this service (intentional: restore all).
+	if _, err := db.ExecContext(ctx,
+		"UPDATE routes SET status = 'active' WHERE service_id = ? AND status = 'disabled'", id); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "route enable failed: "+sanitizeErr(err))
+		return
+	}
+
+	// Push config to each affected node.
+	if h.Routes != nil {
+		for _, nid := range nodeIDs {
+			h.Routes.SchedulePush(nid)
+		}
+	}
+
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
+		Action: "admin.service.resume", Entity: "service", EntityID: fmt.Sprintf("%d", id),
+	})
+	redirectWithFlash(w, r, "/admin/services", "Service resumed", "")
+}
+
 // ---- Users (staff + clients view) --------------------------------------
 
 type userRow struct {
