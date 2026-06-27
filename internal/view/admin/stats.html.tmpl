@@ -78,6 +78,40 @@
   </section>
 </div>
 
+{{if .RecentSignups}}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+  <section class="hpg-card lg:col-span-2">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Recent signups</h2>
+    <div class="overflow-x-auto"><table class="w-full text-sm">
+      <thead class="text-left hpg-eyebrow">
+        <tr>
+          <th class="px-3 py-2">Email</th>
+          <th class="px-3 py-2">Role</th>
+          <th class="px-3 py-2">Joined</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        {{range .RecentSignups}}
+        <tr>
+          <td class="px-3 py-2">
+            <a href="/admin/users?q={{.Email}}" class="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer transition-colors">{{.Email}}</a>
+          </td>
+          <td class="px-3 py-2">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
+              {{if eq .Role "admin"}}bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300
+              {{else}}bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300{{end}}">
+              {{.Role}}
+            </span>
+          </td>
+          <td class="px-3 py-2 text-slate-500 dark:text-slate-400 font-mono">{{.CreatedAt}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table></div>
+  </section>
+</div>
+{{end}}
+
 <section class="hpg-card mb-6">
   <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Plan distribution</h2>
   <div class="overflow-x-auto"><table class="w-full text-sm">

@@ -43,6 +43,13 @@ type recentRouteRow struct {
 	CreatedAt  string
 }
 
+type recentSignupRow struct {
+	UserID    int64
+	Email     string
+	Role      string
+	CreatedAt string
+}
+
 type planUsageRow struct {
 	PlanName     string
 	ClientCount  int
@@ -109,6 +116,7 @@ type statsData struct {
 	NodeStats      []nodeStatRow
 	TopClients     []topClientRow
 	RecentRoutes   []recentRouteRow
+	RecentSignups  []recentSignupRow
 	PlanUsage      []planUsageRow
 	NodeTraffic      []nodeTrafficRow
 	PlanViolations   []planViolationRow
@@ -398,6 +406,22 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		rrows.Close()
+	}
+
+	// --- Recent signups (last 10) -------------------------------------
+	srows, _ := db.QueryContext(ctx,
+		`SELECT id, email, role, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i')
+		 FROM users
+		 WHERE role IN ('client','admin')
+		 ORDER BY id DESC LIMIT 10`)
+	if srows != nil {
+		for srows.Next() {
+			var row recentSignupRow
+			if err := srows.Scan(&row.UserID, &row.Email, &row.Role, &row.CreatedAt); err == nil {
+				d.RecentSignups = append(d.RecentSignups, row)
+			}
+		}
+		srows.Close()
 	}
 
 	// --- Cache summary -------------------------------------------------
