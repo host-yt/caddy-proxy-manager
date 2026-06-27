@@ -56,7 +56,11 @@ func CommonFuncs() template.FuncMap {
 			}
 			return m, nil
 		},
-		"slice": func(v ...any) []any { return v },
+		"slice":    func(v ...any) []any { return v },
+		// splitStr splits a string by sep; used to render scope pills in templates.
+		"splitStr": strings.Split,
+		// trimStr trims whitespace from a string; used alongside splitStr.
+		"trimStr": strings.TrimSpace,
 		// divf divides two int64 values and returns float64; used for byte formatting.
 		"divf": func(a, b int64) float64 {
 			if b == 0 {
