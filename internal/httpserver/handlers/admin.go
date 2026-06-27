@@ -331,14 +331,15 @@ type AttentionItem struct {
 
 // dashCounts holds the cheap headline numbers shown as stat cards.
 type dashCounts struct {
-	TotalHosts   int
-	ActiveHosts  int
-	PendingHosts int
-	FailedHosts  int
-	NodesTotal   int
-	NodesOnline  int
-	Clients      int
-	Plans        int
+	TotalHosts        int
+	ActiveHosts       int
+	PendingHosts      int
+	FailedHosts       int
+	NodesTotal        int
+	NodesOnline       int
+	Clients           int
+	Plans             int
+	SuspendedServices int
 }
 
 // dashEvent is a single recent audit-log line (latest activity feed).
@@ -418,6 +419,9 @@ func (h *AdminHandlers) dashboardCounts(ctx context.Context, db *sql.DB) dashCou
 		"SELECT COUNT(*) FROM caddy_nodes WHERE health_status='healthy' AND is_enabled=1 AND approved_at IS NOT NULL").Scan(&c.NodesOnline)
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clients").Scan(&c.Clients)
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM plans").Scan(&c.Plans)
+	var susp int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM services WHERE status='suspended'").Scan(&susp)
+	c.SuspendedServices = susp
 	return c
 }
 
@@ -518,6 +522,38 @@ func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB) ([]A
 			Severity: "warn",
 			Text:     fmt.Sprintf("%d manual certificate(s) expiring within 30 days", expiringSoon),
 			URL:      "/admin/manual-certs",
+		})
+	}
+
+	// Suspended services indicate an operator or billing action is blocking traffic.
+	var suspendedServices int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM services WHERE status='suspended'").Scan(&suspendedServices)
+	if suspendedServices > 0 {
+		items = append(items, AttentionItem{
+			Severity: "warn",
+			Text:     fmt.Sprintf("%d service(s) currently suspended", suspendedServices),
+			URL:      "/admin/services?status=suspended",
+		})
+	}
+
+	// Ghost clients: have services but none of their routes are active.
+	var ghostClients int
+	_ = db.QueryRowContext(ctx, `
+		SELECT COUNT(DISTINCT c.id)
+		FROM clients c
+		WHERE NOT EXISTS (
+			SELECT 1 FROM services s
+			JOIN routes r ON r.service_id=s.id
+			WHERE s.client_id=c.id AND r.status="active"
+		) AND EXISTS (
+			SELECT 1 FROM services s WHERE s.client_id=c.id
+		)
+	`).Scan(&ghostClients)
+	if ghostClients > 0 {
+		items = append(items, AttentionItem{
+			Severity: "info",
+			Text:     fmt.Sprintf("%d client(s) with services but no active routes", ghostClients),
+			URL:      "/admin/clients",
 		})
 	}
 
