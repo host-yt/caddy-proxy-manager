@@ -2,47 +2,47 @@
 <div class="max-w-xl space-y-6">
 
   {{if .Flash}}
-  <div class="px-4 py-2 rounded-lg bg-green-50 text-green-800 ring-1 ring-green-200 text-sm">{{.Flash}}</div>
+  <div class="r-card px-4 py-2 ring-[rgb(var(--success)/.4)] t-small" style="background:rgb(var(--success)/.1);color:rgb(var(--success))">{{.Flash}}</div>
   {{end}}
   {{if .Error}}
-  <div class="px-4 py-2 rounded-lg bg-red-50 text-red-800 ring-1 ring-red-200 text-sm">{{.Error}}</div>
+  <div class="r-card px-4 py-2 ring-[rgb(var(--danger)/.4)] t-small" style="background:rgb(var(--danger)/.1);color:rgb(var(--danger))">{{.Error}}</div>
   {{end}}
 
   <!-- Stats row -->
   <div class="grid grid-cols-3 gap-3">
-    <div class="hpg-card text-center">
-      <p class="text-2xl font-bold text-slate-800 dark:text-slate-100">{{.TotalRoutes}}</p>
-      <p class="text-xs text-slate-500 mt-0.5">Total routes</p>
+    <div class="r-card text-center">
+      <p class="t-display">{{.TotalRoutes}}</p>
+      <p class="t-caption mt-0.5">Total routes</p>
     </div>
-    <div class="hpg-card text-center">
-      <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{{.ActiveRoutes}}</p>
-      <p class="text-xs text-slate-500 mt-0.5">Active</p>
+    <div class="r-card text-center">
+      <p class="t-display" style="color:rgb(var(--success))">{{.ActiveRoutes}}</p>
+      <p class="t-caption mt-0.5">Active</p>
     </div>
-    <div class="hpg-card text-center">
-      <p class="text-2xl font-bold text-sky-600 dark:text-sky-400">{{formatBytes .BandwidthBytes7d}}</p>
-      <p class="text-xs text-slate-500 mt-0.5">7-day traffic</p>
+    <div class="r-card text-center">
+      <p class="t-display" style="color:rgb(56 189 248)">{{formatBytes .BandwidthBytes7d}}</p>
+      <p class="t-caption mt-0.5">7-day traffic</p>
     </div>
   </div>
 
   <!-- Services table -->
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="px-4 py-3 border-b border-slate-100 dark:border-zinc-800">
-      <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Services</h3>
+  <section class="r-card !p-0 overflow-hidden">
+    <div class="px-4 py-3 border-b border-[rgb(var(--border))]">
+      <h3 class="t-h3">Services</h3>
     </div>
-    <table class="w-full text-sm">
-      <thead class="text-left text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-zinc-800">
+    <table class="r-table">
+      <thead>
         <tr><th class="px-4 py-2">Name</th><th>Plan</th><th>Status</th><th>Routes</th></tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody>
         {{range .Services}}
-        <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
-          <td class="px-4 py-2.5 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
-          <td class="px-4 py-2.5 text-slate-500 text-xs">{{.PlanName}}</td>
-          <td class="px-4 py-2.5"><span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else if eq .Status "suspended"}}hpg-pill-warn{{else}}hpg-pill-muted{{end}}">{{.Status}}</span></td>
-          <td class="px-4 py-2.5 text-slate-600 dark:text-slate-300">{{.ActiveRoutes}}/{{.RouteCount}}</td>
+        <tr>
+          <td class="px-4 py-2.5 font-medium">{{.Name}}</td>
+          <td class="px-4 py-2.5 text-xs">{{.PlanName}}</td>
+          <td class="px-4 py-2.5"><span class="r-pill {{if eq .Status "active"}}r-pill-success{{else if eq .Status "suspended"}}r-pill-warning{{else}}r-pill-neutral{{end}}">{{.Status}}</span></td>
+          <td class="px-4 py-2.5">{{.ActiveRoutes}}/{{.RouteCount}}</td>
         </tr>
         {{else}}
-        <tr><td colspan="4" class="px-4 py-4 text-center text-slate-500 text-sm">No services.</td></tr>
+        <tr><td colspan="4" class="px-4 py-4 text-center t-small">No services.</td></tr>
         {{end}}
       </tbody>
     </table>
@@ -50,13 +50,13 @@
 
   <!-- Routes table -->
   {{if .Routes}}
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="px-4 py-3 border-b border-slate-100 dark:border-zinc-800">
-      <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Routes ({{len .Routes}})</h3>
+  <section class="r-card !p-0 overflow-hidden">
+    <div class="px-4 py-3 border-b border-[rgb(var(--border))]">
+      <h3 class="t-h3">Routes ({{len .Routes}})</h3>
     </div>
     <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead class="text-left text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-zinc-800">
+    <table class="r-table">
+      <thead>
         <tr>
           <th class="px-4 py-2">Domain</th>
           <th class="px-4 py-2">Status</th>
@@ -66,15 +66,15 @@
           <th class="px-4 py-2"></th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody>
       {{range .Routes}}
-      <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
-        <td class="px-4 py-2.5 font-mono text-xs text-slate-800 dark:text-slate-100">{{.Domain}}{{if .PathPrefix}}<span class="text-slate-400">{{.PathPrefix}}</span>{{end}}</td>
-        <td class="px-4 py-2.5"><span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else if eq .Status "failed"}}hpg-pill-err{{else}}hpg-pill-muted{{end}}">{{.Status}}</span></td>
-        <td class="px-4 py-2.5">{{if .SSL}}<span class="text-emerald-600 dark:text-emerald-400">&#10003;</span>{{else}}<span class="text-slate-400">-</span>{{end}}</td>
-        <td class="px-4 py-2.5 text-slate-500 dark:text-slate-400 text-xs">{{.NodeName}}</td>
-        <td class="px-4 py-2.5">{{if .Tag}}<span class="hpg-pill bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">{{.Tag}}</span>{{end}}</td>
-        <td class="px-4 py-2.5"><a href="/admin/hosts/{{.RouteID}}/edit" class="text-indigo-600 hover:underline text-xs cursor-pointer">edit</a></td>
+      <tr>
+        <td class="px-4 py-2.5 font-mono text-xs">{{.Domain}}{{if .PathPrefix}}<span style="color:rgb(var(--muted))">{{.PathPrefix}}</span>{{end}}</td>
+        <td class="px-4 py-2.5"><span class="r-pill {{if eq .Status "active"}}r-pill-success{{else if eq .Status "failed"}}r-pill-danger{{else}}r-pill-neutral{{end}}">{{.Status}}</span></td>
+        <td class="px-4 py-2.5">{{if .SSL}}<span style="color:rgb(var(--success))">&#10003;</span>{{else}}<span style="color:rgb(var(--muted))">-</span>{{end}}</td>
+        <td class="px-4 py-2.5 text-xs">{{.NodeName}}</td>
+        <td class="px-4 py-2.5">{{if .Tag}}<span class="r-pill r-pill-info">{{.Tag}}</span>{{end}}</td>
+        <td class="px-4 py-2.5"><a href="/admin/hosts/{{.RouteID}}/edit" class="t-caption cursor-pointer hover:underline" style="color:rgb(var(--accent))">edit</a></td>
       </tr>
       {{end}}
       </tbody>
@@ -84,18 +84,18 @@
   {{end}}
 
   <!-- Client summary -->
-  <section class="hpg-card space-y-1">
+  <section class="r-card space-y-1">
     <div class="flex items-start justify-between gap-3">
       <div class="space-y-1">
-        <h2 class="font-semibold text-slate-800 dark:text-slate-100">{{.DisplayName}}</h2>
-        <p class="text-sm text-slate-500">{{.Email}}</p>
-        <p class="text-xs text-slate-400">ID: {{.ID}}</p>
+        <h2 class="t-h3">{{.DisplayName}}</h2>
+        <p class="t-small">{{.Email}}</p>
+        <p class="t-caption">ID: {{.ID}}</p>
       </div>
       {{if .UserID}}
       <form method="POST" action="/admin/users/{{.UserID}}/impersonate">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <button type="submit"
-          class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border border-slate-200 dark:border-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+          class="r-btn-secondary inline-flex items-center gap-1.5 text-xs cursor-pointer"
           title="Opens client portal as this user">
           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
             <path stroke-linecap="round" stroke-linejoin="round" d="M17.982 18.725A7.488 7.488 0 0012 15.75a7.488 7.488 0 00-5.982 2.975m11.963 0a9 9 0 10-11.963 0m11.963 0A8.966 8.966 0 0112 21a8.966 8.966 0 01-5.982-2.275M15 9.75a3 3 0 11-6 0 3 3 0 016 0z"/>
@@ -109,99 +109,86 @@
 
   <!-- Change plan -->
   {{if .AllPlans}}
-  <section class="hpg-card">
-    <h2 class="hpg-eyebrow mb-3">Change plan</h2>
+  <section class="r-card">
+    <p class="t-eyebrow mb-3">Change plan</p>
     <form method="POST" action="/admin/clients/{{.ID}}/change-plan" class="flex items-center gap-3">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <select name="plan_id"
-              class="flex-1 px-3 py-1.5 text-sm rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none cursor-pointer">
+      <select name="plan_id" class="r-select flex-1 cursor-pointer">
         {{range .AllPlans}}
         <option value="{{.ID}}"{{if eq .ID $.CurrentPlanID}} selected{{end}}>{{.Name}}</option>
         {{end}}
       </select>
-      <button type="submit"
-              class="px-4 py-1.5 text-sm rounded-full bg-indigo-600 text-white hover:bg-indigo-700 transition-colors cursor-pointer">
-        Apply
-      </button>
+      <button type="submit" class="r-btn-primary cursor-pointer">Apply</button>
     </form>
   </section>
   {{end}}
 
   <!-- Status page controls -->
-  <section class="hpg-card">
-    <h2 class="hpg-eyebrow mb-3">Public status page</h2>
+  <section class="r-card">
+    <p class="t-eyebrow mb-3">Public status page</p>
     {{if .StatusSlug}}
-    <div class="mb-3 text-sm text-slate-700 dark:text-slate-300 space-y-2">
-      <p>Status page is <span class="hpg-pill hpg-pill-ok">enabled</span></p>
-      <p class="font-mono text-xs break-all text-slate-500">{{.StatusURL}}</p>
+    <div class="mb-3 t-small space-y-2">
+      <p>Status page is <span class="r-pill r-pill-success">enabled</span></p>
+      <p class="font-mono text-xs break-all" style="color:rgb(var(--muted))">{{.StatusURL}}</p>
     </div>
-    <div class="flex gap-2">
-      <a href="{{.StatusURL}}" target="_blank"
-         class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-sm hover:bg-slate-50 dark:hover:bg-zinc-800">
-        Preview
-      </a>
+    <div class="flex flex-wrap gap-2">
+      <a href="{{.StatusURL}}" target="_blank" class="r-btn-secondary">Preview</a>
       <form method="POST" action="/admin/clients/{{.ID}}/status-slug/generate">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-sm hover:bg-slate-50 dark:hover:bg-zinc-800">
-          Regenerate slug
-        </button>
+        <button class="r-btn-secondary cursor-pointer">Regenerate slug</button>
       </form>
       <form method="POST" action="/admin/clients/{{.ID}}/status-slug/revoke"
             data-confirm="Disable status page for {{.DisplayName}}?">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="px-3 py-1.5 rounded-lg text-sm bg-rose-50 text-rose-700 ring-1 ring-rose-200 hover:bg-rose-100">
-          Disable
-        </button>
+        <button class="r-btn-danger cursor-pointer">Disable</button>
       </form>
     </div>
     <div class="mt-3 flex items-center gap-3">
       <form method="POST" action="/admin/clients/{{.ID}}/status-slug/toggle-traffic">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="text-sm px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800">
+        <button class="r-btn-secondary t-small cursor-pointer">
           {{if .ShowTraffic}}Hide traffic bytes{{else}}Show traffic bytes{{end}}
         </button>
       </form>
-      <span class="text-xs text-slate-400">
+      <span class="t-caption">
         Traffic visible to visitors:
-        {{if .ShowTraffic}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}
+        {{if .ShowTraffic}}<span class="r-pill r-pill-success">yes</span>{{else}}<span class="r-pill r-pill-neutral">no</span>{{end}}
       </span>
     </div>
     {{else}}
-    <p class="text-sm text-slate-500 mb-3">Status page is <span class="hpg-pill hpg-pill-muted">disabled</span> for this client.</p>
+    <p class="t-small mb-3">Status page is <span class="r-pill r-pill-neutral">disabled</span> for this client.</p>
     <form method="POST" action="/admin/clients/{{.ID}}/status-slug/generate">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
-        Enable status page
-      </button>
+      <button class="r-btn-primary cursor-pointer">Enable status page</button>
     </form>
     {{end}}
   </section>
 
   <!-- Internal admin notes -->
-  <section class="mt-6">
-    <h3 class="hpg-eyebrow mb-2">Internal notes</h3>
+  <section class="r-card">
+    <p class="t-eyebrow mb-2">Internal notes</p>
     <form method="POST" action="/admin/clients/{{.ID}}/notes">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <textarea name="notes" rows="4" placeholder="Internal notes (visible to admins only)…"
-                class="w-full px-3 py-2 text-sm rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none resize-y">{{.Notes}}</textarea>
+      <textarea name="notes" rows="4" placeholder="Internal notes (visible to admins only)..."
+                class="r-input w-full resize-y">{{.Notes}}</textarea>
       <div class="mt-2 flex justify-end">
-        <button type="submit" class="px-4 py-1.5 text-sm rounded-full bg-indigo-600 text-white hover:bg-indigo-700 transition-colors cursor-pointer">Save notes</button>
+        <button type="submit" class="r-btn-primary cursor-pointer">Save notes</button>
       </div>
     </form>
   </section>
 
   {{if .ClientAudit}}
   <!-- Recent activity audit section -->
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="px-4 py-3 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2">
-      <svg class="w-4 h-4 text-slate-400 flex-shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+  <section class="r-card !p-0 overflow-hidden">
+    <div class="px-4 py-3 border-b border-[rgb(var(--border))] flex items-center gap-2">
+      <svg class="w-4 h-4 flex-shrink-0" style="color:rgb(var(--muted))" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
         <circle cx="10" cy="10" r="8"/><path stroke-linecap="round" d="M10 6v4l2.5 2.5"/>
       </svg>
-      <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Recent activity</h3>
+      <h3 class="t-h3">Recent activity</h3>
     </div>
     <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead class="text-left text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-zinc-800">
+    <table class="r-table">
+      <thead>
         <tr>
           <th class="px-4 py-2">Time</th>
           <th class="px-4 py-2">Action</th>
@@ -209,26 +196,26 @@
           <th class="px-4 py-2">Actor</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody>
       {{range .ClientAudit}}
-      <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
-        <td class="px-4 py-2 font-mono text-[11px] text-slate-400 whitespace-nowrap">{{.FiredAt}}</td>
+      <tr>
+        <td class="px-4 py-2 font-mono text-[11px] whitespace-nowrap">{{.FiredAt}}</td>
         <td class="px-4 py-2">
           {{$a := .Action}}
           {{if hasPrefix $a "admin.host."}}
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">{{$a}}</span>
+            <span class="r-pill r-pill-warning">{{$a}}</span>
           {{else if hasPrefix $a "admin.service."}}
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">{{$a}}</span>
+            <span class="r-pill r-pill-info">{{$a}}</span>
           {{else if hasPrefix $a "admin.client."}}
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">{{$a}}</span>
+            <span class="r-pill" style="background:rgb(139 92 246/.12);color:rgb(139 92 246)">{{$a}}</span>
           {{else if hasPrefix $a "client."}}
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">{{$a}}</span>
+            <span class="r-pill r-pill-success">{{$a}}</span>
           {{else}}
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 dark:bg-zinc-700 dark:text-slate-300">{{$a}}</span>
+            <span class="r-pill r-pill-neutral">{{$a}}</span>
           {{end}}
         </td>
-        <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">{{.Entity}}</td>
-        <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">{{.Email}}</td>
+        <td class="px-4 py-2 text-xs">{{.Entity}}</td>
+        <td class="px-4 py-2 text-xs">{{.Email}}</td>
       </tr>
       {{end}}
       </tbody>
@@ -237,6 +224,6 @@
   </section>
   {{end}}
 
-  <a href="/admin/clients" class="text-sm text-indigo-600 hover:underline">&larr; Back to clients</a>
+  <a href="/admin/clients" class="t-small cursor-pointer hover:underline" style="color:rgb(var(--accent))">&larr; Back to clients</a>
 </div>
 {{end}}
