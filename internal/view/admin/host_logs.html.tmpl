@@ -135,7 +135,7 @@
         {{end}}
       </div>
       {{if gt .BytesSummary.AvgBytes 0}}
-      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">avg {{.BytesSummary.AvgBytes}} B/req</p>
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">avg {{formatBytes .BytesSummary.AvgBytes}}/req</p>
       {{end}}
     </div>
 
