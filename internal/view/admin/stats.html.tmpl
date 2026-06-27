@@ -47,7 +47,7 @@
       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
         {{range .TopClients}}
         <tr>
-          <td class="px-3 py-2 text-slate-800 dark:text-slate-100">{{.Name}}</td>
+          <td class="px-3 py-2 text-slate-800 dark:text-slate-100">{{if gt .ClientID 0}}<a href="/admin/clients/{{.ClientID}}" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
           <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.Services}}</td>
           <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.Routes}}</td>
           <td class="px-3 py-2 text-emerald-700 dark:text-emerald-400">{{.Active}}</td>

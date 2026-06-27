@@ -25,6 +25,7 @@ type nodeStatRow struct {
 }
 
 type topClientRow struct {
+	ClientID         int64
 	Name             string
 	Services         int
 	Routes           int
@@ -225,7 +226,7 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 
 	// --- Top clients (ordered by 7d bandwidth desc) -------------------
 	crows, _ := db.QueryContext(ctx,
-		`SELECT COALESCE(NULLIF(c.display_name,""), u.email),
+		`SELECT c.id, COALESCE(NULLIF(c.display_name,""), u.email),
 		        (SELECT COUNT(*) FROM services s WHERE s.client_id = c.id),
 		        (SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=c.id),
 		        (SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=c.id AND r.status="active"),
@@ -235,11 +236,11 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 		                  WHERE s.client_id=c.id
 		                  AND lr.bucket_start >= (NOW() - INTERVAL 7 DAY)), 0)
 		 FROM clients c JOIN users u ON u.id=c.user_id
-		 ORDER BY 5 DESC, 3 DESC LIMIT 10`)
+		 ORDER BY 6 DESC, 4 DESC LIMIT 10`)
 	if crows != nil {
 		for crows.Next() {
 			var row topClientRow
-			if err := crows.Scan(&row.Name, &row.Services, &row.Routes, &row.Active, &row.Bandwidth7d); err == nil {
+			if err := crows.Scan(&row.ClientID, &row.Name, &row.Services, &row.Routes, &row.Active, &row.Bandwidth7d); err == nil {
 				row.Bandwidth7dHuman = humanBytes(uint64(row.Bandwidth7d))
 				d.TopClients = append(d.TopClients, row)
 			}
