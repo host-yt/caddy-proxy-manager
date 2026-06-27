@@ -356,6 +356,7 @@ func (s *Server) routes() {
 			r.Post("/new", s.deps.Admin.HostsCreate)
 			r.Get("/check-dns", s.deps.Admin.HostsCheckDNS)
 			r.Post("/{id}/purge-cache", s.deps.Admin.HostsPurgeCache)
+			r.Post("/{id}/clone", s.deps.Admin.HostsClone)
 			r.Get("/{id}/edit", s.deps.Admin.HostsEdit)
 			r.Post("/{id}/edit", s.deps.Admin.HostsUpdate)
 			r.Post("/{id}/regenerate-secret", s.deps.Admin.HostsRegenerateSecret)

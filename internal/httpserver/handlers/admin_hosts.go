@@ -805,6 +805,82 @@ func (h *AdminHandlers) HostsToggle(w http.ResponseWriter, r *http.Request) {
 
 func chiURLParamHosts(r *http.Request, key string) string { return chi.URLParam(r, key) }
 
+// HostsClone copies an existing route row into a new inactive clone.
+// Uses information_schema to build a dynamic INSERT so future column additions don't require handler changes.
+func (h *AdminHandlers) HostsClone(w http.ResponseWriter, r *http.Request) {
+	if h.DB() == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	db := h.DB()
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	// Verify route exists and fetch its domain for the audit entry.
+	var domain string
+	if err := db.QueryRowContext(ctx, "SELECT domain FROM routes WHERE id=?", id).Scan(&domain); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	// Discover columns at runtime so the clone stays correct after migrations.
+	colRows, err := db.QueryContext(ctx,
+		`SELECT COLUMN_NAME FROM information_schema.COLUMNS
+		 WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='routes'
+		 ORDER BY ORDINAL_POSITION`)
+	if err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
+	}
+	defer colRows.Close()
+	var allCols []string
+	for colRows.Next() {
+		var c string
+		_ = colRows.Scan(&c)
+		allCols = append(allCols, c)
+	}
+
+	// Columns excluded from the copy (auto-generated or intentionally reset).
+	skip := map[string]bool{
+		"id": true, "created_at": true, "updated_at": true,
+		"last_error": true, "last_push_at": true, "proxy_secret_hash": true,
+	}
+	// Columns where the cloned value differs from the source.
+	override := map[string]string{
+		"domain":           `CONCAT('clone-of-', domain)`,
+		"status":           `'inactive'`,
+		"maintenance_mode": `0`,
+	}
+	var insertCols, selectExprs []string
+	for _, c := range allCols {
+		if skip[c] {
+			continue
+		}
+		insertCols = append(insertCols, c)
+		if expr, ok := override[c]; ok {
+			selectExprs = append(selectExprs, expr)
+		} else {
+			selectExprs = append(selectExprs, c)
+		}
+	}
+	cloneSQL := "INSERT INTO routes (" + strings.Join(insertCols, ",") + ") SELECT " +
+		strings.Join(selectExprs, ",") + " FROM routes WHERE id=?"
+	res, err := db.ExecContext(ctx, cloneSQL, id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
+		return
+	}
+	newID, _ := res.LastInsertId()
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "admin.host.clone", Entity: "route",
+		EntityID: itoa64(newID),
+		Meta:    map[string]any{"source_id": id, "domain": "clone-of-" + domain},
+	})
+	redirectWithFlash(w, r, fmt.Sprintf("/admin/hosts/%d/edit", newID), "Route cloned - update domain + activate.", "")
+}
+
 // HostsToggleMaintenance flips maintenance_mode for a single route and resyncs Caddy.
 func (h *AdminHandlers) HostsToggleMaintenance(w http.ResponseWriter, r *http.Request) {
 	if h.Routes == nil || h.DB() == nil {
