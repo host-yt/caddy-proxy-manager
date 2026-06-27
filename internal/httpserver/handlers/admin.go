@@ -2609,6 +2609,8 @@ type settingsData struct {
 	Branding Branding
 	// AI backs the "AI assistant" tab (provider keys + default selector).
 	AI aiView
+	// MTLSFailOpen mirrors the mtls.fail_open setting for the mTLS tab.
+	MTLSFailOpen bool
 }
 
 func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -2708,6 +2710,8 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		d.SMS = h.LoadSMSConfigView(ctx)
 		d.CustomerFields = h.LoadCustomerFieldsView(ctx)
 		d.AI = h.loadAIView(ctx)
+		mtlsKV := h.loadSettings(ctx, db, []string{"mtls.fail_open"})
+		d.MTLSFailOpen = mtlsKV["mtls.fail_open"] == "1"
 	}
 	d.SSOJump = h.loadSSOJumpSettingsView(r, d.AppURL)
 	// Branding tab: pre-fill from the shared cached loader (same source as
@@ -2847,6 +2851,32 @@ func (h *AdminHandlers) SettingsACME(w http.ResponseWriter, r *http.Request) {
 		EntityID: "acme",
 	})
 	redirectWithFlash(w, r, "/admin/settings", "ACME settings saved. Next Caddy push will use them.", "")
+}
+
+// SettingsMTLS handles POST /admin/settings/mtls — saves the global mTLS fail-open flag.
+func (h *AdminHandlers) SettingsMTLS(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	_ = r.ParseForm()
+	failOpen := "0"
+	if r.FormValue("mtls_fail_open") == "1" {
+		failOpen = "1"
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
+	defer cancel()
+	if err := h.saveSettings(ctx, db, map[string]string{"mtls.fail_open": failOpen}, false); err != nil {
+		redirectWithFlash(w, r, "/admin/settings#mtls", "", "save failed")
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "settings.mtls.save", Entity: "settings",
+		EntityID: "mtls", Meta: map[string]any{"fail_open": failOpen == "1"},
+	})
+	redirectWithFlash(w, r, "/admin/settings#mtls", "mTLS settings saved.", "")
 }
 
 // geoipRefresher is the minimal interface the handler needs from GeoIPUpdateJob.

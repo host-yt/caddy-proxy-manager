@@ -1351,6 +1351,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		}
 	}
 
+	mtlsFailOpen := s.loadMTLSFailOpen(ctx)
 	cfg := caddyapi.BuildNodeConfig(built, caddyapi.NodeSettings{
 		ACMEEmail:                s.ACMEEmail,
 		ACMEStaging:              s.ACMEStaging,
@@ -1367,6 +1368,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		ErrorBranding:            branding,
 		WstunnelRoute:            wstunnelRoute,
 		AccessLogURL:             s.AccessLogURL,
+		MTLSFailOpen:             mtlsFailOpen,
 	})
 	return &nodePush{cfg: cfg, built: built, routeIDs: routeIDs, apiURL: apiURL}, nil
 }
@@ -1627,6 +1629,18 @@ func (s *Service) loadErrorBranding(ctx context.Context) caddyapi.ErrorBranding 
 		}
 	}
 	return b
+}
+
+// loadMTLSFailOpen reads the global mtls.fail_open setting (default false = fail closed).
+func (s *Service) loadMTLSFailOpen(ctx context.Context) bool {
+	if s.DB == nil {
+		return false
+	}
+	c, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var v string
+	_ = s.DB.QueryRowContext(c, "SELECT value FROM settings WHERE `key` = 'mtls.fail_open'").Scan(&v)
+	return v == "1"
 }
 
 // resolveRandomEgressIP picks a stable IP for a route from the node's inventory.

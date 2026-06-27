@@ -46,7 +46,7 @@ func TestBuildMTLSConnPolicies_Shape(t *testing.T) {
 		RequireClientCert: true,
 		MTLSCACertPEM:     caPEM,
 	}}
-	pols := buildMTLSConnPolicies(routes)
+	pols := buildMTLSConnPolicies(routes, false)
 	if len(pols) != 1 {
 		t.Fatalf("want 1 policy, got %d", len(pols))
 	}
@@ -81,11 +81,11 @@ func TestBuildMTLSConnPolicies_Shape(t *testing.T) {
 
 func TestBuildMTLSConnPolicies_SkippedWhenNoCAOrFlag(t *testing.T) {
 	// flag on but no PEM -> fail open, no policy emitted.
-	if got := buildMTLSConnPolicies([]Route{{Hosts: []string{"h"}, RequireClientCert: true}}); got != nil {
+	if got := buildMTLSConnPolicies([]Route{{Hosts: []string{"h"}, RequireClientCert: true}}, false); got != nil {
 		t.Errorf("expected nil policies with empty CA PEM, got %v", got)
 	}
 	// PEM present but flag off -> no policy.
-	if got := buildMTLSConnPolicies([]Route{{Hosts: []string{"h"}, MTLSCACertPEM: testCAPEM(t)}}); got != nil {
+	if got := buildMTLSConnPolicies([]Route{{Hosts: []string{"h"}, MTLSCACertPEM: testCAPEM(t)}}, false); got != nil {
 		t.Errorf("expected nil policies with flag off, got %v", got)
 	}
 }

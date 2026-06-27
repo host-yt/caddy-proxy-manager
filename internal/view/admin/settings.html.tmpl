@@ -44,6 +44,7 @@
           <button type="button" data-settings-tab="wireguard" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">WireGuard</button>
           <button type="button" data-settings-tab="cloudflare" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cloudflare</button>
           <button type="button" data-settings-tab="acme" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">ACME / TLS</button>
+          <button type="button" data-settings-tab="mtls" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">mTLS</button>
           <button type="button" data-settings-tab="geoip" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">GeoIP database</button>
         </div>
       </div>
@@ -626,6 +627,22 @@
       </div>
     </form>
     <p class="text-xs text-slate-500 dark:text-slate-400 mt-3">Changes take effect on the next Caddy push (next route create/delete or node resync).</p>
+  </section>
+
+  <section data-settings-pane="mtls" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Mutual TLS (mTLS) enforcement</h2>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Controls how Caddy behaves when a client-cert is required on a route but no valid certificate is presented. Changes take effect on the next Caddy push.</p>
+    <form method="POST" action="/admin/settings/mtls" class="space-y-4 text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200 cursor-pointer">
+        <input type="checkbox" name="mtls_fail_open" value="1" {{if .MTLSFailOpen}}checked{{end}}>
+        Fail open - allow traffic even when no client certificate is presented
+      </label>
+      <p class="text-xs text-slate-500 dark:text-slate-400">When unchecked (default): Caddy uses <code>require_and_verify</code> - the TLS handshake is rejected if no valid client cert is presented. When checked: Caddy uses <code>request</code> - the cert is optional and traffic proceeds regardless.</p>
+      <div class="flex justify-end">
+        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 cursor-pointer transition-colors">Save</button>
+      </div>
+    </form>
   </section>
 
   <section data-settings-pane="geoip" class="hpg-settings-pane hidden hpg-card">

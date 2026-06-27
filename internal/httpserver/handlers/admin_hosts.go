@@ -2335,11 +2335,13 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	var nodeID, serviceID int64
 	var currentBackendIP string
 	var prevOverride sql.NullString
+	var prevRequireClientCert bool
 	if err := h.DB().QueryRowContext(ctx,
-		`SELECT r.caddy_node_id, r.service_id, s.backend_ip, r.backend_ip_override
+		`SELECT r.caddy_node_id, r.service_id, s.backend_ip, r.backend_ip_override,
+		        COALESCE(r.require_client_cert, 0)
 		 FROM routes r JOIN services s ON s.id = r.service_id
 		 WHERE r.id = ?`, id,
-	).Scan(&nodeID, &serviceID, &currentBackendIP, &prevOverride); err != nil {
+	).Scan(&nodeID, &serviceID, &currentBackendIP, &prevOverride, &prevRequireClientCert); err != nil {
 		redirectWithFlash(w, r, "/admin/hosts", "", "route not found")
 		return
 	}
@@ -2586,6 +2588,14 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("host update", "id", id, "err", err)
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
 		return
+	}
+	// Audit mTLS enforcement toggle when require_client_cert changed.
+	if prevRequireClientCert != requireClientCert {
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess), Action: "host.mtls_enforcement_changed", Entity: "route",
+			EntityID: itoa64(id),
+			Meta:     map[string]any{"enabled": requireClientCert},
+		})
 	}
 	// Rewrite child collections atomically (DELETE+INSERT in a tx) so a partial
 	// failure can't leave an empty upstream pool or half-applied location rules.

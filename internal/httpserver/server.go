@@ -526,6 +526,7 @@ func (s *Server) routes() {
 			r.Post("/external-allowlist/{id}/delete", s.deps.Admin.ExternalAllowlistDelete)
 			r.Post("/smtp", s.deps.Admin.SettingsSMTP)
 			r.Post("/acme", s.deps.Admin.SettingsACME)
+			r.Post("/mtls", s.deps.Admin.SettingsMTLS)
 			r.Post("/geoip", s.deps.Admin.SettingsGeoIP)
 			r.Post("/geoip/refresh", s.deps.Admin.SettingsGeoIPRefresh)
 			r.Post("/oidc", s.deps.Admin.SettingsOIDC)
