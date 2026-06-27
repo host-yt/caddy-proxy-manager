@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -14,6 +16,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 )
@@ -36,6 +39,8 @@ type wafEventsData struct {
 	Suppressions []wafevents.Suppression
 	// RouteDomain is non-empty when filtered to a specific route.
 	RouteDomain string
+	// ASNS maps remote_ip -> "AS12345 OrgName"; empty when ASN DB absent.
+	ASNS map[string]string
 }
 
 // parseWAFFilter reads WAF filter query params from r.
@@ -114,6 +119,27 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("waf events query", "err", err)
 	}
 	d.Entries = entries
+
+	// Enrich entries with ASN data when the DB is available; skip silently if absent.
+	if len(entries) > 0 {
+		asnMap := make(map[string]string, len(entries))
+		for _, e := range entries {
+			if e.RemoteIP == "" {
+				continue
+			}
+			if _, seen := asnMap[e.RemoteIP]; seen {
+				continue
+			}
+			ip := net.ParseIP(e.RemoteIP)
+			if ip == nil {
+				continue
+			}
+			if asn, org, ok := geoip.LookupASN(ip); ok {
+				asnMap[e.RemoteIP] = fmt.Sprintf("AS%d %s", asn, org)
+			}
+		}
+		d.ASNS = asnMap
+	}
 
 	// Load active suppressions for display; scoped admins see only their routes'.
 	var scopeRouteIDs []int64
