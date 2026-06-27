@@ -1,10 +1,10 @@
 {{define "twofa"}}
 <div class="space-y-4 max-w-4xl">
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-6">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Status</h2>
+  <section class="r-card">
+    <h2 class="font-semibold text-text mb-3">Status</h2>
     {{if .Enabled}}
-    <p class="text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2 mb-4">
+    <p class="text-sm flex items-center gap-2 mb-4" style="color:rgb(var(--accent))">
       <span class="w-2 h-2 rounded-full bg-emerald-500"></span> 2FA is active on your account
     </p>
     <form method="POST" action="/app/2fa/disable" data-confirm="Disable 2FA?">
@@ -12,56 +12,56 @@
       <button class="text-sm px-3 py-1.5 rounded-md bg-rose-600 text-white hover:bg-rose-700">Disable 2FA</button>
     </form>
     {{else if .Enrolling}}
-    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">Scan the QR with your authenticator app, then enter the 6-digit code below.</p>
+    <p class="text-sm text-muted mb-3">Scan the QR with your authenticator app, then enter the 6-digit code below.</p>
     <div class="flex items-start gap-6">
-      <img src="data:image/png;base64,{{.QRBase64}}" alt="QR" class="border border-slate-200 dark:border-zinc-800 dark:border-zinc-700 rounded-md" width="220" height="220">
+      <img src="data:image/png;base64,{{.QRBase64}}" alt="QR" class="r-card rounded-md" width="220" height="220">
       <div class="text-xs">
-        <div class="text-slate-500 dark:text-slate-400 mb-1">Manual entry</div>
-        <code class="block bg-slate-50 dark:bg-zinc-800 p-2 rounded break-all font-mono">{{.Secret}}</code>
+        <div class="text-muted mb-1">Manual entry</div>
+        <code class="block p-2 rounded break-all font-mono" style="background:rgb(var(--surface))">{{.Secret}}</code>
       </div>
     </div>
     <form method="POST" action="/app/2fa/confirm" class="mt-4 space-y-3">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">6-digit code</label>
+        <label class="block text-xs text-muted mb-1">6-digit code</label>
         <input name="code" inputmode="numeric" pattern="[0-9]*" maxlength="6" required autofocus
-               class="w-full max-w-xs px-3 py-2 rounded border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-center tracking-widest">
+               class="r-input w-full max-w-xs font-mono text-center tracking-widest">
       </div>
-      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Enable 2FA</button>
+      <button class="r-btn-primary">Enable 2FA</button>
     </form>
     {{else}}
-    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">Protect your account with a second factor.</p>
+    <p class="text-sm text-muted mb-3">Protect your account with a second factor.</p>
     <form method="POST" action="/app/2fa/start">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Set up 2FA</button>
+      <button class="r-btn-primary">Set up 2FA</button>
     </form>
     {{end}}
   </section>
 
   {{if .RecoveryCodes}}
-  <section class="bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-xl p-6">
-    <h2 class="font-semibold text-amber-900 dark:text-amber-200 mb-2">Recovery codes</h2>
-    <p class="text-xs text-amber-800 dark:text-amber-300 mb-3">Save these. Each works once if you lose your authenticator.</p>
+  <section class="r-card" style="background:rgb(var(--accent-weak)/.15);border-color:rgb(var(--accent)/.3)">
+    <h2 class="font-semibold mb-2" style="color:rgb(var(--accent))">Recovery codes</h2>
+    <p class="text-xs text-muted mb-3">Save these. Each works once if you lose your authenticator.</p>
     <ul class="grid grid-cols-2 gap-2 text-sm font-mono">
-      {{range .RecoveryCodes}}<li class="bg-white dark:bg-zinc-900 border border-amber-200 dark:border-amber-500/30 rounded px-2 py-1">{{.}}</li>{{end}}
+      {{range .RecoveryCodes}}<li class="r-card rounded px-2 py-1">{{.}}</li>{{end}}
     </ul>
   </section>
   {{end}}
 
   {{if .SMSOTPAvailable}}
-  <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-6">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">SMS two-factor authentication</h2>
+  <section class="r-card">
+    <h2 class="font-semibold text-text mb-3">SMS two-factor authentication</h2>
     {{if .SMSOTPEnrolling}}
-    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">A 6-digit code was sent to your phone. Enter it below to activate SMS 2FA.</p>
+    <p class="text-sm text-muted mb-3">A 6-digit code was sent to your phone. Enter it below to activate SMS 2FA.</p>
     <form method="POST" action="/app/2fa/sms/confirm" class="space-y-3">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus
              placeholder="123456"
-             class="w-full max-w-xs px-3 py-2 rounded border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-center tracking-widest">
-      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Verify &amp; enable</button>
+             class="r-input w-full max-w-xs font-mono text-center tracking-widest">
+      <button class="r-btn-primary">Verify &amp; enable</button>
     </form>
     {{else if .SMSOTPEnabled}}
-    <p class="text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2 mb-4">
+    <p class="text-sm flex items-center gap-2 mb-4" style="color:rgb(var(--accent))">
       <span class="w-2 h-2 rounded-full bg-emerald-500"></span> SMS 2FA is active
     </p>
     <form method="POST" action="/app/2fa/sms/disable" data-confirm="Disable SMS 2FA?">
@@ -69,43 +69,43 @@
       <button class="text-sm px-3 py-1.5 rounded-md bg-rose-600 text-white hover:bg-rose-700">Disable SMS 2FA</button>
     </form>
     {{else if .HasPhone}}
-    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">Use your phone number as a second factor instead of an authenticator app.</p>
+    <p class="text-sm text-muted mb-3">Use your phone number as a second factor instead of an authenticator app.</p>
     <form method="POST" action="/app/2fa/sms/start">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Set up SMS 2FA</button>
+      <button class="r-btn-primary">Set up SMS 2FA</button>
     </form>
     {{else}}
-    <p class="text-sm text-slate-500 dark:text-slate-400">Set your phone number in <a href="/app/account" class="text-indigo-600 dark:text-indigo-400 hover:underline">Account</a> first.</p>
+    <p class="text-sm text-muted">Set your phone number in <a href="/app/account" class="hover:underline" style="color:rgb(var(--accent))">Account</a> first.</p>
     {{end}}
   </section>
   {{end}}
 
-  <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-6 lg:col-span-2">
+  <section class="r-card lg:col-span-2">
     <div class="flex items-center justify-between mb-3">
-      <h2 class="font-semibold text-slate-800 dark:text-slate-100">Passkeys (WebAuthn)</h2>
+      <h2 class="font-semibold text-text">Passkeys (WebAuthn)</h2>
       <button id="passkey-add-btn" data-scope="client"
-        class="text-sm px-3 py-1.5 rounded-md bg-indigo-600 text-white hover:bg-indigo-700">+ Add passkey</button>
+        class="r-btn-primary text-sm">+ Add passkey</button>
     </div>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Use Touch ID / Windows Hello / a security key. Passkeys can replace your password on the login page.</p>
+    <p class="text-xs text-muted mb-3">Use Touch ID / Windows Hello / a security key. Passkeys can replace your password on the login page.</p>
     <div id="passkeys-list" data-scope="client">
-      <p class="text-sm text-slate-500 dark:text-slate-400">Loading…</p>
+      <p class="text-sm text-muted">Loading…</p>
     </div>
   </section>
   <script nonce="{{.CSPNonce}}" src="/static/js/passkey.js"></script>
 
-  <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-6">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Email two-factor authentication</h2>
+  <section class="r-card">
+    <h2 class="font-semibold text-text mb-3">Email two-factor authentication</h2>
     {{if .EmailOTPEnrolling}}
-    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">A 6-digit code was sent to your email. Enter it below to activate Email 2FA.</p>
+    <p class="text-sm text-muted mb-3">A 6-digit code was sent to your email. Enter it below to activate Email 2FA.</p>
     <form method="POST" action="/app/2fa/email/confirm" class="space-y-3">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <input name="code" inputmode="numeric" pattern="[0-9]{6}" maxlength="6" required autofocus
              placeholder="123456"
-             class="w-full max-w-xs px-3 py-2 rounded border border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-center tracking-widest">
-      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Verify &amp; enable</button>
+             class="r-input w-full max-w-xs font-mono text-center tracking-widest">
+      <button class="r-btn-primary">Verify &amp; enable</button>
     </form>
     {{else if .EmailOTPEnabled}}
-    <p class="text-sm text-emerald-700 dark:text-emerald-400 flex items-center gap-2 mb-4">
+    <p class="text-sm flex items-center gap-2 mb-4" style="color:rgb(var(--accent))">
       <span class="w-2 h-2 rounded-full bg-emerald-500"></span> Email 2FA is active
     </p>
     <form method="POST" action="/app/2fa/email/disable" data-confirm="Disable Email 2FA?">
@@ -113,12 +113,12 @@
       <button class="text-sm px-3 py-1.5 rounded-md bg-rose-600 text-white hover:bg-rose-700">Disable Email 2FA</button>
     </form>
     {{else if not .HasMailer}}
-    <p class="text-sm text-slate-500 dark:text-slate-400">Email service is not configured yet.</p>
+    <p class="text-sm text-muted">Email service is not configured yet.</p>
     {{else}}
-    <p class="text-sm text-slate-600 dark:text-slate-300 mb-3">Receive a 6-digit code at your email address during sign-in.</p>
+    <p class="text-sm text-muted mb-3">Receive a 6-digit code at your email address during sign-in.</p>
     <form method="POST" action="/app/2fa/email/start">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Set up Email 2FA</button>
+      <button class="r-btn-primary">Set up Email 2FA</button>
     </form>
     {{end}}
   </section>

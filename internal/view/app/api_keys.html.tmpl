@@ -1,74 +1,74 @@
 {{define "api_keys"}}
 <div class="space-y-4">
-  <p class="text-sm text-slate-600 dark:text-slate-300 dark:text-slate-400">API tokens authenticate programmatic access to your account. Use them with the customer REST API; the panel never asks for them in the browser flow.</p>
+  <p class="text-sm text-muted">API tokens authenticate programmatic access to your account. Use them with the customer REST API; the panel never asks for them in the browser flow.</p>
 
   {{if .NewPlain}}
-  <section class="bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-700 rounded-xl p-5">
-    <h3 class="font-semibold text-emerald-900 dark:text-emerald-200 mb-1">Save this token now - it will not be shown again</h3>
-    <code class="block bg-white dark:bg-zinc-900 p-3 rounded-md font-mono text-xs break-all border border-emerald-200 dark:border-emerald-700">{{.NewPlain}}</code>
-    <p class="text-xs text-emerald-800 dark:text-emerald-300 mt-2">Send it as <code>Authorization: Bearer &lt;token&gt;</code> on customer endpoints.</p>
+  <section class="r-card" style="background:rgb(var(--accent-weak)/.15);border-color:rgb(var(--accent)/.3)">
+    <h3 class="font-semibold mb-1" style="color:rgb(var(--accent))">Save this token now - it will not be shown again</h3>
+    <code class="block p-3 rounded-md font-mono text-xs break-all r-card" style="border-color:rgb(var(--accent)/.3)">{{.NewPlain}}</code>
+    <p class="text-xs text-muted mt-2">Send it as <code>Authorization: Bearer &lt;token&gt;</code> on customer endpoints.</p>
   </section>
   {{end}}
 
-  <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl">
-    <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="bg-slate-50 dark:bg-zinc-800/50 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
-        <tr><th class="px-4 py-2">Name</th><th class="px-4 py-2">Scopes</th><th class="px-4 py-2">Prefix</th><th class="px-4 py-2">Created</th><th class="px-4 py-2">Expires</th><th class="px-4 py-2">Last used</th><th class="px-4 py-2">Last IP</th><th class="px-4 py-2">Requests</th><th class="px-4 py-2"></th></tr>
+  <section class="r-card p-0 overflow-hidden">
+    <div class="overflow-x-auto"><table class="r-table w-full text-sm">
+      <thead>
+        <tr><th>Name</th><th>Scopes</th><th>Prefix</th><th>Created</th><th>Expires</th><th>Last used</th><th>Last IP</th><th>Requests</th><th></th></tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody>
       {{range .Keys}}
         <tr>
-          <td class="px-4 py-2 font-medium text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.Name}}{{if .Revoked}} <span class="text-xs text-rose-600">(revoked)</span>{{end}}</td>
-          <td class="px-4 py-2">
+          <td class="font-medium text-text">{{.Name}}{{if .Revoked}} <span class="r-pill r-pill-danger text-xs">(revoked)</span>{{end}}</td>
+          <td>
             {{range splitStr .Scopes ","}}{{$s := trimStr .}}
-            {{if eq $s "client:read"}}<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300 mr-1">read</span>
-            {{else if eq $s "client:write"}}<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300 mr-1">write</span>
-            {{else if $s}}<span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 dark:bg-zinc-700 dark:text-slate-300 mr-1">{{$s}}</span>
+            {{if eq $s "client:read"}}<span class="r-pill r-pill-info mr-1">read</span>
+            {{else if eq $s "client:write"}}<span class="r-pill r-pill-warning mr-1">write</span>
+            {{else if $s}}<span class="r-pill r-pill-neutral mr-1">{{$s}}</span>
             {{end}}{{end}}
           </td>
-          <td class="px-4 py-2 font-mono text-xs text-slate-600 dark:text-slate-300">{{.Prefix}}…</td>
-          <td class="px-4 py-2 text-xs text-slate-500">{{.CreatedAt}}</td>
-          <td class="px-4 py-2 text-xs text-slate-500">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}never{{end}}</td>
-          <td class="px-4 py-2 text-xs text-slate-500">{{if .LastUsedAt}}{{.LastUsedAt}}{{else}}-{{end}}</td>
-          <td class="px-4 py-2 text-xs text-slate-500 font-mono">{{if .LastUsedIP}}{{.LastUsedIP}}{{else}}-{{end}}</td>
-          <td class="px-4 py-2 text-xs text-slate-500">{{.UseCount}}</td>
-          <td class="px-4 py-2 text-right">
+          <td class="font-mono text-xs text-muted">{{.Prefix}}…</td>
+          <td class="text-xs text-muted">{{.CreatedAt}}</td>
+          <td class="text-xs text-muted">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}never{{end}}</td>
+          <td class="text-xs text-muted">{{if .LastUsedAt}}{{.LastUsedAt}}{{else}}-{{end}}</td>
+          <td class="text-xs text-muted font-mono">{{if .LastUsedIP}}{{.LastUsedIP}}{{else}}-{{end}}</td>
+          <td class="text-xs text-muted">{{.UseCount}}</td>
+          <td class="text-right">
             {{if not .Revoked}}
             <form method="POST" action="/app/api-keys/{{.ID}}/revoke" data-confirm="Revoke {{.Name}}?">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button class="text-xs text-rose-600 hover:underline">revoke</button>
+              <button class="r-btn-ghost text-xs" style="color:rgb(var(--danger,239 68 68))">revoke</button>
             </form>
             {{end}}
           </td>
         </tr>
       {{else}}
-        <tr><td colspan="9" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No tokens yet.</td></tr>
+        <tr><td colspan="9" class="r-empty px-4 py-6 text-center text-muted">No tokens yet.</td></tr>
       {{end}}
       </tbody>
     </table></div>
   </section>
 
-  <section class="bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 rounded-xl p-5">
-    <h3 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">New token</h3>
+  <section class="r-card">
+    <h3 class="font-semibold text-text mb-3">New token</h3>
     <form method="POST" action="/app/api-keys" class="space-y-3 text-sm">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div class="sm:col-span-2">
-          <label class="block text-xs text-slate-600 dark:text-slate-300 dark:text-slate-400 mb-1">Name (e.g. "ci-deploy", "monitoring")</label>
-          <input name="name" required class="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-zinc-700">
+          <label class="block text-xs text-muted mb-1">Name (e.g. "ci-deploy", "monitoring")</label>
+          <input name="name" required class="r-input w-full">
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 dark:text-slate-400 mb-1">Expires in (days, 0 = never)</label>
-          <input name="expires_days" type="number" min="0" max="3650" value="365" class="w-full px-2 py-1.5 rounded border border-slate-300 dark:border-zinc-700">
+          <label class="block text-xs text-muted mb-1">Expires in (days, 0 = never)</label>
+          <input name="expires_days" type="number" min="0" max="3650" value="365" class="r-input w-full">
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 dark:text-slate-400 mb-2">Scopes</label>
+          <label class="block text-xs text-muted mb-2">Scopes</label>
           <div class="space-y-1">
-            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-text">
               <input type="checkbox" name="scope_client_read" value="1" checked class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
               client:read
             </label>
-            <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
+            <label class="flex items-center gap-2 cursor-pointer text-xs text-text">
               <input type="checkbox" name="scope_client_write" value="1" checked class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
               client:write
             </label>
@@ -76,7 +76,7 @@
         </div>
       </div>
       <div>
-        <button class="px-3 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Create token</button>
+        <button class="r-btn-primary">Create token</button>
       </div>
     </form>
   </section>
