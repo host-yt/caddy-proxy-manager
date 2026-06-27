@@ -1,9 +1,12 @@
 package alert
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"sort"
 	"strconv"
 	"strings"
@@ -62,6 +65,19 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
 			e.Logger.Warn("alert sms failed", "rule", a.RuleID, "err", err)
 		}
 	}
+	if e.Cfg.TelegramBotToken != "" && e.Cfg.TelegramChatID != "" {
+		sev := "ℹ️"
+		switch a.Severity {
+		case SeverityWarning:
+			sev = "⚠️"
+		case SeverityCritical:
+			sev = "🔴"
+		}
+		msg := fmt.Sprintf("%s <b>[HPG Alert]</b> %s\n%s", sev, a.Title, a.Detail)
+		if err := sendTelegram(ctx, e.Cfg.TelegramBotToken, e.Cfg.TelegramChatID, msg); err != nil && e.Logger != nil {
+			e.Logger.Warn("telegram alert failed", "rule", a.RuleID, "err", err)
+		}
+	}
 
 	// Trigger automatic failover for node_offline alerts.
 	if a.RuleID == "node_offline" {
@@ -92,6 +108,30 @@ func (e *Evaluator) pruneLog(ctx context.Context, db *sql.DB) {
 	_, _ = db.ExecContext(ctx,
 		`DELETE FROM alert_log WHERE fired_at < (NOW() - INTERVAL ? DAY)`,
 		e.Cfg.RetentionDays)
+}
+
+// sendTelegram posts a message to a Telegram chat via the Bot API.
+func sendTelegram(ctx context.Context, token, chatID, text string) error {
+	url := "https://api.telegram.org/bot" + token + "/sendMessage"
+	body, _ := json.Marshal(map[string]string{
+		"chat_id":    chatID,
+		"text":       text,
+		"parse_mode": "HTML",
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("telegram: HTTP %d", resp.StatusCode)
+	}
+	return nil
 }
 
 // dedupeKey builds a stable string from rule_id + labels (sorted keys) so

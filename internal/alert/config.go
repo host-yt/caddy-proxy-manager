@@ -23,6 +23,10 @@ type Config struct {
 	AdminEmail string // ALERT_ADMIN_EMAIL
 	// Admin phone for SMS; empty = skip SMS fanout.
 	AdminPhone string // ALERT_ADMIN_PHONE
+	// Telegram bot token; empty = skip Telegram fanout.
+	TelegramBotToken string // ALERT_TELEGRAM_BOT_TOKEN
+	// Telegram chat ID or @channel; empty = skip Telegram fanout.
+	TelegramChatID string // ALERT_TELEGRAM_CHAT_ID
 	// Alert when last successful restore drill is older than this many days.
 	DrillStaleDays int // ALERT_DRILL_STALE_DAYS, default 7
 	// Hours after rotation before alerting that customer never fetched new config.
@@ -51,6 +55,8 @@ func LoadConfig() Config {
 		RetentionDays:             envInt("ALERT_RETENTION_DAYS", 90),
 		AdminEmail:                os.Getenv("ALERT_ADMIN_EMAIL"),
 		AdminPhone:                os.Getenv("ALERT_ADMIN_PHONE"),
+		TelegramBotToken:          os.Getenv("ALERT_TELEGRAM_BOT_TOKEN"),
+		TelegramChatID:            os.Getenv("ALERT_TELEGRAM_CHAT_ID"),
 		DrillStaleDays:            envInt("ALERT_DRILL_STALE_DAYS", 7),
 		WGRotationFetchGraceHours: envInt("ALERT_WG_FETCH_GRACE_HOURS", 48),
 		ManualCertDaysWarn:        envInt("ALERT_MANUAL_CERT_DAYS_WARN", 30),
