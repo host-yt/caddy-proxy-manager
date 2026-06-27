@@ -96,6 +96,69 @@
   </section>
   {{end}}
 
+  <!-- Module capabilities badges -->
+  <section class="hpg-card">
+    <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">Module capabilities</h3>
+    <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-3">Which custom Caddy modules are installed on this node</p>
+    <div class="flex flex-wrap gap-2">
+      {{if .HasWAF}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          WAF (Coraza)
+        </span>
+      {{else}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+          WAF (Coraza)
+        </span>
+      {{end}}
+      {{if .HasL4}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          L4 Streams
+        </span>
+      {{else}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+          L4 Streams
+        </span>
+      {{end}}
+      {{if .HasDNSModule}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          DNS-01
+        </span>
+      {{else}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+          DNS-01
+        </span>
+      {{end}}
+      {{if .HasRateLimit}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          Rate limit
+        </span>
+      {{else}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+          Rate limit
+        </span>
+      {{end}}
+      {{if .HasGeoIP}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          GeoIP
+        </span>
+      {{else}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+          GeoIP
+        </span>
+      {{end}}
+      {{if .CaddyVersion}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
+          Caddy v{{.CaddyVersion}}
+        </span>
+      {{end}}
+    </div>
+  </section>
+
   <div class="flex items-center gap-3">
     <form method="POST" action="/admin/nodes/{{.Node.ID}}/resync">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
