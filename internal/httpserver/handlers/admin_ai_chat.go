@@ -200,7 +200,7 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 
 	// Ownership: GetSession is user-scoped and 404s on a foreign/missing id.
 	getCtx, getCancel := context.WithTimeout(r.Context(), 5*time.Second)
-	_, history, err := h.ChatStore.GetSession(getCtx, uid, id)
+	sess, history, err := h.ChatStore.GetSession(getCtx, uid, id)
 	getCancel()
 	if errors.Is(err, chatstore.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, map[string]any{"error": "not found"})
@@ -303,9 +303,43 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 		sseError(w, rc, "save failed")
 		return
 	}
+	// Auto-title once the thread has enough turns, derived from the first user
+	// message - no upfront prompt. history excludes this turn + the reply just saved.
+	if total := len(history) + 2; total >= aiChatAutoTitleAt && (sess.Title == "" || sess.Title == "New chat") {
+		if title := firstUserTitle(history, content); title != "" {
+			tctx, tcancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = h.ChatStore.UpdateTitle(tctx, uid, id, title)
+			tcancel()
+		}
+	}
+
 	donePayload, _ := json.Marshal(map[string]any{"id": assistantID})
 	_, _ = w.Write([]byte("event: done\ndata: " + string(donePayload) + "\n\n"))
 	rc.Flush()
+}
+
+// aiChatAutoTitleAt is the combined message count at which a still-default
+// session title is auto-derived from the first user turn.
+const aiChatAutoTitleAt = 5
+
+// firstUserTitle builds a short single-line title from the first user message
+// (falling back to the latest one), truncated on a rune boundary.
+func firstUserTitle(history []chatstore.Message, fallback string) string {
+	text := fallback
+	for _, m := range history {
+		if m.Role == "user" && strings.TrimSpace(m.Content) != "" {
+			text = m.Content
+			break
+		}
+	}
+	text = strings.TrimSpace(strings.ReplaceAll(text, "\n", " "))
+	if text == "" {
+		return ""
+	}
+	if r := []rune(text); len(r) > 48 {
+		text = strings.TrimSpace(string(r[:48])) + "..."
+	}
+	return text
 }
 
 // aiToolLoopCap bounds tool round-trips so a model cannot loop forever calling

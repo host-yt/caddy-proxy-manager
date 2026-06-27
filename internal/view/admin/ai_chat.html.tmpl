@@ -110,6 +110,12 @@
       .replace(/"/g,'&quot;');
   }
 
+  // CSRF token for state-changing fetches; the server requires X-CSRF-Token.
+  function csrf(){
+    var m = document.querySelector('meta[name="csrf-token"]');
+    return m ? m.getAttribute('content') : '';
+  }
+
   function setComposerEnabled(on){
     composer.disabled = !on;
     sendBtn.disabled  = !on;
@@ -191,23 +197,21 @@
   // ---- Session CRUD ----
   function newSession(){
     if (streaming) return;
-    // Use hpgPrompt (from layout) for the title
-    window.hpgPrompt('Conversation title:', 'New chat').then(function(title){
-      if (title === null) return; // cancelled
-      fetch('/admin/ai/chat/sessions', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: {'Content-Type':'application/json', Accept:'application/json'},
-        body: JSON.stringify({title: title || 'New chat', provider: ''})
-      })
-      .then(function(r){ return r.ok ? r.json() : null; })
-      .then(function(data){
-        if (!data || !data.id) return;
-        loadSessions();
-        openSession(data.id);
-      })
-      .catch(function(){ window.hpgToast('Failed to create session.', 'error'); });
-    });
+    // No upfront title prompt - just start chatting; the title auto-fills once
+    // the thread has a few turns (server-side).
+    fetch('/admin/ai/chat/sessions', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {'Content-Type':'application/json', Accept:'application/json', 'X-CSRF-Token': csrf()},
+      body: JSON.stringify({title: '', provider: ''})
+    })
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(data){
+      if (!data || !data.id){ if (window.hpgToast) window.hpgToast('Failed to create session.', 'error'); return; }
+      loadSessions();
+      openSession(data.id);
+    })
+    .catch(function(){ if (window.hpgToast) window.hpgToast('Failed to create session.', 'error'); });
   }
 
   function openSession(id){
@@ -237,7 +241,8 @@
       if (!ok) return;
       fetch('/admin/ai/chat/sessions/'+id, {
         method: 'DELETE',
-        credentials: 'same-origin'
+        credentials: 'same-origin',
+        headers: {'X-CSRF-Token': csrf()}
       })
       .then(function(r){
         if (r.ok || r.status===204){
@@ -313,7 +318,7 @@
     fetch('/admin/ai/chat/sessions/'+activeSessionID+'/message', {
       method: 'POST',
       credentials: 'same-origin',
-      headers: {'Content-Type':'application/json', Accept:'text/event-stream'},
+      headers: {'Content-Type':'application/json', Accept:'text/event-stream', 'X-CSRF-Token': csrf()},
       body: JSON.stringify({content: content})
     })
     .then(function(r){
