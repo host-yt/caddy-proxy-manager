@@ -112,6 +112,7 @@ type hostsData struct {
 	TagFilter       string
 	BackendIPFilter string
 	NodeOptions     []hostsNewNode
+	StatusCounts    map[string]int // per-status route counts (excludes deleted)
 
 	// Pagination. Page links must preserve active filters via FilterQS.
 	Page       int
@@ -181,6 +182,21 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "%"+d.BackendIPFilter+"%")
 	}
 	whereSQL := strings.Join(where, " AND ")
+
+	// Aggregate counts per status across ALL non-deleted routes (no filter).
+	d.StatusCounts = make(map[string]int)
+	scRows, err := db.QueryContext(ctx,
+		`SELECT status, COUNT(*) FROM routes WHERE status NOT IN ('deleted') GROUP BY status`)
+	if err == nil {
+		for scRows.Next() {
+			var st string
+			var cnt int
+			if scRows.Scan(&st, &cnt) == nil {
+				d.StatusCounts[st] = cnt
+			}
+		}
+		scRows.Close()
+	}
 
 	// Total row count under the SAME filters (drives pagination). Args are
 	// reused below for the page query (LIMIT/OFFSET are appended separately).
