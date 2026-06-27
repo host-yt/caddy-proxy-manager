@@ -510,6 +510,7 @@ func (s *Server) routes() {
 			r.Post("/", s.deps.Admin.WebhooksCreate)
 			r.Post("/{id}/delete", s.deps.Admin.WebhooksDelete)
 			r.Post("/{id}/test", s.deps.Admin.WebhooksTest)
+			r.Post("/deliveries/{did}/retry", s.deps.Admin.WebhookDeliveryRetry)
 		})
 		r.Route("/legal", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.LegalDocsPage)
