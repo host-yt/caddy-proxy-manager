@@ -3,7 +3,7 @@
 
 /* Visible keyboard focus everywhere, without affecting mouse users. */
 :focus-visible {
-  outline: 2px solid #6366f1;
+  outline: 2px solid rgb(var(--focus-ring));
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -15,8 +15,8 @@
   top: -3rem;
   z-index: 100;
   padding: 0.5rem 0.9rem;
-  background: #4f46e5;
-  color: #fff;
+  background: rgb(var(--accent));
+  color: rgb(var(--accent-on));
   border-radius: 0 0 0.5rem 0.5rem;
   font-size: 0.875rem;
   transition: top 150ms ease;
@@ -917,4 +917,105 @@
   font-weight: 600;
   color: #6366f1;
   margin-bottom: 0.25rem;
+}
+
+/* === Motion tokens (Hostyt redesign) === */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+  .hpg-sheet, .hpg-cmdk { transition: none !important; }
+}
+
+/* === Command palette (r-cmdk / hpg-cmdk) === */
+#cmdk, .hpg-cmdk {
+  position: fixed;
+  top: 20vh;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(560px, 92vw);
+  border: none;
+  border-radius: var(--r-xl, 20px);
+  padding: 0;
+  box-shadow: var(--shadow-soft);
+  background: rgb(var(--surface));
+  overflow: hidden;
+}
+#cmdk::backdrop, .hpg-cmdk::backdrop {
+  background: rgb(0 0 0 / .4);
+  backdrop-filter: blur(2px);
+}
+.hpg-cmdk-input {
+  display: block;
+  width: 100%;
+  padding: 1rem 1.25rem;
+  font-size: 1rem;
+  border: none;
+  border-bottom: 1px solid rgb(var(--border));
+  background: transparent;
+  color: rgb(var(--text));
+  outline: none;
+}
+.hpg-cmdk-input::placeholder { color: rgb(var(--muted-2)); }
+#cmdk ul, .hpg-cmdk ul {
+  list-style: none;
+  margin: 0;
+  padding: 0.5rem;
+  max-height: 320px;
+  overflow-y: auto;
+}
+#cmdk li, .hpg-cmdk li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.625rem 0.75rem;
+  border-radius: var(--r-sm, 8px);
+  cursor: pointer;
+  font-size: 0.875rem;
+  color: rgb(var(--text));
+  transition: background var(--t-fast, 150ms) var(--ease, ease);
+}
+#cmdk li:hover, .hpg-cmdk li:hover,
+#cmdk li.is-active, .hpg-cmdk li.is-active { background: rgb(var(--accent-weak)); }
+.hpg-cmdk-group { font-size: 0.75rem; color: rgb(var(--muted-2)); }
+
+/* === Slide-over sheet (r-sheet / hpg-sheet) === */
+#sheet, .hpg-sheet {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: auto;
+  width: min(480px, 100vw);
+  height: 100dvh;
+  max-height: 100dvh;
+  border: none;
+  border-radius: var(--r-xl, 20px) 0 0 var(--r-xl, 20px);
+  padding: 0;
+  margin: 0;
+  background: rgb(var(--surface));
+  box-shadow: var(--shadow-soft);
+  transform: translateX(100%);
+  transition: transform var(--t-base, 200ms) var(--ease, ease);
+}
+#sheet[open], .hpg-sheet[open] { transform: translateX(0); }
+#sheet::backdrop, .hpg-sheet::backdrop {
+  background: rgb(0 0 0 / .4);
+  backdrop-filter: blur(2px);
+}
+#sheet-body, .hpg-sheet-body { height: 100%; overflow-y: auto; padding: 1.5rem; }
+
+/* Mobile: bottom sheet */
+@media (max-width: 640px) {
+  #sheet, .hpg-sheet {
+    top: auto;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: auto;
+    max-height: 90dvh;
+    border-radius: var(--r-xl, 20px) var(--r-xl, 20px) 0 0;
+    transform: translateY(100%);
+  }
+  #sheet[open], .hpg-sheet[open] { transform: translateY(0); }
 }

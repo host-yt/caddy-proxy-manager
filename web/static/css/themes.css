@@ -109,6 +109,19 @@
   --c-sky-800: 7 89 133;
   --c-sky-900: 12 74 110;
   --c-sky-950: 8 47 73;
+
+  /* gold - primary accent (Hostyt brand, replaces indigo as default accent) */
+  --c-gold-50:  254 252 232;
+  --c-gold-100: 254 249 195;
+  --c-gold-200: 254 240 138;
+  --c-gold-300: 253 224  71;
+  --c-gold-400: 250 204  21;
+  --c-gold-500: 234 179   8;
+  --c-gold-600: 202 138   4;
+  --c-gold-700: 161 104   5;
+  --c-gold-800: 133  77  14;
+  --c-gold-900: 113  63  18;
+  --c-gold-950:  66  32   6;
 }
 
 /* =========================================================================
@@ -421,3 +434,76 @@
   --c-indigo-900: 20 20 20;
   --c-indigo-950: 10 10 10;
 }
+
+/* =========================================================================
+ * Semantic token layer - Hostyt redesign.
+ * Channels only (space-separated RGB), never hex - keeps /<alpha-value>.
+ * Light defaults in :root; dark flips neutrals under .dark.
+ * Accent = Gold (#EAB308). text-on-accent = near-black (gold is light).
+ * ========================================================================= */
+:root {
+  /* neutrals - light (zinc-50 bg, white surface, zinc-100 surface-2) */
+  --bg:        var(--c-zinc-50);
+  --surface:   255 255 255;
+  --surface-2: var(--c-zinc-100);
+  --border:    var(--c-zinc-200);
+  --text:       10  10  11;
+  --muted:     var(--c-zinc-500);
+  --muted-2:   var(--c-zinc-400);
+
+  /* gold accent */
+  --accent:        var(--c-gold-500);
+  --accent-strong: var(--c-gold-600);
+  --accent-weak:   var(--c-gold-100);
+  --accent-on:      10  10  11;
+
+  /* semantic status */
+  --success: var(--c-emerald-600); --success-weak: var(--c-emerald-50);
+  --warning: var(--c-amber-600);   --warning-weak: var(--c-amber-50);
+  --danger:  var(--c-rose-600);    --danger-weak:  var(--c-rose-50);
+  --info:    var(--c-sky-500);     --info-weak:    var(--c-sky-50);
+
+  /* effects */
+  --focus-ring: var(--c-gold-500);
+  --gradient-brand: linear-gradient(135deg, #EAB308 0%, #D97706 100%);
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-pill: 9999px;
+  --shadow-hair: 0 1px 2px rgb(16 24 40 / .04);
+  --shadow-soft: 0 8px 24px -6px rgb(16 24 40 / .10);
+  --ease: cubic-bezier(.2,.6,.2,1); --t-fast: 150ms; --t-base: 200ms; --t-slow: 250ms;
+}
+
+/* neutrals - dark */
+.dark {
+  --bg:        var(--c-zinc-950);
+  --surface:   var(--c-zinc-900);
+  --surface-2: var(--c-zinc-800);
+  --border:    var(--c-zinc-800);
+  --text:      245 245 246;
+  --muted:     var(--c-zinc-400);
+  --muted-2:   var(--c-zinc-600);
+  --accent-weak:  var(--c-gold-950);
+  --success-weak: var(--c-emerald-950);
+  --warning-weak: var(--c-amber-950);
+  --danger-weak:  var(--c-rose-950);
+  --info-weak:    var(--c-sky-950);
+  --shadow-soft: 0 8px 24px -6px rgb(0 0 0 / .45);
+}
+
+/* Per-palette accent overrides (palettes keep their existing surface ramps;
+   only --accent/--accent-strong/--accent-weak need updating per theme).
+   Palettes that override --c-indigo-* already have their accent in those vars;
+   we point --accent at them so new semantic utilities follow the palette. */
+[data-theme="midnight"]       { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-950); }
+[data-theme="midnight"].dark  { --accent-weak: var(--c-indigo-950); }
+[data-theme="ocean"]          { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
+[data-theme="ocean"].dark     { --accent-weak: var(--c-indigo-950); }
+[data-theme="forest"]         { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
+[data-theme="forest"].dark    { --accent-weak: var(--c-indigo-950); }
+[data-theme="violet"]         { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
+[data-theme="violet"].dark    { --accent-weak: var(--c-indigo-950); }
+[data-theme="sunset"]         { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
+[data-theme="sunset"].dark    { --accent-weak: var(--c-indigo-950); }
+[data-theme="nord"]           { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
+[data-theme="nord"].dark      { --accent-weak: var(--c-indigo-950); }
+[data-theme="mono"]           { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
+[data-theme="mono"].dark      { --accent-weak: var(--c-indigo-950); }
