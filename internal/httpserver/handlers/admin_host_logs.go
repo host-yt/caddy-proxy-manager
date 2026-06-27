@@ -36,8 +36,9 @@ type hostLogsData struct {
 	ErrorRateSeries []accesslog.ErrorRatePoint
 	TrafficPoints   []accesslog.TrafficPoint
 	AnalyticsTotal  int64
-	ProtoBreakdown  []accesslog.ProtoHit
-	BytesSummary    accesslog.BytesSummary
+	ProtoBreakdown   []accesslog.ProtoHit
+	BytesSummary     accesslog.BytesSummary
+	TotalBandwidth7d int64
 }
 
 // parseLogsFilter reads filter query params from r.
@@ -203,6 +204,14 @@ func (h *AdminHandlers) loadHostLogAnalytics(ctx context.Context, routeID int64,
 		h.Logger.Warn("host logs bytes analytics", "id", routeID, "err", err)
 	} else {
 		d.BytesSummary = bsum
+	}
+
+	// 7-day bandwidth from rollups (cheaper than scanning host_access_log).
+	bw7d, err := h.AccessLogs.TotalBandwidthBytes(ctx, routeID, now.Add(-7*24*time.Hour), now)
+	if err != nil {
+		h.Logger.Warn("host logs bandwidth 7d", "id", routeID, "err", err)
+	} else {
+		d.TotalBandwidth7d = bw7d
 	}
 }
 

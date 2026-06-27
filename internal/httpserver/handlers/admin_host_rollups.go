@@ -58,6 +58,7 @@ func (h *AdminHandlers) HostsRollupJSON(w http.ResponseWriter, r *http.Request) 
 		Errors5xx    int64  `json:"errors_5xx"`
 		LatencySumMs int64  `json:"latency_sum_ms"`
 		LatencyMaxMs int64  `json:"latency_max_ms"`
+		BytesResp    int64  `json:"bytes_resp"`
 	}
 	type summaryRow struct {
 		Requests     int64 `json:"requests"`
@@ -65,6 +66,7 @@ func (h *AdminHandlers) HostsRollupJSON(w http.ResponseWriter, r *http.Request) 
 		Errors5xx    int64 `json:"errors_5xx"`
 		LatencySumMs int64 `json:"latency_sum_ms"`
 		LatencyMaxMs int64 `json:"latency_max_ms"`
+		BytesResp    int64 `json:"bytes_resp"`
 	}
 
 	rows := make([]bucketRow, 0, len(series))
@@ -76,6 +78,7 @@ func (h *AdminHandlers) HostsRollupJSON(w http.ResponseWriter, r *http.Request) 
 			Errors5xx:    b.Errors5xx,
 			LatencySumMs: b.LatencySumMs,
 			LatencyMaxMs: b.LatencyMaxMs,
+			BytesResp:    b.BytesResp,
 		})
 	}
 
@@ -87,6 +90,7 @@ func (h *AdminHandlers) HostsRollupJSON(w http.ResponseWriter, r *http.Request) 
 			Errors5xx:    summary.Errors5xx,
 			LatencySumMs: summary.LatencySumMs,
 			LatencyMaxMs: summary.LatencyMaxMs,
+			BytesResp:    summary.BytesResp,
 		},
 		"series": rows,
 	})

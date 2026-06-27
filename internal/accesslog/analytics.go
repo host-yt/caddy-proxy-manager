@@ -430,6 +430,20 @@ func (s *Store) ProtoBreakdown(ctx context.Context, f AnalyticsFilter) ([]ProtoH
 	return out, rows.Err()
 }
 
+// TotalBandwidthBytes returns sum of bytes_resp from log_rollups over [from,to).
+func (s *Store) TotalBandwidthBytes(ctx context.Context, routeID int64, from, to time.Time) (int64, error) {
+	db := s.db()
+	if db == nil {
+		return 0, nil
+	}
+	var total int64
+	err := db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(bytes_resp),0) FROM log_rollups WHERE route_id=? AND bucket_start>=? AND bucket_start<?`,
+		routeID, from.UTC(), to.UTC(),
+	).Scan(&total)
+	return total, err
+}
+
 // BytesSummary returns total and average response bytes over the filter window.
 func (s *Store) BytesSummary(ctx context.Context, f AnalyticsFilter) (BytesSummary, error) {
 	db := s.db()
