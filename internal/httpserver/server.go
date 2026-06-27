@@ -489,6 +489,7 @@ func (s *Server) routes() {
 		})
 		r.Get("/search", s.deps.Admin.AdminSearch)
 		r.Get("/alerts", s.deps.Admin.AlertsPage)
+		r.Post("/alerts/test-fire", s.deps.Admin.AlertsTestFire)
 		r.Route("/backups", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.BackupsPage)
 			r.Post("/destinations", s.deps.Admin.BackupsCreateDestination)

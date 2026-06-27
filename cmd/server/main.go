@@ -391,6 +391,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	adminH.Routes = routesSvc
 	adminH.WriteWGConfig = writeWG
 	adminH.AlertCfg = alertEval.Cfg
+	adminH.AlertEval = alertEval
 	clientH := &handlers.ClientHandlers{
 		DB: wizard.DB, Sessions: sessions, Templates: appTpls, Routes: routesSvc, Logger: logger,
 		State: state, SMS: smsSvc, Mailer: mailer, AccessLogs: alStore,
