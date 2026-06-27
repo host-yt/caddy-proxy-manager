@@ -14,8 +14,9 @@ BEGIN
             created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            KEY idx_acs_user (user_id),
-            CONSTRAINT fk_acs_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            KEY idx_aichat_sess_user (user_id),
+            -- fk name must be globally unique per schema; fk_acs_user is taken by admin_scope (mig 00057)
+            CONSTRAINT fk_aichat_sess_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     END IF;
 
@@ -29,8 +30,8 @@ BEGIN
             content    MEDIUMTEXT      NOT NULL,
             created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY (id),
-            KEY idx_acm_session (session_id),
-            CONSTRAINT fk_acm_session FOREIGN KEY (session_id) REFERENCES ai_chat_sessions(id) ON DELETE CASCADE
+            KEY idx_aichat_msg_session (session_id),
+            CONSTRAINT fk_aichat_msg_session FOREIGN KEY (session_id) REFERENCES ai_chat_sessions(id) ON DELETE CASCADE
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
     END IF;
 END;
