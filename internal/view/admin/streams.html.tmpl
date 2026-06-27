@@ -31,7 +31,12 @@
           <td class="px-4 py-3 font-mono uppercase text-slate-700 dark:text-slate-200">{{.Protocol}}</td>
           <td class="px-4 py-3 font-mono">:{{.ListenPort}}</td>
           <td class="px-4 py-3 font-mono text-slate-600 dark:text-slate-300">{{.BackendIP}}:{{.UpstreamPort}}</td>
-          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">{{if .MatchMode}}{{.MatchMode}}{{else}}any{{end}}</td>
+          <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">
+            {{if .MatchMode}}{{.MatchMode}}{{else}}any{{end}}
+            {{if or (eq .MatchMode "sni") (eq .MatchMode "http_host")}}
+            <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1">exp</span>
+            {{end}}
+          </td>
           <td class="px-4 py-3 text-slate-500 dark:text-slate-400 text-xs">{{if .LBPolicy}}{{.LBPolicy}}{{else}}round_robin{{end}}</td>
           <td class="px-4 py-3 text-slate-600 dark:text-slate-300">{{.NodeName}}</td>
           <td class="px-4 py-3">
@@ -55,6 +60,14 @@
 
   <section class="hpg-card">
     <h3 class="font-semibold text-slate-800 dark:text-slate-100 text-sm mb-4">Add stream forward</h3>
+
+    <!-- Experimental features notice -->
+    <div class="flex items-start gap-2.5 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/25 px-3.5 py-3 text-xs text-amber-800 dark:text-amber-300 mb-4">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
+        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+      </svg>
+      <span>Some L4 stream options are experimental and require a custom Caddy build with <code class="font-mono">caddy-l4</code> module. They are marked <span class="inline-block text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">Experimental</span>.</span>
+    </div>
 
     <!-- Tab strip for create form -->
     <nav class="flex flex-wrap gap-1 border-b border-slate-200 dark:border-zinc-800 text-sm mb-4" id="hpg-create-tabs">
@@ -108,9 +121,9 @@
           <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Match mode</label>
           <select name="match_mode" id="hpg-create-match-mode"
                   class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
-            <option value="any"       {{if eq .Form.MatchMode "any"}}selected{{end}}>Any (plain forward)</option>
-            <option value="sni"       {{if eq .Form.MatchMode "sni"}}selected{{end}}>SNI - experimental</option>
-            <option value="http_host" {{if eq .Form.MatchMode "http_host"}}selected{{end}}>HTTP Host - experimental</option>
+            <option value="any"       {{if eq .Form.MatchMode "any"}}selected{{end}}>Any (plain forward) [stable]</option>
+            <option value="sni"       {{if eq .Form.MatchMode "sni"}}selected{{end}}>SNI (TLS server name) [experimental]</option>
+            <option value="http_host" {{if eq .Form.MatchMode "http_host"}}selected{{end}}>HTTP Host header [experimental]</option>
           </select>
         </div>
         <div id="hpg-create-match-values-wrap" class="{{if eq .Form.MatchMode "any"}}hidden{{end}}">
@@ -119,7 +132,10 @@
                     class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-xs">{{.Form.MatchValues}}</textarea>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">PROXY protocol in - experimental</label>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            PROXY protocol in
+            <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
+          </label>
           <select name="proxy_proto_in"
                   class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
             <option value="none" {{if eq .Form.ProxyProtoIn "none"}}selected{{end}}>None</option>
@@ -128,7 +144,10 @@
           </select>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">PROXY protocol out - experimental</label>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            PROXY protocol out
+            <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
+          </label>
           <select name="proxy_proto_out"
                   class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
             <option value="none" {{if eq .Form.ProxyProtoOut "none"}}selected{{end}}>None</option>
@@ -141,13 +160,19 @@
       <!-- Upstreams pane -->
       <div data-cpane="upstreams" class="hpg-cpane hidden space-y-3">
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Additional upstreams (one per line: host:port or host:port weight) - experimental LB</label>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            Additional upstreams (one per line: host:port or host:port weight)
+            <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
+          </label>
           <textarea name="upstreams_raw" rows="4" placeholder="10.0.0.2:3306 2&#10;10.0.0.3:3306 1"
                     class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-xs">{{.Form.UpstreamsRaw}}</textarea>
           <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Leave blank to use only the primary backend above.</p>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">LB policy - experimental</label>
+          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
+            LB policy
+            <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
+          </label>
           <select name="lb_policy"
                   class="w-full sm:w-56 px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer">
             <option value="round_robin" {{if eq .Form.LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
@@ -165,7 +190,8 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3.5 w-3.5 text-rose-500 mr-1" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524L13.477 14.89zm1.414-1.414L6.524 5.11A6 6 0 0114.89 13.476zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd"/>
             </svg>
-            Deny CIDRs (comma or newline) - experimental
+            Deny CIDRs (comma or newline)
+            <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
           </label>
           <textarea name="cidr_deny" rows="3" placeholder="10.99.0.0/16"
                     class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-xs">{{.Form.CIDRDeny}}</textarea>
@@ -175,7 +201,8 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3.5 w-3.5 text-emerald-500 mr-1" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
             </svg>
-            Allow CIDRs (empty = allow all) - experimental
+            Allow CIDRs (empty = allow all)
+            <span class="text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 ml-1.5">Experimental</span>
           </label>
           <textarea name="cidr_allow" rows="3" placeholder="10.0.0.0/8"
                     class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-500 outline-none font-mono text-xs">{{.Form.CIDRAllow}}</textarea>
