@@ -2,191 +2,191 @@
 <div class="space-y-4">
 {{template "admin_account_tabs" "api_keys"}}
 <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-  <section class="lg:col-span-2 hpg-card !p-0 overflow-hidden">
+  <section class="lg:col-span-2 r-card !p-0 overflow-hidden">
     {{if .NewPlain}}
-    <div class="p-5 bg-amber-50 dark:bg-amber-500/10 border-b border-amber-200 dark:border-amber-500/30">
-      <h3 class="font-semibold text-amber-900 dark:text-amber-200 mb-2">Key created - copy it now</h3>
-      <p class="text-xs text-amber-800 dark:text-amber-300 mb-2">This is the only time the full key will be shown.</p>
-      <code class="block bg-white dark:bg-zinc-950 ring-1 ring-amber-300 dark:ring-amber-500/30 rounded-lg px-3 py-2 text-sm font-mono break-all">{{.NewPlain}}</code>
+    <div class="p-5 bg-[rgb(var(--warning)/.1)] border-b border-[rgb(var(--warning)/.3)]">
+      <h3 class="t-h3 text-[rgb(var(--warning))] mb-2">Key created - copy it now</h3>
+      <p class="t-caption text-[rgb(var(--warning)/.8)] mb-2">This is the only time the full key will be shown.</p>
+      <code class="block bg-[rgb(var(--surface))] ring-1 ring-[rgb(var(--warning)/.4)] rounded-lg px-3 py-2 text-sm font-mono break-all">{{.NewPlain}}</code>
     </div>
     {{end}}
 
     <!-- Search row -->
-    <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-slate-100 dark:border-zinc-800">
+    <div class="flex items-center justify-between gap-3 px-4 py-3 border-b border-[rgb(var(--border))]">
       <form method="GET" action="/admin/api-keys" class="flex items-center gap-2 flex-1">
         {{if .ViewAll}}<input type="hidden" name="all" value="1">{{end}}
         <div class="relative flex-1 max-w-xs">
-          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="5"/><path d="M13.5 13.5l3 3"/></svg>
-          <input name="q" value="{{.Q}}" placeholder="Search name, scopes..." class="w-full pl-9 pr-3 py-1.5 text-sm rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[rgb(var(--muted))]" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="5"/><path d="M13.5 13.5l3 3"/></svg>
+          <input name="q" value="{{.Q}}" placeholder="Search name, scopes..." class="r-input w-full pl-9">
         </div>
-        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 cursor-pointer transition-colors">Search</button>
-        {{if .Q}}<a href="/admin/api-keys{{if .ViewAll}}?all=1{{end}}" class="text-xs text-slate-500 hover:underline">Clear</a>{{end}}
+        <button class="r-btn-primary text-xs cursor-pointer">Search</button>
+        {{if .Q}}<a href="/admin/api-keys{{if .ViewAll}}?all=1{{end}}" class="t-caption text-[rgb(var(--muted))] hover:underline">Clear</a>{{end}}
       </form>
       <div class="flex items-center gap-2">
         {{if .ViewAll}}
-        <a href="/admin/api-keys" class="text-xs px-2.5 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Back to my keys</a>
+        <a href="/admin/api-keys" class="r-btn-secondary text-xs cursor-pointer">Back to my keys</a>
         {{else if eq .Role "super_admin"}}
-        <a href="/admin/api-keys?all=1" class="text-xs px-2.5 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 cursor-pointer transition-colors">View all</a>
+        <a href="/admin/api-keys?all=1" class="r-btn-ghost text-xs cursor-pointer">View all</a>
         {{end}}
-        <button type="button" id="ak-save-filter-btn" class="text-xs px-2.5 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 cursor-pointer transition-colors">
-          Save filter
-        </button>
+        <button type="button" id="ak-save-filter-btn" class="r-btn-ghost text-xs cursor-pointer">Save filter</button>
       </div>
     </div>
 
     {{if .SavedFilters}}
-    <div class="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-slate-100 dark:border-zinc-800 text-xs">
-      <span class="hpg-eyebrow">Saved:</span>
+    <div class="flex flex-wrap items-center gap-2 px-4 py-2 border-b border-[rgb(var(--border))] text-xs">
+      <span class="t-eyebrow">Saved:</span>
       {{range .SavedFilters}}
       <div class="flex items-center gap-1">
-        <a href="/admin/api-keys?saved_filter={{.ID}}" class="px-2.5 py-0.5 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-700 hover:bg-indigo-100 dark:hover:bg-indigo-800/40 transition-colors cursor-pointer">
+        <a href="/admin/api-keys?saved_filter={{.ID}}" class="r-pill r-pill-info hover:opacity-80 transition-opacity cursor-pointer">
           {{.Name}}
         </a>
         <form method="POST" action="/admin/saved-filters/api_keys/{{.ID}}/delete" class="inline">
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-          <button type="submit" class="text-slate-400 hover:text-rose-500 cursor-pointer" title="Delete">&times;</button>
+          <button type="submit" class="text-[rgb(var(--muted))] hover:text-[rgb(var(--danger))] cursor-pointer" title="Delete">&times;</button>
         </form>
       </div>
       {{end}}
     </div>
     {{end}}
 
-    <div class="overflow-x-auto"><table class="w-full text-sm">
-      <!-- sticky header stays visible while scrolling tall tables -->
-      <thead class="sticky top-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm z-10 text-left border-b border-slate-100 dark:border-zinc-800">
-        <tr>
-          {{if .ViewAll}}<th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Owner</th>{{end}}
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-            <a href="/admin/api-keys?q={{.Q}}&sort=name&dir={{if and (eq .Sort "name") (eq .Dir "asc")}}desc{{else}}asc{{end}}{{if .ViewAll}}&all=1{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-              Name
-              {{if eq .Sort "name"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
-            </a>
-          </th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Prefix</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Scopes</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-            <a href="/admin/api-keys?q={{.Q}}&sort=last_used_at&dir={{if and (eq .Sort "last_used_at") (eq .Dir "asc")}}desc{{else}}asc{{end}}{{if .ViewAll}}&all=1{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-              Last used
-              {{if eq .Sort "last_used_at"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
-            </a>
-          </th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Last IP</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Requests</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
-            <a href="/admin/api-keys?q={{.Q}}&sort=created_at&dir={{if and (eq .Sort "created_at") (eq .Dir "asc")}}desc{{else}}asc{{end}}{{if .ViewAll}}&all=1{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
-              Created
-              {{if eq .Sort "created_at"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
-            </a>
-          </th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Expires</th>
-          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        {{range .Keys}}
-        <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors {{if .Revoked}}opacity-50{{end}}">
-          {{if .ViewAll}}<td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .OwnerEmail}}{{.OwnerEmail}}{{else}}<span class="text-slate-300 dark:text-zinc-600">-</span>{{end}}</td>{{end}}
-          <td class="px-4 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}</td>
-          <td class="px-4 py-3.5"><code class="text-xs bg-slate-100 dark:bg-zinc-700 px-1.5 py-0.5 rounded">hpg_{{.Prefix}}&hellip;</code></td>
-          <td class="px-4 py-3.5 text-xs text-slate-600 dark:text-slate-300 font-mono">{{.Scopes}}</td>
-          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .LastUsedAt}}{{.LastUsedAt}}{{else}}<span class="text-slate-300 dark:text-zinc-600">-</span>{{end}}</td>
-          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono">{{if .LastUsedIP}}{{.LastUsedIP}}{{else}}<span class="text-slate-300 dark:text-zinc-600">-</span>{{end}}</td>
-          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.UseCount}}</td>
-          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.CreatedAt}}</td>
-          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}<span class="text-slate-300 dark:text-zinc-600">never</span>{{end}}</td>
-          <td class="px-4 py-3.5 text-right whitespace-nowrap">
-            {{if not .Revoked}}
-            <form method="POST" action="/admin/api-keys/{{.ID}}/revoke" data-confirm="Revoke {{.Name}}?">
-              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button class="text-xs font-medium text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">revoke</button>
-            </form>
-            {{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-500 dark:bg-zinc-700 dark:text-slate-400">revoked</span>{{end}}
-          </td>
-        </tr>
-        {{else}}
-        <!-- empty state with centered icon -->
-        <tr><td colspan="{{if $.ViewAll}}10{{else}}9{{end}}" class="px-4 py-16 text-center">
-          <div class="flex flex-col items-center gap-3">
-            <svg class="w-10 h-10 text-slate-300 dark:text-zinc-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <p class="text-sm font-medium text-slate-600 dark:text-slate-300">{{if .Q}}No keys match your search{{else}}No API keys yet{{end}}</p>
-            <p class="text-xs text-slate-400 dark:text-zinc-500 max-w-xs">{{if .Q}}Try a different search term or clear the filter.{{else}}Create a key using the form on the right.{{end}}</p>
-          </div>
-        </td></tr>
-        {{end}}
-      </tbody>
-    </table></div>
+    <div class="overflow-x-auto">
+      <table class="r-table w-full text-sm">
+        <thead class="sticky top-0 bg-[rgb(var(--surface))/95] backdrop-blur-sm z-10">
+          <tr>
+            {{if .ViewAll}}<th>Owner</th>{{end}}
+            <th>
+              <a href="/admin/api-keys?q={{.Q}}&sort=name&dir={{if and (eq .Sort "name") (eq .Dir "asc")}}desc{{else}}asc{{end}}{{if .ViewAll}}&all=1{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-[rgb(var(--accent))] transition-colors">
+                Name
+                {{if eq .Sort "name"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
+              </a>
+            </th>
+            <th>Prefix</th>
+            <th>Scopes</th>
+            <th>
+              <a href="/admin/api-keys?q={{.Q}}&sort=last_used_at&dir={{if and (eq .Sort "last_used_at") (eq .Dir "asc")}}desc{{else}}asc{{end}}{{if .ViewAll}}&all=1{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-[rgb(var(--accent))] transition-colors">
+                Last used
+                {{if eq .Sort "last_used_at"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
+              </a>
+            </th>
+            <th>Last IP</th>
+            <th>Requests</th>
+            <th>
+              <a href="/admin/api-keys?q={{.Q}}&sort=created_at&dir={{if and (eq .Sort "created_at") (eq .Dir "asc")}}desc{{else}}asc{{end}}{{if .ViewAll}}&all=1{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-[rgb(var(--accent))] transition-colors">
+                Created
+                {{if eq .Sort "created_at"}}{{if eq .Dir "asc"}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 3l7 7H3z"/></svg>{{else}}<svg class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor" aria-hidden="true"><path d="M10 17l7-7H3z"/></svg>{{end}}{{end}}
+              </a>
+            </th>
+            <th>Expires</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Keys}}
+          <tr class="{{if .Revoked}}opacity-50{{end}}">
+            {{if .ViewAll}}<td class="tabular-nums text-[rgb(var(--muted))] whitespace-nowrap">{{if .OwnerEmail}}{{.OwnerEmail}}{{else}}<span class="text-[rgb(var(--border))]">-</span>{{end}}</td>{{end}}
+            <td class="font-medium text-[rgb(var(--text))] whitespace-nowrap">{{.Name}}</td>
+            <td><code class="t-caption bg-[rgb(var(--surface-2))] px-1.5 py-0.5 rounded">hpg_{{.Prefix}}&hellip;</code></td>
+            <td class="t-caption text-[rgb(var(--muted))] font-mono">{{.Scopes}}</td>
+            <td class="t-caption text-[rgb(var(--muted))] whitespace-nowrap tabular-nums">{{if .LastUsedAt}}{{.LastUsedAt}}{{else}}<span class="text-[rgb(var(--border))]">-</span>{{end}}</td>
+            <td class="t-caption text-[rgb(var(--muted))] font-mono tabular-nums">{{if .LastUsedIP}}{{.LastUsedIP}}{{else}}<span class="text-[rgb(var(--border))]">-</span>{{end}}</td>
+            <td class="t-caption text-[rgb(var(--muted))] whitespace-nowrap tabular-nums">{{.UseCount}}</td>
+            <td class="t-caption text-[rgb(var(--muted))] whitespace-nowrap tabular-nums">{{.CreatedAt}}</td>
+            <td class="t-caption text-[rgb(var(--muted))] whitespace-nowrap tabular-nums">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}<span class="text-[rgb(var(--border))]">never</span>{{end}}</td>
+            <td class="text-right whitespace-nowrap">
+              {{if not .Revoked}}
+              <form method="POST" action="/admin/api-keys/{{.ID}}/revoke" data-confirm="Revoke {{.Name}}?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="r-btn-danger text-xs cursor-pointer">Revoke</button>
+              </form>
+              {{else}}<span class="r-pill r-pill-neutral">revoked</span>{{end}}
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="{{if $.ViewAll}}10{{else}}9{{end}}" class="px-4 py-16 text-center">
+            <div class="r-empty">
+              <div class="r-empty-icon">
+                <svg class="w-8 h-8" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+              </div>
+              <p class="font-medium text-[rgb(var(--text))]">{{if .Q}}No keys match your search{{else}}No API keys yet{{end}}</p>
+              <p class="t-small text-[rgb(var(--muted))]">{{if .Q}}Try a different search term or clear the filter.{{else}}Create a key using the form on the right.{{end}}</p>
+            </div>
+          </td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
     {{template "pagination" (dict "Total" .Total "TotalPgs" .TotalPgs "Page" .Page "PrevURL" .PrevURL "NextURL" .NextURL "Size" .Size)}}
   </section>
 
-  <section class="hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">New API key</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Keys belong to your user. Use them to call <code>/api/v1/*</code> via <code>Authorization: Bearer &hellip;</code>.</p>
-    <form method="POST" action="/admin/api-keys" class="space-y-3 text-sm">
+  <section class="r-card">
+    <h2 class="t-h3 mb-1">New API key</h2>
+    <p class="t-small text-[rgb(var(--muted))] mb-4">Keys belong to your user. Use them to call <code>/api/v1/*</code> via <code>Authorization: Bearer &hellip;</code>.</p>
+    <form method="POST" action="/admin/api-keys" class="space-y-4 text-sm">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
-        <input name="name" required placeholder="fossbilling-integration" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none">
+        <label class="t-eyebrow block mb-1">Name</label>
+        <input name="name" required placeholder="fossbilling-integration" class="r-input w-full">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-2">Scopes</label>
+        <label class="t-eyebrow block mb-2">Scopes</label>
         <div class="space-y-1.5">
-          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
-            <input type="checkbox" name="scope_services" value="1" checked class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+          <label class="flex items-center gap-2 cursor-pointer t-small text-[rgb(var(--text))]">
+            <input type="checkbox" name="scope_services" value="1" checked class="rounded cursor-pointer">
             services
           </label>
-          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
-            <input type="checkbox" name="scope_routes" value="1" checked class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+          <label class="flex items-center gap-2 cursor-pointer t-small text-[rgb(var(--text))]">
+            <input type="checkbox" name="scope_routes" value="1" checked class="rounded cursor-pointer">
             routes
           </label>
-          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
-            <input type="checkbox" name="scope_nodes" value="1" checked class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+          <label class="flex items-center gap-2 cursor-pointer t-small text-[rgb(var(--text))]">
+            <input type="checkbox" name="scope_nodes" value="1" checked class="rounded cursor-pointer">
             nodes
           </label>
-          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
-            <input type="checkbox" name="scope_admin_read" value="1" class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+          <label class="flex items-center gap-2 cursor-pointer t-small text-[rgb(var(--text))]">
+            <input type="checkbox" name="scope_admin_read" value="1" class="rounded cursor-pointer">
             admin:read
           </label>
-          <label class="flex items-center gap-2 cursor-pointer text-xs text-slate-700 dark:text-slate-300">
-            <input type="checkbox" name="scope_admin_write" value="1" class="rounded border-slate-300 dark:border-zinc-600 text-indigo-600 focus:ring-indigo-500">
+          <label class="flex items-center gap-2 cursor-pointer t-small text-[rgb(var(--text))]">
+            <input type="checkbox" name="scope_admin_write" value="1" class="rounded cursor-pointer">
             admin:write
           </label>
         </div>
-        <p class="text-xs text-slate-500 mt-1">Reserved for future per-endpoint authorization.</p>
+        <p class="t-caption text-[rgb(var(--muted))] mt-1">Reserved for future per-endpoint authorization.</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Expires in (days)</label>
-        <input name="expires_days" type="number" min="0" max="3650" value="0" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none">
-        <p class="text-xs text-slate-500 mt-1">0 = never expires. Recommended: 90.</p>
+        <label class="t-eyebrow block mb-1">Expires in (days)</label>
+        <input name="expires_days" type="number" min="0" max="3650" value="0" class="r-input w-full tabular-nums">
+        <p class="t-caption text-[rgb(var(--muted))] mt-1">0 = never expires. Recommended: 90.</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Rate limit (requests/min)</label>
-        <input name="rate_limit_rpm" type="number" min="0" max="100000" value="0" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 dark:bg-zinc-800 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none">
-        <p class="text-xs text-slate-500 mt-1">0 = no cap. Cap is per user (max across their keys).</p>
+        <label class="t-eyebrow block mb-1">Rate limit (requests/min)</label>
+        <input name="rate_limit_rpm" type="number" min="0" max="100000" value="0" class="r-input w-full tabular-nums">
+        <p class="t-caption text-[rgb(var(--muted))] mt-1">0 = no cap. Cap is per user (max across their keys).</p>
       </div>
-      <button class="w-full px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 cursor-pointer transition-colors">Create key</button>
+      <button class="r-btn-primary w-full cursor-pointer">Create key</button>
     </form>
   </section>
 </div>
 
 <!-- Save filter modal -->
 <div id="ak-save-modal" class="fixed inset-0 z-50 hidden">
-  <div class="absolute inset-0 bg-slate-900/50 dark:bg-black/60 backdrop-blur-sm" id="ak-sf-overlay"></div>
+  <div class="absolute inset-0 bg-black/50 backdrop-blur-sm" id="ak-sf-overlay"></div>
   <div class="absolute inset-0 flex items-center justify-center p-4">
-    <div class="hpg-card rounded-2xl shadow-xl w-full max-w-sm" role="dialog" aria-modal="true">
+    <div class="r-card shadow-xl w-full max-w-sm" role="dialog" aria-modal="true">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-semibold text-slate-800 dark:text-slate-100">Save filter</h3>
-        <button type="button" id="ak-sf-close" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer">&times;</button>
+        <h3 class="t-h3">Save filter</h3>
+        <button type="button" id="ak-sf-close" class="text-[rgb(var(--muted))] hover:text-[rgb(var(--text))] cursor-pointer">&times;</button>
       </div>
       <form method="POST" action="/admin/saved-filters/api_keys" class="space-y-3 text-sm">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <input type="hidden" name="query_json" value="{{.QueryValues}}">
         <div>
-          <label class="hpg-eyebrow block mb-1">Filter name</label>
-          <input name="filter_name" required placeholder="e.g. Active keys" class="w-full px-3 py-2 rounded-lg bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:outline-none focus:ring-2 focus:ring-indigo-500">
+          <label class="t-eyebrow block mb-1">Filter name</label>
+          <input name="filter_name" required placeholder="e.g. Active keys" class="r-input w-full">
         </div>
         <div class="flex justify-end gap-2 pt-1">
-          <button type="button" id="ak-sf-cancel" class="px-3.5 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer">Cancel</button>
-          <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 cursor-pointer transition-colors">Save</button>
+          <button type="button" id="ak-sf-cancel" class="r-btn-secondary cursor-pointer">Cancel</button>
+          <button type="submit" class="r-btn-primary cursor-pointer">Save</button>
         </div>
       </form>
     </div>

@@ -2,41 +2,39 @@
 <div class="space-y-6">
 
   {{if .Flash}}
-  <div class="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 ring-1 ring-emerald-200 dark:ring-emerald-800/60 p-3 text-sm text-emerald-800 dark:text-emerald-200">{{.Flash}}</div>
+  <div class="rounded-xl bg-[rgb(var(--success)/.12)] ring-1 ring-[rgb(var(--success)/.4)] p-3 t-small text-[rgb(var(--success))]">{{.Flash}}</div>
   {{end}}
   {{if .Error}}
-  <div class="rounded-xl bg-rose-50 dark:bg-rose-950/40 ring-1 ring-rose-200 dark:ring-rose-800/60 p-3 text-sm text-rose-800 dark:text-rose-200">{{.Error}}</div>
+  <div class="rounded-xl bg-[rgb(var(--danger)/.12)] ring-1 ring-[rgb(var(--danger)/.4)] p-3 t-small text-[rgb(var(--danger))]">{{.Error}}</div>
   {{end}}
 
-  <section class="hpg-card p-5">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Built-in access portal</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400">Create local access groups, add existing users as members, then grant a group access to a host on the host editor's <strong>Portal</strong> tab. Members sign in with their normal email + password at the protected app's login gate.</p>
+  <section class="r-card">
+    <h2 class="t-h3">Built-in access portal</h2>
+    <p class="t-small text-[rgb(var(--muted))] mt-1">Create local access groups, add existing users as members, then grant a group access to a host on the host editor's <strong>Portal</strong> tab. Members sign in with their normal email + password at the protected app's login gate.</p>
   </section>
 
   <!-- Create group -->
-  <section class="hpg-card p-5">
-    <h3 class="hpg-eyebrow mb-3">New access group</h3>
+  <section class="r-card">
+    <h3 class="t-eyebrow mb-3">New access group</h3>
     <form method="POST" action="/admin/access-groups" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end text-sm">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-1">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
-        <input name="name" required maxlength="128" placeholder="e.g. ops-team"
-          class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm">
+        <label class="t-eyebrow block mb-1">Name</label>
+        <input name="name" required maxlength="128" placeholder="e.g. ops-team" class="r-input w-full">
       </div>
       <div class="sm:col-span-2">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Description (optional)</label>
-        <input name="description" maxlength="255" placeholder="Who is in this group"
-          class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm">
+        <label class="t-eyebrow block mb-1">Description (optional)</label>
+        <input name="description" maxlength="255" placeholder="Who is in this group" class="r-input w-full">
       </div>
       <div class="sm:col-span-1">
         {{if .IsSuperAdmin}}
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Owning client</label>
-        <select name="client_id" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm">
+        <label class="t-eyebrow block mb-1">Owning client</label>
+        <select name="client_id" class="r-select w-full">
           <option value="0">Global (super-admin only)</option>
           {{range .Clients}}<option value="{{.ID}}">{{.Email}}</option>{{end}}
         </select>
         {{end}}
-        <button type="submit" class="mt-2 w-full px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors cursor-pointer">Create group</button>
+        <button type="submit" class="r-btn-primary mt-2 w-full cursor-pointer">Create group</button>
       </div>
     </form>
   </section>
@@ -44,55 +42,62 @@
   <!-- Groups -->
   {{range .Groups}}
   {{$gid := .ID}}
-  <section class="hpg-card p-5">
+  <section class="r-card">
     <div class="flex items-start justify-between gap-3">
       <div>
-        <h3 class="font-semibold text-slate-800 dark:text-slate-100">{{.Name}}
-          <span class="text-xs font-normal text-slate-400">#{{.ID}}</span>
+        <h3 class="t-h3">{{.Name}}
+          <span class="t-caption text-[rgb(var(--muted))] font-normal">#{{.ID}}</span>
         </h3>
-        {{if .Description}}<p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{.Description}}</p>{{end}}
-        <p class="text-[11px] text-slate-400 mt-0.5">
+        {{if .Description}}<p class="t-small text-[rgb(var(--muted))] mt-0.5">{{.Description}}</p>{{end}}
+        <p class="t-caption text-[rgb(var(--muted))] mt-0.5">
           {{if .ClientID.Valid}}Client: {{if .ClientName}}{{.ClientName}}{{else}}#{{.ClientID.Int64}}{{end}}{{else}}Global{{end}}
-          · {{len .Members}} member(s)
+          &middot; {{len .Members}} member(s)
         </p>
       </div>
       <form method="POST" action="/admin/access-groups/{{.ID}}/delete" data-confirm="Delete group {{.Name}}? This removes all its members and route grants.">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-        <button class="text-rose-600 dark:text-rose-400 hover:underline cursor-pointer text-xs">delete group</button>
+        <button class="r-btn-danger text-xs cursor-pointer">Delete group</button>
       </form>
     </div>
 
     <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
       <div>
-        <p class="hpg-eyebrow mb-2">Members</p>
+        <p class="t-eyebrow mb-2">Members</p>
         <ul class="space-y-1">
           {{range .Members}}
-          <li class="flex items-center justify-between text-xs bg-slate-50 dark:bg-zinc-800/50 rounded-lg px-3 py-1.5">
-            <span class="text-slate-700 dark:text-slate-200">{{.Email}}{{if .Name}} <span class="text-slate-400">({{.Name}})</span>{{end}}</span>
+          <li class="flex items-center justify-between t-small bg-[rgb(var(--surface-2))] rounded-lg px-3 py-1.5">
+            <span class="text-[rgb(var(--text))]">{{.Email}}{{if .Name}} <span class="text-[rgb(var(--muted))]">({{.Name}})</span>{{end}}</span>
             <form method="POST" action="/admin/access-groups/{{$gid}}/members/{{.UserID}}/delete" data-no-confirm>
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button class="text-rose-500 hover:underline cursor-pointer">remove</button>
+              <button class="text-[rgb(var(--danger))] hover:underline cursor-pointer">remove</button>
             </form>
           </li>
           {{else}}
-          <li class="text-xs text-slate-400">No members yet.</li>
+          <li class="t-caption text-[rgb(var(--muted))]">No members yet.</li>
           {{end}}
         </ul>
       </div>
       <div>
-        <p class="hpg-eyebrow mb-2">Add member (existing user email)</p>
+        <p class="t-eyebrow mb-2">Add member (existing user email)</p>
         <form method="POST" action="/admin/access-groups/{{.ID}}/members" class="flex gap-2 text-sm">
           <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-          <input name="email" type="email" required placeholder="user@example.com"
-            class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm">
-          <button type="submit" class="px-3 py-2 rounded-lg bg-slate-800 dark:bg-zinc-700 hover:bg-slate-900 text-white text-xs font-medium cursor-pointer">Add</button>
+          <input name="email" type="email" required placeholder="user@example.com" class="r-input flex-1">
+          <button type="submit" class="r-btn-primary cursor-pointer">Add</button>
         </form>
-        <p class="text-[11px] text-slate-400 mt-1">Only existing, active users can be added. The portal reuses their normal credentials.</p>
+        <p class="t-caption text-[rgb(var(--muted))] mt-1">Only existing, active users can be added. The portal reuses their normal credentials.</p>
       </div>
     </div>
   </section>
   {{else}}
-  <section class="hpg-card p-10 text-center text-slate-500 dark:text-slate-400 text-sm">No access groups yet. Create one above.</section>
+  <section class="r-card">
+    <div class="r-empty">
+      <div class="r-empty-icon">
+        <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M18 18.72a9.094 9.094 0 0 0 3.741-.479 3 3 0 0 0-4.682-2.72m.94 3.198.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0 1 12 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 0 1 6 18.719m12 0a5.971 5.971 0 0 0-.941-3.197m0 0A5.995 5.995 0 0 0 12 12.75a5.995 5.995 0 0 0-5.058 2.772m0 0a3 3 0 0 0-4.681 2.72 8.986 8.986 0 0 0 3.74.477m.94-3.197a5.971 5.971 0 0 0-.94 3.197M15 6.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0Zm6 3a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Zm-13.5 0a2.25 2.25 0 1 1-4.5 0 2.25 2.25 0 0 1 4.5 0Z"/></svg>
+      </div>
+      <p class="font-medium text-[rgb(var(--text))]">No access groups yet</p>
+      <p class="t-small text-[rgb(var(--muted))]">Create one above to restrict host access to specific users.</p>
+    </div>
+  </section>
   {{end}}
 
 </div>
