@@ -57,6 +57,7 @@
         <div class="grid gap-1">
           <button type="button" data-settings-tab="apidocs" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">API docs</button>
           <button type="button" data-settings-tab="ai" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">AI assistant</button>
+          <button type="button" data-settings-tab="banner" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Announcement</button>
         </div>
       </div>
     </div>
@@ -1045,11 +1046,13 @@
   }
   function knownTab(name){ for (var i=0;i<tabs.length;i++){ if (tabs[i].dataset.settingsTab === name) return true; } return false; }
   tabs.forEach(function(b){ b.addEventListener('click', function(){ activate(b.dataset.settingsTab); }); });
-  // Restore: hash wins (sharable), else last-saved tab, else leave default.
+  // Restore: hash wins (sharable), else ?tab= query param, else last-saved tab, else leave default.
   var hash = (location.hash || '').replace('#','');
+  var qtab = new URLSearchParams(location.search).get('tab') || '';
   var saved = '';
   try { saved = localStorage.getItem('settings_tab') || ''; } catch(e){}
   if (hash && knownTab(hash)) activate(hash);
+  else if (qtab && knownTab(qtab)) activate(qtab);
   else if (saved && knownTab(saved)) activate(saved);
 
   // Appearance picker: persist pick to localStorage + apply instantly (server cookie set via link nav).
@@ -1303,4 +1306,37 @@
   })();
 })();
 </script>
+
+<section data-settings-pane="banner" class="hpg-settings-pane hidden hpg-card">
+  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">System announcement</h2>
+  <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Displays a banner on every page for all users (admin and client portal). Leave blank to clear the announcement.</p>
+  <form method="POST" action="/admin/settings/banner" class="space-y-4 text-sm">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <div>
+      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Message</label>
+      <textarea name="banner_text" rows="3" placeholder="Leave blank to clear the announcement"
+        class="w-full rounded-lg border border-slate-300 dark:border-zinc-700 px-3 py-2 text-sm bg-white dark:bg-zinc-900 text-slate-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500">{{.SystemBannerText}}</textarea>
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">Type</label>
+      <div class="flex gap-4">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="banner_type" value="info" {{if or (eq .SystemBannerType "info") (eq .SystemBannerType "")}}checked{{end}}>
+          <span class="px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">Info</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="banner_type" value="warning" {{if eq .SystemBannerType "warning"}}checked{{end}}>
+          <span class="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Warning</span>
+        </label>
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input type="radio" name="banner_type" value="error" {{if eq .SystemBannerType "error"}}checked{{end}}>
+          <span class="px-2 py-0.5 rounded text-xs bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200">Error</span>
+        </label>
+      </div>
+    </div>
+    <div class="flex justify-end">
+      <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save</button>
+    </div>
+  </form>
+</section>
 {{end}}
