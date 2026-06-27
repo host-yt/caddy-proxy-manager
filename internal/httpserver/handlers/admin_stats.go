@@ -68,6 +68,14 @@ type nodeTrafficRow struct {
 	RouteCount   int
 }
 
+// moduleMismatchRow is a route that requires a Caddy module the assigned node lacks.
+type moduleMismatchRow struct {
+	RouteID  int64
+	Domain   string
+	NodeName string
+	Feature  string // "WAF", "GeoIP", "Rate limit"
+}
+
 type statsData struct {
 	baseAdminData
 
@@ -86,8 +94,9 @@ type statsData struct {
 	TopClients     []topClientRow
 	RecentRoutes   []recentRouteRow
 	PlanUsage      []planUsageRow
-	NodeTraffic    []nodeTrafficRow
-	PlanViolations []planViolationRow
+	NodeTraffic      []nodeTrafficRow
+	PlanViolations   []planViolationRow
+	ModuleMismatches []moduleMismatchRow
 
 	Cache    cacheSummary
 	Security securitySummary
@@ -276,6 +285,35 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		ntrRows.Close()
+	}
+
+	// --- Module mismatches (routes needing modules the node lacks) ----
+	mmCtx, mmCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer mmCancel()
+	mmRows, _ := db.QueryContext(mmCtx,
+		`SELECT r.id, r.domain, n.name,
+		        CASE
+		          WHEN COALESCE(r.waf_enabled,0)=1 AND COALESCE(n.has_waf,0)=0 THEN "WAF"
+		          WHEN COALESCE(r.geo_mode,"off")!="off" AND COALESCE(n.has_geoip,0)=0 THEN "GeoIP"
+		          WHEN COALESCE(r.rate_limit_rpm,0)>0 AND COALESCE(n.has_rate_limit,0)=0 THEN "Rate limit"
+		        END AS feature
+		 FROM routes r
+		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
+		 WHERE r.status NOT IN ("disabled","deleted")
+		   AND (
+		     (COALESCE(r.waf_enabled,0)=1 AND COALESCE(n.has_waf,0)=0)
+		     OR (COALESCE(r.geo_mode,"off")!="off" AND COALESCE(n.has_geoip,0)=0)
+		     OR (COALESCE(r.rate_limit_rpm,0)>0 AND COALESCE(n.has_rate_limit,0)=0)
+		   )
+		 LIMIT 50`)
+	if mmRows != nil {
+		for mmRows.Next() {
+			var row moduleMismatchRow
+			if err := mmRows.Scan(&row.RouteID, &row.Domain, &row.NodeName, &row.Feature); err == nil {
+				d.ModuleMismatches = append(d.ModuleMismatches, row)
+			}
+		}
+		mmRows.Close()
 	}
 
 	// --- Plan violations (clients exceeding limits, max 20, dedup by client) ----
