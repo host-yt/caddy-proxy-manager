@@ -55,6 +55,12 @@ func (r *Registry) builtins() []Tool {
 			scopedExec:     r.trafficStatsScoped,
 		},
 		{
+			Name:        "get_system_summary",
+			Description: "Single-call system overview: node counts, route counts, active clients, open alerts, WAF blocks last 24h, storage used by backups. Use as a first call to orient before drilling into specifics.",
+			Schema:      emptyObjectSchema,
+			Exec:        r.systemSummary,
+		},
+		{
 			Name:        "node_health",
 			Description: "Summary of node health statuses (counts per status, total enabled/disabled).",
 			Schema:      emptyObjectSchema,
@@ -154,6 +160,39 @@ var wafEventsSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"hours":{"type":"integer","description":"look-back window in hours (default 24, max 720)","minimum":1,"maximum":720},` +
 	`"limit":{"type":"integer","minimum":1,"maximum":100}},` +
 	`"additionalProperties":false}`)
+
+// systemSummary gathers top-level counts in a single round-trip set.
+func (r *Registry) systemSummary(ctx context.Context, _ json.RawMessage) (string, error) {
+	type result struct {
+		NodesTotal      int64 `json:"nodes_total"`
+		NodesHealthy    int64 `json:"nodes_healthy"`
+		RoutesTotal     int64 `json:"routes_total"`
+		RoutesActive    int64 `json:"routes_active"`
+		ClientsTotal    int64 `json:"clients_total"`
+		OpenAlerts      int64 `json:"open_alerts"`
+		WAFBlocks24h    int64 `json:"waf_blocks_24h"`
+		BackupBytes     int64 `json:"backup_storage_bytes"`
+	}
+	var s result
+	type scanPair struct {
+		q    string
+		dest *int64
+	}
+	pairs := []scanPair{
+		{`SELECT COUNT(*) FROM caddy_nodes WHERE deleted_at IS NULL`, &s.NodesTotal},
+		{`SELECT COUNT(*) FROM caddy_nodes WHERE deleted_at IS NULL AND status='healthy'`, &s.NodesHealthy},
+		{`SELECT COUNT(*) FROM routes WHERE deleted_at IS NULL`, &s.RoutesTotal},
+		{`SELECT COUNT(*) FROM routes WHERE deleted_at IS NULL AND status='active'`, &s.RoutesActive},
+		{`SELECT COUNT(*) FROM clients WHERE deleted_at IS NULL`, &s.ClientsTotal},
+		{`SELECT COUNT(*) FROM alert_log WHERE resolved_at IS NULL`, &s.OpenAlerts},
+		{`SELECT COUNT(*) FROM waf_events WHERE action='blocked' AND ts >= NOW() - INTERVAL 24 HOUR`, &s.WAFBlocks24h},
+		{`SELECT COALESCE(SUM(size_bytes),0) FROM backup_jobs WHERE status='success'`, &s.BackupBytes},
+	}
+	for _, p := range pairs {
+		_ = r.db.QueryRowContext(ctx, p.q).Scan(p.dest)
+	}
+	return toJSON(s)
+}
 
 // list_nodes: caddy_nodes carries no secret columns; agent_token_hash and WG
 // private keys live in other tables and are never selected here.
