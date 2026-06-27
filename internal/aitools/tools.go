@@ -1114,7 +1114,7 @@ func (r *Registry) serviceDetail(ctx context.Context, raw json.RawMessage) (stri
 		 JOIN plans p ON p.id = s.plan_id
 		 JOIN node_groups ng ON ng.id = s.node_group_id
 		 LEFT JOIN routes ro ON ro.service_id = s.id
-		 LEFT JOIN log_rollups lr ON lr.route_id = ro.id AND lr.ts >= NOW() - INTERVAL 30 DAY
+		 LEFT JOIN log_rollups lr ON lr.route_id = ro.id AND lr.bucket_start >= NOW() - INTERVAL 30 DAY
 		 WHERE s.id = ? OR s.name = ?
 		 GROUP BY s.id`, numID, id,
 	).Scan(&r2.ID, &r2.Name, &r2.Status, &r2.BackendIP,
