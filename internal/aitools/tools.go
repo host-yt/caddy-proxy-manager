@@ -136,6 +136,12 @@ func (r *Registry) builtins() []Tool {
 			Exec:        r.nodeDetail,
 		},
 		{
+			Name:        "list_plans",
+			Description: "List service plans: name, max_domains, max_ports, ssl/websocket/path-routing flags, rate_limit_rpm, node_group. Useful for capacity planning or answering 'what plan allows X?'",
+			Schema:      limitSchema(50),
+			Exec:        r.listPlans,
+		},
+		{
 			Name:           "get_service_detail",
 			Description:    "Look up a service by name or numeric ID. Returns status, plan name, route count, 30d bandwidth and created date. Admin sees backend IP; scoped callers see only their own services.",
 			Schema:         identifierSchema,
@@ -1076,6 +1082,49 @@ func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string,
 		return "", err
 	}
 	return toJSON(res)
+}
+
+func (r *Registry) listPlans(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a limitArgs
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 50, 200)
+	db := r.db
+	if db == nil {
+		return `{"error":"db unavailable"}`, nil
+	}
+	type plan struct {
+		ID               int64  `json:"id"`
+		Name             string `json:"name"`
+		MaxDomains       int    `json:"max_domains"`
+		MaxPorts         int    `json:"max_ports"`
+		SSL              bool   `json:"ssl_enabled"`
+		Websocket        bool   `json:"websocket_enabled"`
+		PathRouting      bool   `json:"path_routing_enabled"`
+		Wildcard         bool   `json:"wildcard_enabled"`
+		RateLimitRPM     int    `json:"rate_limit_rpm,omitempty"`
+		NodeGroup        string `json:"node_group"`
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT p.id, p.name, p.max_domains, p.max_ports,
+		        p.ssl_enabled, p.websocket_enabled, p.path_routing_enabled, p.wildcard_enabled,
+		        COALESCE(p.rate_limit_rpm,0), ng.name
+		 FROM plans p JOIN node_groups ng ON ng.id = p.node_group_id
+		 ORDER BY p.name LIMIT ?`, limit)
+	if err != nil {
+		return `{"error":"query failed"}`, nil
+	}
+	defer rows.Close()
+	out := make([]plan, 0, 16)
+	for rows.Next() {
+		var p plan
+		if rows.Scan(&p.ID, &p.Name, &p.MaxDomains, &p.MaxPorts,
+			&p.SSL, &p.Websocket, &p.PathRouting, &p.Wildcard,
+			&p.RateLimitRPM, &p.NodeGroup) == nil {
+			out = append(out, p)
+		}
+	}
+	b, _ := json.Marshal(map[string]any{"plans": out, "total": len(out)})
+	return string(b), nil
 }
 
 func (r *Registry) serviceDetail(ctx context.Context, raw json.RawMessage) (string, error) {
