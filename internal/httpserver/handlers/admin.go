@@ -3162,6 +3162,46 @@ func (h *AdminHandlers) UsersDelete(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/users", "User deleted", "")
 }
 
+// UsersReset2FA clears all 2FA methods (TOTP + SMS + email OTP) for a user.
+// Restricted to super_admin so a compromised admin account can't self-escalate
+// by resetting a super_admin's second factor.
+func (h *AdminHandlers) UsersReset2FA(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if sess.UserID == id {
+		redirectWithFlash(w, r, "/admin/users", "", "use /admin/2fa to manage your own 2FA")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	var email string
+	if err := db.QueryRowContext(ctx, "SELECT email FROM users WHERE id = ?", id).Scan(&email); err != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "user not found")
+		return
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE users SET totp_secret = NULL, totp_secret_enc = NULL, totp_enabled = 0,
+		                  sms_otp_enabled = 0, email_otp_enabled = 0
+		 WHERE id = ?`, id); err != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "reset failed")
+		return
+	}
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "user.reset_2fa", Entity: "user",
+		EntityID: fmt.Sprintf("%d", id), Meta: map[string]any{"email": email},
+	})
+	redirectWithFlash(w, r, "/admin/users", "2FA reset for "+email, "")
+}
+
 // UsersImpersonate switches the current admin session into the target
 // user's identity while remembering the admin's id/email for /auth/end-
 // impersonation. Only super_admin → role=client is allowed; admin →

@@ -458,6 +458,7 @@ func (s *Server) routes() {
 			r.Post("/{id}/toggle", s.deps.Admin.UsersToggle)
 			r.Post("/{id}/delete", s.deps.Admin.UsersDelete)
 			r.Post("/{id}/impersonate", s.deps.Admin.UsersImpersonate)
+			r.Post("/{id}/reset-2fa", s.deps.Admin.UsersReset2FA)
 			r.Post("/{id}/gdpr-export", s.deps.Admin.GDPRExport)
 			r.Post("/{id}/gdpr-delete", s.deps.Admin.GDPRDelete)
 		})
