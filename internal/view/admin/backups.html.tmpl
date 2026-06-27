@@ -167,6 +167,28 @@
     </dl>
   </section>
 
+  <section class="hpg-card max-w-md">
+    <div class="flex items-center gap-2 mb-3">
+      <svg class="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/>
+      </svg>
+      <h2 class="hpg-eyebrow">Manual restore</h2>
+    </div>
+    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+      Restore is an operator action - no panel button. Run a restore drill first to verify backup integrity.
+    </p>
+    <ol class="space-y-2 text-xs text-slate-700 dark:text-slate-300 list-decimal list-inside">
+      <li>Download the backup archive from your configured destination (SFTP / S3 / FTP / Local).</li>
+      <li>If encrypted, decrypt:<br>
+        <code class="font-mono text-[11px] bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded break-all">openssl enc -d -aes-256-cbc -pbkdf2 -k "$HPG_BACKUP_KEY" -in backup.enc | tar xz</code>
+      </li>
+      <li>Stop HPG, restore the MySQL dump:<br>
+        <code class="font-mono text-[11px] bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded break-all">mysql -u root hpg &lt; dump.sql</code>
+      </li>
+      <li>Restart HPG service.</li>
+    </ol>
+  </section>
+
   <section class="hpg-card p-0 overflow-hidden">
     <div class="p-5">
       <h2 class="hpg-eyebrow">Recent jobs</h2>
