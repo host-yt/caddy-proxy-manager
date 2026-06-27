@@ -61,6 +61,7 @@ func (h *AdminHandlers) HostsRollupJSON(w http.ResponseWriter, r *http.Request) 
 		LatencySumMs int64  `json:"latency_sum_ms"`
 		LatencyMaxMs int64  `json:"latency_max_ms"`
 		BytesResp    int64  `json:"bytes_resp"`
+		BytesReq     int64  `json:"bytes_req"`
 	}
 	type summaryRow struct {
 		Requests     int64 `json:"requests"`
@@ -69,6 +70,7 @@ func (h *AdminHandlers) HostsRollupJSON(w http.ResponseWriter, r *http.Request) 
 		LatencySumMs int64 `json:"latency_sum_ms"`
 		LatencyMaxMs int64 `json:"latency_max_ms"`
 		BytesResp    int64 `json:"bytes_resp"`
+		BytesReq     int64 `json:"bytes_req"`
 	}
 
 	rows := make([]bucketRow, 0, len(series))
@@ -81,6 +83,7 @@ func (h *AdminHandlers) HostsRollupJSON(w http.ResponseWriter, r *http.Request) 
 			LatencySumMs: b.LatencySumMs,
 			LatencyMaxMs: b.LatencyMaxMs,
 			BytesResp:    b.BytesResp,
+			BytesReq:     b.BytesReq,
 		})
 	}
 
@@ -93,6 +96,7 @@ func (h *AdminHandlers) HostsRollupJSON(w http.ResponseWriter, r *http.Request) 
 			LatencySumMs: summary.LatencySumMs,
 			LatencyMaxMs: summary.LatencyMaxMs,
 			BytesResp:    summary.BytesResp,
+			BytesReq:     summary.BytesReq,
 		},
 		"series": rows,
 	})
@@ -136,7 +140,7 @@ func (h *AdminHandlers) HostsRollupCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
 
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"bucket_start", "requests", "errors_4xx", "errors_5xx", "latency_avg_ms", "latency_max_ms", "bytes_resp"})
+	_ = cw.Write([]string{"bucket_start", "requests", "errors_4xx", "errors_5xx", "latency_avg_ms", "latency_max_ms", "bytes_resp", "bytes_req"})
 	for i, b := range series {
 		avg := int64(0)
 		if b.Requests > 0 {
@@ -150,6 +154,7 @@ func (h *AdminHandlers) HostsRollupCSV(w http.ResponseWriter, r *http.Request) {
 			strconv.FormatInt(avg, 10),
 			strconv.FormatInt(b.LatencyMaxMs, 10),
 			strconv.FormatInt(b.BytesResp, 10),
+			strconv.FormatInt(b.BytesReq, 10),
 		})
 		if (i+1)%100 == 0 {
 			cw.Flush()
