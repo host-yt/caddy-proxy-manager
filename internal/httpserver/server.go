@@ -351,6 +351,7 @@ func (s *Server) routes() {
 		r.Post("/branding", s.deps.Admin.BrandingSave)
 		r.Route("/hosts", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.HostsList)
+			r.Get("/export.csv", s.deps.Admin.HostsExport)
 			r.Get("/new", s.deps.Admin.HostsNew)
 			r.Post("/new", s.deps.Admin.HostsCreate)
 			r.Get("/check-dns", s.deps.Admin.HostsCheckDNS)

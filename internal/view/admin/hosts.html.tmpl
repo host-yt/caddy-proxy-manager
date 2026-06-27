@@ -5,7 +5,13 @@
       <h2 class="text-lg font-semibold text-slate-900 dark:text-slate-100">All hosts <span class="text-sm font-normal text-slate-500">({{.Total}})</span></h2>
       <p class="text-xs text-slate-500 dark:text-slate-400">Every domain mapped on every Caddy node, across every client.</p>
     </div>
-    <a href="/admin/hosts/new" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700">+ Add host</a>
+    <div class="flex items-center gap-2">
+      <a href="/admin/hosts/export.csv" class="inline-flex items-center gap-1 px-3 py-2 rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Export CSV
+      </a>
+      <a href="/admin/hosts/new" class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium shadow-sm hover:bg-indigo-700">+ Add host</a>
+    </div>
   </div>
 
   <form method="GET" action="/admin/hosts" class="hpg-card flex flex-wrap items-end gap-3 text-sm">
