@@ -123,11 +123,30 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
     </div>
   </form>
 </div>
+<!-- Bulk form is hidden; submitted via JS to avoid nested <form> issues. -->
+<form method="POST" action="/admin/nodes/bulk" id="nodes-bulk-form" class="hidden">
+  <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  <input type="hidden" name="action" id="nodes-bulk-action">
+  <div id="nodes-bulk-ids"></div>
+</form>
+
 <div class="space-y-6">
   <section class="hpg-card p-0 overflow-hidden">
+    <!-- Bulk toolbar: shown only when checkboxes are checked. -->
+    <div id="nodes-bulk-bar" class="hidden px-5 py-3 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+      <span class="hpg-eyebrow">Bulk action</span>
+      <select id="nodes-bulk-select" class="px-3 py-1.5 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 text-xs outline-none">
+        <option value="">— action —</option>
+        <option value="approve">Approve</option>
+        <option value="resync">Resync</option>
+        <option value="disable">Disable</option>
+      </select>
+      <button type="button" id="nodes-bulk-apply" class="px-3 py-1.5 rounded-full bg-slate-800 dark:bg-zinc-700 text-white text-xs hover:bg-slate-900">Apply</button>
+    </div>
     <div class="overflow-x-auto"><table class="w-full text-sm">
       <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
         <tr>
+          <th class="pl-4 pr-2 py-2 w-8"><input type="checkbox" id="nodes-check-all" class="rounded"></th>
           <th class="px-4 py-2">Name</th>
           <th class="px-4 py-2">Admin URL</th>
           <th class="px-4 py-2">Public</th>
@@ -141,6 +160,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
         {{range .Nodes}}
         <tr>
+          <td class="pl-4 pr-2 py-2"><input type="checkbox" name="ids" value="{{.ID}}" class="nodes-row-check rounded"></td>
           <td class="px-4 py-2 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
           <td class="px-4 py-2 text-slate-600 dark:text-slate-300"><code class="text-xs">{{.APIURL}}</code></td>
           <td class="px-4 py-2 text-slate-600 dark:text-slate-300">
@@ -193,7 +213,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
         </tr>
         {{if .TunnelEnabled}}
         <tr class="bg-slate-50/60 dark:bg-zinc-800/30 border-t-0">
-          <td colspan="8" class="px-4 pb-2 pt-1">
+          <td colspan="9" class="px-4 pb-2 pt-1">
             <div class="flex flex-wrap items-center gap-2 text-xs">
               <span class="font-medium text-slate-500 dark:text-slate-400">WG tunnel:</span>
               {{if .TunnelMTU.Valid}}
@@ -244,7 +264,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
         </tr>
         {{end}}
         {{else}}
-        <tr><td colspan="8" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No nodes yet.</td></tr>
+        <tr><td colspan="9" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No nodes yet.</td></tr>
         {{end}}
       </tbody>
     </table></div>
@@ -400,6 +420,57 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
       </div>
     </form>
   </div>
+  <script nonce="{{.CSPNonce}}">
+  (function(){
+    /* ── Bulk action ───────────────────────────────────────────────── */
+    var bar = document.getElementById('nodes-bulk-bar');
+    var allChk = document.getElementById('nodes-check-all');
+    function rowChecks(){ return Array.from(document.querySelectorAll('.nodes-row-check')); }
+    function updateBar(){
+      var n = rowChecks().filter(function(c){ return c.checked; }).length;
+      if (bar) bar.classList.toggle('hidden', n === 0);
+    }
+    if (allChk) {
+      allChk.addEventListener('change', function(){
+        rowChecks().forEach(function(c){ c.checked = allChk.checked; });
+        updateBar();
+      });
+    }
+    rowChecks().forEach(function(c){
+      c.addEventListener('change', function(){
+        if (!c.checked && allChk) allChk.checked = false;
+        updateBar();
+      });
+    });
+    var applyBtn = document.getElementById('nodes-bulk-apply');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', function(){
+        var sel = document.getElementById('nodes-bulk-select');
+        var action = sel ? sel.value : '';
+        if (!action) { window.hpgToast && window.hpgToast('Pick an action.', 'warn'); return; }
+        var ids = rowChecks().filter(function(c){ return c.checked; }).map(function(c){ return c.value; });
+        if (ids.length === 0) { window.hpgToast && window.hpgToast('Select at least one node.', 'warn'); return; }
+        var msg = action + ' ' + ids.length + ' node(s)?';
+        var go = function(){
+          document.getElementById('nodes-bulk-action').value = action;
+          var box = document.getElementById('nodes-bulk-ids');
+          box.innerHTML = '';
+          ids.forEach(function(v){
+            var i = document.createElement('input');
+            i.type = 'hidden'; i.name = 'ids'; i.value = v;
+            box.appendChild(i);
+          });
+          document.getElementById('nodes-bulk-form').submit();
+        };
+        if (window.hpgConfirm) {
+          window.hpgConfirm(msg).then(function(ok){ if (ok) go(); });
+        } else if (confirm(msg)) {
+          go();
+        }
+      });
+    }
+  })();
+  </script>
   <script nonce="{{.CSPNonce}}">
   (function(){
     var m = document.getElementById('hpg-add-node-modal');

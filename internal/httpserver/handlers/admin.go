@@ -1459,6 +1459,69 @@ func (h *AdminHandlers) NodesResync(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/nodes", "Resync triggered", "")
 }
 
+// NodesBulk applies one action (approve / resync / disable) to many nodes.
+func (h *AdminHandlers) NodesBulk(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	_ = r.ParseForm()
+	action := r.FormValue("action")
+	ids := r.Form["ids"]
+	if action == "" || len(ids) == 0 {
+		redirectWithFlash(w, r, "/admin/nodes", "", "select nodes and an action")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	sess := middleware.SessionFromContext(r.Context())
+	ok, fail := 0, 0
+	for _, s := range ids {
+		id, err := strconv.ParseInt(s, 10, 64)
+		if err != nil || id == 0 {
+			fail++
+			continue
+		}
+		switch action {
+		case "approve":
+			if _, derr := db.ExecContext(ctx,
+				"UPDATE caddy_nodes SET approved_at=NOW() WHERE id=? AND approved_at IS NULL", id); derr != nil {
+				fail++
+				continue
+			}
+		case "resync":
+			if h.ResyncNode == nil {
+				fail++
+				continue
+			}
+			if derr := h.ResyncNode(ctx, id); derr != nil {
+				fail++
+				continue
+			}
+		case "disable":
+			if _, derr := db.ExecContext(ctx,
+				"UPDATE caddy_nodes SET is_enabled=0 WHERE id=?", id); derr != nil {
+				fail++
+				continue
+			}
+		default:
+			fail++
+			continue
+		}
+		ok++
+	}
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "admin.node.bulk", Entity: "node",
+		Meta: map[string]any{"action": action, "ok": ok, "fail": fail},
+	})
+	msg := strconv.Itoa(ok) + " node(s) " + action + "d"
+	if fail > 0 {
+		msg += "; " + strconv.Itoa(fail) + " failed"
+	}
+	redirectWithFlash(w, r, "/admin/nodes", msg, "")
+}
+
 // ---- Plans --------------------------------------------------------------
 
 type planRow struct {
