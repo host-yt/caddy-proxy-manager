@@ -395,6 +395,8 @@
             <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Path</th>
             <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Status</th>
             <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Latency</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">↓ Resp</th>
+            <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">↑ Req</th>
             <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Remote IP</th>
             <th class="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400 text-xs">Country</th>
           </tr>
@@ -409,12 +411,14 @@
             <td class="px-4 py-2">
               <span class="inline-block px-1.5 py-0.5 rounded text-xs font-semibold font-mono
                 {{if lt .Status 300}}text-emerald-700 bg-emerald-50 dark:text-emerald-400 dark:bg-emerald-500/10
-                {{else if lt .Status 400}}text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-amber-500/10
+                {{else if lt .Status 400}}text-amber-700 bg-amber-50 dark:text-amber-400 dark:bg-emerald-500/10
                 {{else}}text-rose-700 bg-rose-50 dark:text-rose-400 dark:bg-rose-500/10{{end}}">
                 {{.Status}}
               </span>
             </td>
             <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{.LatencyMS}}ms</td>
+            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .BytesResp}}{{formatBytes .BytesResp}}{{else}}-{{end}}</td>
+            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .BytesReq}}{{formatBytes .BytesReq}}{{else}}-{{end}}</td>
             <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{.RemoteIP}}</td>
             <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .Country}}{{.Country}}{{else}}-{{end}}</td>
           </tr>

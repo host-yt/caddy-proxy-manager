@@ -1656,7 +1656,7 @@ func (h *ClientHandlers) RouteLogsCSV(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
 	cw := csv.NewWriter(w)
-	_ = cw.Write([]string{"timestamp", "method", "path", "status", "bytes", "duration_ms", "ip", "country"})
+	_ = cw.Write([]string{"timestamp", "method", "path", "status", "bytes_resp", "bytes_req", "duration_ms", "ip", "country"})
 	for i, e := range entries {
 		_ = cw.Write(csvSafeRow([]string{
 			e.TS.UTC().Format(time.RFC3339),
@@ -1664,6 +1664,7 @@ func (h *ClientHandlers) RouteLogsCSV(w http.ResponseWriter, r *http.Request) {
 			e.URI,
 			strconv.Itoa(e.Status),
 			strconv.FormatInt(e.BytesResp, 10),
+			strconv.FormatInt(e.BytesReq, 10),
 			strconv.Itoa(e.LatencyMS),
 			e.RemoteIP,
 			e.Country,
