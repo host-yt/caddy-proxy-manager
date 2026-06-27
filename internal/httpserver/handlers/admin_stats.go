@@ -50,6 +50,16 @@ type planUsageRow struct {
 	ActiveRoutes int
 }
 
+// nodeTrafficRow holds per-node 7d bandwidth + route count for the stats table.
+type nodeTrafficRow struct {
+	NodeID       int64
+	NodeName     string
+	Bytes7d      int64
+	Bytes7dHuman string
+	Requests7d   int64
+	RouteCount   int
+}
+
 type statsData struct {
 	baseAdminData
 
@@ -68,6 +78,7 @@ type statsData struct {
 	TopClients   []topClientRow
 	RecentRoutes []recentRouteRow
 	PlanUsage    []planUsageRow
+	NodeTraffic  []nodeTrafficRow
 
 	Cache    cacheSummary
 	Security securitySummary
@@ -234,6 +245,28 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		prows.Close()
+	}
+
+	// --- Node traffic breakdown (7d bandwidth + route count per node) ----
+	ntrRows, _ := db.QueryContext(ctx,
+		`SELECT n.id, n.name,
+		        COALESCE(SUM(lr.bytes_resp),0),
+		        COALESCE(SUM(lr.requests),0),
+		        COUNT(DISTINCT r.id)
+		 FROM caddy_nodes n
+		 LEFT JOIN routes r ON r.caddy_node_id=n.id
+		 LEFT JOIN log_rollups lr ON lr.route_id=r.id AND lr.bucket_start >= (NOW() - INTERVAL 7 DAY)
+		 GROUP BY n.id, n.name
+		 ORDER BY 3 DESC LIMIT 10`)
+	if ntrRows != nil {
+		for ntrRows.Next() {
+			var row nodeTrafficRow
+			if err := ntrRows.Scan(&row.NodeID, &row.NodeName, &row.Bytes7d, &row.Requests7d, &row.RouteCount); err == nil {
+				row.Bytes7dHuman = humanBytes(uint64(row.Bytes7d))
+				d.NodeTraffic = append(d.NodeTraffic, row)
+			}
+		}
+		ntrRows.Close()
 	}
 
 	// --- Recent routes ------------------------------------------------
