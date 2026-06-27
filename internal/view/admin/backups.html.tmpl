@@ -1,95 +1,95 @@
 {{define "backups"}}
 <div class="space-y-8">
 
-  <section class="hpg-card max-w-md">
-    <h2 class="hpg-eyebrow mb-3">Schedule</h2>
+  <section class="r-card max-w-md">
+    <h2 class="t-eyebrow mb-3">Schedule</h2>
     <form method="POST" action="/admin/backups/schedule" class="space-y-3 text-sm">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Interval (hours, 0 = disabled)</label>
-        <input type="number" min="0" name="interval_hours" value="{{.Schedule.IntervalHours}}"
-               class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500">
+        <label class="block t-small mb-1" style="color:rgb(var(--muted))">Interval (hours, 0 = disabled)</label>
+        <input type="number" min="0" name="interval_hours" value="{{.Schedule.IntervalHours}}" class="r-input w-full tabular-nums">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Retention (days, 0 = keep forever)</label>
-        <input type="number" min="0" name="retention_days" value="{{.Schedule.RetentionDays}}"
-               class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500">
+        <label class="block t-small mb-1" style="color:rgb(var(--muted))">Retention (days, 0 = keep forever)</label>
+        <input type="number" min="0" name="retention_days" value="{{.Schedule.RetentionDays}}" class="r-input w-full tabular-nums">
       </div>
-      <label class="flex items-center gap-2 text-xs text-slate-700 dark:text-slate-200">
-        <input type="checkbox" name="encrypt" value="1" {{if .Schedule.EncryptByDef}}checked{{end}}>
+      <label class="flex items-center gap-2 t-small cursor-pointer" style="color:rgb(var(--text))">
+        <input type="checkbox" name="encrypt" value="1" {{if .Schedule.EncryptByDef}}checked{{end}} class="r-toggle">
         <span>Encrypt artifacts at rest (AES-256-GCM, key = HKDF(APP_SECRET))</span>
       </label>
-      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save schedule</button>
+      <button class="r-btn-primary">Save schedule</button>
     </form>
   </section>
 
-  <section class="hpg-card p-0 overflow-hidden">
-    <div class="p-5 flex items-center justify-between">
-      <h2 class="hpg-eyebrow">Destinations</h2>
+  <section class="r-card p-0 overflow-hidden">
+    <div class="p-5 flex items-center justify-between" style="border-bottom:1px solid rgb(var(--border))">
+      <h2 class="t-eyebrow">Destinations</h2>
     </div>
-    <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="text-left text-xs uppercase tracking-wide text-slate-500">
-        <tr>
-          <th class="px-5 py-2">Name</th>
-          <th class="px-5 py-2">Kind</th>
-          <th class="px-5 py-2">Endpoint</th>
-          <th class="px-5 py-2">Status</th>
-          <th class="px-5 py-2 text-right"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        {{range .Destinations}}
+    <div class="overflow-x-auto">
+      <table class="r-table w-full text-sm">
+        <thead>
           <tr>
-            <td class="px-5 py-3 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
-            <td class="px-5 py-3 text-slate-600 dark:text-slate-300">{{.Kind}}</td>
-            <td class="px-5 py-3 text-slate-500 text-xs">{{.Summary}}</td>
-            <td class="px-5 py-3">{{if .Enabled}}<span class="hpg-pill hpg-pill-ok">enabled</span>{{else}}<span class="hpg-pill hpg-pill-muted">disabled</span>{{end}}</td>
-            <td class="px-5 py-3 text-right space-x-3">
-              <form method="POST" action="/admin/backups/destinations/{{.ID}}/test" class="inline">
-                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="text-xs text-sky-600 hover:underline">test</button>
-              </form>
-              <form method="POST" action="/admin/backups/destinations/{{.ID}}/verify" class="inline">
-                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="text-xs text-purple-600 hover:underline" title="Download most recent backup, decrypt, walk tar, assert dump.sql present.">verify</button>
-              </form>
-              <form method="POST" action="/admin/backups/run-now" class="inline">
-                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <input type="hidden" name="destination_id" value="{{.ID}}">
-                <input type="hidden" name="encrypt" value="1">
-                <button class="text-xs text-emerald-600 hover:underline">run now</button>
-              </form>
-              <form method="POST" action="/admin/backups/destinations/{{.ID}}/delete" class="inline"
-                    data-confirm="Delete destination {{.Name}}?">
-                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="text-xs text-rose-600 hover:underline">delete</button>
-              </form>
-            </td>
+            <th>Name</th>
+            <th>Kind</th>
+            <th>Endpoint</th>
+            <th>Status</th>
+            <th class="text-right"></th>
           </tr>
-        {{else}}
-          <tr><td colspan="5" class="px-5 py-6 text-center text-slate-500">No destinations configured.</td></tr>
-        {{end}}
-      </tbody>
-    </table></div>
+        </thead>
+        <tbody>
+          {{range .Destinations}}
+            <tr>
+              <td class="font-medium">{{.Name}}</td>
+              <td>{{.Kind}}</td>
+              <td class="t-small" style="color:rgb(var(--muted))">{{.Summary}}</td>
+              <td>{{if .Enabled}}<span class="r-pill r-pill-success">enabled</span>{{else}}<span class="r-pill r-pill-neutral">disabled</span>{{end}}</td>
+              <td class="text-right space-x-3">
+                <form method="POST" action="/admin/backups/destinations/{{.ID}}/test" class="inline">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button class="t-small cursor-pointer hover:underline" style="color:rgb(var(--accent))">test</button>
+                </form>
+                <form method="POST" action="/admin/backups/destinations/{{.ID}}/verify" class="inline">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button class="t-small cursor-pointer hover:underline" style="color:rgb(var(--warning))" title="Download most recent backup, decrypt, walk tar, assert dump.sql present.">verify</button>
+                </form>
+                <form method="POST" action="/admin/backups/run-now" class="inline">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <input type="hidden" name="destination_id" value="{{.ID}}">
+                  <input type="hidden" name="encrypt" value="1">
+                  <button class="t-small cursor-pointer hover:underline" style="color:rgb(var(--success))">run now</button>
+                </form>
+                <form method="POST" action="/admin/backups/destinations/{{.ID}}/delete" class="inline"
+                      data-confirm="Delete destination {{.Name}}?">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button class="t-small cursor-pointer hover:underline" style="color:rgb(var(--danger))">delete</button>
+                </form>
+              </td>
+            </tr>
+          {{else}}
+            <tr><td colspan="5" class="px-5 py-6 text-center" style="color:rgb(var(--muted))">No destinations configured.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
 
-    <details class="p-5 border-t border-slate-100 dark:border-zinc-800">
-      <summary class="cursor-pointer text-slate-700 dark:text-slate-200 text-sm font-medium">Add destination</summary>
+    <details class="p-5" style="border-top:1px solid rgb(var(--border))">
+      <summary class="cursor-pointer t-small font-medium" style="color:rgb(var(--text))">Add destination</summary>
       <form method="POST" action="/admin/backups/destinations" class="mt-4 space-y-3 text-sm max-w-2xl">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
-            <input name="name" required class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500">
+            <label class="block t-small mb-1" style="color:rgb(var(--muted))">Name</label>
+            <input name="name" required class="r-input w-full">
           </div>
           <div>
-            <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Kind</label>
-            <select name="kind" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500">
+            <label class="block t-small mb-1" style="color:rgb(var(--muted))">Kind</label>
+            <select name="kind" class="r-select w-full">
               {{range .NewKindOpts}}<option value="{{.}}">{{.}}</option>{{end}}
             </select>
           </div>
         </div>
 
-        <p class="text-xs text-slate-500 leading-relaxed">
+        <p class="t-small leading-relaxed" style="color:rgb(var(--muted))">
           Fill the keys for the chosen kind:<br>
           <b>sftp</b>: host, port, user, password OR private_key, host_key (or insecure_host_key=1), path<br>
           <b>ftp</b>: host, port, user, password, tls=explicit|implicit, skip_verify, path<br>
@@ -100,43 +100,43 @@
 
         {{$k := .}}
         <div class="grid grid-cols-2 gap-3">
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">host</label><input name="cfg_host" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">port</label><input name="cfg_port" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">user / access_key</label><input name="cfg_user" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">password / secret_key</label><input name="cfg_password" type="password" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div class="col-span-2"><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">private_key (SFTP, PEM)</label><textarea name="cfg_private_key" rows="3" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500 font-mono text-xs"></textarea></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">private_key_pass</label><input name="cfg_private_key_pass" type="password" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">host_key (SFTP, "ssh-ed25519 …")</label><input name="cfg_host_key" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">insecure_host_key (0/1)</label><input name="cfg_insecure_host_key" value="0" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">tls (FTP) explicit|implicit</label><input name="cfg_tls" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">skip_verify (0/1)</label><input name="cfg_skip_verify" value="0" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">endpoint (S3)</label><input name="cfg_endpoint" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">region (S3)</label><input name="cfg_region" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">bucket (S3)</label><input name="cfg_bucket" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">access_key (S3)</label><input name="cfg_access_key" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">secret_key (S3)</label><input name="cfg_secret_key" type="password" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">prefix (S3)</label><input name="cfg_prefix" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">use_ssl (S3) 0/1</label><input name="cfg_use_ssl" value="1" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">path_style (S3) 0/1</label><input name="cfg_path_style" value="0" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
-          <div class="col-span-2"><label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">path / base directory</label><input name="cfg_path" class="w-full px-3 py-2 rounded-lg bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-indigo-500"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">host</label><input name="cfg_host" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">port</label><input name="cfg_port" class="r-input w-full tabular-nums"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">user / access_key</label><input name="cfg_user" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">password / secret_key</label><input name="cfg_password" type="password" class="r-input w-full"></div>
+          <div class="col-span-2"><label class="block t-small mb-1" style="color:rgb(var(--muted))">private_key (SFTP, PEM)</label><textarea name="cfg_private_key" rows="3" class="r-input w-full font-mono text-xs"></textarea></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">private_key_pass</label><input name="cfg_private_key_pass" type="password" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">host_key (SFTP, "ssh-ed25519 …")</label><input name="cfg_host_key" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">insecure_host_key (0/1)</label><input name="cfg_insecure_host_key" value="0" class="r-input w-full tabular-nums"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">tls (FTP) explicit|implicit</label><input name="cfg_tls" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">skip_verify (0/1)</label><input name="cfg_skip_verify" value="0" class="r-input w-full tabular-nums"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">endpoint (S3)</label><input name="cfg_endpoint" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">region (S3)</label><input name="cfg_region" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">bucket (S3)</label><input name="cfg_bucket" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">access_key (S3)</label><input name="cfg_access_key" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">secret_key (S3)</label><input name="cfg_secret_key" type="password" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">prefix (S3)</label><input name="cfg_prefix" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">use_ssl (S3) 0/1</label><input name="cfg_use_ssl" value="1" class="r-input w-full tabular-nums"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">path_style (S3) 0/1</label><input name="cfg_path_style" value="0" class="r-input w-full tabular-nums"></div>
+          <div class="col-span-2"><label class="block t-small mb-1" style="color:rgb(var(--muted))">path / base directory</label><input name="cfg_path" class="r-input w-full"></div>
         </div>
         {{$_ := $k}}
 
-        <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save destination</button>
+        <button class="r-btn-primary">Save destination</button>
       </form>
     </details>
   </section>
 
-  <section class="hpg-card max-w-md {{if .Drill.Stale}}ring-2 ring-rose-400 dark:ring-rose-600{{end}}">
+  <section class="r-card max-w-md {{if .Drill.Stale}}ring-2{{end}}" {{if .Drill.Stale}}style="border-color:rgb(var(--danger))"{{end}}>
     <div class="flex items-center justify-between mb-3">
-      <h2 class="hpg-eyebrow">Restore drill</h2>
+      <h2 class="t-eyebrow">Restore drill</h2>
       <form method="POST" action="/admin/backups/drill/run">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-medium hover:bg-indigo-700 cursor-pointer transition-colors">Run now</button>
+        <button class="r-btn-primary cursor-pointer transition-colors">Run now</button>
       </form>
     </div>
     {{if .Drill.Stale}}
-      <p class="text-xs font-medium text-rose-600 dark:text-rose-400 mb-2">
+      <p class="t-small font-medium mb-2" style="color:rgb(var(--danger))">
         <svg class="inline w-4 h-4 mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>
         {{if .Drill.HasRun}}Last successful drill is older than 7 days.{{else}}Drill has never run.{{end}}
       </p>
@@ -144,91 +144,93 @@
     <dl class="text-sm space-y-1">
       {{if .Drill.HasRun}}
         <div class="flex justify-between">
-          <dt class="text-slate-500">Status</dt>
-          <dd>{{if .Drill.Success}}<span class="hpg-pill hpg-pill-ok">ok</span>{{else}}<span class="hpg-pill hpg-pill-err">failed</span>{{end}}</dd>
+          <dt style="color:rgb(var(--muted))">Status</dt>
+          <dd>{{if .Drill.Success}}<span class="r-pill r-pill-success">ok</span>{{else}}<span class="r-pill r-pill-danger">failed</span>{{end}}</dd>
         </div>
         <div class="flex justify-between">
-          <dt class="text-slate-500">Started</dt>
-          <dd class="text-xs text-slate-700 dark:text-slate-200">{{.Drill.StartedAt}}</dd>
+          <dt style="color:rgb(var(--muted))">Started</dt>
+          <dd class="t-small tabular-nums" style="color:rgb(var(--text))">{{.Drill.StartedAt}}</dd>
         </div>
         <div class="flex justify-between">
-          <dt class="text-slate-500">Finished</dt>
-          <dd class="text-xs text-slate-700 dark:text-slate-200">{{.Drill.FinishedAt}}</dd>
+          <dt style="color:rgb(var(--muted))">Finished</dt>
+          <dd class="t-small tabular-nums" style="color:rgb(var(--text))">{{.Drill.FinishedAt}}</dd>
         </div>
         {{if .Drill.ErrorMsg}}
         <div class="mt-1">
-          <dt class="text-slate-500 text-xs">Error</dt>
-          <dd class="text-rose-600 text-xs break-all">{{.Drill.ErrorMsg}}</dd>
+          <dt class="t-small" style="color:rgb(var(--muted))">Error</dt>
+          <dd class="t-small break-all" style="color:rgb(var(--danger))">{{.Drill.ErrorMsg}}</dd>
         </div>
         {{end}}
       {{else}}
-        <div class="text-slate-500 text-xs">No drill has run yet. Scheduled cadence: every 72 h (leader only).</div>
+        <div class="t-small" style="color:rgb(var(--muted))">No drill has run yet. Scheduled cadence: every 72 h (leader only).</div>
       {{end}}
     </dl>
   </section>
 
-  <section class="hpg-card max-w-md">
+  <section class="r-card max-w-md">
     <div class="flex items-center gap-2 mb-3">
-      <svg class="w-4 h-4 text-slate-500 dark:text-slate-400 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+      <svg class="w-4 h-4 shrink-0" style="color:rgb(var(--muted))" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/>
       </svg>
-      <h2 class="hpg-eyebrow">Manual restore</h2>
+      <h2 class="t-eyebrow">Manual restore</h2>
     </div>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">
+    <p class="t-small mb-3" style="color:rgb(var(--muted))">
       Restore is an operator action - no panel button. Run a restore drill first to verify backup integrity.
     </p>
-    <ol class="space-y-2 text-xs text-slate-700 dark:text-slate-300 list-decimal list-inside">
+    <ol class="space-y-2 t-small list-decimal list-inside" style="color:rgb(var(--text))">
       <li>Download the backup archive from your configured destination (SFTP / S3 / FTP / Local).</li>
       <li>If encrypted, decrypt:<br>
-        <code class="font-mono text-[11px] bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded break-all">openssl enc -d -aes-256-cbc -pbkdf2 -k "$HPG_BACKUP_KEY" -in backup.enc | tar xz</code>
+        <code class="font-mono text-[11px] px-1.5 py-0.5 rounded break-all" style="background:rgb(var(--surface-2))">openssl enc -d -aes-256-cbc -pbkdf2 -k "$HPG_BACKUP_KEY" -in backup.enc | tar xz</code>
       </li>
       <li>Stop HPG, restore the MySQL dump:<br>
-        <code class="font-mono text-[11px] bg-slate-100 dark:bg-zinc-800 px-1.5 py-0.5 rounded break-all">mysql -u root hpg &lt; dump.sql</code>
+        <code class="font-mono text-[11px] px-1.5 py-0.5 rounded break-all" style="background:rgb(var(--surface-2))">mysql -u root hpg &lt; dump.sql</code>
       </li>
       <li>Restart HPG service.</li>
     </ol>
   </section>
 
-  <section class="hpg-card p-0 overflow-hidden">
-    <div class="p-5">
-      <h2 class="hpg-eyebrow">Recent jobs</h2>
+  <section class="r-card p-0 overflow-hidden">
+    <div class="p-5" style="border-bottom:1px solid rgb(var(--border))">
+      <h2 class="t-eyebrow">Recent jobs</h2>
     </div>
-    <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="text-left text-xs uppercase tracking-wide text-slate-500">
-        <tr>
-          <th class="px-5 py-2">ID</th>
-          <th class="px-5 py-2">Destination</th>
-          <th class="px-5 py-2">Kind</th>
-          <th class="px-5 py-2">Status</th>
-          <th class="px-5 py-2">Size (KB)</th>
-          <th class="px-5 py-2">Enc</th>
-          <th class="px-5 py-2">Started</th>
-          <th class="px-5 py-2">Finished</th>
-          <th class="px-5 py-2">Artifact</th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        {{range .Jobs}}
+    <div class="overflow-x-auto">
+      <table class="r-table w-full text-sm">
+        <thead>
           <tr>
-            <td class="px-5 py-3">{{.ID}}</td>
-            <td class="px-5 py-3">{{.DestName}}</td>
-            <td class="px-5 py-3">{{.Kind}}</td>
-            <td class="px-5 py-3">
-              {{if eq .Status "succeeded"}}<span class="hpg-pill hpg-pill-ok">{{.Status}}</span>
-              {{else if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>
-              {{else}}<span class="hpg-pill hpg-pill-warn">{{.Status}}</span>{{end}}
-            </td>
-            <td class="px-5 py-3">{{.SizeKB}}</td>
-            <td class="px-5 py-3">{{if .Encrypted}}yes{{else}}no{{end}}</td>
-            <td class="px-5 py-3 text-slate-500 text-xs">{{.StartedAt}}</td>
-            <td class="px-5 py-3 text-slate-500 text-xs">{{.FinishedAt}}</td>
-            <td class="px-5 py-3 text-slate-500 text-xs">{{.ArtifactKey}}{{if .Error}}<br><span class="text-rose-600">{{.Error}}</span>{{end}}</td>
+            <th>ID</th>
+            <th>Destination</th>
+            <th>Kind</th>
+            <th>Status</th>
+            <th>Size (KB)</th>
+            <th>Enc</th>
+            <th>Started</th>
+            <th>Finished</th>
+            <th>Artifact</th>
           </tr>
-        {{else}}
-          <tr><td colspan="9" class="px-5 py-6 text-center text-slate-500">No backups yet.</td></tr>
-        {{end}}
-      </tbody>
-    </table></div>
+        </thead>
+        <tbody>
+          {{range .Jobs}}
+            <tr>
+              <td class="tabular-nums">{{.ID}}</td>
+              <td>{{.DestName}}</td>
+              <td>{{.Kind}}</td>
+              <td>
+                {{if eq .Status "succeeded"}}<span class="r-pill r-pill-success">{{.Status}}</span>
+                {{else if eq .Status "failed"}}<span class="r-pill r-pill-danger">{{.Status}}</span>
+                {{else}}<span class="r-pill r-pill-warning">{{.Status}}</span>{{end}}
+              </td>
+              <td class="tabular-nums">{{.SizeKB}}</td>
+              <td>{{if .Encrypted}}yes{{else}}no{{end}}</td>
+              <td class="t-small tabular-nums" style="color:rgb(var(--muted))">{{.StartedAt}}</td>
+              <td class="t-small tabular-nums" style="color:rgb(var(--muted))">{{.FinishedAt}}</td>
+              <td class="t-small" style="color:rgb(var(--muted))">{{.ArtifactKey}}{{if .Error}}<br><span style="color:rgb(var(--danger))">{{.Error}}</span>{{end}}</td>
+            </tr>
+          {{else}}
+            <tr><td colspan="9" class="px-5 py-6 text-center" style="color:rgb(var(--muted))">No backups yet.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
   </section>
 
 </div>

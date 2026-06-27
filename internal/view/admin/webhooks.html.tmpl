@@ -1,136 +1,140 @@
 {{define "webhooks"}}
 <div class="space-y-6">
 
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="p-5 border-b border-slate-100 dark:border-zinc-800">
-      <h2 class="font-semibold text-slate-800 dark:text-slate-100">Endpoints</h2>
-      <p class="text-xs text-slate-500 dark:text-slate-400">Events POSTed as JSON with HMAC-SHA256 in <code>X-HPG-Signature</code>. Supported event types: <code>route.created</code>, <code>route.active</code>, <code>route.failed</code>, <code>node.joined</code>, <code>node.approved</code>, <code>node.down</code>, <code>cert.issued</code>, <code>backup.success</code>, <code>backup.failed</code>. Use <code>*</code> for all, or a pattern like <code>route.*</code>.</p>
+  <section class="r-card p-0 overflow-hidden">
+    <div class="p-5" style="border-bottom:1px solid rgb(var(--border))">
+      <h2 class="t-h3" style="color:rgb(var(--text))">Endpoints</h2>
+      <p class="t-small mt-1" style="color:rgb(var(--muted))">Events POSTed as JSON with HMAC-SHA256 in <code>X-HPG-Signature</code>. Supported event types: <code>route.created</code>, <code>route.active</code>, <code>route.failed</code>, <code>node.joined</code>, <code>node.approved</code>, <code>node.down</code>, <code>cert.issued</code>, <code>backup.success</code>, <code>backup.failed</code>. Use <code>*</code> for all, or a pattern like <code>route.*</code>.</p>
     </div>
-    <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="text-left hpg-eyebrow text-slate-500 dark:text-slate-400">
-        <tr>
-          <th class="px-4 py-2 font-medium">Name</th>
-          <th class="px-4 py-2 font-medium">URL</th>
-          <th class="px-4 py-2 font-medium">Events</th>
-          <th class="px-4 py-2 font-medium">Enabled</th>
-          <th class="px-4 py-2 font-medium">Created</th>
-          <th class="px-4 py-2 font-medium">Last delivery</th>
-          <th class="px-4 py-2 text-right"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        {{range .Endpoints}}
-        <tr>
-          <td class="px-4 py-3 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
-          <td class="px-4 py-3 text-slate-600 dark:text-slate-300 text-xs"><code>{{.URL}}</code></td>
-          <td class="px-4 py-3 text-slate-500 text-xs">{{.Events}}</td>
-          <td class="px-4 py-3">{{if .Enabled}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
-          <td class="px-4 py-3 text-xs text-slate-500">{{.Created}}</td>
-          <td class="px-4 py-3 text-xs">
-            {{if eq .LastDelivStatus "never"}}<span class="text-slate-400 dark:text-slate-500">never</span>
-            {{else if eq .LastDelivStatus "success"}}<span class="hpg-pill hpg-pill-ok">&#10003; {{.LastDelivHTTP}}</span><span class="text-xs text-slate-400 ml-1">{{.LastDelivAge}}</span>
-            {{else if eq .LastDelivStatus "failed"}}<span class="hpg-pill hpg-pill-err" title="{{.LastDelivErr}}">&#10007; {{.LastDelivHTTP}}</span><span class="text-xs text-slate-400 ml-1">{{.LastDelivAge}}</span>
-            {{else}}<span class="hpg-pill hpg-pill-warn">pending</span>{{end}}
-          </td>
-          <td class="px-4 py-3 text-right space-x-3">
-            <form method="POST" action="/admin/webhooks/{{.ID}}/test" class="inline">
-              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button class="text-xs text-sky-700 dark:text-sky-400 hover:underline cursor-pointer">test</button>
-            </form>
-            <form method="POST" action="/admin/webhooks/{{.ID}}/rotate-secret" class="inline" data-confirm="Rotate signing secret for {{.Name}}? Current secret will stop working immediately.">
-              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button type="submit" class="text-xs text-amber-600 dark:text-amber-400 hover:underline cursor-pointer">rotate secret</button>
-            </form>
-            <form method="POST" action="/admin/webhooks/{{.ID}}/delete" class="inline" data-confirm="Delete {{.Name}}?">
-              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">delete</button>
-            </form>
-          </td>
-        </tr>
-        {{else}}
-        <tr><td colspan="7" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No endpoints configured.</td></tr>
-        {{end}}
-      </tbody>
-    </table></div>
+    <div class="overflow-x-auto">
+      <table class="r-table w-full text-sm">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th>URL</th>
+            <th>Events</th>
+            <th>Enabled</th>
+            <th>Created</th>
+            <th>Last delivery</th>
+            <th class="text-right"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Endpoints}}
+          <tr>
+            <td class="font-medium">{{.Name}}</td>
+            <td class="t-small"><code>{{.URL}}</code></td>
+            <td class="t-small" style="color:rgb(var(--muted))">{{.Events}}</td>
+            <td>{{if .Enabled}}<span class="r-pill r-pill-success">yes</span>{{else}}<span class="r-pill r-pill-neutral">no</span>{{end}}</td>
+            <td class="t-small tabular-nums" style="color:rgb(var(--muted))">{{.Created}}</td>
+            <td class="t-small">
+              {{if eq .LastDelivStatus "never"}}<span style="color:rgb(var(--muted))">never</span>
+              {{else if eq .LastDelivStatus "success"}}<span class="r-pill r-pill-success">&#10003; {{.LastDelivHTTP}}</span><span class="t-small ml-1" style="color:rgb(var(--muted))">{{.LastDelivAge}}</span>
+              {{else if eq .LastDelivStatus "failed"}}<span class="r-pill r-pill-danger" title="{{.LastDelivErr}}">&#10007; {{.LastDelivHTTP}}</span><span class="t-small ml-1" style="color:rgb(var(--muted))">{{.LastDelivAge}}</span>
+              {{else}}<span class="r-pill r-pill-warning">pending</span>{{end}}
+            </td>
+            <td class="text-right space-x-3">
+              <form method="POST" action="/admin/webhooks/{{.ID}}/test" class="inline">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="t-small cursor-pointer hover:underline" style="color:rgb(var(--accent))">test</button>
+              </form>
+              <form method="POST" action="/admin/webhooks/{{.ID}}/rotate-secret" class="inline" data-confirm="Rotate signing secret for {{.Name}}? Current secret will stop working immediately.">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit" class="t-small cursor-pointer hover:underline" style="color:rgb(var(--warning))">rotate secret</button>
+              </form>
+              <form method="POST" action="/admin/webhooks/{{.ID}}/delete" class="inline" data-confirm="Delete {{.Name}}?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="t-small cursor-pointer hover:underline" style="color:rgb(var(--danger))">delete</button>
+              </form>
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="7" class="px-4 py-6 text-center" style="color:rgb(var(--muted))">No endpoints configured.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
   </section>
 
-  <section class="hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Add endpoint</h2>
+  <section class="r-card">
+    <h2 class="t-h3 mb-3" style="color:rgb(var(--text))">Add endpoint</h2>
     <form method="POST" action="/admin/webhooks" class="space-y-3 text-sm max-w-2xl">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
-          <input name="name" required class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+          <label class="block t-small mb-1" style="color:rgb(var(--muted))">Name</label>
+          <input name="name" required class="r-input w-full">
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Events pattern</label>
-          <input name="events" value="*" required class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+          <label class="block t-small mb-1" style="color:rgb(var(--muted))">Events pattern</label>
+          <input name="events" value="*" required class="r-input w-full">
         </div>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">URL</label>
-        <input name="url" type="url" required placeholder="https://billing.example.com/hooks/hpg" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100 font-mono text-xs">
+        <label class="block t-small mb-1" style="color:rgb(var(--muted))">URL</label>
+        <input name="url" type="url" required placeholder="https://billing.example.com/hooks/hpg" class="r-input w-full font-mono text-xs">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">HMAC secret (stored encrypted; receiver verifies <code>X-HPG-Signature</code>)</label>
-        <input name="secret" type="password" class="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-zinc-700 dark:bg-zinc-800 dark:text-slate-100">
+        <label class="block t-small mb-1" style="color:rgb(var(--muted))">HMAC secret (stored encrypted; receiver verifies <code>X-HPG-Signature</code>)</label>
+        <input name="secret" type="password" class="r-input w-full">
       </div>
-      <label class="flex items-center gap-2 text-xs">
-        <input type="checkbox" name="enabled" value="1" checked> Enabled
+      <label class="flex items-center gap-2 t-small cursor-pointer" style="color:rgb(var(--text))">
+        <input type="checkbox" name="enabled" value="1" checked class="r-toggle"> Enabled
       </label>
-      <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save endpoint</button>
+      <button class="r-btn-primary">Save endpoint</button>
     </form>
   </section>
 
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="p-5 border-b border-slate-100 dark:border-zinc-800">
-      <h2 class="font-semibold text-slate-800 dark:text-slate-100">Recent deliveries</h2>
+  <section class="r-card p-0 overflow-hidden">
+    <div class="p-5" style="border-bottom:1px solid rgb(var(--border))">
+      <h2 class="t-h3" style="color:rgb(var(--text))">Recent deliveries</h2>
     </div>
-    <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="text-left hpg-eyebrow text-slate-500 dark:text-slate-400">
-        <tr>
-          <th class="px-4 py-2 font-medium">ID</th>
-          <th class="px-4 py-2 font-medium">Endpoint</th>
-          <th class="px-4 py-2 font-medium">Event</th>
-          <th class="px-4 py-2 font-medium">Status</th>
-          <th class="px-4 py-2 font-medium">HTTP</th>
-          <th class="px-4 py-2 font-medium">Tries</th>
-          <th class="px-4 py-2 font-medium">Created</th>
-          <th class="px-4 py-2 font-medium">Error</th>
-          <th class="px-4 py-2 font-medium"></th>
-        </tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        {{range .Deliveries}}
-        <tr>
-          <td class="px-4 py-3">{{.ID}}</td>
-          <td class="px-4 py-3">{{.EndpointID}}</td>
-          <td class="px-4 py-3 text-xs">{{.EventType}}</td>
-          <td class="px-4 py-3">
-            {{if or (eq .Status "success") (eq .Status "delivered")}}<span class="hpg-pill hpg-pill-ok">{{.Status}}</span>
-            {{else if or (eq .Status "failed") (eq .Status "dead") (eq .Status "error")}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>
-            {{else if eq .Status "pending"}}<span class="hpg-pill hpg-pill-warn">{{.Status}}</span>
-            {{else}}<span class="hpg-pill hpg-pill-muted">{{.Status}}</span>{{end}}
-          </td>
-          <td class="px-4 py-3">{{if .HTTPCode}}{{.HTTPCode}}{{else}}-{{end}}</td>
-          <td class="px-4 py-3">{{.Attempts}}</td>
-          <td class="px-4 py-3 text-xs text-slate-500">{{.CreatedAt}}</td>
-          <td class="px-4 py-3 text-xs text-rose-600">{{.LastError}}</td>
-          <td class="px-4 py-3">
-            {{if or (eq .Status "failed") (eq .Status "dead") (eq .Status "error")}}
-            <form method="POST" action="/admin/webhooks/deliveries/{{.ID}}/retry" class="inline">
-              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button type="submit" class="text-xs px-2 py-0.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors cursor-pointer">retry</button>
-            </form>
-            {{end}}
-          </td>
-        </tr>
-        {{else}}
-        <tr><td colspan="9" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No deliveries yet.</td></tr>
-        {{end}}
-      </tbody>
-    </table></div>
+    <div class="overflow-x-auto">
+      <table class="r-table w-full text-sm">
+        <thead>
+          <tr>
+            <th>ID</th>
+            <th>Endpoint</th>
+            <th>Event</th>
+            <th>Status</th>
+            <th>HTTP</th>
+            <th>Tries</th>
+            <th>Created</th>
+            <th>Error</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Deliveries}}
+          <tr>
+            <td class="tabular-nums">{{.ID}}</td>
+            <td>{{.EndpointID}}</td>
+            <td class="t-small">{{.EventType}}</td>
+            <td>
+              {{if or (eq .Status "success") (eq .Status "delivered")}}<span class="r-pill r-pill-success">{{.Status}}</span>
+              {{else if or (eq .Status "failed") (eq .Status "dead") (eq .Status "error")}}<span class="r-pill r-pill-danger">{{.Status}}</span>
+              {{else if eq .Status "pending"}}<span class="r-pill r-pill-warning">{{.Status}}</span>
+              {{else}}<span class="r-pill r-pill-neutral">{{.Status}}</span>{{end}}
+            </td>
+            <td class="tabular-nums">{{if .HTTPCode}}{{.HTTPCode}}{{else}}-{{end}}</td>
+            <td class="tabular-nums">{{.Attempts}}</td>
+            <td class="t-small tabular-nums" style="color:rgb(var(--muted))">{{.CreatedAt}}</td>
+            <td class="t-small" style="color:rgb(var(--danger))">{{.LastError}}</td>
+            <td>
+              {{if or (eq .Status "failed") (eq .Status "dead") (eq .Status "error")}}
+              <form method="POST" action="/admin/webhooks/deliveries/{{.ID}}/retry" class="inline">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit" class="r-btn-secondary t-small cursor-pointer transition-colors">retry</button>
+              </form>
+              {{end}}
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="9" class="px-4 py-6 text-center" style="color:rgb(var(--muted))">No deliveries yet.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
   </section>
 </div>
 {{end}}
