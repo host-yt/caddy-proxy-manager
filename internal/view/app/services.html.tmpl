@@ -24,7 +24,7 @@
     <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
       <div class="min-w-0">
         <div class="flex flex-wrap items-center gap-2">
-          <h3 class="text-lg font-semibold text-slate-950 dark:text-white truncate">{{.Name}}</h3>
+          <a href="/app/services/{{.ID}}" class="text-lg font-semibold text-slate-950 dark:text-white truncate hover:text-indigo-600 dark:hover:text-indigo-400 transition cursor-pointer">{{.Name}}</a>
           {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>{{else if eq .Status "suspended"}}<span class="hpg-pill hpg-pill-warn">suspended</span>{{else}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>{{end}}
           {{if eq .PlanKind "npm"}}<span class="hpg-pill bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">editable backend</span>{{else}}<span class="hpg-pill hpg-pill-muted">provider managed</span>{{end}}
         </div>

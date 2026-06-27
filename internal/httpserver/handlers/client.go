@@ -235,6 +235,84 @@ func (h *ClientHandlers) Services(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "services", d)
 }
 
+// ---- Service detail (read-only) ----------------------------------------
+
+type clientServiceDetailRouteRow struct {
+	RouteID    int64
+	Domain     string
+	PathPrefix string
+	Port       int
+	Status     string
+	SSL        bool
+}
+
+type clientServiceDetailData struct {
+	baseAppData
+	ServiceID    int64
+	Name         string
+	Status       string
+	PlanName     string
+	Notes        string // admin-set notes (shown if non-empty)
+	BackendIP    string
+	RouteCount   int
+	ActiveRoutes int
+	Routes       []clientServiceDetailRouteRow
+	Bandwidth7d  int64
+	Bandwidth7dH string // human-formatted bandwidth
+}
+
+// ServiceDetail handles GET /app/services/{id}.
+func (h *ClientHandlers) ServiceDetail(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	db := h.DB()
+	if db == nil || sess == nil {
+		http.Redirect(w, r, "/app/services", http.StatusSeeOther)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		http.Redirect(w, r, "/app/services", http.StatusSeeOther)
+		return
+	}
+	d := clientServiceDetailData{baseAppData: h.base(r, "Service detail"), ServiceID: id}
+	if err := db.QueryRowContext(ctx,
+		`SELECT s.name, s.status, p.name, COALESCE(s.notes,''), s.backend_ip
+		 FROM services s JOIN plans p ON p.id = s.plan_id
+		 WHERE s.id = ? AND s.client_id = ?`, id, clientID,
+	).Scan(&d.Name, &d.Status, &d.PlanName, &d.Notes, &d.BackendIP); err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, domain, COALESCE(path_prefix,''), upstream_port, status, COALESCE(ssl_enabled,0)
+		 FROM routes WHERE service_id = ? ORDER BY status, domain`, id)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var rr clientServiceDetailRouteRow
+			var ssl int
+			if err := rows.Scan(&rr.RouteID, &rr.Domain, &rr.PathPrefix, &rr.Port, &rr.Status, &ssl); err == nil {
+				rr.SSL = ssl == 1
+				d.Routes = append(d.Routes, rr)
+				d.RouteCount++
+				if rr.Status == "active" {
+					d.ActiveRoutes++
+				}
+			}
+		}
+	}
+	_ = db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(lr.bytes_resp),0)
+		 FROM log_rollups lr JOIN routes r ON r.id = lr.route_id
+		 WHERE r.service_id = ? AND lr.bucket_start >= (NOW() - INTERVAL 7 DAY)`, id,
+	).Scan(&d.Bandwidth7d)
+	d.Bandwidth7dH = formatBytes(d.Bandwidth7d)
+	h.render(w, "service_detail", d)
+}
+
 // ServiceEdit (POST /app/services/{id}/edit) - only valid when the
 // owning plan.kind = 'npm'. Restricted plans enforce hard rule #1:
 // backend_ip / port range are admin-only.

@@ -571,6 +571,7 @@ func (s *Server) routes() {
 		r.Get("/", s.deps.Client.Dashboard)
 		r.Get("/worldmap", s.deps.Client.ClientWorldMap)
 		r.Get("/services", s.deps.Client.Services)
+		r.Get("/services/{id}", s.deps.Client.ServiceDetail)
 		r.Post("/services/{id}/edit", s.deps.Client.ServiceEdit)
 		r.Route("/routes", func(r chi.Router) {
 			r.Get("/", s.deps.Client.RoutesList)
