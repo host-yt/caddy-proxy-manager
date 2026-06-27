@@ -15,6 +15,15 @@ var settingKeys = map[string]string{
 	"openrouter": "ai.openrouter_key_enc",
 }
 
+// modelKeys maps a provider id to its plaintext selected-model setting row.
+// Empty value means "use the adapter's hardcoded default model".
+var modelKeys = map[string]string{
+	"anthropic":  "ai.anthropic_model",
+	"openai":     "ai.openai_model",
+	"gemini":     "ai.gemini_model",
+	"openrouter": "ai.openrouter_model",
+}
+
 // DecryptFunc reverses the at-rest encryption used for is_encrypted settings.
 // Wire installstate.Manager.Decrypt here so we reuse the existing crypto path.
 type DecryptFunc func(b64 string) (string, error)
@@ -61,21 +70,26 @@ func (f *Factory) For(ctx context.Context, provider string) (Client, error) {
 	if strings.TrimSpace(key) == "" {
 		return nil, &NotConfiguredError{Provider: provider, Reason: "key empty"}
 	}
-	return newClient(provider, key)
+	// Selected model is plaintext + optional; empty keeps the adapter default.
+	model, err := f.readSetting(ctx, modelKeys[provider])
+	if err != nil {
+		return nil, err
+	}
+	return newClient(provider, key, strings.TrimSpace(model))
 }
 
 // newClient maps a provider id to its adapter. Keys are passed by value and
-// never logged.
-func newClient(provider, key string) (Client, error) {
+// never logged. model is the configured default ("" = adapter fallback).
+func newClient(provider, key, model string) (Client, error) {
 	switch provider {
 	case "anthropic":
-		return &anthropicClient{apiKey: key}, nil
+		return &anthropicClient{apiKey: key, model: model}, nil
 	case "openai":
-		return &openaiClient{apiKey: key}, nil
+		return &openaiClient{apiKey: key, model: model}, nil
 	case "gemini":
-		return &geminiClient{apiKey: key}, nil
+		return &geminiClient{apiKey: key, model: model}, nil
 	case "openrouter":
-		return &openrouterClient{apiKey: key}, nil
+		return &openrouterClient{apiKey: key, model: model}, nil
 	default:
 		return nil, fmt.Errorf("%w: %q", ErrUnknownProvider, provider)
 	}

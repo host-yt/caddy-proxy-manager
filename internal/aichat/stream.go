@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 )
 
@@ -132,6 +133,45 @@ func doJSON(req *http.Request, out any) error {
 		return fmt.Errorf("aichat: decode response: %w", err)
 	}
 	return nil
+}
+
+// maxModelList caps how many model ids ListModels returns so a huge provider
+// catalog cannot bloat the settings page.
+const maxModelList = 200
+
+// doGETJSON issues an authenticated GET and decodes a 2xx JSON body into out.
+// Shared by the per-provider ListModels paths. Errors never echo the key.
+func doGETJSON(ctx context.Context, url string, headers map[string]string, out any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return err
+	}
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	return doJSON(req, out)
+}
+
+// sortCapModels de-dups, sorts and caps a raw model id list for the picker.
+func sortCapModels(ids []string) []string {
+	seen := make(map[string]struct{}, len(ids))
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	if len(out) > maxModelList {
+		out = out[:maxModelList]
+	}
+	return out
 }
 
 // statusErr builds a terminal error from a non-2xx response without leaking

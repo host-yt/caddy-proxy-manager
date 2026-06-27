@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 )
 
 const (
@@ -16,15 +17,28 @@ const (
 	openrouterDefaultModel = "openai/gpt-4o-mini"
 )
 
-// openaiClient talks to the OpenAI chat/completions API (stream=true).
-type openaiClient struct{ apiKey string }
+// openaiClient talks to the OpenAI chat/completions API (stream=true). model is
+// the configured default; empty falls back to openaiDefaultModel.
+type openaiClient struct {
+	apiKey string
+	model  string
+}
 
 func (c *openaiClient) Provider() string { return "openai" }
 
+// Model resolves the default model for this client.
+func (c *openaiClient) Model() string { return defaultStr(c.model, openaiDefaultModel) }
+
 // openrouterClient is OpenAI-compatible; same wire shape, different base URL.
-type openrouterClient struct{ apiKey string }
+type openrouterClient struct {
+	apiKey string
+	model  string
+}
 
 func (c *openrouterClient) Provider() string { return "openrouter" }
+
+// Model resolves the default model for this client.
+func (c *openrouterClient) Model() string { return defaultStr(c.model, openrouterDefaultModel) }
 
 // oaiReq is the chat/completions request shape shared by OpenAI + OpenRouter.
 type oaiReq struct {
@@ -178,7 +192,7 @@ func newOAIRequest(ctx context.Context, url, apiKey string, body oaiReq, extra m
 }
 
 func (c *openaiClient) StreamChat(ctx context.Context, msgs []Message, opts Options) (<-chan Chunk, error) {
-	req, err := newOAIRequest(ctx, openaiURL, c.apiKey, buildOAIBody(openaiDefaultModel, msgs, opts, true), nil)
+	req, err := newOAIRequest(ctx, openaiURL, c.apiKey, buildOAIBody(c.Model(), msgs, opts, true), nil)
 	if err != nil {
 		return nil, err
 	}
@@ -186,11 +200,11 @@ func (c *openaiClient) StreamChat(ctx context.Context, msgs []Message, opts Opti
 }
 
 func (c *openaiClient) ChatWithTools(ctx context.Context, msgs []Message, opts Options, tools []ToolSpec) (*Turn, error) {
-	return chatWithToolsOAI(ctx, openaiURL, c.apiKey, openaiDefaultModel, msgs, opts, tools, nil)
+	return chatWithToolsOAI(ctx, openaiURL, c.apiKey, c.Model(), msgs, opts, tools, nil)
 }
 
 func (c *openaiClient) Verify(ctx context.Context) error {
-	body := buildOAIBody(openaiDefaultModel, []Message{{Role: RoleUser, Content: "ping"}}, Options{MaxTokens: 1, Temperature: -1}, false)
+	body := buildOAIBody(c.Model(), []Message{{Role: RoleUser, Content: "ping"}}, Options{MaxTokens: 1, Temperature: -1}, false)
 	req, err := newOAIRequest(ctx, openaiURL, c.apiKey, body, nil)
 	if err != nil {
 		return err
@@ -205,7 +219,7 @@ var openrouterHeaders = map[string]string{
 }
 
 func (c *openrouterClient) StreamChat(ctx context.Context, msgs []Message, opts Options) (<-chan Chunk, error) {
-	req, err := newOAIRequest(ctx, openrouterURL, c.apiKey, buildOAIBody(openrouterDefaultModel, msgs, opts, true), openrouterHeaders)
+	req, err := newOAIRequest(ctx, openrouterURL, c.apiKey, buildOAIBody(c.Model(), msgs, opts, true), openrouterHeaders)
 	if err != nil {
 		return nil, err
 	}
@@ -213,16 +227,67 @@ func (c *openrouterClient) StreamChat(ctx context.Context, msgs []Message, opts 
 }
 
 func (c *openrouterClient) ChatWithTools(ctx context.Context, msgs []Message, opts Options, tools []ToolSpec) (*Turn, error) {
-	return chatWithToolsOAI(ctx, openrouterURL, c.apiKey, openrouterDefaultModel, msgs, opts, tools, openrouterHeaders)
+	return chatWithToolsOAI(ctx, openrouterURL, c.apiKey, c.Model(), msgs, opts, tools, openrouterHeaders)
 }
 
 func (c *openrouterClient) Verify(ctx context.Context) error {
-	body := buildOAIBody(openrouterDefaultModel, []Message{{Role: RoleUser, Content: "ping"}}, Options{MaxTokens: 1, Temperature: -1}, false)
+	body := buildOAIBody(c.Model(), []Message{{Role: RoleUser, Content: "ping"}}, Options{MaxTokens: 1, Temperature: -1}, false)
 	req, err := newOAIRequest(ctx, openrouterURL, c.apiKey, body, openrouterHeaders)
 	if err != nil {
 		return err
 	}
 	return doVerify(req)
+}
+
+// oaiModelsResp is the subset of GET /v1/models (OpenAI + OpenRouter share it).
+type oaiModelsResp struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+// looksLikeChatModel keeps the OpenAI list permissive: chat/reasoning families
+// only, dropping embeddings/tts/whisper/dall-e noise.
+func looksLikeChatModel(id string) bool {
+	l := strings.ToLower(id)
+	if strings.Contains(l, "embedding") || strings.Contains(l, "whisper") ||
+		strings.Contains(l, "tts") || strings.Contains(l, "dall-e") ||
+		strings.Contains(l, "audio") || strings.Contains(l, "moderation") ||
+		strings.Contains(l, "image") {
+		return false
+	}
+	return strings.Contains(l, "gpt") || strings.HasPrefix(l, "o1") || strings.HasPrefix(l, "o3") || strings.HasPrefix(l, "o4")
+}
+
+func (c *openaiClient) ListModels(ctx context.Context) ([]string, error) {
+	var resp oaiModelsResp
+	headers := map[string]string{"Authorization": "Bearer " + c.apiKey}
+	if err := doGETJSON(ctx, "https://api.openai.com/v1/models", headers, &resp); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(resp.Data))
+	for _, m := range resp.Data {
+		if looksLikeChatModel(m.ID) {
+			ids = append(ids, m.ID)
+		}
+	}
+	return sortCapModels(ids), nil
+}
+
+func (c *openrouterClient) ListModels(ctx context.Context) ([]string, error) {
+	var resp oaiModelsResp
+	headers := map[string]string{"Authorization": "Bearer " + c.apiKey}
+	for k, v := range openrouterHeaders {
+		headers[k] = v
+	}
+	if err := doGETJSON(ctx, "https://openrouter.ai/api/v1/models", headers, &resp); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(resp.Data))
+	for _, m := range resp.Data {
+		ids = append(ids, m.ID)
+	}
+	return sortCapModels(ids), nil
 }
 
 // oaiStreamChunk is the subset of a streamed chunk we read.

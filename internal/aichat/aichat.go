@@ -97,6 +97,13 @@ type Client interface {
 	Verify(ctx context.Context) error
 	// Provider returns the lowercase provider id this client talks to.
 	Provider() string
+	// ListModels fetches the model ids available to the configured key by
+	// calling the provider's model-list endpoint. Ids are sorted and capped.
+	// Errors never leak the key.
+	ListModels(ctx context.Context) ([]string, error)
+	// Model returns the default model id this client uses when a per-call
+	// Options.Model is not supplied (configured model or hardcoded fallback).
+	Model() string
 }
 
 // Sentinel errors. Phase 2 should branch on these with errors.Is.

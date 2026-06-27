@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 const (
@@ -15,10 +16,17 @@ const (
 )
 
 // geminiClient talks to the Gemini generateContent API. Streaming uses
-// :streamGenerateContent?alt=sse which yields OpenAI-style data: lines.
-type geminiClient struct{ apiKey string }
+// :streamGenerateContent?alt=sse which yields OpenAI-style data: lines. model is
+// the configured default; empty falls back to geminiDefaultModel.
+type geminiClient struct {
+	apiKey string
+	model  string
+}
 
 func (c *geminiClient) Provider() string { return "gemini" }
+
+// Model resolves the default model for this client.
+func (c *geminiClient) Model() string { return defaultStr(c.model, geminiDefaultModel) }
 
 type geminiReq struct {
 	Contents          []geminiContent `json:"contents"`
@@ -87,7 +95,7 @@ func (c *geminiClient) newRequest(ctx context.Context, urlStr string, body gemin
 }
 
 func (c *geminiClient) StreamChat(ctx context.Context, msgs []Message, opts Options) (<-chan Chunk, error) {
-	model := defaultStr(opts.Model, geminiDefaultModel)
+	model := defaultStr(opts.Model, c.Model())
 	req, err := c.newRequest(ctx, c.endpoint(model, "streamGenerateContent", "alt=sse"), c.buildBody(msgs, opts))
 	if err != nil {
 		return nil, err
@@ -103,13 +111,49 @@ func (c *geminiClient) ChatWithTools(ctx context.Context, msgs []Message, opts O
 }
 
 func (c *geminiClient) Verify(ctx context.Context) error {
-	model := defaultStr("", geminiDefaultModel)
+	model := c.Model()
 	body := c.buildBody([]Message{{Role: RoleUser, Content: "ping"}}, Options{MaxTokens: 1, Temperature: -1})
 	req, err := c.newRequest(ctx, c.endpoint(model, "generateContent", ""), body)
 	if err != nil {
 		return err
 	}
 	return doVerify(req)
+}
+
+// geminiModelsResp is the subset of GET /v1beta/models we read. name is the
+// fully-qualified "models/gemini-..." id; we strip the prefix for the picker.
+type geminiModelsResp struct {
+	Models []struct {
+		Name                       string   `json:"name"`
+		SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
+	} `json:"models"`
+}
+
+func (c *geminiClient) ListModels(ctx context.Context) ([]string, error) {
+	var resp geminiModelsResp
+	// Key in query param; pageSize maxes out so we get the full catalog in one call.
+	u := "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=" + url.QueryEscape(c.apiKey)
+	if err := doGETJSON(ctx, u, nil, &resp); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(resp.Models))
+	for _, m := range resp.Models {
+		if !geminiSupportsGenerate(m.SupportedGenerationMethods) {
+			continue
+		}
+		ids = append(ids, strings.TrimPrefix(m.Name, "models/"))
+	}
+	return sortCapModels(ids), nil
+}
+
+// geminiSupportsGenerate keeps only models that can run generateContent.
+func geminiSupportsGenerate(methods []string) bool {
+	for _, m := range methods {
+		if m == "generateContent" {
+			return true
+		}
+	}
+	return false
 }
 
 // geminiStreamChunk is the subset of a streamed response we read.

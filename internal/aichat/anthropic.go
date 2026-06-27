@@ -14,10 +14,17 @@ const (
 	anthropicDefaultModel = "claude-3-5-haiku-latest"
 )
 
-// anthropicClient talks to the Anthropic Messages API (streaming SSE).
-type anthropicClient struct{ apiKey string }
+// anthropicClient talks to the Anthropic Messages API (streaming SSE). model is
+// the configured default; empty falls back to anthropicDefaultModel.
+type anthropicClient struct {
+	apiKey string
+	model  string
+}
 
 func (c *anthropicClient) Provider() string { return "anthropic" }
+
+// Model resolves the default model for this client.
+func (c *anthropicClient) Model() string { return defaultStr(c.model, anthropicDefaultModel) }
 
 // anthropicReq is the Messages API request shape. System is a top-level field,
 // not a message role. Content is json.RawMessage so a message can be a plain
@@ -50,7 +57,7 @@ type anthropicTool struct {
 // (assistant ToolCalls, RoleTool results) are encoded as content blocks.
 func (c *anthropicClient) buildBody(msgs []Message, opts Options, stream bool) anthropicReq {
 	body := anthropicReq{
-		Model:     defaultStr(opts.Model, anthropicDefaultModel),
+		Model:     defaultStr(opts.Model, c.Model()),
 		MaxTokens: maxToks(opts),
 		Stream:    stream,
 	}
@@ -182,6 +189,26 @@ func (c *anthropicClient) ChatWithTools(ctx context.Context, msgs []Message, opt
 		}
 	}
 	return turn, nil
+}
+
+// anthropicModelsResp is the subset of GET /v1/models we read.
+type anthropicModelsResp struct {
+	Data []struct {
+		ID string `json:"id"`
+	} `json:"data"`
+}
+
+func (c *anthropicClient) ListModels(ctx context.Context) ([]string, error) {
+	var resp anthropicModelsResp
+	headers := map[string]string{"x-api-key": c.apiKey, "anthropic-version": anthropicVersion}
+	if err := doGETJSON(ctx, "https://api.anthropic.com/v1/models", headers, &resp); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(resp.Data))
+	for _, m := range resp.Data {
+		ids = append(ids, m.ID)
+	}
+	return sortCapModels(ids), nil
 }
 
 func (c *anthropicClient) Verify(ctx context.Context) error {
