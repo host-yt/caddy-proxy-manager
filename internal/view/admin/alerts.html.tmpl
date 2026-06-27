@@ -4,41 +4,46 @@
   <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
     <span></span>
     <div class="flex items-center gap-2">
-      <a href="/admin/alerts/export.csv{{if .RuleFilter}}?rule_id={{.RuleFilter}}{{end}}" class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 text-sm hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors cursor-pointer" download>
-        Export CSV
-      </a>
+      <a href="/admin/alerts/export.csv{{if .RuleFilter}}?rule_id={{.RuleFilter}}{{end}}" class="r-btn-secondary text-xs" download>Export CSV</a>
       <form method="POST" action="/admin/alerts/test-fire" class="inline">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button class="px-3 py-1.5 rounded-lg ring-1 ring-amber-300 dark:ring-amber-600 text-amber-700 dark:text-amber-300 text-sm hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors cursor-pointer">
-          Send test alert
-        </button>
+        <button class="r-btn-ghost text-xs cursor-pointer transition-colors" style="color:rgb(var(--warning));border-color:rgb(var(--warning) / .4)">Send test alert</button>
       </form>
     </div>
   </div>
 
-  <div class="flex flex-wrap items-center gap-2 text-sm">
-    <a href="/admin/alerts" class="px-3 py-1 rounded-full {{if eq .RuleFilter ""}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-700{{end}}">All</a>
+  <!-- Rule filter tabs -->
+  <nav class="r-segment">
+    <a href="/admin/alerts" class="r-segment-item {{if eq .RuleFilter ""}}is-active{{end}}">All</a>
     {{range $r := .KnownRules}}
-    <a href="/admin/alerts?rule={{$r}}" class="px-3 py-1 rounded-full {{if eq $.RuleFilter $r}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-700{{end}}">{{$r}}</a>
+    <a href="/admin/alerts?rule={{$r}}" class="r-segment-item {{if eq $.RuleFilter $r}}is-active{{end}}">{{$r}}</a>
     {{end}}
-  </div>
+  </nav>
 
-  <!-- rules summary: 7-day fire count per known rule -->
+  <!-- Rules summary 7d -->
   {{if .RulesStatus}}
-  <section class="hpg-card mb-4">
-    <h2 class="font-semibold mb-3 text-slate-800 dark:text-slate-100">Alert rules (7d)</h2>
+  <section class="r-card !p-0 overflow-hidden">
+    <div class="px-5 py-4 border-b" style="border-color:rgb(var(--border))">
+      <p class="t-eyebrow">7-day summary</p>
+      <h2 class="t-h3">Alert rules</h2>
+    </div>
     <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead><tr class="text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 border-b dark:border-zinc-800">
-          <th class="px-4 py-3 text-left">Rule</th><th class="px-4 py-3 text-left">Last fired</th><th class="px-4 py-3 text-left">7d count</th><th class="px-4 py-3 text-left">Description</th>
-        </tr></thead>
-        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <table class="r-table">
+        <thead>
+          <tr>
+            <th>Rule</th>
+            <th>Last fired</th>
+            <th>7d count</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
         {{range .RulesStatus}}
-          <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
-            <td class="px-4 py-3 font-mono text-xs text-slate-700 dark:text-slate-300">{{.RuleID}}</td>
-            <td class="px-4 py-3 text-xs text-slate-600 dark:text-slate-400">{{if .LastFired}}{{.LastFired.Format "2006-01-02 15:04"}}{{else}}<span class="text-slate-400">never</span>{{end}}</td>
-            <td class="px-4 py-3 tabular-nums text-xs {{if gt .FireCount 0}}text-amber-600 dark:text-amber-400 font-medium{{else}}text-slate-400{{end}}">{{.FireCount}}</td>
-            <td class="px-4 py-3 text-xs text-slate-500 dark:text-slate-400">{{.Description}}</td>
+          <tr>
+            <td class="font-mono text-xs">{{.RuleID}}</td>
+            <td class="text-xs tabular-nums">{{if .LastFired}}{{.LastFired.Format "2006-01-02 15:04"}}{{else}}<span class="t-muted">never</span>{{end}}</td>
+            <td class="tabular-nums text-xs {{if gt .FireCount 0}}font-medium{{end}}" style="{{if gt .FireCount 0}}color:rgb(var(--warning)){{end}}">{{.FireCount}}</td>
+            <td class="t-small">{{.Description}}</td>
           </tr>
         {{end}}
         </tbody>
@@ -47,84 +52,81 @@
   </section>
   {{end}}
 
-  <!-- alert thresholds from AlertCfg (set via ALERT_* env vars) -->
-  <section class="hpg-card mb-4">
-    <h2 class="font-semibold mb-3 text-slate-800 dark:text-slate-100">Alert thresholds</h2>
-    <dl class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2 text-sm">
-      <div><dt class="hpg-eyebrow">Node offline after</dt><dd class="font-medium mt-0.5">{{.AlertCfg.NodeOfflineMinutes}} min</dd></div>
-      <div><dt class="hpg-eyebrow">WG stale after</dt><dd class="font-medium mt-0.5">{{.AlertCfg.WGStaleSeconds}} s</dd></div>
-      <div><dt class="hpg-eyebrow">Cert stuck after</dt><dd class="font-medium mt-0.5">{{.AlertCfg.CertStuckMinutes}} min</dd></div>
-      <div><dt class="hpg-eyebrow">Error rate threshold</dt><dd class="font-medium mt-0.5">{{.ErrorRatePct100}}%</dd></div>
-      <div><dt class="hpg-eyebrow">Error rate window</dt><dd class="font-medium mt-0.5">{{.AlertCfg.ErrorRateWindowMinutes}} min</dd></div>
-      <div><dt class="hpg-eyebrow">Cooldown</dt><dd class="font-medium mt-0.5">{{.AlertCfg.CooldownSeconds}} s</dd></div>
+  <!-- Alert thresholds -->
+  <section class="r-card">
+    <p class="t-eyebrow mb-1">Configuration</p>
+    <h2 class="t-h3 mb-3">Alert thresholds</h2>
+    <dl class="grid grid-cols-2 md:grid-cols-3 gap-x-6 gap-y-2">
+      <div><dt class="t-eyebrow">Node offline after</dt><dd class="font-medium mt-0.5 tabular-nums">{{.AlertCfg.NodeOfflineMinutes}} min</dd></div>
+      <div><dt class="t-eyebrow">WG stale after</dt><dd class="font-medium mt-0.5 tabular-nums">{{.AlertCfg.WGStaleSeconds}} s</dd></div>
+      <div><dt class="t-eyebrow">Cert stuck after</dt><dd class="font-medium mt-0.5 tabular-nums">{{.AlertCfg.CertStuckMinutes}} min</dd></div>
+      <div><dt class="t-eyebrow">Error rate threshold</dt><dd class="font-medium mt-0.5 tabular-nums">{{.ErrorRatePct100}}%</dd></div>
+      <div><dt class="t-eyebrow">Error rate window</dt><dd class="font-medium mt-0.5 tabular-nums">{{.AlertCfg.ErrorRateWindowMinutes}} min</dd></div>
+      <div><dt class="t-eyebrow">Cooldown</dt><dd class="font-medium mt-0.5 tabular-nums">{{.AlertCfg.CooldownSeconds}} s</dd></div>
     </dl>
-    <dl class="mt-4 grid grid-cols-1 gap-y-2 text-sm border-t border-slate-100 dark:border-zinc-800 pt-4">
+    <dl class="mt-4 grid grid-cols-1 gap-y-2 border-t pt-4" style="border-color:rgb(var(--border))">
       <div class="flex items-center gap-3">
-        <dt class="hpg-eyebrow w-24 shrink-0">Telegram</dt>
-        <dd>{{if .AlertCfg.TelegramChatID}}<span class="hpg-pill hpg-pill-ok">{{.AlertCfg.TelegramChatID}}</span>{{else}}<span class="hpg-pill hpg-pill-muted">not configured</span>{{end}}</dd>
+        <dt class="t-eyebrow w-24 shrink-0">Telegram</dt>
+        <dd>{{if .AlertCfg.TelegramChatID}}<span class="r-pill r-pill-success">{{.AlertCfg.TelegramChatID}}</span>{{else}}<span class="r-pill r-pill-neutral">not configured</span>{{end}}</dd>
       </div>
     </dl>
-    <p class="text-xs text-slate-400 mt-3">Configure via ALERT_* environment variables. See docs/DEPLOY.md.</p>
+    <p class="t-caption mt-3">Configure via ALERT_* environment variables. See docs/DEPLOY.md.</p>
   </section>
 
   {{if .Rows}}
-  <section class="hpg-card !p-0 overflow-hidden">
-    <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+  <section class="r-card !p-0 overflow-hidden">
+    <div class="flex items-center justify-between gap-3 px-5 py-4 border-b" style="border-color:rgb(var(--border))">
       <div class="flex items-center gap-3">
         <div>
-          <p class="hpg-eyebrow">Alert log</p>
-          <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">Fired alerts</h2>
+          <p class="t-eyebrow">Alert log</p>
+          <h2 class="t-h3">Fired alerts</h2>
         </div>
-        <span class="hpg-chip">last 200</span>
+        <span class="icon-chip">last 200</span>
       </div>
     </div>
-    <!-- alert list: each row has hover highlight + severity badge -->
-    <ul class="divide-y divide-slate-100 dark:divide-zinc-800">
+    <ul class="divide-y" style="border-color:rgb(var(--border))">
       {{range .Rows}}
-      <li class="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:gap-4 hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
+      <li class="flex flex-col gap-2 px-5 py-4 sm:flex-row sm:items-start sm:gap-4 hover:bg-[rgb(var(--surface-2)/0.5)] transition-colors">
         <div class="shrink-0 sm:w-24 pt-0.5">
-          {{if eq .Severity "critical"}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400">critical</span>
-          {{else if eq .Severity "warning"}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">warning</span>
-          {{else}}<span class="text-xs font-medium px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 dark:bg-sky-500/10 dark:text-sky-400">info</span>{{end}}
+          {{if eq .Severity "critical"}}<span class="r-pill r-pill-danger">critical</span>
+          {{else if eq .Severity "warning"}}<span class="r-pill r-pill-warning">warning</span>
+          {{else}}<span class="r-pill r-pill-info">info</span>
+          {{end}}
         </div>
         <div class="min-w-0 flex-1">
           <div class="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-            <span class="font-medium text-slate-800 dark:text-slate-100">{{.Title}}</span>
-            <span class="font-mono text-xs text-slate-400 dark:text-slate-500">{{.RuleID}}</span>
+            <span class="font-medium t-body">{{.Title}}</span>
+            <span class="font-mono text-xs t-muted">{{.RuleID}}</span>
           </div>
-          {{if .Detail}}<p class="mt-1 text-sm text-slate-600 dark:text-slate-300">{{.Detail}}</p>{{end}}
-          {{if .Labels}}<p class="mt-1 font-mono text-xs text-slate-400 dark:text-slate-500 break-all">{{.Labels}}</p>{{end}}
+          {{if .Detail}}<p class="mt-1 t-small">{{.Detail}}</p>{{end}}
+          {{if .Labels}}<p class="mt-1 font-mono text-xs t-muted break-all">{{.Labels}}</p>{{end}}
         </div>
-        <div class="shrink-0 font-mono text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap sm:text-right" title="{{.FiredAt}}">{{.FiredAt}}</div>
+        <div class="shrink-0 font-mono text-xs t-muted whitespace-nowrap tabular-nums sm:text-right" title="{{.FiredAt}}">{{.FiredAt}}</div>
       </li>
       {{end}}
     </ul>
   </section>
-  <p class="text-xs text-slate-500 dark:text-slate-400">Showing last 200 alerts.</p>
+  <p class="t-caption">Showing last 200 alerts.</p>
   {{else}}
-  <!-- empty state: all-clear icon with explanation -->
-  <div class="hpg-card flex flex-col items-center gap-3 px-6 py-16 text-center">
-    <div class="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400">
+  <div class="r-empty">
+    <div class="r-empty-icon">
       <svg class="h-7 w-7" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
         <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75 11.25 15 15 9.75M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z"/>
       </svg>
     </div>
-    <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">All quiet - no alerts have fired</h2>
-    <p class="max-w-md text-sm text-slate-500 dark:text-slate-400">
-      Alerts fire automatically when a monitored condition trips - a node going offline, a
-      certificate nearing expiry, or a sync failure. Nothing needs your attention right now.
-    </p>
+    <h2 class="t-h3">All quiet - no alerts have fired</h2>
+    <p class="t-small max-w-md">Alerts fire automatically when a monitored condition trips - a node going offline, a certificate nearing expiry, or a sync failure. Nothing needs your attention right now.</p>
   </div>
   {{end}}
 
   {{if .KnownRules}}
-  <div class="hpg-card">
-    <p class="hpg-eyebrow">Reference</p>
-    <h2 class="text-base font-semibold text-slate-800 dark:text-slate-100">Monitored conditions</h2>
-    <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">These conditions are watched and can raise an alert.</p>
-    <ul class="mt-4 flex flex-wrap gap-2">
+  <div class="r-card">
+    <p class="t-eyebrow">Reference</p>
+    <h2 class="t-h3 mt-0.5 mb-1">Monitored conditions</h2>
+    <p class="t-small mb-4">These conditions are watched and can raise an alert.</p>
+    <ul class="flex flex-wrap gap-2">
       {{range $r := .KnownRules}}
-      <li class="hpg-pill hpg-pill-muted font-mono">{{$r}}</li>
+      <li class="r-pill r-pill-neutral font-mono">{{$r}}</li>
       {{end}}
     </ul>
   </div>

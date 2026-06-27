@@ -1,283 +1,293 @@
 {{define "stats"}}
-<!-- Tab bar: client-side show/hide of panes below -->
-<div class="flex flex-wrap gap-2 mb-6" role="tablist" data-stats-tabs>
-  <button type="button" class="hpg-stats-tab rounded-lg px-3 py-1.5 text-sm bg-white ring-1 ring-slate-200 dark:bg-zinc-800 dark:ring-zinc-700 text-slate-700 dark:text-slate-300" data-tab="overview" aria-selected="true">Overview</button>
-  <button type="button" class="hpg-stats-tab rounded-lg px-3 py-1.5 text-sm bg-white ring-1 ring-slate-200 dark:bg-zinc-800 dark:ring-zinc-700 text-slate-700 dark:text-slate-300" data-tab="traffic" aria-selected="false">Traffic</button>
-  <button type="button" class="hpg-stats-tab rounded-lg px-3 py-1.5 text-sm bg-white ring-1 ring-slate-200 dark:bg-zinc-800 dark:ring-zinc-700 text-slate-700 dark:text-slate-300" data-tab="cache" aria-selected="false">Cache</button>
-  <button type="button" class="hpg-stats-tab rounded-lg px-3 py-1.5 text-sm bg-white ring-1 ring-slate-200 dark:bg-zinc-800 dark:ring-zinc-700 text-slate-700 dark:text-slate-300" data-tab="security" aria-selected="false">Security &amp; Ops</button>
-</div>
+<!-- Tab bar -->
+<nav class="r-segment mb-6" role="tablist" data-stats-tabs>
+  <button type="button" class="r-segment-item hpg-stats-tab" data-tab="overview" aria-selected="true">Overview</button>
+  <button type="button" class="r-segment-item hpg-stats-tab" data-tab="traffic" aria-selected="false">Traffic</button>
+  <button type="button" class="r-segment-item hpg-stats-tab" data-tab="cache" aria-selected="false">Cache</button>
+  <button type="button" class="r-segment-item hpg-stats-tab" data-tab="security" aria-selected="false">Security &amp; Ops</button>
+</nav>
 
 <!-- Overview -->
 <div data-pane="overview">
 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-  <div class="hpg-card">
-    <div class="hpg-eyebrow">Caddy nodes</div>
-    <div class="hpg-stat-num mt-1">{{.NodeCount}}</div>
-    <div class="text-xs text-slate-500 mt-1"><span class="text-emerald-600">{{.NodeHealthy}}</span> healthy · <span class="text-rose-600">{{.NodeDown}}</span> down</div>
+  <div class="r-card">
+    <div class="t-eyebrow">Caddy nodes</div>
+    <div class="t-display mt-1 tabular-nums">{{.NodeCount}}</div>
+    <div class="t-small mt-1"><span style="color:rgb(var(--success))">{{.NodeHealthy}}</span> healthy · <span style="color:rgb(var(--danger))">{{.NodeDown}}</span> down</div>
   </div>
-  <div class="hpg-card">
-    <div class="hpg-eyebrow">Routes (active)</div>
-    <div class="hpg-stat-num mt-1">{{.RouteActive}}</div>
-    <div class="text-xs text-slate-500 mt-1">{{.RoutePending}} pending · {{.RouteFailed}} failed</div>
+  <div class="r-card">
+    <div class="t-eyebrow">Routes (active)</div>
+    <div class="t-display mt-1 tabular-nums">{{.RouteActive}}</div>
+    <div class="t-small mt-1 tabular-nums">{{.RoutePending}} pending · {{.RouteFailed}} failed</div>
   </div>
-  <div class="hpg-card">
-    <div class="hpg-eyebrow">Clients</div>
-    <div class="hpg-stat-num mt-1">{{.ClientCount}}</div>
-    <div class="text-xs text-slate-500 mt-1">{{.ServiceCount}} services</div>
+  <div class="r-card">
+    <div class="t-eyebrow">Clients</div>
+    <div class="t-display mt-1 tabular-nums">{{.ClientCount}}</div>
+    <div class="t-small mt-1 tabular-nums">{{.ServiceCount}} services</div>
   </div>
-  <div class="hpg-card">
-    <div class="hpg-eyebrow">Requests / 24h</div>
-    <div class="hpg-stat-num mt-1">{{.Requests24h}}</div>
-    <div class="text-xs text-slate-500 mt-1">{{.Errors24h}} errors</div>
+  <div class="r-card">
+    <div class="t-eyebrow">Requests / 24h</div>
+    <div class="t-display mt-1 tabular-nums">{{.Requests24h}}</div>
+    <div class="t-small mt-1 tabular-nums">{{.Errors24h}} errors</div>
   </div>
 </div>
 
-<section class="hpg-card mb-6">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Route status</h2>
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Route status</h2>
   <div class="max-w-sm mx-auto"><canvas id="routeStatusChart" height="180"></canvas></div>
 </section>
 
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-  <section class="hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Top clients by bandwidth</h2>
-    <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="text-left hpg-eyebrow">
-        <tr><th class="px-3 py-2">Client</th><th class="px-3 py-2">Services</th><th class="px-3 py-2">Routes</th><th class="px-3 py-2">Active</th><th class="px-3 py-2">Bandwidth 7d</th></tr>
-      </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        {{range .TopClients}}
-        <tr>
-          <td class="px-3 py-2 text-slate-800 dark:text-slate-100">{{if gt .ClientID 0}}<a href="/admin/clients/{{.ClientID}}" class="hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
-          <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.Services}}</td>
-          <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.Routes}}</td>
-          <td class="px-3 py-2 text-emerald-700 dark:text-emerald-400">{{.Active}}</td>
-          <td class="px-3 py-2 text-slate-600 dark:text-slate-300 font-mono">{{.Bandwidth7dHuman}}</td>
-        </tr>
-        {{else}}
-        <tr><td colspan="5" class="px-3 py-6 text-center text-slate-500">No clients yet.</td></tr>
-        {{end}}
-      </tbody>
-    </table></div>
+  <section class="r-card">
+    <h2 class="t-h3 mb-3">Top clients by bandwidth</h2>
+    <div class="overflow-x-auto">
+      <table class="r-table">
+        <thead>
+          <tr><th>Client</th><th>Services</th><th>Routes</th><th>Active</th><th>Bandwidth 7d</th></tr>
+        </thead>
+        <tbody>
+          {{range .TopClients}}
+          <tr>
+            <td>{{if gt .ClientID 0}}<a href="/admin/clients/{{.ClientID}}" class="hover:text-[rgb(var(--accent))] transition-colors">{{.Name}}</a>{{else}}{{.Name}}{{end}}</td>
+            <td class="tabular-nums">{{.Services}}</td>
+            <td class="tabular-nums">{{.Routes}}</td>
+            <td class="tabular-nums" style="color:rgb(var(--success))">{{.Active}}</td>
+            <td class="font-mono tabular-nums">{{.Bandwidth7dHuman}}</td>
+          </tr>
+          {{else}}
+          <tr><td colspan="5" class="px-3 py-6 text-center t-muted">No clients yet.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
   </section>
 
-  <section class="hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Recent routes</h2>
-    <ul class="text-sm divide-y divide-slate-100 dark:divide-zinc-800">
+  <section class="r-card">
+    <h2 class="t-h3 mb-3">Recent routes</h2>
+    <ul class="divide-y" style="border-color:rgb(var(--border))">
       {{range .RecentRoutes}}
       <li class="py-2 flex items-center justify-between">
         <div class="min-w-0">
-          <code class="text-slate-800 dark:text-slate-100 truncate block">{{.Domain}}{{.PathPrefix}}</code>
-          <div class="text-xs text-slate-500">→ {{.NodeName}} · port {{.Port}} · {{.CreatedAt}}</div>
+          <code class="t-body truncate block">{{.Domain}}{{.PathPrefix}}</code>
+          <div class="t-small">→ {{.NodeName}} · port {{.Port}} · {{.CreatedAt}}</div>
         </div>
-        <span class="ml-3 flex-shrink-0 hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else if eq .Status "failed"}}hpg-pill-err{{else}}hpg-pill-warn{{end}}">{{.Status}}</span>
+        <span class="ml-3 flex-shrink-0 {{if eq .Status "active"}}r-pill r-pill-success{{else if eq .Status "failed"}}r-pill r-pill-danger{{else}}r-pill r-pill-warning{{end}}">{{.Status}}</span>
       </li>
       {{else}}
-      <li class="py-6 text-center text-slate-500">No routes yet.</li>
+      <li class="py-6 text-center t-muted">No routes yet.</li>
       {{end}}
     </ul>
   </section>
 </div>
 
 {{if .RecentSignups}}
-<div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-  <section class="hpg-card lg:col-span-2">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Recent signups</h2>
-    <div class="overflow-x-auto"><table class="w-full text-sm">
-      <thead class="text-left hpg-eyebrow">
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Recent signups</h2>
+  <div class="overflow-x-auto">
+    <table class="r-table">
+      <thead>
         <tr>
-          <th class="px-3 py-2">Email</th>
-          <th class="px-3 py-2">Role</th>
-          <th class="px-3 py-2">Joined</th>
+          <th>Email</th>
+          <th>Role</th>
+          <th>Joined</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody>
         {{range .RecentSignups}}
         <tr>
-          <td class="px-3 py-2">
-            <a href="/admin/users?q={{.Email}}" class="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer transition-colors">{{.Email}}</a>
+          <td>
+            <a href="/admin/users?q={{.Email}}" class="hover:underline cursor-pointer transition-colors" style="color:rgb(var(--accent))">{{.Email}}</a>
           </td>
-          <td class="px-3 py-2">
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium
-              {{if eq .Role "admin"}}bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300
-              {{else}}bg-sky-100 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300{{end}}">
-              {{.Role}}
-            </span>
+          <td>
+            {{if eq .Role "admin"}}<span class="r-pill r-pill-info">{{.Role}}</span>
+            {{else}}<span class="r-pill r-pill-neutral">{{.Role}}</span>
+            {{end}}
           </td>
-          <td class="px-3 py-2 text-slate-500 dark:text-slate-400 font-mono">{{.CreatedAt}}</td>
+          <td class="font-mono text-xs tabular-nums">{{.CreatedAt}}</td>
         </tr>
         {{end}}
       </tbody>
-    </table></div>
-  </section>
-</div>
+    </table>
+  </div>
+</section>
 {{end}}
 
-<section class="hpg-card mb-6">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Plan distribution</h2>
-  <div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead class="text-left hpg-eyebrow">
-      <tr><th class="px-3 py-2">Plan</th><th class="px-3 py-2">Clients</th><th class="px-3 py-2">Services</th><th class="px-3 py-2">Routes</th><th class="px-3 py-2">Active</th></tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-      {{range .PlanUsage}}
-      <tr>
-        <td class="px-3 py-2 text-slate-800 dark:text-slate-100">{{.PlanName}}</td>
-        <td class="px-3 py-2 font-bold text-slate-800 dark:text-slate-100">{{.ClientCount}}</td>
-        <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.ServiceCount}}</td>
-        <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.RouteCount}}</td>
-        <td class="px-3 py-2 text-emerald-700 dark:text-emerald-400">{{.ActiveRoutes}}</td>
-      </tr>
-      {{else}}
-      <tr><td colspan="5" class="px-3 py-6 text-center text-slate-400 dark:text-slate-500">No plans configured.</td></tr>
-      {{end}}
-    </tbody>
-  </table></div>
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Plan distribution</h2>
+  <div class="overflow-x-auto">
+    <table class="r-table">
+      <thead>
+        <tr><th>Plan</th><th>Clients</th><th>Services</th><th>Routes</th><th>Active</th></tr>
+      </thead>
+      <tbody>
+        {{range .PlanUsage}}
+        <tr>
+          <td>{{.PlanName}}</td>
+          <td class="font-bold tabular-nums">{{.ClientCount}}</td>
+          <td class="tabular-nums">{{.ServiceCount}}</td>
+          <td class="tabular-nums">{{.RouteCount}}</td>
+          <td class="tabular-nums" style="color:rgb(var(--success))">{{.ActiveRoutes}}</td>
+        </tr>
+        {{else}}
+        <tr><td colspan="5" class="px-3 py-6 text-center t-muted">No plans configured.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 
 {{if .NodeTraffic}}
-<section class="hpg-card mb-6">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Node traffic (7d)</h2>
-  <div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead class="text-left hpg-eyebrow">
-      <tr><th class="px-3 py-2">Node</th><th class="px-3 py-2">Bandwidth 7d</th><th class="px-3 py-2">Requests 7d</th><th class="px-3 py-2">Routes</th></tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-      {{range .NodeTraffic}}
-      <tr>
-        <td class="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">{{.NodeName}}</td>
-        <td class="px-3 py-2 text-slate-600 dark:text-slate-300 font-mono">{{.Bytes7dHuman}}</td>
-        <td class="px-3 py-2 text-slate-600 dark:text-slate-300 font-mono">{{.Requests7d}}</td>
-        <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.RouteCount}}</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table></div>
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Node traffic (7d)</h2>
+  <div class="overflow-x-auto">
+    <table class="r-table">
+      <thead>
+        <tr><th>Node</th><th>Bandwidth 7d</th><th>Requests 7d</th><th>Routes</th></tr>
+      </thead>
+      <tbody>
+        {{range .NodeTraffic}}
+        <tr>
+          <td class="font-medium">{{.NodeName}}</td>
+          <td class="font-mono tabular-nums">{{.Bytes7dHuman}}</td>
+          <td class="font-mono tabular-nums">{{.Requests7d}}</td>
+          <td class="tabular-nums">{{.RouteCount}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 {{end}}
 
 {{if .PlanViolations}}
-<section class="hpg-card mb-6 border border-rose-200 dark:border-rose-700/50">
-  <h2 class="font-semibold text-rose-700 dark:text-rose-400 mb-3">Plan violations</h2>
-  <div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead class="text-left hpg-eyebrow">
-      <tr>
-        <th class="px-3 py-2">Client</th>
-        <th class="px-3 py-2">Plan</th>
-        <th class="px-3 py-2">Issue</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-rose-100 dark:divide-rose-900/40">
-      {{range .PlanViolations}}
-      <tr>
-        <td class="px-3 py-2">
-          <a href="/admin/clients/{{.ClientID}}" class="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer transition-colors">{{.ClientEmail}}</a>
-        </td>
-        <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.PlanName}}</td>
-        <td class="px-3 py-2 text-rose-700 dark:text-rose-400">{{.Reason}}</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table></div>
+<section class="r-card mb-6" style="border-color:rgb(var(--danger) / .4)">
+  <h2 class="t-h3 mb-3" style="color:rgb(var(--danger))">Plan violations</h2>
+  <div class="overflow-x-auto">
+    <table class="r-table">
+      <thead>
+        <tr>
+          <th>Client</th>
+          <th>Plan</th>
+          <th>Issue</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .PlanViolations}}
+        <tr>
+          <td>
+            <a href="/admin/clients/{{.ClientID}}" class="hover:underline cursor-pointer transition-colors" style="color:rgb(var(--accent))">{{.ClientEmail}}</a>
+          </td>
+          <td>{{.PlanName}}</td>
+          <td style="color:rgb(var(--danger))">{{.Reason}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 {{end}}
 
 {{if .ModuleMismatches}}
-<section class="hpg-card mb-6 border border-amber-200 dark:border-amber-700/50">
-  <h2 class="font-semibold text-amber-700 dark:text-amber-400 mb-3">Module mismatches (routes using unavailable Caddy modules)</h2>
-  <div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead class="text-left hpg-eyebrow">
-      <tr>
-        <th class="px-3 py-2">Domain</th>
-        <th class="px-3 py-2">Node</th>
-        <th class="px-3 py-2">Missing module</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-amber-100 dark:divide-amber-900/40">
-      {{range .ModuleMismatches}}
-      <tr>
-        <td class="px-3 py-2">
-          <a href="/admin/hosts?q={{.Domain}}" class="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer transition-colors font-mono">{{.Domain}}</a>
-        </td>
-        <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.NodeName}}</td>
-        <td class="px-3 py-2 text-amber-700 dark:text-amber-400 font-medium">{{.Feature}}</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table></div>
+<section class="r-card mb-6" style="border-color:rgb(var(--warning) / .4)">
+  <h2 class="t-h3 mb-3" style="color:rgb(var(--warning))">Module mismatches (routes using unavailable Caddy modules)</h2>
+  <div class="overflow-x-auto">
+    <table class="r-table">
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Node</th>
+          <th>Missing module</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .ModuleMismatches}}
+        <tr>
+          <td>
+            <a href="/admin/hosts?q={{.Domain}}" class="hover:underline cursor-pointer transition-colors font-mono" style="color:rgb(var(--accent))">{{.Domain}}</a>
+          </td>
+          <td>{{.NodeName}}</td>
+          <td class="font-medium" style="color:rgb(var(--warning))">{{.Feature}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 {{end}}
 
 {{if .WAFTopRoutes}}
-<section class="hpg-card mb-6">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Top WAF events (7d)</h2>
-  <div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead class="text-left hpg-eyebrow">
-      <tr>
-        <th class="px-3 py-2">Domain</th>
-        <th class="px-3 py-2">Total events</th>
-        <th class="px-3 py-2">Blocked</th>
-      </tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-      {{range .WAFTopRoutes}}
-      <tr>
-        <td class="px-3 py-2 font-mono text-slate-800 dark:text-slate-100">
-          {{if and (ne .Domain "(deleted)") (ne .RouteID 0)}}
-          <a href="/admin/waf?route_id={{.RouteID}}" class="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer transition-colors">{{.Domain}}</a>
-          {{else}}
-          <span class="text-slate-500 dark:text-slate-400">{{.Domain}}</span>
-          {{end}}
-        </td>
-        <td class="px-3 py-2 text-slate-600 dark:text-slate-300 font-mono">{{.EventCount}}</td>
-        <td class="px-3 py-2 text-rose-700 dark:text-rose-400 font-mono">{{.Blocked}}</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table></div>
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Top WAF events (7d)</h2>
+  <div class="overflow-x-auto">
+    <table class="r-table">
+      <thead>
+        <tr>
+          <th>Domain</th>
+          <th>Total events</th>
+          <th>Blocked</th>
+        </tr>
+      </thead>
+      <tbody>
+        {{range .WAFTopRoutes}}
+        <tr>
+          <td class="font-mono">
+            {{if and (ne .Domain "(deleted)") (ne .RouteID 0)}}
+            <a href="/admin/waf?route_id={{.RouteID}}" class="hover:underline cursor-pointer transition-colors" style="color:rgb(var(--accent))">{{.Domain}}</a>
+            {{else}}
+            <span class="t-muted">{{.Domain}}</span>
+            {{end}}
+          </td>
+          <td class="font-mono tabular-nums">{{.EventCount}}</td>
+          <td class="font-mono tabular-nums" style="color:rgb(var(--danger))">{{.Blocked}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 {{end}}
 </div><!-- /Overview -->
 
 <!-- Traffic -->
 <div data-pane="traffic" hidden>
-<section class="hpg-card mb-6">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Requests per hour (last 24h, all nodes)</h2>
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Requests per hour (last 24h, all nodes)</h2>
   <canvas id="trafficChart" height="120"></canvas>
 </section>
 
-<section class="hpg-card mb-6">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Per-node traffic</h2>
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Per-node traffic</h2>
   <div class="overflow-x-auto">
-    <table class="w-full text-sm">
-      <thead class="text-left hpg-eyebrow">
+    <table class="r-table">
+      <thead>
         <tr>
-          <th class="px-3 py-2">Node</th>
-          <th class="px-3 py-2">Health</th>
-          <th class="px-3 py-2">Routes</th>
-          <th class="px-3 py-2">Req / last hour</th>
-          <th class="px-3 py-2">Errors / hour</th>
-          <th class="px-3 py-2">Bytes out / hour</th>
-          <th class="px-3 py-2">Active conns</th>
+          <th>Node</th>
+          <th>Health</th>
+          <th>Routes</th>
+          <th>Req / last hour</th>
+          <th>Errors / hour</th>
+          <th>Bytes out / hour</th>
+          <th>Active conns</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody>
         {{range .NodeStats}}
         <tr>
-          <td class="px-3 py-2 font-medium text-slate-800 dark:text-slate-100">{{.Name}}</td>
-          <td class="px-3 py-2">
-            <span class="hpg-pill {{if eq .Health "healthy"}}hpg-pill-ok{{else if eq .Health "down"}}hpg-pill-err{{else}}hpg-pill-muted{{end}}">
-              <span class="w-1.5 h-1.5 rounded-full {{if eq .Health "healthy"}}bg-emerald-500{{else if eq .Health "down"}}bg-rose-500{{else}}bg-slate-400{{end}}"></span>
-              {{.Health}}
-            </span>
+          <td class="font-medium">{{.Name}}</td>
+          <td>
+            {{if eq .Health "healthy"}}<span class="r-pill r-pill-success">{{.Health}}</span>
+            {{else if eq .Health "down"}}<span class="r-pill r-pill-danger">{{.Health}}</span>
+            {{else}}<span class="r-pill r-pill-neutral">{{.Health}}</span>
+            {{end}}
           </td>
-          <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.CurrentRoutes}} / {{.MaxRoutes}}</td>
-          <td class="px-3 py-2 text-slate-700 dark:text-slate-200 font-mono">{{.RequestsHour}}</td>
-          <td class="px-3 py-2 text-rose-700 dark:text-rose-400 font-mono">{{.ErrorsHour}}</td>
-          <td class="px-3 py-2 text-slate-600 dark:text-slate-300 font-mono">{{.BytesOutHourHuman}}</td>
-          <td class="px-3 py-2 text-slate-600 dark:text-slate-300 font-mono">{{.ActiveConns}}</td>
+          <td class="tabular-nums">{{.CurrentRoutes}} / {{.MaxRoutes}}</td>
+          <td class="font-mono tabular-nums">{{.RequestsHour}}</td>
+          <td class="font-mono tabular-nums" style="color:rgb(var(--danger))">{{.ErrorsHour}}</td>
+          <td class="font-mono tabular-nums">{{.BytesOutHourHuman}}</td>
+          <td class="font-mono tabular-nums">{{.ActiveConns}}</td>
         </tr>
         {{else}}
-        <tr><td colspan="7" class="px-3 py-6 text-center text-slate-500">No nodes scraped yet. Metrics start populating ~60s after a node comes online.</td></tr>
+        <tr><td colspan="7" class="px-3 py-6 text-center t-muted">No nodes scraped yet. Metrics start populating ~60s after a node comes online.</td></tr>
         {{end}}
       </tbody>
     </table>
@@ -285,215 +295,214 @@
 </section>
 
 {{if .HourlyMax}}
-<section class="hpg-card mb-6">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Traffic · last 24 hours</h2>
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Traffic · last 24 hours</h2>
   <div class="flex items-end gap-0.5 h-14 overflow-x-auto pb-1">
     {{range .HourlyTraffic}}
     {{$reqH := mulf (divf .Requests $.HourlyMax) 48.0}}
     {{$errH := mulf (divf .Errors $.HourlyMax) 48.0}}
     <div class="flex flex-col items-center gap-0.5 flex-1 min-w-[8px]" title="{{.HourLabel}} - {{.Requests}} req, {{.Errors}} err">
       <div class="flex items-end gap-px w-full justify-center">
-        <div class="rounded-t bg-sky-400 dark:bg-sky-500 transition-all w-1.5" style="height:{{printf "%.0f" $reqH}}px"></div>
-        {{if .Errors}}<div class="rounded-t bg-rose-400 dark:bg-rose-500 transition-all w-1.5" style="height:{{printf "%.0f" $errH}}px"></div>{{end}}
+        <div class="rounded-t transition-all w-1.5" style="height:{{printf "%.0f" $reqH}}px;background:rgb(var(--accent))"></div>
+        {{if .Errors}}<div class="rounded-t transition-all w-1.5" style="height:{{printf "%.0f" $errH}}px;background:rgb(var(--danger))"></div>{{end}}
       </div>
     </div>
     {{end}}
   </div>
-  <div class="flex gap-3 mt-2 text-xs text-slate-500">
-    <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-sky-400 dark:bg-sky-500"></span>Requests</span>
-    <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm bg-rose-400 dark:bg-rose-500"></span>Errors</span>
+  <div class="flex gap-3 mt-2 t-small">
+    <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm" style="background:rgb(var(--accent))"></span>Requests</span>
+    <span class="flex items-center gap-1"><span class="inline-block w-3 h-2 rounded-sm" style="background:rgb(var(--danger))"></span>Errors</span>
   </div>
 </section>
 {{end}}
 
-<section class="hpg-card mb-6">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Activity (last 24h)</h2>
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Activity (last 24h)</h2>
   <canvas id="activityChart" height="100"></canvas>
 </section>
 
 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-  <div class="hpg-card">
-    <div class="hpg-eyebrow">Transfer / 24h</div>
-    <div class="hpg-stat-num mt-1">{{if .BytesTotalHuman}}{{.BytesTotalHuman}}{{else}}—{{end}}</div>
-    <div class="text-xs text-slate-500 mt-1">response bytes</div>
+  <div class="r-card">
+    <div class="t-eyebrow">Transfer / 24h</div>
+    <div class="t-display mt-1 tabular-nums">{{if .BytesTotalHuman}}{{.BytesTotalHuman}}{{else}}-{{end}}</div>
+    <div class="t-small mt-1">response bytes</div>
   </div>
-  <div class="hpg-card">
-    <p class="hpg-eyebrow mb-2">Protocol (24h)</p>
+  <div class="r-card">
+    <p class="t-eyebrow mb-2">Protocol (24h)</p>
     <div class="flex flex-wrap gap-1.5">
       {{range .ProtoBreakdown}}
-      <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium
-        {{if eq .Proto "h2"}}bg-indigo-100 text-indigo-700 dark:bg-indigo-500/15 dark:text-indigo-300
-        {{else if eq .Proto "h3"}}bg-violet-100 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300
-        {{else}}bg-slate-100 text-slate-600 dark:bg-zinc-700 dark:text-slate-300{{end}}">
-        {{.Proto}} <span class="tabular-nums font-bold ml-1">{{.Count}}</span>
-      </span>
+      {{if eq .Proto "h2"}}<span class="r-pill r-pill-info">{{.Proto}} <span class="tabular-nums font-bold ml-1">{{.Count}}</span></span>
+      {{else if eq .Proto "h3"}}<span class="r-pill r-pill-info">{{.Proto}} <span class="tabular-nums font-bold ml-1">{{.Count}}</span></span>
+      {{else}}<span class="r-pill r-pill-neutral">{{.Proto}} <span class="tabular-nums font-bold ml-1">{{.Count}}</span></span>
+      {{end}}
       {{else}}
-      <span class="text-xs text-slate-400">No traffic yet.</span>
+      <span class="t-small">No traffic yet.</span>
       {{end}}
     </div>
   </div>
 </div>
 
 {{if .TopASNs}}
-<section class="hpg-card mb-6">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Top ASNs (7d)</h2>
-  <div class="overflow-x-auto"><table class="w-full text-sm">
-    <thead class="text-left hpg-eyebrow">
-      <tr><th class="px-3 py-2">Organization</th><th class="px-3 py-2 text-right">Requests</th></tr>
-    </thead>
-    <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-      {{range .TopASNs}}
-      <tr>
-        <td class="px-3 py-2 text-slate-800 dark:text-slate-100 font-mono">{{.Org}}</td>
-        <td class="px-3 py-2 text-right text-slate-600 dark:text-slate-300 font-mono">{{.Count}}</td>
-      </tr>
-      {{end}}
-    </tbody>
-  </table></div>
+<section class="r-card mb-6">
+  <h2 class="t-h3 mb-3">Top ASNs (7d)</h2>
+  <div class="overflow-x-auto">
+    <table class="r-table">
+      <thead>
+        <tr><th>Organization</th><th class="text-right">Requests</th></tr>
+      </thead>
+      <tbody>
+        {{range .TopASNs}}
+        <tr>
+          <td class="font-mono">{{.Org}}</td>
+          <td class="text-right font-mono tabular-nums">{{.Count}}</td>
+        </tr>
+        {{end}}
+      </tbody>
+    </table>
+  </div>
 </section>
 {{end}}
 </div><!-- /Traffic -->
 
 <!-- Cache -->
 <div data-pane="cache" hidden>
-<section class="hpg-card mb-6">
+<section class="r-card mb-6">
   <div class="flex items-center justify-between mb-3">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100">Origin cache</h2>
-    <span class="hpg-pill {{if .Cache.ModuleEnabled}}hpg-pill-ok{{else}}hpg-pill-muted{{end}}">
-      <span class="w-1.5 h-1.5 rounded-full {{if .Cache.ModuleEnabled}}bg-emerald-500{{else}}bg-slate-400{{end}}"></span>
-      Souin module {{if .Cache.ModuleEnabled}}available{{else}}disabled (CACHE_HANDLER_AVAILABLE=0){{end}}
-    </span>
+    <h2 class="t-h3">Origin cache</h2>
+    {{if .Cache.ModuleEnabled}}<span class="r-pill r-pill-success">Souin module available</span>
+    {{else}}<span class="r-pill r-pill-neutral">Souin disabled (CACHE_HANDLER_AVAILABLE=0)</span>
+    {{end}}
   </div>
-  <div class="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
+  <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
     <div>
-      <div class="hpg-eyebrow">Cached routes</div>
-      <div class="font-semibold text-slate-800 dark:text-slate-100 text-lg">{{.Cache.RoutesWithCache}}</div>
+      <div class="t-eyebrow">Cached routes</div>
+      <div class="t-h2 mt-0.5 tabular-nums">{{.Cache.RoutesWithCache}}</div>
     </div>
     <div>
-      <div class="hpg-eyebrow">With Vary key</div>
-      <div class="font-semibold text-slate-800 dark:text-slate-100 text-lg">{{.Cache.RoutesWithVary}}</div>
+      <div class="t-eyebrow">With Vary key</div>
+      <div class="t-h2 mt-0.5 tabular-nums">{{.Cache.RoutesWithVary}}</div>
     </div>
     <div>
-      <div class="hpg-eyebrow">Purge</div>
-      <div class="text-xs text-slate-500 dark:text-slate-400 mt-1">Per route - open <em>Edit host</em>, click <em>Purge cache</em>.</div>
+      <div class="t-eyebrow">Purge</div>
+      <div class="t-small mt-1">Per route - open <em>Edit host</em>, click <em>Purge cache</em>.</div>
     </div>
   </div>
   {{if .Cache.TopCachedHosts}}
   <div class="overflow-x-auto mt-4">
-    <table class="w-full text-sm">
-      <thead class="text-left hpg-eyebrow">
+    <table class="r-table">
+      <thead>
         <tr>
-          <th class="px-3 py-2">Host</th>
-          <th class="px-3 py-2">Node</th>
-          <th class="px-3 py-2">TTL</th>
-          <th class="px-3 py-2">Vary</th>
+          <th>Host</th>
+          <th>Node</th>
+          <th>TTL</th>
+          <th>Vary</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <tbody>
         {{range .Cache.TopCachedHosts}}
         <tr>
-          <td class="px-3 py-2 font-mono text-slate-800 dark:text-slate-100">{{.Domain}}{{.PathPrefix}}</td>
-          <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.NodeName}}</td>
-          <td class="px-3 py-2 text-slate-600 dark:text-slate-300 font-mono">{{.TTLSecs}}s</td>
-          <td class="px-3 py-2 text-slate-500 dark:text-slate-400 font-mono">{{if .Vary}}{{.Vary}}{{else}}-{{end}}</td>
+          <td class="font-mono">{{.Domain}}{{.PathPrefix}}</td>
+          <td>{{.NodeName}}</td>
+          <td class="font-mono tabular-nums">{{.TTLSecs}}s</td>
+          <td class="font-mono">{{if .Vary}}{{.Vary}}{{else}}-{{end}}</td>
         </tr>
         {{end}}
       </tbody>
     </table>
   </div>
   {{end}}
-  <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-3">Real hit/miss counters will land when the Souin Prometheus scrape is wired into the node metrics pipeline. For now, this card surfaces what is opted into caching so you can spot misconfig at a glance.</p>
+  <p class="t-caption mt-3">Real hit/miss counters land when Souin Prometheus scrape is wired into the node metrics pipeline. This card surfaces routes opted into caching to spot misconfig at a glance.</p>
 </section>
 </div><!-- /Cache -->
 
 <!-- Security & Ops -->
 <div data-pane="security" hidden>
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-  <section class="hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Auth &amp; 2FA (last 24h)</h2>
-    <div class="grid grid-cols-2 gap-3 text-sm">
-      <div class="rounded-lg bg-emerald-50 dark:bg-emerald-500/10 p-3">
-        <div class="text-[10px] uppercase tracking-wide text-emerald-700 dark:text-emerald-400">Logins OK</div>
-        <div class="text-xl font-semibold text-emerald-900 dark:text-emerald-200">{{.Security.LoginSuccess}}</div>
+  <section class="r-card">
+    <h2 class="t-h3 mb-3">Auth &amp; 2FA (last 24h)</h2>
+    <div class="grid grid-cols-2 gap-3">
+      <div class="rounded-xl p-3" style="background:rgb(var(--success) / .1)">
+        <div class="t-eyebrow" style="color:rgb(var(--success))">Logins OK</div>
+        <div class="t-display tabular-nums mt-0.5" style="color:rgb(var(--success))">{{.Security.LoginSuccess}}</div>
       </div>
-      <div class="rounded-lg bg-rose-50 dark:bg-rose-500/10 p-3">
-        <div class="text-[10px] uppercase tracking-wide text-rose-700 dark:text-rose-400">Logins failed</div>
-        <div class="text-xl font-semibold text-rose-900 dark:text-rose-200">{{.Security.LoginFail}}</div>
+      <div class="rounded-xl p-3" style="background:rgb(var(--danger) / .1)">
+        <div class="t-eyebrow" style="color:rgb(var(--danger))">Logins failed</div>
+        <div class="t-display tabular-nums mt-0.5" style="color:rgb(var(--danger))">{{.Security.LoginFail}}</div>
       </div>
     </div>
     <div class="mt-4">
-      <div class="hpg-eyebrow mb-2">Login path</div>
+      <div class="t-eyebrow mb-2">Login path</div>
       <table class="w-full text-sm">
-        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-          <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Password</td><td class="text-right font-mono">{{.Security.LoginViaPass}}</td></tr>
-          <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">OIDC / SSO</td><td class="text-right font-mono">{{.Security.LoginViaOIDC}}</td></tr>
-          <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Passkey</td><td class="text-right font-mono">{{.Security.LoginViaPassk}}</td></tr>
-          <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">SSO jump</td><td class="text-right font-mono">{{.Security.LoginViaSSOJ}}</td></tr>
+        <tbody class="divide-y" style="border-color:rgb(var(--border))">
+          <tr><td class="py-1.5 t-body">Password</td><td class="text-right font-mono tabular-nums">{{.Security.LoginViaPass}}</td></tr>
+          <tr><td class="py-1.5 t-body">OIDC / SSO</td><td class="text-right font-mono tabular-nums">{{.Security.LoginViaOIDC}}</td></tr>
+          <tr><td class="py-1.5 t-body">Passkey</td><td class="text-right font-mono tabular-nums">{{.Security.LoginViaPassk}}</td></tr>
+          <tr><td class="py-1.5 t-body">SSO jump</td><td class="text-right font-mono tabular-nums">{{.Security.LoginViaSSOJ}}</td></tr>
         </tbody>
       </table>
     </div>
     <div class="mt-4">
-      <div class="hpg-eyebrow mb-2">2FA factor used</div>
+      <div class="t-eyebrow mb-2">2FA factor used</div>
       <table class="w-full text-sm">
-        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-          <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">TOTP</td><td class="text-right font-mono">{{.Security.MFATOTP}}</td></tr>
-          <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">SMS</td><td class="text-right font-mono">{{.Security.MFASMS}}</td></tr>
-          <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Email</td><td class="text-right font-mono">{{.Security.MFAEmail}}</td></tr>
-          <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Passkey</td><td class="text-right font-mono">{{.Security.MFAPasskey}}</td></tr>
-          <tr><td class="py-1.5 text-slate-500 dark:text-slate-400">None (password only)</td><td class="text-right font-mono">{{.Security.MFANone}}</td></tr>
+        <tbody class="divide-y" style="border-color:rgb(var(--border))">
+          <tr><td class="py-1.5 t-body">TOTP</td><td class="text-right font-mono tabular-nums">{{.Security.MFATOTP}}</td></tr>
+          <tr><td class="py-1.5 t-body">SMS</td><td class="text-right font-mono tabular-nums">{{.Security.MFASMS}}</td></tr>
+          <tr><td class="py-1.5 t-body">Email</td><td class="text-right font-mono tabular-nums">{{.Security.MFAEmail}}</td></tr>
+          <tr><td class="py-1.5 t-body">Passkey</td><td class="text-right font-mono tabular-nums">{{.Security.MFAPasskey}}</td></tr>
+          <tr><td class="py-1.5 t-muted">None (password only)</td><td class="text-right font-mono tabular-nums">{{.Security.MFANone}}</td></tr>
         </tbody>
       </table>
     </div>
-    <div class="mt-4 text-xs text-slate-500 dark:text-slate-400">
-      OTP fails: <span class="font-mono">{{.Security.OTPFails}}</span> ·
-      Passkeys added: <span class="font-mono">{{.Security.PasskeyAdds}}</span> ·
-      removed: <span class="font-mono">{{.Security.PasskeyDels}}</span>
+    <div class="mt-4 t-small">
+      OTP fails: <span class="font-mono tabular-nums">{{.Security.OTPFails}}</span> ·
+      Passkeys added: <span class="font-mono tabular-nums">{{.Security.PasskeyAdds}}</span> ·
+      removed: <span class="font-mono tabular-nums">{{.Security.PasskeyDels}}</span>
     </div>
   </section>
 
-  <section class="hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Enrollment posture</h2>
+  <section class="r-card">
+    <h2 class="t-h3 mb-3">Enrollment posture</h2>
     <table class="w-full text-sm">
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Active admins</td><td class="text-right font-mono">{{.Security.ActiveAdmins}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Active clients</td><td class="text-right font-mono">{{.Security.ActiveClient}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Users with TOTP</td><td class="text-right font-mono">{{.Security.UsersWithTOTP}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Users with SMS 2FA</td><td class="text-right font-mono">{{.Security.UsersWithSMS}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Users with Email 2FA</td><td class="text-right font-mono">{{.Security.UsersWithMail}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Users with Passkey</td><td class="text-right font-mono">{{.Security.UsersWithPK}}</td></tr>
+      <tbody class="divide-y" style="border-color:rgb(var(--border))">
+        <tr><td class="py-1.5 t-body">Active admins</td><td class="text-right font-mono tabular-nums">{{.Security.ActiveAdmins}}</td></tr>
+        <tr><td class="py-1.5 t-body">Active clients</td><td class="text-right font-mono tabular-nums">{{.Security.ActiveClient}}</td></tr>
+        <tr><td class="py-1.5 t-body">Users with TOTP</td><td class="text-right font-mono tabular-nums">{{.Security.UsersWithTOTP}}</td></tr>
+        <tr><td class="py-1.5 t-body">Users with SMS 2FA</td><td class="text-right font-mono tabular-nums">{{.Security.UsersWithSMS}}</td></tr>
+        <tr><td class="py-1.5 t-body">Users with Email 2FA</td><td class="text-right font-mono tabular-nums">{{.Security.UsersWithMail}}</td></tr>
+        <tr><td class="py-1.5 t-body">Users with Passkey</td><td class="text-right font-mono tabular-nums">{{.Security.UsersWithPK}}</td></tr>
       </tbody>
     </table>
-    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-3">Pull from <code>users</code> table. A 0 row probably means the matching migration hasn't run on this database.</p>
+    <p class="t-caption mt-3">Pull from <code>users</code> table. A 0 row means the matching migration hasn't run on this database.</p>
   </section>
 
-  <section class="hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Caddy &amp; routes (last 24h)</h2>
+  <section class="r-card">
+    <h2 class="t-h3 mb-3">Caddy &amp; routes (last 24h)</h2>
     <table class="w-full text-sm">
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Caddy pushes OK</td><td class="text-right font-mono text-emerald-700 dark:text-emerald-400">{{.Ops.CaddyPushes}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Caddy pushes failed</td><td class="text-right font-mono text-rose-700 dark:text-rose-400">{{.Ops.CaddyPushFails}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Cache flushes</td><td class="text-right font-mono">{{.Ops.CacheFlushes}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Routes created</td><td class="text-right font-mono">{{.Ops.RoutesCreated}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Routes deleted</td><td class="text-right font-mono">{{.Ops.RoutesDeleted}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">SSO-jump logins</td><td class="text-right font-mono">{{.Ops.SSOJumpSuccess}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">SSO-jump denied</td><td class="text-right font-mono">{{.Ops.SSOJumpDenied}}</td></tr>
+      <tbody class="divide-y" style="border-color:rgb(var(--border))">
+        <tr><td class="py-1.5 t-body">Caddy pushes OK</td><td class="text-right font-mono tabular-nums" style="color:rgb(var(--success))">{{.Ops.CaddyPushes}}</td></tr>
+        <tr><td class="py-1.5 t-body">Caddy pushes failed</td><td class="text-right font-mono tabular-nums" style="color:rgb(var(--danger))">{{.Ops.CaddyPushFails}}</td></tr>
+        <tr><td class="py-1.5 t-body">Cache flushes</td><td class="text-right font-mono tabular-nums">{{.Ops.CacheFlushes}}</td></tr>
+        <tr><td class="py-1.5 t-body">Routes created</td><td class="text-right font-mono tabular-nums">{{.Ops.RoutesCreated}}</td></tr>
+        <tr><td class="py-1.5 t-body">Routes deleted</td><td class="text-right font-mono tabular-nums">{{.Ops.RoutesDeleted}}</td></tr>
+        <tr><td class="py-1.5 t-body">SSO-jump logins</td><td class="text-right font-mono tabular-nums">{{.Ops.SSOJumpSuccess}}</td></tr>
+        <tr><td class="py-1.5 t-body">SSO-jump denied</td><td class="text-right font-mono tabular-nums">{{.Ops.SSOJumpDenied}}</td></tr>
       </tbody>
     </table>
   </section>
 
-  <section class="hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Integrations (last 24h)</h2>
+  <section class="r-card">
+    <h2 class="t-h3 mb-3">Integrations (last 24h)</h2>
     <table class="w-full text-sm">
-      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Backups run</td><td class="text-right font-mono text-emerald-700 dark:text-emerald-400">{{.Ops.BackupsRun}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Backups failed</td><td class="text-right font-mono text-rose-700 dark:text-rose-400">{{.Ops.BackupsFailed}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Webhooks sent</td><td class="text-right font-mono">{{.Ops.WebhookSent}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">Webhooks failed</td><td class="text-right font-mono text-rose-700 dark:text-rose-400">{{.Ops.WebhookFailed}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">API keys created</td><td class="text-right font-mono">{{.Ops.APIKeysCreated}}</td></tr>
-        <tr><td class="py-1.5 text-slate-600 dark:text-slate-300">API keys revoked</td><td class="text-right font-mono">{{.Ops.APIKeysRevoked}}</td></tr>
+      <tbody class="divide-y" style="border-color:rgb(var(--border))">
+        <tr><td class="py-1.5 t-body">Backups run</td><td class="text-right font-mono tabular-nums" style="color:rgb(var(--success))">{{.Ops.BackupsRun}}</td></tr>
+        <tr><td class="py-1.5 t-body">Backups failed</td><td class="text-right font-mono tabular-nums" style="color:rgb(var(--danger))">{{.Ops.BackupsFailed}}</td></tr>
+        <tr><td class="py-1.5 t-body">Webhooks sent</td><td class="text-right font-mono tabular-nums">{{.Ops.WebhookSent}}</td></tr>
+        <tr><td class="py-1.5 t-body">Webhooks failed</td><td class="text-right font-mono tabular-nums" style="color:rgb(var(--danger))">{{.Ops.WebhookFailed}}</td></tr>
+        <tr><td class="py-1.5 t-body">API keys created</td><td class="text-right font-mono tabular-nums">{{.Ops.APIKeysCreated}}</td></tr>
+        <tr><td class="py-1.5 t-body">API keys revoked</td><td class="text-right font-mono tabular-nums">{{.Ops.APIKeysRevoked}}</td></tr>
       </tbody>
     </table>
-    <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-3">Raw Prometheus surface: <a class="text-indigo-600 dark:text-indigo-400 hover:underline" href="/metrics" target="_blank" rel="noopener">/metrics</a> (IP-gated by <code>APP_METRICS_ALLOW</code>).</p>
+    <p class="t-caption mt-3">Raw Prometheus surface: <a class="hover:underline" style="color:rgb(var(--accent))" href="/metrics" target="_blank" rel="noopener">/metrics</a> (IP-gated by <code>APP_METRICS_ALLOW</code>).</p>
   </section>
 </div>
 </div><!-- /Security & Ops -->
@@ -536,22 +545,18 @@
     options: { plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
   }));
 
-  // Client-side tabs. Charts inside a hidden pane render at 0px, so resize on reveal.
+  // Client-side tabs. Charts inside hidden panes render at 0px, so resize on reveal.
   var bar = document.querySelector('[data-stats-tabs]');
   if (bar) {
     var tabs = bar.querySelectorAll('.hpg-stats-tab');
     var panes = document.querySelectorAll('[data-pane]');
-    var activeCls = ['bg-indigo-600', 'text-white'];
-    var inactiveCls = ['bg-white', 'ring-1', 'ring-slate-200', 'dark:bg-zinc-800', 'dark:ring-zinc-700', 'text-slate-700', 'dark:text-slate-300'];
     function show(name){
       tabs.forEach(function(t){
         var on = t.getAttribute('data-tab') === name;
         t.setAttribute('aria-selected', on ? 'true' : 'false');
-        (on ? inactiveCls : activeCls).forEach(function(c){ t.classList.remove(c); });
-        (on ? activeCls : inactiveCls).forEach(function(c){ t.classList.add(c); });
+        t.classList.toggle('is-active', on);
       });
       panes.forEach(function(p){ p.hidden = p.getAttribute('data-pane') !== name; });
-      // pane became visible; let charts re-measure their now non-zero container
       requestAnimationFrame(function(){ charts.forEach(function(c){ c.resize(); }); });
       if (history.replaceState) history.replaceState(null, '', '#' + name);
     }
