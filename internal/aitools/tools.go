@@ -5,12 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 )
 
 // builtins returns the read-only tool set. Each tool selects only non-sensitive
@@ -479,54 +476,15 @@ func (r *Registry) trafficStats(ctx context.Context, raw json.RawMessage) (strin
 	})
 }
 
-// trafficCountryIPCap bounds how many distinct visitor IPs we resolve to a
-// country per call (matches the traffic map cap) so a wide window stays cheap.
-const trafficCountryIPCap = 5000
-
-// topCountries resolves visitor remote_ip to ISO2 via the shared geoip resolver
-// (same source as the traffic map) and returns the busiest countries. Unresolved
-// or private IPs bucket as "??". Empty when no geoip db is configured.
+// topCountries queries the stored country column in host_access_log (populated
+// at insert time via GeoIP) and returns the busiest ISO2 codes. Rows with no
+// country (empty or GeoIP not configured) are omitted.
 func (r *Registry) topCountries(ctx context.Context, since time.Time, limit int) ([]countHit, error) {
-	const q = `SELECT remote_ip, COUNT(*) c
-	           FROM host_access_log
-	           WHERE ts >= ? AND remote_ip <> ''
-	           GROUP BY remote_ip ORDER BY c DESC, remote_ip ASC LIMIT ?`
-	rows, err := r.db.QueryContext(ctx, q, since, trafficCountryIPCap)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	resolver := geoip.Global()
-	byCC := map[string]int64{}
-	for rows.Next() {
-		var ip string
-		var c int64
-		if err := rows.Scan(&ip, &c); err != nil {
-			return nil, err
-		}
-		cc := resolver.LookupISO2(ip)
-		if cc == "" {
-			cc = "??"
-		}
-		byCC[cc] += c
-	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	out := make([]countHit, 0, len(byCC))
-	for cc, n := range byCC {
-		out = append(out, countHit{Value: cc, Count: n})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Count != out[j].Count {
-			return out[i].Count > out[j].Count
-		}
-		return out[i].Value < out[j].Value
-	})
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out, nil
+	q := `SELECT country, COUNT(*) c
+	      FROM host_access_log
+	      WHERE ts >= ? AND country <> ''
+	      GROUP BY country ORDER BY c DESC, country ASC LIMIT ?`
+	return scanCountHits(ctx, r.db, q, since, limit)
 }
 
 type countHit struct {

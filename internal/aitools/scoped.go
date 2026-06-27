@@ -4,12 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 )
 
 // emptyResult is returned by scoped tools when the caller's scope resolves to no
@@ -261,53 +258,28 @@ func (r *Registry) scopedTopIPs(ctx context.Context, since time.Time, limit int,
 	return scanCountHitsArgs(ctx, r.db, q, args)
 }
 
-// scopedTopCountries resolves visitor IPs to ISO2 country codes, filtered to the
-// caller's client_id set via the pre-built routeFilter string.
+// scopedTopCountries queries the stored country column in host_access_log
+// filtered to the caller's routes. Rows with no country are omitted.
 func (r *Registry) scopedTopCountries(ctx context.Context, since time.Time, limit int, routeFilter string, idArgs []any) ([]countHit, error) {
-	resolver := geoip.Global()
-	if !resolver.Available() {
-		return nil, nil
-	}
-	q := `SELECT remote_ip, COUNT(*) c
+	q := `SELECT country, COUNT(*) c
 	      FROM host_access_log
-	      WHERE ts >= ? AND remote_ip <> '' AND ` + routeFilter + `
-	      GROUP BY remote_ip ORDER BY c DESC, remote_ip ASC LIMIT ?`
-	args := append(append([]any{since}, idArgs...), trafficCountryIPCap)
+	      WHERE ts >= ? AND country <> '' AND ` + routeFilter + `
+	      GROUP BY country ORDER BY c DESC, country ASC LIMIT ?`
+	args := append(append([]any{since}, idArgs...), limit)
 	rows, err := r.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	byCC := map[string]int64{}
+	var out []countHit
 	for rows.Next() {
-		var ip string
-		var c int64
-		if err := rows.Scan(&ip, &c); err != nil {
+		var h countHit
+		if err := rows.Scan(&h.Value, &h.Count); err != nil {
 			return nil, err
 		}
-		cc := resolver.LookupISO2(ip)
-		if cc == "" {
-			cc = "??"
-		}
-		byCC[cc] += c
+		out = append(out, h)
 	}
-	if err := rows.Err(); err != nil {
-		return nil, err
-	}
-	out := make([]countHit, 0, len(byCC))
-	for cc, n := range byCC {
-		out = append(out, countHit{Value: cc, Count: n})
-	}
-	sort.Slice(out, func(i, j int) bool {
-		if out[i].Count != out[j].Count {
-			return out[i].Count > out[j].Count
-		}
-		return out[i].Value < out[j].Value
-	})
-	if len(out) > limit {
-		out = out[:limit]
-	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // routeLogsScoped returns recent access log entries scoped to the caller's routes.
