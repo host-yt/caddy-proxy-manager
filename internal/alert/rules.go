@@ -356,7 +356,53 @@ func classifyManualCert(now time.Time, notAfter time.Time, daysLeft int) (Severi
 	return SeverityWarning, "warn", detail
 }
 
+// highErrorRate fires for active routes with a 5xx ratio above the threshold
+// within the rolling window. Severity escalates to Critical at >= 50% errors.
+func highErrorRate(ctx context.Context, db *sql.DB, cfg Config) []Alert {
+	rows, err := db.QueryContext(ctx, `
+		SELECT hal.route_id, r.domain,
+		       COUNT(*) AS total,
+		       SUM(CASE WHEN hal.status >= 500 THEN 1 ELSE 0 END) AS errors
+		  FROM host_access_log hal
+		  JOIN routes r ON r.id = hal.route_id
+		 WHERE hal.ts >= (NOW() - INTERVAL ? MINUTE)
+		   AND r.status = 'active'
+		 GROUP BY hal.route_id, r.domain
+		HAVING total >= ? AND (errors / total) >= ?`,
+		cfg.ErrorRateWindowMinutes, cfg.ErrorRateMinRequests, cfg.ErrorRatePct)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []Alert
+	for rows.Next() {
+		var routeID int64
+		var domain string
+		var total, errors int64
+		if err := rows.Scan(&routeID, &domain, &total, &errors); err != nil {
+			continue
+		}
+		ratio := float64(errors) / float64(total)
+		sev := SeverityWarning
+		if ratio >= 0.50 {
+			sev = SeverityCritical
+		}
+		out = append(out, Alert{
+			RuleID:   "high_error_rate",
+			Severity: sev,
+			Title:    fmt.Sprintf("High 5xx rate on %s", domain),
+			Detail:   fmt.Sprintf("%d/%d reqs failed (%.0f%%) in last %dm", errors, total, ratio*100, cfg.ErrorRateWindowMinutes),
+			Labels: map[string]string{
+				"route_id":  strconv.FormatInt(routeID, 10),
+				"domain":    domain,
+				"error_pct": fmt.Sprintf("%.2f", ratio),
+			},
+		})
+	}
+	return out
+}
+
 // KnownRuleIDs is the canonical rule list used by the admin filter UI.
 func KnownRuleIDs() []string {
-	return []string{"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale", "db_pool_saturated", "drill_stale", "wg_key_not_fetched", "manual_cert_expiry"}
+	return []string{"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale", "db_pool_saturated", "drill_stale", "wg_key_not_fetched", "manual_cert_expiry", "high_error_rate"}
 }
