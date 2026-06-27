@@ -43,6 +43,12 @@
       <div><dt class="hpg-eyebrow">Error rate window</dt><dd class="font-medium mt-0.5">{{.AlertCfg.ErrorRateWindowMinutes}} min</dd></div>
       <div><dt class="hpg-eyebrow">Cooldown</dt><dd class="font-medium mt-0.5">{{.AlertCfg.CooldownSeconds}} s</dd></div>
     </dl>
+    <dl class="mt-4 grid grid-cols-1 gap-y-2 text-sm border-t border-slate-100 dark:border-zinc-800 pt-4">
+      <div class="flex items-center gap-3">
+        <dt class="hpg-eyebrow w-24 shrink-0">Telegram</dt>
+        <dd>{{if .AlertCfg.TelegramChatID}}<span class="hpg-pill hpg-pill-ok">{{.AlertCfg.TelegramChatID}}</span>{{else}}<span class="hpg-pill hpg-pill-muted">not configured</span>{{end}}</dd>
+      </div>
+    </dl>
     <p class="text-xs text-slate-400 mt-3">Configure via ALERT_* environment variables. See docs/DEPLOY.md.</p>
   </section>
 
