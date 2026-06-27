@@ -95,16 +95,17 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 	bucket := e.TS.UTC().Truncate(time.Hour)
 	_, _ = db.ExecContext(ctx,
 		`INSERT INTO log_rollups
-		     (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp)
-		 VALUES (?,?,1,?,?,?,?,?)
+		     (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp,bytes_req)
+		 VALUES (?,?,1,?,?,?,?,?,?)
 		 ON DUPLICATE KEY UPDATE
 		     requests=requests+1,
 		     errors_4xx=errors_4xx+VALUES(errors_4xx),
 		     errors_5xx=errors_5xx+VALUES(errors_5xx),
 		     latency_sum_ms=latency_sum_ms+VALUES(latency_sum_ms),
 		     latency_max_ms=GREATEST(latency_max_ms,VALUES(latency_max_ms)),
-		     bytes_resp=bytes_resp+VALUES(bytes_resp)`,
-		e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS, e.BytesResp,
+		     bytes_resp=bytes_resp+VALUES(bytes_resp),
+		     bytes_req=bytes_req+VALUES(bytes_req)`,
+		e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS, e.BytesResp, e.BytesReq,
 	)
 	return nil
 }
