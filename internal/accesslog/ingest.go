@@ -185,7 +185,12 @@ func resolveCountry(clientIP, remoteIP string) string {
 	if ip == "" {
 		return ""
 	}
-	return geoip.Global().LookupISO2(ip)
+	code := geoip.Global().LookupISO2(ip)
+	// Guard CHAR(2) column; mirrors ua[:512]/uri[:2048] truncation in ingest.
+	if len(code) > 2 {
+		code = code[:2]
+	}
+	return code
 }
 
 // stripPort removes the :port suffix from host:port strings.
