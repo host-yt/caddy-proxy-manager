@@ -1,36 +1,27 @@
 {{define "profile"}}
-<h2 class="text-xl font-semibold mb-1">Deployment profile</h2>
-<p class="text-sm text-slate-500 dark:text-slate-400 mb-5">
-  Choose the profile that best describes your use-case. This controls which
-  modules and menu items are visible after install. You can change it later
-  in Settings.
+<p class="t-eyebrow" style="margin-bottom:0.25rem;">Step 2</p>
+<h2 class="t-h2" style="margin-bottom:0.375rem;">Deployment profile</h2>
+<p class="t-small" style="color:rgb(var(--muted));margin-bottom:1.25rem;">
+  Choose the profile that best describes your use-case. Controls visible modules
+  and menu items after install. Changeable later in Settings.
 </p>
-<form method="POST" action="/install/profile" class="space-y-3">
+<form method="POST" action="/install/profile" style="display:flex;flex-direction:column;gap:0.625rem;">
   {{range .Form.Options}}
-  <label class="flex items-start gap-3 p-4 rounded-lg border cursor-pointer transition-colors
-    {{if eq $.Form.Selected .Value}}
-      border-indigo-500 bg-indigo-50 dark:bg-indigo-500/10
-    {{else}}
-      border-slate-200 dark:border-zinc-700 hover:border-indigo-300 dark:hover:border-indigo-500/50
-    {{end}}">
+  <label style="display:flex;align-items:flex-start;gap:0.875rem;padding:1rem;border-radius:0.75rem;border:1px solid {{if eq $.Form.Selected .Value}}rgb(var(--accent)){{else}}rgb(var(--border)){{end}};background:{{if eq $.Form.Selected .Value}}rgb(var(--accent) / .06){{else}}transparent{{end}};cursor:pointer;transition:border-color .15s,background .15s;">
     <input type="radio" name="profile" value="{{.Value}}"
            {{if eq $.Form.Selected .Value}}checked{{end}}
-           class="mt-0.5 accent-indigo-600 cursor-pointer">
-    <div class="flex-1 min-w-0">
-      <div class="flex items-center gap-2">
-        <span class="font-medium text-sm text-slate-800 dark:text-slate-100">{{.Label}}</span>
-        <span class="text-xs px-1.5 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 text-slate-500 dark:text-slate-400">
-          DB: {{.RecommendDB}}
-        </span>
+           style="margin-top:0.125rem;accent-color:rgb(var(--accent));cursor:pointer;flex-shrink:0;">
+    <div style="flex:1;min-width:0;">
+      <div style="display:flex;align-items:center;gap:0.5rem;margin-bottom:0.25rem;">
+        <span class="t-small" style="font-weight:600;">{{.Label}}</span>
+        <span class="r-pill r-pill-neutral" style="font-size:0.7rem;">DB: {{.RecommendDB}}</span>
       </div>
-      <p class="text-xs text-slate-500 dark:text-slate-400 mt-0.5">{{.Description}}</p>
+      <p class="t-caption" style="color:rgb(var(--muted));">{{.Description}}</p>
     </div>
   </label>
   {{end}}
-  <div class="flex justify-end pt-2">
-    <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
-      Continue →
-    </button>
+  <div style="display:flex;justify-content:flex-end;padding-top:0.5rem;">
+    <button class="r-btn-primary" type="submit" style="cursor:pointer;">Continue &rarr;</button>
   </div>
 </form>
 {{end}}

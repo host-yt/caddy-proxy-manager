@@ -1,20 +1,18 @@
 {{define "app"}}
-<h2 class="text-xl font-semibold mb-1">Panel URL</h2>
-<p class="text-sm text-slate-500 mb-5">
+<p class="t-eyebrow" style="margin-bottom:0.25rem;">Step 5</p>
+<h2 class="t-h2" style="margin-bottom:0.375rem;">Panel URL</h2>
+<p class="t-small" style="color:rgb(var(--muted));margin-bottom:1.25rem;">
   Public URL where this panel is reachable. Used for email links and OIDC
   redirects. Include the scheme.
 </p>
-<form method="POST" action="/install/app" class="space-y-4">
+<form method="POST" action="/install/app" style="display:flex;flex-direction:column;gap:0.875rem;">
   <div>
-    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Panel URL</label>
-    <input name="url" value="{{.Form.URL}}" type="url" required placeholder="https://panel.example.com"
-           class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
-    <p class="text-xs text-slate-500 mt-1">e.g. <code>https://panel.example.com</code> or <code>http://localhost:8080</code></p>
+    <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Panel URL</label>
+    <input name="url" value="{{.Form.URL}}" type="url" required placeholder="https://panel.example.com" class="r-input" style="font-family:monospace;">
+    <p class="t-caption" style="color:rgb(var(--muted));margin-top:0.375rem;">e.g. <code>https://panel.example.com</code> or <code>http://localhost:8080</code></p>
   </div>
-  <div class="flex justify-end pt-2">
-    <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
-      Save →
-    </button>
+  <div style="display:flex;justify-content:flex-end;padding-top:0.375rem;">
+    <button class="r-btn-primary" type="submit">Save &rarr;</button>
   </div>
 </form>
 {{end}}
