@@ -18,6 +18,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"io"
 	"net"
 	"net/http"
 	"net/smtp"
@@ -209,5 +210,72 @@ func TestGeoIPNodeMetaEndpoint(t *testing.T) {
 	}
 	if meta.SHA256 == "" {
 		t.Error("geoip/meta: sha256 is empty - no GeoIP DB configured on panel")
+	}
+}
+
+// TestWAFEventsIngest posts a synthetic WAF event batch to the panel and verifies acceptance.
+// Needs HPG_TEST_PANEL_URL and HPG_TEST_NODE_TOKEN to run.
+func TestWAFEventsIngest(t *testing.T) {
+	panelURL := os.Getenv("HPG_TEST_PANEL_URL")
+	token := os.Getenv("HPG_TEST_NODE_TOKEN")
+	if panelURL == "" || token == "" {
+		t.Skip("set HPG_TEST_PANEL_URL and HPG_TEST_NODE_TOKEN to run panel integration tests")
+	}
+	payload := `{"events":[{"ts":"` + time.Now().UTC().Format(time.RFC3339) + `","severity":"medium","rule_id":"942100","action":"detected","remote_ip":"203.0.113.1","host":"test.example.com","uri":"/search?q=1+OR+1=1","message":"SQL injection detected"}]}`
+	url := strings.TrimRight(panelURL, "/") + "/api/node/waf/events"
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	hc := &http.Client{Timeout: 5 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		t.Fatalf("POST waf/events: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("waf/events: status %d body=%s", resp.StatusCode, body)
+	}
+	var result struct {
+		Accepted int `json:"accepted"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Accepted < 1 {
+		t.Errorf("waf/events: expected accepted>=1, got %d", result.Accepted)
+	}
+}
+
+// TestWAFEventsBlockedAction verifies blocked WAF events are accepted and stored.
+func TestWAFEventsBlockedAction(t *testing.T) {
+	panelURL := os.Getenv("HPG_TEST_PANEL_URL")
+	token := os.Getenv("HPG_TEST_NODE_TOKEN")
+	if panelURL == "" || token == "" {
+		t.Skip("set HPG_TEST_PANEL_URL and HPG_TEST_NODE_TOKEN to run panel integration tests")
+	}
+	payload := `{"events":[{"ts":"` + time.Now().UTC().Format(time.RFC3339) + `","severity":"high","rule_id":"941100","action":"blocked","remote_ip":"198.51.100.5","host":"test.example.com","uri":"/<script>alert(1)</script>","message":"XSS attempt blocked"}]}`
+	url := strings.TrimRight(panelURL, "/") + "/api/node/waf/events"
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodPost, url, strings.NewReader(payload))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	hc := &http.Client{Timeout: 5 * time.Second}
+	resp, err := hc.Do(req)
+	if err != nil {
+		t.Fatalf("POST waf/events blocked: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		t.Fatalf("waf/events blocked: status %d body=%s", resp.StatusCode, body)
+	}
+	var result struct {
+		Accepted int `json:"accepted"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Accepted < 1 {
+		t.Errorf("waf/events blocked: expected accepted>=1, got %d", result.Accepted)
 	}
 }
