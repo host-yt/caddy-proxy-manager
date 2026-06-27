@@ -807,7 +807,7 @@ func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, 
 		cond += " AND status >= 400"
 	}
 	// DATE_FORMAT is required: parseTime=true makes DATETIME scan fail into *string.
-	qFull := `SELECT DATE_FORMAT(ts,'%Y-%m-%dT%H:%i:%s.%fZ'), method, uri, status, latency_ms, remote_ip, bytes_resp
+	qFull := `SELECT DATE_FORMAT(ts,'%Y-%m-%dT%H:%i:%s.%fZ'), method, uri, status, latency_ms, remote_ip, bytes_resp, COALESCE(country,'')
 	           FROM host_access_log WHERE ` + cond + ` ORDER BY ts DESC, id DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := r.db.QueryContext(ctx, qFull, args...)
@@ -823,11 +823,12 @@ func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, 
 		LatencyMS int64  `json:"latency_ms"`
 		RemoteIP  string `json:"remote_ip"`
 		BytesResp int64  `json:"bytes_resp"`
+		Country   string `json:"country,omitempty"`
 	}
 	out := make([]entry, 0, limit)
 	for rows.Next() {
 		var e entry
-		if err := rows.Scan(&e.TS, &e.Method, &e.URI, &e.Status, &e.LatencyMS, &e.RemoteIP, &e.BytesResp); err != nil {
+		if err := rows.Scan(&e.TS, &e.Method, &e.URI, &e.Status, &e.LatencyMS, &e.RemoteIP, &e.BytesResp, &e.Country); err != nil {
 			return "", err
 		}
 		out = append(out, e)
