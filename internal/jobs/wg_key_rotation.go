@@ -8,7 +8,13 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
+	"github.com/host-yt/caddy-proxy-manager/internal/notify"
 )
+
+// NodeResyncer can push a fresh Caddy config to a node after key rotation.
+type NodeResyncer interface {
+	Resync(ctx context.Context, nodeID int64) error
+}
 
 // WGKeyRotationJob rotates WireGuard peer keys that have exceeded their
 // rotation cadence. Cadence is resolved peer → plan → global setting.
@@ -18,12 +24,15 @@ type WGKeyRotationJob struct {
 	Interval time.Duration // default 6h
 	// Peers delegates actual rotation so the job shares key-encrypt +
 	// bootstrap-token issuance with the manual RotateKey path.
-	Peers *wgpeer.Service
+	Peers    *wgpeer.Service
+	Routes   NodeResyncer   // optional; triggers Caddy push after rotation
+	Notifier *notify.Customer // optional; emails the client after rotation
 }
 
 type rotationCandidate struct {
 	peerID   int64
 	clientID int64
+	nodeID   int64
 }
 
 // Run loops on Interval until ctx is cancelled.
@@ -57,7 +66,7 @@ func (j *WGKeyRotationJob) tick(ctx context.Context) {
 	// → global setting wg.key_rotation_days. The subquery for plan days prevents duplicate
 	// peer rows when a client has multiple active services/plans.
 	rows, err := db.QueryContext(tickCtx, `
-		SELECT p.id, p.client_id
+		SELECT p.id, p.client_id, p.node_id
 		FROM customer_wg_peer p
 		LEFT JOIN (
 			SELECT sv.client_id, MAX(pl.wg_key_rotation_days) AS plan_days
@@ -96,7 +105,7 @@ func (j *WGKeyRotationJob) tick(ctx context.Context) {
 	var candidates []rotationCandidate
 	for rows.Next() {
 		var c rotationCandidate
-		if err := rows.Scan(&c.peerID, &c.clientID); err != nil {
+		if err := rows.Scan(&c.peerID, &c.clientID, &c.nodeID); err != nil {
 			j.Logger.Warn("wg key rotation scan", "err", err)
 			continue
 		}
@@ -113,8 +122,17 @@ func (j *WGKeyRotationJob) tick(ctx context.Context) {
 			continue
 		}
 		j.Logger.Info("wg key rotated", "peer_id", c.peerID)
-		// TODO: trigger Caddy config push for the peer's node
-		// TODO: notify client about key rotation (email/SMS via notify.Customer)
+		if j.Routes != nil && c.nodeID > 0 {
+			if err := j.Routes.Resync(tickCtx, c.nodeID); err != nil {
+				j.Logger.Warn("wg key rotation: caddy resync failed", "node_id", c.nodeID, "err", err)
+			}
+		}
+		if j.Notifier != nil {
+			j.Notifier.Notify(tickCtx, c.clientID,
+				"[Hostyt] WireGuard key rotated",
+				"Your WireGuard tunnel key was automatically rotated. "+
+					"Download the updated configuration from the client portal to restore connectivity.")
+		}
 	}
 }
 
