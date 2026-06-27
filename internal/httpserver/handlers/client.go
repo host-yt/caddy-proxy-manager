@@ -684,6 +684,164 @@ func (h *ClientHandlers) RouteExport(w http.ResponseWriter, r *http.Request) {
 	cw.Flush()
 }
 
+// ---- Route edit ---------------------------------------------------------
+
+type clientRouteEditData struct {
+	baseAppData
+	RouteID      int64
+	Domain       string
+	PathPrefix   string
+	UpstreamPort int
+	WebSocket    bool
+	ForceHTTPS   bool
+	ServiceName  string
+}
+
+// RouteEdit renders the route edit form for the owning client.
+func (h *ClientHandlers) RouteEdit(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		http.Error(w, "no client record", http.StatusForbidden)
+		return
+	}
+	d := clientRouteEditData{baseAppData: h.base(r, "Edit route"), RouteID: id}
+	var ownerClientID int64
+	if err := db.QueryRowContext(ctx,
+		`SELECT s.client_id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port,
+		        COALESCE(r.websocket,0), COALESCE(r.force_https,0), s.name
+		 FROM routes r JOIN services s ON s.id = r.service_id WHERE r.id = ?`, id,
+	).Scan(&ownerClientID, &d.Domain, &d.PathPrefix, &d.UpstreamPort, &d.WebSocket, &d.ForceHTTPS, &d.ServiceName); err != nil {
+		redirectWithFlash(w, r, "/app/routes", "", "route not found")
+		return
+	}
+	if ownerClientID != clientID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	h.render(w, "route_edit", d)
+}
+
+// RouteEditSave handles POST /app/routes/{id}/edit — validates and persists edits.
+func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	_ = r.ParseForm()
+	newDomain := strings.ToLower(strings.TrimSpace(r.FormValue("domain")))
+	newPath := strings.TrimSpace(r.FormValue("path_prefix"))
+	newPort, _ := strconv.Atoi(r.FormValue("upstream_port"))
+	newWS := r.FormValue("websocket") == "1"
+	newFH := r.FormValue("force_https") == "1"
+
+	editURL := fmt.Sprintf("/app/routes/%d/edit", id)
+	if newDomain == "" {
+		redirectWithFlash(w, r, editURL, "", "domain is required")
+		return
+	}
+	if newPort < 1 || newPort > 65535 {
+		redirectWithFlash(w, r, editURL, "", "port must be 1-65535")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		http.Error(w, "no client record", http.StatusForbidden)
+		return
+	}
+
+	// Load ownership + plan constraints + caddy node.
+	var ownerClientID, portStart, portEnd int64
+	var planWebSocket bool
+	var caddyNodeID sql.NullInt64
+	if err := db.QueryRowContext(ctx,
+		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket, r.caddy_node_id
+		 FROM routes r
+		 JOIN services s ON s.id = r.service_id
+		 JOIN plans p ON p.id = s.plan_id
+		 WHERE r.id = ?`, id,
+	).Scan(&ownerClientID, &portStart, &portEnd, &planWebSocket, &caddyNodeID); err != nil {
+		redirectWithFlash(w, r, "/app/routes", "", "route not found")
+		return
+	}
+	if ownerClientID != clientID {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if int64(newPort) < portStart || int64(newPort) > portEnd {
+		redirectWithFlash(w, r, editURL, "", fmt.Sprintf("port must be in range %d-%d", portStart, portEnd))
+		return
+	}
+	// Suppress WebSocket if plan does not permit it.
+	if newWS && !planWebSocket {
+		newWS = false
+	}
+
+	// Uniqueness check excluding self.
+	var dup int
+	_ = db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM routes WHERE domain = ? AND COALESCE(path_prefix,'') = ? AND id != ?`,
+		newDomain, newPath, id,
+	).Scan(&dup)
+	if dup > 0 {
+		redirectWithFlash(w, r, editURL, "", "domain + path already in use by another route")
+		return
+	}
+
+	if _, err := db.ExecContext(ctx,
+		`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?, force_https=?, updated_at=NOW() WHERE id=?`,
+		newDomain, newPath, newPort, newWS, newFH, id,
+	); err != nil {
+		redirectWithFlash(w, r, editURL, "", "update failed")
+		return
+	}
+
+	// Re-push node so Caddy picks up changes quickly.
+	if h.Routes != nil && caddyNodeID.Valid {
+		nodeID := caddyNodeID.Int64
+		go func() {
+			defer recoverBg(h.Logger, "client-route-edit-resync")
+			bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
+			defer cancel()
+			_ = bg
+			h.Routes.SchedulePush(nodeID)
+		}()
+	}
+
+	uid := sess.UserID
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: &uid, Action: "route.update", Entity: "route",
+		EntityID: strconv.FormatInt(id, 10),
+		Meta: map[string]any{
+			"domain": newDomain, "path": newPath, "port": newPort,
+			"websocket": newWS, "force_https": newFH,
+		},
+	})
+	redirectWithFlash(w, r, "/app/routes", "Route updated.", "")
+}
+
 func mapRouteErr(err error) string {
 	switch {
 	case errors.Is(err, routes.ErrPortOutOfRange):

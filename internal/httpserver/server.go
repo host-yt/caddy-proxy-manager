@@ -574,6 +574,8 @@ func (s *Server) routes() {
 			r.Post("/{id}/verify-dns", s.deps.Client.RouteVerifyDNS)
 			r.Post("/{id}/retry-ssl", s.deps.Client.RouteRetrySSL)
 			r.Post("/{id}/toggle-maintenance", s.deps.Client.RouteMaintenance)
+			r.Get("/{id}/edit", s.deps.Client.RouteEdit)
+			r.Post("/{id}/edit", s.deps.Client.RouteEditSave)
 			r.Get("/{id}/logs", s.deps.Client.RouteLogs)
 		})
 		r.Route("/2fa", func(r chi.Router) {

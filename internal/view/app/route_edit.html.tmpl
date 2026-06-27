@@ -1,0 +1,58 @@
+{{define "route_edit"}}
+<div class="grid gap-5 lg:grid-cols-[minmax(0,36rem)_minmax(18rem,1fr)] lg:items-start">
+  <form method="POST" action="/app/routes/{{.RouteID}}/edit" class="hpg-card space-y-5">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <div>
+      <p class="hpg-eyebrow">Edit route</p>
+      <h2 class="mt-1 text-lg font-semibold text-slate-950 dark:text-white">Update domain mapping</h2>
+      <p class="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">Change the public host, path prefix, or backend port. SSL and DNS state carries over.</p>
+    </div>
+    <div>
+      <label class="hpg-eyebrow block mb-1.5">Service</label>
+      <div class="w-full px-3 py-2 rounded-lg bg-slate-100 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm text-slate-600 dark:text-slate-300">{{.ServiceName}}</div>
+    </div>
+    <div class="grid grid-cols-1 sm:grid-cols-[1fr_10rem] gap-4">
+      <div>
+        <label class="hpg-eyebrow block mb-1.5">Domain</label>
+        <input name="domain" required value="{{.Domain}}" placeholder="app.your-domain.com"
+               class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+      </div>
+      <div>
+        <label class="hpg-eyebrow block mb-1.5">Backend port</label>
+        <input name="upstream_port" type="number" min="1" max="65535" required
+               value="{{.UpstreamPort}}"
+               class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none">
+      </div>
+    </div>
+    <div>
+      <label class="hpg-eyebrow block mb-1.5">Path prefix</label>
+      <input name="path_prefix" value="{{.PathPrefix}}" placeholder="/api"
+             class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+      <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Leave empty to route from the domain root.</p>
+    </div>
+    <div class="grid gap-2 text-sm">
+      <label class="flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-zinc-800/50 px-3 py-2 ring-1 ring-slate-200/70 dark:ring-zinc-700 cursor-pointer">
+        <input type="checkbox" name="websocket" value="1" {{if .WebSocket}}checked{{end}}> <span>Allow WebSocket upgrades</span>
+      </label>
+      <label class="flex items-center gap-2 rounded-lg bg-slate-50 dark:bg-zinc-800/50 px-3 py-2 ring-1 ring-slate-200/70 dark:ring-zinc-700 cursor-pointer">
+        <input type="checkbox" name="force_https" value="1" {{if .ForceHTTPS}}checked{{end}}> <span>Force HTTPS</span>
+      </label>
+    </div>
+    <div class="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
+      <a href="/app/routes" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800">Cancel</a>
+      <button class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">Save changes</button>
+    </div>
+  </form>
+
+  <div class="hpg-card space-y-4">
+    <div>
+      <p class="hpg-eyebrow">Note</p>
+      <h3 class="mt-1 font-semibold text-slate-950 dark:text-white">After saving</h3>
+      <p class="mt-1 text-sm leading-6 text-slate-500 dark:text-slate-400">If you change the domain, update your DNS record and re-check DNS from the routes table.</p>
+    </div>
+    <div class="rounded-xl bg-amber-50 dark:bg-amber-500/10 p-3 ring-1 ring-amber-200/70 dark:ring-amber-500/30">
+      <p class="text-xs leading-5 text-amber-800 dark:text-amber-200">The backend port must stay inside your service's allowed range or the save will be rejected.</p>
+    </div>
+  </div>
+</div>
+{{end}}
