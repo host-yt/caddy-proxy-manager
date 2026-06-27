@@ -101,7 +101,7 @@
     <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-1">Module capabilities</h3>
     <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-3">Which custom Caddy modules are installed on this node</p>
     <div class="flex flex-wrap gap-2">
-      {{if .HasWAF}}
+      {{if .Node.HasWAF}}
         <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           WAF (Coraza)
@@ -111,7 +111,7 @@
           WAF (Coraza)
         </span>
       {{end}}
-      {{if .HasL4}}
+      {{if .Node.HasL4}}
         <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           L4 Streams
@@ -121,7 +121,7 @@
           L4 Streams
         </span>
       {{end}}
-      {{if .HasDNSModule}}
+      {{if .Node.HasDNSModule}}
         <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           DNS-01
@@ -131,7 +131,7 @@
           DNS-01
         </span>
       {{end}}
-      {{if .HasRateLimit}}
+      {{if .Node.HasRateLimit}}
         <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           Rate limit
@@ -141,7 +141,7 @@
           Rate limit
         </span>
       {{end}}
-      {{if .HasGeoIP}}
+      {{if .Node.HasGeoIP}}
         <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
           <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
           GeoIP
@@ -151,12 +151,29 @@
           GeoIP
         </span>
       {{end}}
-      {{if .CaddyVersion}}
+      {{if .Node.CaddyVersion}}
         <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
-          Caddy v{{.CaddyVersion}}
+          Caddy v{{.Node.CaddyVersion}}
         </span>
       {{end}}
     </div>
+    {{if .Node.HasGeoIP}}
+    <div class="mt-3 pt-3 border-t border-slate-100 dark:border-zinc-800 text-xs text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-3">
+      <span class="font-medium text-slate-600 dark:text-slate-300">GeoIP DB:</span>
+      {{if .GeoIPMeta.Available}}
+        <span class="text-emerald-600 dark:text-emerald-400">loaded</span>
+      {{else}}
+        <span class="text-amber-600 dark:text-amber-400">not loaded</span>
+      {{end}}
+      {{if .GeoIPMeta.FetchedAt}}
+        <span>fetched {{.GeoIPMeta.FetchedAt}}</span>
+        {{if .GeoIPMeta.SizeHuman}}<span>{{.GeoIPMeta.SizeHuman}}</span>{{end}}
+        {{if .GeoIPMeta.SHA256Short}}<span class="font-mono">{{.GeoIPMeta.SHA256Short}}…</span>{{end}}
+      {{else}}
+        <span class="text-slate-400">not downloaded yet</span>
+      {{end}}
+    </div>
+    {{end}}
   </section>
 
   <div class="flex items-center gap-3">

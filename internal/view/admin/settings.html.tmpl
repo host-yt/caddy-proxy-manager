@@ -648,13 +648,33 @@
     </form>
 
     <div class="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-700 text-xs text-slate-600 dark:text-slate-300">
-      <p class="mb-2 font-medium text-slate-700 dark:text-slate-200">Current database</p>
+      <div class="flex items-center gap-2 mb-3">
+        <p class="font-medium text-slate-700 dark:text-slate-200">Current database</p>
+        {{if .GeoIP.Available}}
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+            Active
+          </span>
+        {{else}}
+          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
+            Not loaded
+          </span>
+        {{end}}
+      </div>
       {{if .GeoIP.FetchedAt}}
-        <p>Last fetched: {{.GeoIP.FetchedAt}}</p>
-        <p>Size: {{.GeoIP.SizeBytes}} bytes</p>
-        <p class="font-mono break-all">sha256: {{.GeoIP.SHA256}}</p>
+        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
+          <dt class="text-slate-500 dark:text-slate-400">Fetched</dt>
+          <dd>{{.GeoIP.FetchedAt}}</dd>
+          <dt class="text-slate-500 dark:text-slate-400">Size</dt>
+          <dd>{{.GeoIP.SizeHuman}}</dd>
+          <dt class="text-slate-500 dark:text-slate-400">SHA-256</dt>
+          <dd class="font-mono break-all">{{.GeoIP.SHA256Short}}…</dd>
+        </dl>
+        {{if not .GeoIP.Available}}
+          <p class="mt-2 text-amber-600 dark:text-amber-400">File downloaded but not yet loaded - restart the panel or trigger a refresh.</p>
+        {{end}}
       {{else}}
-        <p class="text-slate-500 dark:text-slate-400">No database downloaded yet.</p>
+        <p class="text-slate-500 dark:text-slate-400">No database downloaded yet. Save credentials and click "Refresh database now".</p>
       {{end}}
       {{if .GeoIP.LastError}}
       <div class="mt-2 rounded-lg bg-rose-50 dark:bg-rose-900/20 px-3 py-2">

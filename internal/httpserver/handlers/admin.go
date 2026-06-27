@@ -47,6 +47,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 	"github.com/host-yt/caddy-proxy-manager/internal/webhook"
+	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
 
@@ -2523,10 +2524,13 @@ type geoipView struct {
 	AccountID   string
 	Configured  bool   // both creds present
 	SHA256      string // current DB sha256 ("" if never downloaded)
+	SHA256Short string // first 16 chars of SHA256 for display
 	SizeBytes   int64
+	SizeHuman   string // human-readable size (KB/MB)
 	FetchedAt   string // RFC3339 or "" if never
 	LastError   string // last refresh failure ("" if last attempt ok / none)
 	LastAttempt string // RFC3339 of last attempt or ""
+	Available   bool   // mmdb loaded in memory right now
 }
 
 type oidcView struct {
@@ -2869,6 +2873,17 @@ func (h *AdminHandlers) loadGeoIPView(ctx context.Context, db *sql.DB) geoipView
 		v.LastAttempt = lastAttempt.Time.UTC().Format(time.RFC3339)
 	}
 	v.LastError = lastError.String
+	if len(v.SHA256) >= 16 {
+		v.SHA256Short = v.SHA256[:16]
+	} else {
+		v.SHA256Short = v.SHA256
+	}
+	if v.SizeBytes >= 1<<20 {
+		v.SizeHuman = fmt.Sprintf("%.1f MB", float64(v.SizeBytes)/float64(1<<20))
+	} else if v.SizeBytes > 0 {
+		v.SizeHuman = fmt.Sprintf("%.1f KB", float64(v.SizeBytes)/float64(1<<10))
+	}
+	v.Available = geoip.Global().Available()
 	return v
 }
 
