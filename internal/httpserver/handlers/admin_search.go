@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 )
 
 // SearchResult is a single command-palette hit.
 type SearchResult struct {
-	Kind  string `json:"kind"`  // "host" | "client" | "node" | "tunnel"
+	Kind  string `json:"kind"`  // "host" | "client" | "node" | "tunnel" | "service" | "api_key"
 	Label string `json:"label"` // display text
 	Sub   string `json:"sub"`   // secondary (email, status, etc.)
 	URL   string `json:"url"`   // navigation target
@@ -37,7 +39,7 @@ func (h *AdminHandlers) AdminSearch(w http.ResponseWriter, r *http.Request) {
 
 	var results []SearchResult
 
-	// hosts
+	// hosts - pre-filter list by domain
 	rows, err := db.QueryContext(ctx,
 		`SELECT domain, status FROM routes WHERE domain LIKE ? ORDER BY id DESC LIMIT ?`,
 		like, limit)
@@ -47,13 +49,14 @@ func (h *AdminHandlers) AdminSearch(w http.ResponseWriter, r *http.Request) {
 			var domain, status string
 			if rows.Scan(&domain, &status) == nil {
 				results = append(results, SearchResult{
-					Kind: "host", Label: domain, Sub: status, URL: "/admin/hosts",
+					Kind: "host", Label: domain, Sub: status,
+					URL: "/admin/hosts?q=" + url.QueryEscape(domain),
 				})
 			}
 		}
 	}
 
-	// clients (display_name or email match)
+	// clients - link to detail page
 	rows2, err := db.QueryContext(ctx,
 		`SELECT c.id, COALESCE(c.display_name, u.email), u.email
 		 FROM clients c JOIN users u ON u.id = c.user_id
@@ -67,13 +70,14 @@ func (h *AdminHandlers) AdminSearch(w http.ResponseWriter, r *http.Request) {
 			var name, email string
 			if rows2.Scan(&id, &name, &email) == nil {
 				results = append(results, SearchResult{
-					Kind: "client", Label: name, Sub: email, URL: "/admin/clients",
+					Kind: "client", Label: name, Sub: email,
+					URL: "/admin/clients/" + strconv.FormatInt(id, 10),
 				})
 			}
 		}
 	}
 
-	// caddy nodes
+	// caddy nodes - list (no individual node page)
 	rows3, err := db.QueryContext(ctx,
 		`SELECT id, name, health_status FROM caddy_nodes WHERE name LIKE ? ORDER BY id DESC LIMIT ?`,
 		like, limit)
@@ -107,6 +111,43 @@ func (h *AdminHandlers) AdminSearch(w http.ResponseWriter, r *http.Request) {
 			if rows4.Scan(&id, &name, &email) == nil {
 				results = append(results, SearchResult{
 					Kind: "tunnel", Label: name, Sub: email, URL: "/admin/tunnels",
+				})
+			}
+		}
+	}
+
+	// services - pre-filter list by name
+	rows5, err := db.QueryContext(ctx,
+		`SELECT s.id, s.name, s.backend_ip, s.status FROM services s
+		 WHERE s.name LIKE ? OR s.backend_ip LIKE ? ORDER BY s.id DESC LIMIT ?`,
+		like, like, limit)
+	if err == nil {
+		defer rows5.Close()
+		for rows5.Next() {
+			var id int64
+			var name, backendIP, status string
+			if rows5.Scan(&id, &name, &backendIP, &status) == nil {
+				results = append(results, SearchResult{
+					Kind: "service", Label: name, Sub: backendIP + " - " + status,
+					URL: "/admin/services?q=" + url.QueryEscape(name),
+				})
+			}
+		}
+	}
+
+	// api keys - name or prefix match
+	rows6, err := db.QueryContext(ctx,
+		`SELECT id, name, key_prefix FROM api_keys
+		 WHERE name LIKE ? OR key_prefix LIKE ? LIMIT ?`,
+		like, like, limit)
+	if err == nil {
+		defer rows6.Close()
+		for rows6.Next() {
+			var id int64
+			var name, prefix string
+			if rows6.Scan(&id, &name, &prefix) == nil {
+				results = append(results, SearchResult{
+					Kind: "api_key", Label: name, Sub: prefix + "...", URL: "/admin/api-keys",
 				})
 			}
 		}
