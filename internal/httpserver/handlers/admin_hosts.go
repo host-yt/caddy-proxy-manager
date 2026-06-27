@@ -2463,6 +2463,26 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	outboundIP := strings.TrimSpace(r.FormValue("outbound_ip"))
 	// Plan gate: check whether the plan allows non-default egress.
 	editPath := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
+	// Hard block: reject save when a module-gated feature is on but the node lacks the Caddy module.
+	{
+		var hasWAF, hasGeoIP, hasRateLimit bool
+		_ = h.DB().QueryRowContext(r.Context(),
+			`SELECT COALESCE(n.has_waf,0), COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0)
+			   FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id WHERE r.id = ?`, id,
+		).Scan(&hasWAF, &hasGeoIP, &hasRateLimit)
+		if wafEnabled && !hasWAF {
+			redirectWithFlash(w, r, editPath, "", "WAF: node Caddy build lacks WAF module")
+			return
+		}
+		if geoMode != "off" && !hasGeoIP {
+			redirectWithFlash(w, r, editPath, "", "GeoIP: node Caddy build lacks GeoIP module")
+			return
+		}
+		if rateEnabled && !hasRateLimit {
+			redirectWithFlash(w, r, editPath, "", "rate limit: node Caddy build lacks rate_limit module")
+			return
+		}
+	}
 	if outboundIPMode != "default" {
 		var planAllowEgress bool
 		_ = h.DB().QueryRowContext(r.Context(),
