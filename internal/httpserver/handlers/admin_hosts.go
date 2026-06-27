@@ -1427,6 +1427,12 @@ type hostEditData struct {
 	GeoMode            string
 	GeoCountries       string
 	GeoModuleAvailable bool
+	// Per-node capability flags from caddy_nodes.has_* columns.
+	// Warn in UI when a module is enabled on a node that lacks it.
+	NodeHasWAF      bool
+	NodeHasL4       bool
+	NodeHasGeoIP    bool
+	NodeHasRateLimit bool
 	// GeoIPAvailable reflects whether the runtime GeoIP database is loaded.
 	GeoIPAvailable bool
 
@@ -1572,7 +1578,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(r.dns_resolver_via_wg_peer_id,0),
 	        COALESCE(r.dns_address_family,'any'),
-	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0)
+	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0),
+		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0), COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0)
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
@@ -1605,7 +1612,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.ErrorOverride, &d.ErrorHTML, &d.ErrorLogoURL, &d.ErrorBrand, &d.ErrorBgColor,
 		&d.OutboundIPMode, &d.OutboundIP,
 		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily,
-		&d.RequireClientCert, &d.MTLSCAID)
+		&d.RequireClientCert, &d.MTLSCAID,
+		&d.NodeHasWAF, &d.NodeHasL4, &d.NodeHasGeoIP, &d.NodeHasRateLimit)
 	if err != nil {
 		d.Error = "host not found"
 		h.render(w, "hosts_edit", d)
