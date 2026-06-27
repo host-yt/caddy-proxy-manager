@@ -61,7 +61,7 @@ type trafficHostOption struct {
 type worldmapData struct {
 	baseAdminData
 	Countries      []*trafficCountryEntry // countries with traffic, sorted by count desc
-	CountryJSON    string                 // {"DE":1234} for JS heatmap coloring
+	CountryJSON    template.JS            // {"DE":1234} raw JS object for heatmap (template.JS, else escaped to a string)
 	MaxCount       int64                  // largest single-country count, for bar scaling
 	TotalRequests  int64                  // grand total across all resolved + unknown
 	UnknownCount   int64                  // requests from private/unresolvable IPs
@@ -232,7 +232,7 @@ func fillWorldmapData(d *worldmapData, agg trafficAgg) {
 		d.UnknownPercent = float64(agg.unknown) / float64(agg.total) * 100
 	}
 	d.MaxCount, d.Countries = rankTrafficCountries(agg)
-	d.CountryJSON = buildTrafficJSON(agg.byCountry)
+	d.CountryJSON = template.JS(buildTrafficJSON(agg.byCountry))
 }
 
 // rankTrafficCountries turns a country->count map into a slice sorted by count
