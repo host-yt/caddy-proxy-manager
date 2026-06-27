@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -143,6 +144,11 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 		 WHERE s.client_id = ? AND l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)`, id,
 	).Scan(&d.BandwidthBytes7d)
 
+	// Load admin notes; ignore errors if column not yet migrated.
+	var notes sql.NullString
+	_ = db.QueryRowContext(ctx, "SELECT COALESCE(notes,'') FROM clients WHERE id=?", id).Scan(&notes)
+	d.Notes = notes.String
+
 	h.render(w, "client_detail", d)
 }
 
@@ -157,14 +163,39 @@ type clientDetailServiceRow struct {
 
 type clientDetailData struct {
 	baseAdminData
-	ID              int64
-	DisplayName     string
-	Email           string
-	StatusSlug      string // empty if not yet generated
-	StatusURL       string // e.g. /status/abcdef...
-	ShowTraffic     bool
-	Services        []clientDetailServiceRow
-	TotalRoutes     int
-	ActiveRoutes    int
-	BandwidthBytes7d int64 // last 7 days from host_access_log
+	ID               int64
+	DisplayName      string
+	Email            string
+	StatusSlug       string // empty if not yet generated
+	StatusURL        string // e.g. /status/abcdef...
+	ShowTraffic      bool
+	Services         []clientDetailServiceRow
+	TotalRoutes      int
+	ActiveRoutes     int
+	BandwidthBytes7d int64  // last 7 days from host_access_log
+	Notes            string // admin-only internal notes
+}
+
+// ClientsUpdateNotes saves admin-only notes for a client (POST /admin/clients/{id}/notes).
+func (h *AdminHandlers) ClientsUpdateNotes(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	_ = r.ParseForm()
+	notes := strings.TrimSpace(r.FormValue("notes"))
+	if len(notes) > 10000 {
+		notes = notes[:10000]
+	}
+	db := h.DB()
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	_, err := db.ExecContext(ctx, "UPDATE clients SET notes=? WHERE id=?",
+		sql.NullString{String: notes, Valid: notes != ""}, id)
+	if err != nil {
+		redirectWithFlash(w, r, fmt.Sprintf("/admin/clients/%d", id), "", "save failed: "+sanitizeErr(err))
+		return
+	}
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
+		Action: "admin.client.notes.update", Entity: "client", EntityID: itoa64(id),
+	})
+	redirectWithFlash(w, r, fmt.Sprintf("/admin/clients/%d", id), "Notes saved", "")
 }

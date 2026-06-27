@@ -427,6 +427,7 @@ func (s *Server) routes() {
 			r.Post("/{id}/status-slug/generate", s.deps.Admin.ClientsStatusSlugGenerate)
 			r.Post("/{id}/status-slug/revoke", s.deps.Admin.ClientsStatusSlugRevoke)
 			r.Post("/{id}/status-slug/toggle-traffic", s.deps.Admin.ClientsStatusToggleTraffic)
+			r.Post("/{id}/notes", s.deps.Admin.ClientsUpdateNotes)
 		})
 		r.Route("/services", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.ServicesList)
