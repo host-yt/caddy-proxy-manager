@@ -131,6 +131,12 @@
                   <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-700 dark:text-slate-200 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer">{{if .IsActive}}Disable{{else}}Enable{{end}}</button>
                 </form>
                 {{end}}
+                {{if and $.CanManageScopes .TOTPEnabled .CanToggle}}
+                <form class="inline" method="POST" action="/admin/users/{{.ID}}/reset-2fa" data-confirm="Reset 2FA for {{.Email}}? This clears TOTP, SMS, and email OTP.">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-amber-700 dark:text-amber-300 ring-1 ring-amber-200 dark:ring-amber-500/30 hover:bg-amber-50 dark:hover:bg-amber-500/10 cursor-pointer">Reset 2FA</button>
+                </form>
+                {{end}}
                 {{if .CanDelete}}
                 <form class="inline" method="POST" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Email}}? This is permanent.">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
