@@ -138,12 +138,10 @@ docs/                   all the docs you'll find linked below
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the pieces talk |
 | [`docs/API.md`](docs/API.md) | REST API v1 contract |
 | [`docs/SPEC.md`](docs/SPEC.md) | Functional specification |
-| [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model |
-| [`docs/SECURITY_REVIEW_2.md`](docs/SECURITY_REVIEW_2.md) | Latest internal audit |
-| [`docs/PERFORMANCE_REVIEW.md`](docs/PERFORMANCE_REVIEW.md) | Latency / index coverage |
-| [`docs/PENTEST_REPORT.md`](docs/PENTEST_REPORT.md) | Live probe results |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model and security model |
+| [`docs/ROADMAP.md`](docs/ROADMAP.md) | Shipped features and planned work |
+| [`docs/FEATURE_MATRIX.md`](docs/FEATURE_MATRIX.md) | HPG vs alternatives comparison |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Common issues + fixes |
-| [`docs/RAPORT_FINAL.md`](docs/RAPORT_FINAL.md) | Session-end summary (Polish) |
 | [`CHANGELOG.md`](CHANGELOG.md) | Notable changes |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to develop / submit changes |
 | [`SECURITY.md`](SECURITY.md) | Reporting vulnerabilities |
