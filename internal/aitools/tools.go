@@ -1249,21 +1249,23 @@ func (r *Registry) listPlans(ctx context.Context, raw json.RawMessage) (string, 
 		return `{"error":"db unavailable"}`, nil
 	}
 	type plan struct {
-		ID               int64  `json:"id"`
-		Name             string `json:"name"`
-		MaxDomains       int    `json:"max_domains"`
-		MaxPorts         int    `json:"max_ports"`
-		SSL              bool   `json:"ssl_enabled"`
-		Websocket        bool   `json:"websocket_enabled"`
-		PathRouting      bool   `json:"path_routing_enabled"`
-		Wildcard         bool   `json:"wildcard_enabled"`
-		RateLimitRPM     int    `json:"rate_limit_rpm,omitempty"`
-		NodeGroup        string `json:"node_group"`
+		ID           int64  `json:"id"`
+		Name         string `json:"name"`
+		MaxDomains   int    `json:"max_domains"`
+		MaxPorts     int    `json:"max_ports"`
+		SSL          bool   `json:"ssl_enabled"`
+		Websocket    bool   `json:"websocket_enabled"`
+		PathRouting  bool   `json:"path_routing_enabled"`
+		Wildcard     bool   `json:"wildcard_enabled"`
+		RateLimitRPM int    `json:"rate_limit_rpm,omitempty"`
+		NodeGroup    string `json:"node_group"`
+		ClientCount  int    `json:"client_count"`
 	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT p.id, p.name, p.max_domains, p.max_ports,
 		        p.ssl_enabled, p.websocket_enabled, p.path_routing_enabled, p.wildcard_enabled,
-		        COALESCE(p.rate_limit_rpm,0), ng.name
+		        COALESCE(p.rate_limit_rpm,0), ng.name,
+		        (SELECT COUNT(*) FROM clients c WHERE c.plan_id = p.id)
 		 FROM plans p JOIN node_groups ng ON ng.id = p.node_group_id
 		 ORDER BY p.name LIMIT ?`, limit)
 	if err != nil {
@@ -1275,7 +1277,7 @@ func (r *Registry) listPlans(ctx context.Context, raw json.RawMessage) (string, 
 		var p plan
 		if rows.Scan(&p.ID, &p.Name, &p.MaxDomains, &p.MaxPorts,
 			&p.SSL, &p.Websocket, &p.PathRouting, &p.Wildcard,
-			&p.RateLimitRPM, &p.NodeGroup) == nil {
+			&p.RateLimitRPM, &p.NodeGroup, &p.ClientCount) == nil {
 			out = append(out, p)
 		}
 	}
