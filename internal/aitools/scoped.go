@@ -425,6 +425,107 @@ func (r *Registry) wafEventsScoped(ctx context.Context, scope Scope, raw json.Ra
 	return toJSON(map[string]any{"window_hours": hours, "count": len(out), "events": out})
 }
 
+// auditLogScoped returns audit events for the caller's own user account.
+func (r *Registry) auditLogScoped(ctx context.Context, scope Scope, raw json.RawMessage) (string, error) {
+	var a struct {
+		Limit int `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 50, 200)
+	in, idArgs, ok := inPlaceholders(scope.ClientIDs)
+	if !ok {
+		return emptyResult("entries")
+	}
+	q := `SELECT DATE_FORMAT(al.created_at,'%Y-%m-%dT%H:%i:%sZ'), al.action, al.entity, COALESCE(al.entity_id,''), COALESCE(al.ip,'')
+	      FROM audit_log al
+	      WHERE al.user_id IN (SELECT user_id FROM clients WHERE id IN ` + in + `)
+	      ORDER BY al.created_at DESC LIMIT ?`
+	args := append(idArgs, limit)
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type entry struct {
+		At       string `json:"at"`
+		Action   string `json:"action"`
+		Entity   string `json:"entity"`
+		EntityID string `json:"entity_id,omitempty"`
+		IP       string `json:"ip,omitempty"`
+	}
+	out := make([]entry, 0, limit)
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.At, &e.Action, &e.Entity, &e.EntityID, &e.IP); err != nil {
+			return "", err
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"count": len(out), "entries": out})
+}
+
+// listWGPeersScoped returns WireGuard peers owned by the caller's client accounts.
+func (r *Registry) listWGPeersScoped(ctx context.Context, scope Scope, raw json.RawMessage) (string, error) {
+	var a struct {
+		Status string `json:"status"`
+		Limit  int    `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 50, 200)
+	in, idArgs, ok := inPlaceholders(scope.ClientIDs)
+	if !ok {
+		return emptyResult("peers")
+	}
+	q := `SELECT p.name, p.status, p.assigned_ip,
+	             COALESCE(DATE_FORMAT(p.last_handshake_at,'%Y-%m-%dT%H:%i:%sZ'),''),
+	             TIMESTAMPDIFF(SECOND, p.last_handshake_at, NOW()),
+	             p.rx_bytes, p.tx_bytes, COALESCE(n.name,'')
+	      FROM customer_wg_peer p
+	      LEFT JOIN caddy_nodes n ON n.id = p.node_id
+	      WHERE p.client_id IN ` + in
+	args := idArgs
+	if a.Status != "" {
+		q += " AND p.status = ?"
+		args = append(args, a.Status)
+	}
+	q += " ORDER BY p.last_handshake_at DESC, p.id DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type peer struct {
+		Name            string `json:"name"`
+		Status          string `json:"status"`
+		AssignedIP      string `json:"assigned_ip"`
+		LastHandshake   string `json:"last_handshake,omitempty"`
+		HandshakeAgeSec int64  `json:"handshake_age_sec,omitempty"`
+		RxBytes         int64  `json:"rx_bytes"`
+		TxBytes         int64  `json:"tx_bytes"`
+		NodeName        string `json:"node,omitempty"`
+	}
+	out := make([]peer, 0, limit)
+	for rows.Next() {
+		var p peer
+		var ageSec sql.NullInt64
+		if err := rows.Scan(&p.Name, &p.Status, &p.AssignedIP, &p.LastHandshake, &ageSec, &p.RxBytes, &p.TxBytes, &p.NodeName); err != nil {
+			return "", err
+		}
+		if ageSec.Valid {
+			p.HandshakeAgeSec = ageSec.Int64
+		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"count": len(out), "peers": out})
+}
+
 // scanCountHitsArgs runs a value+count query with an arbitrary arg list.
 func scanCountHitsArgs(ctx context.Context, db *sql.DB, q string, args []any) ([]countHit, error) {
 	rows, err := db.QueryContext(ctx, q, args...)
