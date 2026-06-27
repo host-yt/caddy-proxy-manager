@@ -18,7 +18,7 @@
 </div>
 {{end}}
 
-<!-- Filters: host selector + time range. Both navigate (GET) preserving the other. -->
+<!-- Filters: host selector + time range -->
 <div class="hpg-card flex flex-wrap items-end gap-4">
   <div class="min-w-[220px] flex-1">
     <label for="wm-host" class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Host</label>
@@ -49,7 +49,6 @@
         &middot; {{len .Countries}} countr{{if eq (len .Countries) 1}}y{{else}}ies{{end}}
       </p>
     </div>
-    <!-- Heatmap legend: low -> high request volume -->
     <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
       <span>Fewer</span>
       <span class="inline-block w-4 h-3 rounded-sm" style="background:#e0e7ff"></span>
@@ -61,14 +60,19 @@
     </div>
   </div>
 
-  <!-- Inline SVG: CSP sets object-src 'none', so <object>/<embed> are blocked -->
   <div class="relative bg-slate-50 dark:bg-zinc-900 select-none overflow-hidden" id="worldmap-wrap">
     {{if .WorldSVG}}
     <div id="worldmap-inner" class="w-full">{{.WorldSVG}}</div>
     {{else}}
     <div class="py-16 text-center text-sm text-slate-400 dark:text-slate-500">World map asset not available.</div>
     {{end}}
-    <!-- Tooltip positioned via JS -->
+    <!-- Reset zoom button - shown when zoomed in -->
+    <button id="wm-zoom-reset" style="display:none"
+      class="absolute top-3 right-3 z-10 flex items-center gap-1.5 rounded-md bg-white/90 dark:bg-zinc-800/90 backdrop-blur px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 shadow cursor-pointer hover:bg-white dark:hover:bg-zinc-800 transition-colors">
+      <svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="m15 9-6 6M9 9l6 6"/></svg>
+      Reset zoom
+    </button>
+    <p class="absolute bottom-2 left-0 right-0 text-center text-[10px] text-slate-400/60 dark:text-slate-600/60 pointer-events-none select-none">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</p>
     <div id="wm-tooltip"
          class="pointer-events-none absolute z-20 hidden rounded-lg bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 shadow-lg shadow-slate-900/10 px-3 py-2 text-xs text-slate-700 dark:text-slate-200 min-w-[140px]">
       <p id="wm-tt-name" class="font-semibold text-sm text-slate-900 dark:text-white mb-0.5"></p>
@@ -78,7 +82,7 @@
   </div>
 </div>
 
-<!-- Totals + ranked country table -->
+<!-- Ranked country table -->
 <div class="hpg-card">
   <div class="flex flex-wrap items-baseline justify-between gap-2 mb-4">
     <p class="hpg-eyebrow">Countries by request volume</p>
@@ -123,12 +127,9 @@
 
 <script nonce="{{.CSPNonce}}">
 (function(){
-  // Server-rendered JSON maps ISO2 -> request count for this window/host.
   var counts = {{.CountryJSON}};
   var total  = {{.TotalRequests}};
 
-  // Filters reload the page; preserve the unrelated param each time.
-  var params = new URLSearchParams(window.location.search);
   var hostSel = document.getElementById('wm-host');
   if (hostSel) {
     hostSel.addEventListener('change', function(){
@@ -145,20 +146,20 @@
     });
   });
 
-  var countryNames = {"AE":"UAE","AF":"Afghanistan","AL":"Albania","AM":"Armenia","AO":"Angola","AR":"Argentina","AT":"Austria","AU":"Australia","AZ":"Azerbaijan","BA":"Bosnia","BD":"Bangladesh","BE":"Belgium","BF":"Burkina Faso","BG":"Bulgaria","BI":"Burundi","BJ":"Benin","BN":"Brunei","BO":"Bolivia","BR":"Brazil","BT":"Bhutan","BW":"Botswana","BY":"Belarus","BZ":"Belize","CA":"Canada","CD":"DR Congo","CF":"CAR","CG":"Congo","CH":"Switzerland","CI":"Ivory Coast","CL":"Chile","CM":"Cameroon","CN":"China","CO":"Colombia","CR":"Costa Rica","CU":"Cuba","CY":"Cyprus","CZ":"Czech Republic","DE":"Germany","DJ":"Djibouti","DK":"Denmark","DO":"Dominican Rep.","DZ":"Algeria","EC":"Ecuador","EE":"Estonia","EG":"Egypt","EH":"W. Sahara","ER":"Eritrea","ES":"Spain","ET":"Ethiopia","FI":"Finland","FJ":"Fiji","FR":"France","GA":"Gabon","GB":"United Kingdom","GE":"Georgia","GH":"Ghana","GL":"Greenland","GN":"Guinea","GQ":"Eq. Guinea","GR":"Greece","GT":"Guatemala","GW":"Guinea-Bissau","GY":"Guyana","HN":"Honduras","HR":"Croatia","HT":"Haiti","HU":"Hungary","ID":"Indonesia","IE":"Ireland","IL":"Israel","IN":"India","IQ":"Iraq","IR":"Iran","IS":"Iceland","IT":"Italy","JO":"Jordan","JP":"Japan","KE":"Kenya","KG":"Kyrgyzstan","KH":"Cambodia","KP":"North Korea","KR":"South Korea","KW":"Kuwait","KZ":"Kazakhstan","LA":"Laos","LB":"Lebanon","LK":"Sri Lanka","LR":"Liberia","LS":"Lesotho","LT":"Lithuania","LV":"Latvia","LY":"Libya","MA":"Morocco","MD":"Moldova","ME":"Montenegro","MG":"Madagascar","MK":"North Macedonia","ML":"Mali","MM":"Myanmar","MN":"Mongolia","MR":"Mauritania","MW":"Malawi","MX":"Mexico","MY":"Malaysia","MZ":"Mozambique","NA":"Namibia","NC":"New Caledonia","NE":"Niger","NG":"Nigeria","NI":"Nicaragua","NL":"Netherlands","NO":"Norway","NP":"Nepal","NZ":"New Zealand","OM":"Oman","PA":"Panama","PE":"Peru","PG":"Papua New Guinea","PH":"Philippines","PK":"Pakistan","PL":"Poland","PR":"Puerto Rico","PS":"Palestine","PT":"Portugal","PY":"Paraguay","QA":"Qatar","RO":"Romania","RS":"Serbia","RU":"Russia","RW":"Rwanda","SA":"Saudi Arabia","SD":"Sudan","SE":"Sweden","SI":"Slovenia","SK":"Slovakia","SL":"Sierra Leone","SN":"Senegal","SO":"Somalia","SR":"Suriname","SS":"South Sudan","SV":"El Salvador","SY":"Syria","SZ":"Eswatini","TD":"Chad","TF":"Fr. South Territories","TG":"Togo","TH":"Thailand","TJ":"Tajikistan","TL":"Timor-Leste","TM":"Turkmenistan","TN":"Tunisia","TR":"Turkey","TW":"Taiwan","TZ":"Tanzania","UA":"Ukraine","UG":"Uganda","US":"United States","UY":"Uruguay","UZ":"Uzbekistan","VE":"Venezuela","VN":"Vietnam","YE":"Yemen","ZA":"South Africa","ZM":"Zambia","ZW":"Zimbabwe","SG":"Singapore","HK":"Hong Kong","LU":"Luxembourg"};
+  var countryNames = {"AE":"UAE","AF":"Afghanistan","AL":"Albania","AM":"Armenia","AO":"Angola","AR":"Argentina","AT":"Austria","AU":"Australia","AZ":"Azerbaijan","BA":"Bosnia","BD":"Bangladesh","BE":"Belgium","BF":"Burkina Faso","BG":"Bulgaria","BI":"Burundi","BJ":"Benin","BN":"Brunei","BO":"Bolivia","BR":"Brazil","BT":"Bhutan","BW":"Botswana","BY":"Belarus","BZ":"Belize","CA":"Canada","CD":"DR Congo","CF":"CAR","CG":"Congo","CH":"Switzerland","CI":"Ivory Coast","CL":"Chile","CM":"Cameroon","CN":"China","CO":"Colombia","CR":"Costa Rica","CU":"Cuba","CY":"Cyprus","CZ":"Czech Republic","DE":"Germany","DJ":"Djibouti","DK":"Denmark","DO":"Dominican Rep.","DZ":"Algeria","EC":"Ecuador","EE":"Estonia","EG":"Egypt","EH":"W. Sahara","ER":"Eritrea","ES":"Spain","ET":"Ethiopia","FI":"Finland","FJ":"Fiji","FR":"France","GA":"Gabon","GB":"United Kingdom","GE":"Georgia","GH":"Ghana","GL":"Greenland","GN":"Guinea","GQ":"Eq. Guinea","GR":"Greece","GT":"Guatemala","GW":"Guinea-Bissau","GY":"Guyana","HN":"Honduras","HR":"Croatia","HT":"Haiti","HU":"Hungary","ID":"Indonesia","IE":"Ireland","IL":"Israel","IN":"India","IQ":"Iraq","IR":"Iran","IS":"Iceland","IT":"Italy","JO":"Jordan","JP":"Japan","KE":"Kenya","KG":"Kyrgyzstan","KH":"Cambodia","KP":"North Korea","KR":"South Korea","KW":"Kuwait","KZ":"Kazakhstan","LA":"Laos","LB":"Lebanon","LK":"Sri Lanka","LR":"Liberia","LS":"Lesotho","LT":"Lithuania","LV":"Latvia","LY":"Libya","MA":"Morocco","MD":"Moldova","ME":"Montenegro","MG":"Madagascar","MK":"North Macedonia","ML":"Mali","MM":"Myanmar","MN":"Mongolia","MR":"Mauritania","MW":"Malawi","MX":"Mexico","MY":"Malaysia","MZ":"Mozambique","NA":"Namibia","NC":"New Caledonia","NE":"Niger","NG":"Nigeria","NI":"Nicaragua","NL":"Netherlands","NO":"Norway","NP":"Nepal","NZ":"New Zealand","OM":"Oman","PA":"Panama","PE":"Peru","PG":"Papua New Guinea","PH":"Philippines","PK":"Pakistan","PL":"Poland","PR":"Puerto Rico","PS":"Palestine","PT":"Portugal","PY":"Paraguay","QA":"Qatar","RO":"Romania","RS":"Serbia","RU":"Russia","RW":"Rwanda","SA":"Saudi Arabia","SD":"Sudan","SE":"Sweden","SI":"Slovenia","SK":"Slovakia","SL":"Sierra Leone","SN":"Senegal","SO":"Somalia","SR":"Suriname","SS":"South Sudan","SV":"El Salvador","SY":"Syria","SZ":"Eswatini","TD":"Chad","TF":"Fr. South Territories","TG":"Togo","TH":"Thailand","TJ":"Tajikistan","TL":"Timor-Leste","TM":"Turkmenistan","TN":"Tunisia","TR":"Turkey","TW":"Taiwan","TZ":"Tanzania","UA":"Ukraine","UG":"Uganda","US":"United States","UY":"Uruguay","UZ":"Uzbekistan","VE":"Venezuela","VN":"Vietnam","YE":"Yemen","ZA":"South Africa","ZM":"Zambia","ZW":"Zimbabwe","SG":"Singapore","HK":"Hong Kong","LU":"Luxembourg","MT":"Malta","LI":"Liechtenstein","AD":"Andorra","MC":"Monaco","SM":"San Marino","MV":"Maldives","BB":"Barbados","JM":"Jamaica","TT":"Trinidad & Tobago","BS":"Bahamas"};
 
-  // 5-bucket single-hue indigo ramp; works on light + dark backgrounds.
   var ramp = ['#e0e7ff','#a5b4fc','#6366f1','#4338ca','#312e81'];
-  var neutral = '#e2e8f0';
   var max = 0;
   Object.keys(counts).forEach(function(k){ if (counts[k] > max) max = counts[k]; });
 
-  function bucketColor(v){
-    if (!v || max <= 0) return neutral;
-    var r = v / max;            // normalize against busiest country
-    var idx = Math.ceil(r * ramp.length) - 1;
-    if (idx < 0) idx = 0; if (idx >= ramp.length) idx = ramp.length - 1;
-    return ramp[idx];
+  function isDark() { return document.documentElement.classList.contains('dark'); }
+  function getNeutral() { return isDark() ? '#3f3f46' : '#e2e8f0'; }
+  function getStroke()  { return isDark() ? '#18181b' : '#ffffff'; }
+
+  function bucketColor(v) {
+    if (!v || max <= 0) return getNeutral();
+    var idx = Math.ceil(v / max * ramp.length) - 1;
+    return ramp[Math.max(0, Math.min(idx, ramp.length - 1))];
   }
 
   var wrap    = document.getElementById('worldmap-wrap');
@@ -167,51 +168,184 @@
   var ttName  = document.getElementById('wm-tt-name');
   var ttCount = document.getElementById('wm-tt-count');
   var ttPct   = document.getElementById('wm-tt-pct');
+  var resetBtn = document.getElementById('wm-zoom-reset');
+
+  // Zoom/pan state
+  var origVB = null, curVB = null;
+  var panning = false, panSX = 0, panSY = 0, panVBX = 0, panVBY = 0;
+
+  // Hover state - tracked explicitly to avoid stuck highlights
+  var activePath = null;
+
+  function setActive(path, on) {
+    if (!path) return;
+    var v = counts[path.getAttribute('id')] || 0;
+    if (on) {
+      path.setAttribute('stroke', '#4338ca');
+      path.setAttribute('stroke-width', '1.5');
+      path.style.filter = 'brightness(1.12)';
+    } else {
+      path.setAttribute('fill', bucketColor(v));
+      path.setAttribute('stroke', getStroke());
+      path.setAttribute('stroke-width', '0.4');
+      path.style.filter = '';
+    }
+  }
+
+  function clampVB() {
+    if (curVB.w > origVB.w) { curVB.w = origVB.w; curVB.h = origVB.h; }
+    curVB.x = Math.max(origVB.x, Math.min(origVB.x + origVB.w - curVB.w, curVB.x));
+    curVB.y = Math.max(origVB.y, Math.min(origVB.y + origVB.h - curVB.h, curVB.y));
+  }
+
+  function applyVB(svgEl) {
+    svgEl.setAttribute('viewBox', curVB.x + ' ' + curVB.y + ' ' + curVB.w + ' ' + curVB.h);
+    if (resetBtn) resetBtn.style.display = (Math.abs(curVB.w - origVB.w) > 1) ? 'flex' : 'none';
+  }
+
+  function resetZoom(svgEl) {
+    curVB.x = origVB.x; curVB.y = origVB.y; curVB.w = origVB.w; curVB.h = origVB.h;
+    applyVB(svgEl);
+  }
+
+  function initZoom(svgEl) {
+    var parts = (svgEl.getAttribute('viewBox') || '').split(/[\s,]+/).map(Number);
+    if (parts.length < 4 || parts.some(isNaN)) return;
+    origVB = {x: parts[0], y: parts[1], w: parts[2], h: parts[3]};
+    curVB  = {x: origVB.x, y: origVB.y, w: origVB.w, h: origVB.h};
+    svgEl.style.cursor = 'grab';
+
+    if (resetBtn) {
+      resetBtn.addEventListener('click', function() { resetZoom(svgEl); });
+    }
+
+    svgEl.addEventListener('wheel', function(e) {
+      e.preventDefault();
+      var rect = svgEl.getBoundingClientRect();
+      var mx = curVB.x + (e.clientX - rect.left) / rect.width  * curVB.w;
+      var my = curVB.y + (e.clientY - rect.top)  / rect.height * curVB.h;
+      var factor = e.deltaY < 0 ? 0.75 : 1.33;
+      var nw = Math.max(origVB.w / 12, Math.min(origVB.w, curVB.w * factor));
+      var nh = origVB.h / origVB.w * nw;
+      curVB.x = mx - (e.clientX - rect.left) / rect.width  * nw;
+      curVB.y = my - (e.clientY - rect.top)  / rect.height * nh;
+      curVB.w = nw; curVB.h = nh;
+      clampVB();
+      applyVB(svgEl);
+    }, {passive: false});
+
+    svgEl.addEventListener('mousedown', function(e) {
+      if (e.button !== 0) return;
+      panning = true;
+      panSX = e.clientX; panSY = e.clientY;
+      panVBX = curVB.x;  panVBY = curVB.y;
+      svgEl.style.cursor = 'grabbing';
+      // Suppress country hover events during drag
+      svgEl.style.pointerEvents = 'none';
+      e.preventDefault();
+    });
+
+    window.addEventListener('mousemove', function(e) {
+      if (!panning) return;
+      var rect = svgEl.getBoundingClientRect();
+      curVB.x = panVBX + (panSX - e.clientX) / rect.width  * curVB.w;
+      curVB.y = panVBY + (panSY - e.clientY) / rect.height * curVB.h;
+      clampVB();
+      applyVB(svgEl);
+    });
+
+    window.addEventListener('mouseup', function() {
+      if (!panning) return;
+      panning = false;
+      svgEl.style.cursor = 'grab';
+      svgEl.style.pointerEvents = '';
+      if (activePath) { setActive(activePath, false); activePath = null; }
+      onLeave();
+    });
+
+    svgEl.addEventListener('dblclick', function() { resetZoom(svgEl); });
+
+    // Touch: single-finger pan
+    svgEl.addEventListener('touchstart', function(e) {
+      if (e.touches.length !== 1) return;
+      panning = true;
+      panSX = e.touches[0].clientX; panSY = e.touches[0].clientY;
+      panVBX = curVB.x; panVBY = curVB.y;
+      e.preventDefault();
+    }, {passive: false});
+    svgEl.addEventListener('touchmove', function(e) {
+      if (!panning || e.touches.length !== 1) return;
+      var rect = svgEl.getBoundingClientRect();
+      curVB.x = panVBX + (panSX - e.touches[0].clientX) / rect.width  * curVB.w;
+      curVB.y = panVBY + (panSY - e.touches[0].clientY) / rect.height * curVB.h;
+      clampVB();
+      applyVB(svgEl);
+      e.preventDefault();
+    }, {passive: false});
+    svgEl.addEventListener('touchend', function() { panning = false; });
+  }
 
   function colorMap() {
     var svgEl = wrap.querySelector('svg');
     if (!svgEl) return;
-    // Responsive scaling needs a viewBox; derive one from width/height if the
-    // asset lacks it, else width:100%+height:auto collapses to zero height.
     if (!svgEl.getAttribute('viewBox')) {
-      var w = parseInt(svgEl.getAttribute('width') || '700', 10) || 700;
-      var h = parseInt(svgEl.getAttribute('height') || '700', 10) || 700;
+      var w = parseInt(svgEl.getAttribute('width')  || '700', 10) || 700;
+      var h = parseInt(svgEl.getAttribute('height') || '350', 10) || 350;
       svgEl.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
     }
-    // Size via CSS, not attributes (SVG height attr does not accept 'auto').
     svgEl.removeAttribute('width');
     svgEl.removeAttribute('height');
     svgEl.style.display = 'block';
-    svgEl.style.width = '100%';
-    svgEl.style.height = 'auto';
-    svgEl.style.maxHeight = '640px';
+    svgEl.style.width   = '100%';
+    svgEl.style.height  = 'auto';
 
-    // Color + wire EVERY country (not just ones with traffic) so hovering any
-    // country highlights it and shows its data (0 requests for quiet ones).
+    initZoom(svgEl);
+
     svgEl.querySelectorAll('path[id]').forEach(function(path){
       var code = path.getAttribute('id');
       if (!code || code.length !== 2) return;
       var v = counts[code] || 0;
       path.setAttribute('fill', bucketColor(v));
-      path.setAttribute('stroke', '#ffffff');
+      path.setAttribute('stroke', getStroke());
       path.setAttribute('stroke-width', '0.4');
-      path.style.cursor = 'pointer';
-      path.style.transition = 'stroke .12s, filter .12s';
-      path.addEventListener('mouseenter', function(e){
-        path.setAttribute('stroke', '#4338ca');
-        path.setAttribute('stroke-width', '1.2');
-        path.style.filter = 'brightness(1.08)';
-        path.parentNode.appendChild(path); // raise above neighbours so the outline shows
+      path.style.transition = 'filter .1s';
+
+      path.addEventListener('mouseenter', function(e) {
+        if (panning) return;
+        // Always reset the previous highlight before setting a new one
+        if (activePath && activePath !== path) setActive(activePath, false);
+        activePath = path;
+        setActive(path, true);
         onEnter(e, code, v);
       });
-      path.addEventListener('mousemove', onMove);
-      path.addEventListener('mouseleave', function(){
-        path.setAttribute('stroke', '#ffffff');
-        path.setAttribute('stroke-width', '0.4');
-        path.style.filter = '';
+      path.addEventListener('mousemove', function(e) { if (!panning) onMove(e); });
+      path.addEventListener('mouseleave', function() {
+        setActive(path, false);
+        if (activePath === path) activePath = null;
         onLeave();
       });
     });
+
+    // Safety net: clear any stuck highlight when mouse leaves SVG entirely
+    svgEl.addEventListener('mouseleave', function() {
+      if (activePath) { setActive(activePath, false); activePath = null; }
+      onLeave();
+    });
+  }
+
+  // Re-apply neutral + stroke colors when theme toggles (dark/light)
+  function recolorAll() {
+    var svgEl = wrap.querySelector('svg');
+    if (!svgEl) return;
+    svgEl.querySelectorAll('path[id]').forEach(function(path) {
+      var code = path.getAttribute('id');
+      if (!code || code.length !== 2 || path === activePath) return;
+      path.setAttribute('fill', bucketColor(counts[code] || 0));
+      path.setAttribute('stroke', getStroke());
+    });
+  }
+  if (window.MutationObserver) {
+    new MutationObserver(recolorAll).observe(document.documentElement, {attributes: true, attributeFilter: ['class']});
   }
 
   function onEnter(e, code, v) {
