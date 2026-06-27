@@ -266,20 +266,7 @@ func (r *Registry) scopedTopCountries(ctx context.Context, since time.Time, limi
 	      WHERE ts >= ? AND country <> '' AND ` + routeFilter + `
 	      GROUP BY country ORDER BY c DESC, country ASC LIMIT ?`
 	args := append(append([]any{since}, idArgs...), limit)
-	rows, err := r.db.QueryContext(ctx, q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var out []countHit
-	for rows.Next() {
-		var h countHit
-		if err := rows.Scan(&h.Value, &h.Count); err != nil {
-			return nil, err
-		}
-		out = append(out, h)
-	}
-	return out, rows.Err()
+	return scanCountHitsArgs(ctx, r.db, q, args)
 }
 
 // routeLogsScoped returns recent access log entries scoped to the caller's routes.
