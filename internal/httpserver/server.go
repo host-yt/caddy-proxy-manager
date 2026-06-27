@@ -327,6 +327,7 @@ func (s *Server) routes() {
 			r.Post("/{id}/approve", s.deps.Admin.NodesApprove)
 			r.Post("/{id}/decommission", s.deps.Admin.NodesDecommission)
 			r.Post("/{id}/rekey", s.deps.Admin.NodesRekey)
+			r.Post("/bulk", s.deps.Admin.NodesBulk)
 			r.Post("/{id}/probe-capabilities", s.deps.Admin.ProbeNodeCapabilities)
 			r.Get("/{id}/failover-preview", s.deps.Admin.FailoverPreview)
 			r.Get("/{id}/preflight.json", s.deps.Admin.NodePreflight)
