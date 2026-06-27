@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -118,6 +119,18 @@ func (r *Registry) builtins() []Tool {
 			clientRelevant: true,
 			scopedExec:     r.wafEventsScoped,
 		},
+		{
+			Name:        "get_client_detail",
+			Description: "Look up a single client by email address or numeric client ID. Returns display name, email, active status, registration date, service count, route count and WireGuard peer count.",
+			Schema:      identifierSchema,
+			Exec:        r.clientDetail,
+		},
+		{
+			Name:        "get_node_detail",
+			Description: "Look up a single Caddy edge node by name or numeric node ID. Returns health, enabled flag, public IP, route counts, priority and last-seen time.",
+			Schema:      identifierSchema,
+			Exec:        r.nodeDetail,
+		},
 	}
 }
 
@@ -160,6 +173,8 @@ var wafEventsSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"hours":{"type":"integer","description":"look-back window in hours (default 24, max 720)","minimum":1,"maximum":720},` +
 	`"limit":{"type":"integer","minimum":1,"maximum":100}},` +
 	`"additionalProperties":false}`)
+
+var identifierSchema = json.RawMessage(`{"type":"object","properties":{"identifier":{"type":"string","description":"email address or numeric ID"}},"required":["identifier"],"additionalProperties":false}`)
 
 // systemSummary gathers top-level counts in a single round-trip set.
 func (r *Registry) systemSummary(ctx context.Context, _ json.RawMessage) (string, error) {
@@ -953,7 +968,87 @@ func (r *Registry) wafEvents(ctx context.Context, raw json.RawMessage) (string, 
 	return toJSON(map[string]any{"window_hours": hours, "count": len(out), "events": out})
 }
 
-// itoa is a tiny strconv.Itoa to avoid an import only used in schema strings.
+// clientDetail looks up one client by email or numeric ID.
+func (r *Registry) clientDetail(ctx context.Context, raw json.RawMessage) (string, error) {
+	if r.db == nil {
+		return `{"error":"database unavailable"}`, nil
+	}
+	var a struct {
+		Identifier string `json:"identifier"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	numID, _ := strconv.ParseInt(a.Identifier, 10, 64)
+	type result struct {
+		ID           int64  `json:"id"`
+		DisplayName  string `json:"display_name"`
+		Email        string `json:"email"`
+		IsActive     bool   `json:"is_active"`
+		CreatedAt    string `json:"created_at"`
+		ServiceCount int64  `json:"service_count"`
+		RouteCount   int64  `json:"route_count"`
+		WGPeerCount  int64  `json:"wg_peer_count"`
+	}
+	var res result
+	err := r.db.QueryRowContext(ctx,
+		`SELECT c.id, COALESCE(c.display_name,''), u.email, u.is_active, DATE(u.created_at),
+		        (SELECT COUNT(*) FROM services WHERE client_id = c.id),
+		        (SELECT COUNT(*) FROM services sv JOIN routes rt ON rt.service_id = sv.id WHERE sv.client_id = c.id),
+		        (SELECT COUNT(*) FROM customer_wg_peer WHERE client_id = c.id)
+		 FROM clients c JOIN users u ON u.id = c.user_id
+		 WHERE c.id = ? OR u.email = ?`,
+		numID, a.Identifier,
+	).Scan(&res.ID, &res.DisplayName, &res.Email, &res.IsActive, &res.CreatedAt,
+		&res.ServiceCount, &res.RouteCount, &res.WGPeerCount)
+	if err == sql.ErrNoRows {
+		return `{"error":"client not found"}`, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return toJSON(res)
+}
+
+// nodeDetail looks up one Caddy node by name or numeric ID.
+func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string, error) {
+	if r.db == nil {
+		return `{"error":"database unavailable"}`, nil
+	}
+	var a struct {
+		Identifier string `json:"identifier"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	numID, _ := strconv.ParseInt(a.Identifier, 10, 64)
+	type result struct {
+		ID            int64  `json:"id"`
+		Name          string `json:"name"`
+		Health        string `json:"health"`
+		PublicIP      string `json:"public_ip"`
+		Enabled       bool   `json:"enabled"`
+		MaxRoutes     int64  `json:"max_routes"`
+		CurrentRoutes int64  `json:"current_routes"`
+		Priority      int64  `json:"priority"`
+		LastSeen      string `json:"last_seen"`
+	}
+	var res result
+	err := r.db.QueryRowContext(ctx,
+		`SELECT n.id, n.name, n.health_status, COALESCE(n.public_ip,''), n.is_enabled,
+		        n.max_routes, n.current_routes, n.priority,
+		        COALESCE(DATE_FORMAT(n.last_seen_at,'%Y-%m-%dT%H:%i:%SZ'),'never')
+		 FROM caddy_nodes n
+		 WHERE n.id = ? OR n.name = ?`,
+		numID, a.Identifier,
+	).Scan(&res.ID, &res.Name, &res.Health, &res.PublicIP, &res.Enabled,
+		&res.MaxRoutes, &res.CurrentRoutes, &res.Priority, &res.LastSeen)
+	if err == sql.ErrNoRows {
+		return `{"error":"node not found"}`, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return toJSON(res)
+}
+
+// itoa is a tiny helper; strconv is also used by clientDetail/nodeDetail.
 func itoa(n int) string {
 	if n == 0 {
 		return "0"

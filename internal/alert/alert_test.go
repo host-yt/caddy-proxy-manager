@@ -153,6 +153,71 @@ func TestClassifyManualCert(t *testing.T) {
 	}
 }
 
+func TestDedupeKeyNoLabels(t *testing.T) {
+	cases := []struct {
+		name string
+		a    Alert
+		want string
+	}{
+		{"nil labels", Alert{RuleID: "node_offline", Labels: nil}, "node_offline"},
+		{"empty labels map", Alert{RuleID: "x", Labels: map[string]string{}}, "x"},
+		{"single label", Alert{RuleID: "node_offline", Labels: map[string]string{"node_id": "3"}}, "node_offline|node_id=3"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := dedupeKey(tc.a); got != tc.want {
+				t.Errorf("dedupeKey() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestKnownRuleIDs(t *testing.T) {
+	expected := []string{
+		"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale",
+		"db_pool_saturated", "drill_stale", "wg_key_not_fetched",
+		"manual_cert_expiry", "high_error_rate",
+	}
+	ids := KnownRuleIDs()
+	idSet := make(map[string]bool, len(ids))
+	for _, id := range ids {
+		idSet[id] = true
+	}
+	for _, e := range expected {
+		if !idSet[e] {
+			t.Errorf("KnownRuleIDs() missing %q", e)
+		}
+	}
+	seen := make(map[string]bool)
+	for _, id := range ids {
+		if seen[id] {
+			t.Errorf("KnownRuleIDs() duplicate %q", id)
+		}
+		seen[id] = true
+	}
+	ids2 := KnownRuleIDs()
+	if len(ids) != len(ids2) {
+		t.Fatalf("KnownRuleIDs() length changed: %d vs %d", len(ids), len(ids2))
+	}
+	for i := range ids {
+		if ids[i] != ids2[i] {
+			t.Errorf("KnownRuleIDs() not stable at index %d: %q vs %q", i, ids[i], ids2[i])
+		}
+	}
+}
+
+func TestLoadConfig_InvalidZeroIgnored(t *testing.T) {
+	t.Setenv("ALERT_RETENTION_DAYS", "0")
+	t.Setenv("ALERT_DB_POOL_PCT", "0")
+	cfg := LoadConfig()
+	if cfg.RetentionDays != 90 {
+		t.Errorf("RetentionDays = %d, want default 90", cfg.RetentionDays)
+	}
+	if cfg.DBPoolSaturationPct != 0.90 {
+		t.Errorf("DBPoolSaturationPct = %f, want default 0.90", cfg.DBPoolSaturationPct)
+	}
+}
+
 func TestManualCertPhaseInDedupeKey(t *testing.T) {
 	// Warn and Critical alerts for the same cert must have distinct dedupe keys.
 	warn := Alert{

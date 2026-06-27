@@ -153,6 +153,45 @@ func (h *AdminHandlers) AdminSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// webhook endpoints - by name
+	rows7, err := db.QueryContext(ctx,
+		`SELECT id, name, is_enabled FROM webhook_endpoints WHERE name LIKE ? ORDER BY id DESC LIMIT ?`,
+		like, limit)
+	if err == nil {
+		defer rows7.Close()
+		for rows7.Next() {
+			var id int64
+			var name string
+			var isEnabled bool
+			if rows7.Scan(&id, &name, &isEnabled) == nil {
+				sub := "disabled"
+				if isEnabled {
+					sub = "enabled"
+				}
+				results = append(results, SearchResult{
+					Kind: "webhook_endpoint", Label: name, Sub: sub, URL: "/admin/webhooks",
+				})
+			}
+		}
+	}
+
+	// recent fired alerts - by title
+	rows8, err := db.QueryContext(ctx,
+		`SELECT id, rule_id, title, severity FROM alert_log WHERE title LIKE ? ORDER BY fired_at DESC LIMIT ?`,
+		like, limit)
+	if err == nil {
+		defer rows8.Close()
+		for rows8.Next() {
+			var id int64
+			var ruleID, title, severity string
+			if rows8.Scan(&id, &ruleID, &title, &severity) == nil {
+				results = append(results, SearchResult{
+					Kind: "alert", Label: title, Sub: severity + " - " + ruleID, URL: "/admin/alerts",
+				})
+			}
+		}
+	}
+
 	writeSearchJSON(w, results)
 }
 
