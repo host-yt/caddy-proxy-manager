@@ -82,10 +82,11 @@ type ProtoHit struct {
 	Count int64
 }
 
-// BytesSummary holds aggregate response-bytes stats over a filter window.
+// BytesSummary holds aggregate traffic stats over a filter window.
 type BytesSummary struct {
-	TotalBytes int64
-	AvgBytes   int64
+	TotalBytes    int64 // bytes_resp sum
+	AvgBytes      int64 // bytes_resp avg
+	TotalBytesReq int64 // bytes_req sum (upload from clients)
 }
 
 // LatencyStats holds latency percentile summary over a filter window.
@@ -508,22 +509,23 @@ func (s *Store) BandwidthDaySeries(ctx context.Context, routeID int64, from, to 
 	return out, rows.Err()
 }
 
-// BytesSummary returns total and average response bytes over the filter window.
+// BytesSummary returns total and average traffic bytes over the filter window.
 func (s *Store) BytesSummary(ctx context.Context, f AnalyticsFilter) (BytesSummary, error) {
 	db := s.db()
 	if db == nil {
 		return BytesSummary{}, nil
 	}
 	conds, args := analyticsWhere(f, false)
-	q := `SELECT COALESCE(SUM(bytes_resp),0), COALESCE(AVG(bytes_resp),0)
+	q := `SELECT COALESCE(SUM(bytes_resp),0), COALESCE(AVG(bytes_resp),0), COALESCE(SUM(bytes_req),0)
 	      FROM host_access_log
 	      WHERE ` + strings.Join(conds, " AND ")
 	var total int64
 	var avg float64
-	if err := db.QueryRowContext(ctx, q, args...).Scan(&total, &avg); err != nil {
+	var totalReq int64
+	if err := db.QueryRowContext(ctx, q, args...).Scan(&total, &avg, &totalReq); err != nil {
 		return BytesSummary{}, err
 	}
-	return BytesSummary{TotalBytes: total, AvgBytes: int64(avg)}, nil
+	return BytesSummary{TotalBytes: total, AvgBytes: int64(avg), TotalBytesReq: totalReq}, nil
 }
 
 type topTextValue struct {
