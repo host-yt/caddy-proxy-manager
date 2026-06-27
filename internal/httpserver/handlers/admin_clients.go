@@ -266,11 +266,12 @@ func (h *AdminHandlers) ClientsExport(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	const query = `SELECT COALESCE(c.display_name, u.full_name, u.email), u.email,
-	               p.name, u.is_active, u.role,
+	               COALESCE((SELECT GROUP_CONCAT(DISTINCT p2.name ORDER BY p2.name SEPARATOR '/') FROM services s2 JOIN plans p2 ON p2.id=s2.plan_id WHERE s2.client_id=c.id),''),
+	               u.is_active, u.role,
 	               (SELECT COUNT(*) FROM services s WHERE s.client_id=c.id),
 	               (SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=c.id AND r.status='active'),
 	               DATE_FORMAT(u.created_at, '%Y-%m-%d')
-	               FROM clients c JOIN users u ON u.id=c.user_id JOIN plans p ON p.id=c.plan_id
+	               FROM clients c JOIN users u ON u.id=c.user_id
 	               ORDER BY c.id DESC`
 
 	rows, err := db.QueryContext(ctx, query)

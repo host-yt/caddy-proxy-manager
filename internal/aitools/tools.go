@@ -1224,7 +1224,7 @@ func (r *Registry) listPlans(ctx context.Context, raw json.RawMessage) (string, 
 		`SELECT p.id, p.name, p.max_domains, p.max_ports,
 		        p.ssl_enabled, p.websocket_enabled, p.path_routing_enabled, p.wildcard_enabled,
 		        COALESCE(p.rate_limit_rpm,0), ng.name,
-		        (SELECT COUNT(*) FROM clients c WHERE c.plan_id = p.id)
+		        (SELECT COUNT(DISTINCT client_id) FROM services WHERE plan_id = p.id)
 		 FROM plans p JOIN node_groups ng ON ng.id = p.node_group_id
 		 ORDER BY p.name LIMIT ?`, limit)
 	if err != nil {
