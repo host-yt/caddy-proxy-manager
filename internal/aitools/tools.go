@@ -223,7 +223,7 @@ var routeLogsSchema = json.RawMessage(`{"type":"object","properties":{` +
 var wafEventsSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"domain":{"type":"string","description":"filter to a specific domain (partial match)"},` +
 	`"severity":{"type":"string","description":"filter by severity: critical, high, medium, or low"},` +
-	`"action":{"type":"string","description":"filter by action: block or detect"},` +
+	`"action":{"type":"string","description":"filter by action: 'blocked' or 'detected'"},` +
 	`"hours":{"type":"integer","description":"look-back window in hours (default 24, max 720)","minimum":1,"maximum":720},` +
 	`"limit":{"type":"integer","minimum":1,"maximum":100}},` +
 	`"additionalProperties":false}`)
