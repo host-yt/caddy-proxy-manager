@@ -42,6 +42,14 @@ type recentRouteRow struct {
 	CreatedAt  string
 }
 
+type planUsageRow struct {
+	PlanName     string
+	ClientCount  int
+	ServiceCount int
+	RouteCount   int
+	ActiveRoutes int
+}
+
 type statsData struct {
 	baseAdminData
 
@@ -59,6 +67,7 @@ type statsData struct {
 	NodeStats    []nodeStatRow
 	TopClients   []topClientRow
 	RecentRoutes []recentRouteRow
+	PlanUsage    []planUsageRow
 
 	Cache    cacheSummary
 	Security securitySummary
@@ -198,6 +207,33 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		crows.Close()
+	}
+
+	// --- Plan usage breakdown (clients/services/routes per plan) ------
+	prows, _ := db.QueryContext(ctx,
+		`SELECT p.name,
+		        COUNT(DISTINCT c.id),
+		        COUNT(DISTINCT s.id),
+		        COUNT(r.id),
+		        SUM(CASE WHEN r.status="active" THEN 1 ELSE 0 END)
+		 FROM plans p
+		 LEFT JOIN clients c ON c.plan_id=p.id
+		 LEFT JOIN services s ON s.client_id=c.id
+		 LEFT JOIN routes r ON r.service_id=s.id
+		 GROUP BY p.id, p.name
+		 ORDER BY COUNT(DISTINCT c.id) DESC`)
+	if prows != nil {
+		for prows.Next() {
+			var row planUsageRow
+			var active sql.NullInt64
+			if err := prows.Scan(&row.PlanName, &row.ClientCount, &row.ServiceCount, &row.RouteCount, &active); err == nil {
+				if active.Valid {
+					row.ActiveRoutes = int(active.Int64)
+				}
+				d.PlanUsage = append(d.PlanUsage, row)
+			}
+		}
+		prows.Close()
 	}
 
 	// --- Recent routes ------------------------------------------------
