@@ -1938,6 +1938,7 @@ type serviceRow struct {
 	PlanID      int64  // for the edit modal plan preselect
 	ExternalRef string // input name="external_reference"
 	Status      string
+	Notes       string // admin-only internal notes
 }
 
 type clientOpt struct {
@@ -1971,7 +1972,7 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT s.id, s.name, COALESCE(c.display_name, u.full_name, u.email), s.client_id,
 		        s.backend_ip, s.allowed_port_start, s.allowed_port_end, p.name, s.plan_id,
-		        COALESCE(s.external_reference,''), s.status
+		        COALESCE(s.external_reference,''), s.status, COALESCE(s.notes,'')
 		 FROM services s
 		 JOIN clients c ON c.id = s.client_id
 		 JOIN users u   ON u.id = c.user_id
@@ -1981,7 +1982,7 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var s serviceRow
-			if err := rows.Scan(&s.ID, &s.Name, &s.ClientName, &s.ClientID, &s.BackendIP, &s.PortStart, &s.PortEnd, &s.PlanName, &s.PlanID, &s.ExternalRef, &s.Status); err == nil {
+			if err := rows.Scan(&s.ID, &s.Name, &s.ClientName, &s.ClientID, &s.BackendIP, &s.PortStart, &s.PortEnd, &s.PlanName, &s.PlanID, &s.ExternalRef, &s.Status, &s.Notes); err == nil {
 				d.Services = append(d.Services, s)
 			}
 		}
@@ -2027,6 +2028,10 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	backendIP := strings.TrimSpace(r.FormValue("backend_ip"))
 	externalRef := strings.TrimSpace(r.FormValue("external_reference"))
+	notes := strings.TrimSpace(r.FormValue("notes"))
+	if len(notes) > 10000 {
+		notes = notes[:10000]
+	}
 
 	if name == "" || backendIP == "" || clientID == 0 || planID == 0 {
 		redirectWithFlash(w, r, "/admin/services", "", "all fields required")
@@ -2054,11 +2059,15 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	if externalRef != "" {
 		extRef = sql.NullString{String: externalRef, Valid: true}
 	}
+	var notesVal sql.NullString
+	if notes != "" {
+		notesVal = sql.NullString{String: notes, Valid: true}
+	}
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO services (client_id, name, backend_ip, allowed_port_start, allowed_port_end,
-		   plan_id, node_group_id, status, external_reference)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
-		clientID, name, backendIP, portStart, portEnd, planID, nodeGroupID, extRef)
+		   plan_id, node_group_id, status, external_reference, notes)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+		clientID, name, backendIP, portStart, portEnd, planID, nodeGroupID, extRef, notesVal)
 	if err != nil {
 		h.Logger.Error("service create", "err", err)
 		redirectWithFlash(w, r, "/admin/services", "", "insert failed: "+sanitizeErr(err))
@@ -2091,6 +2100,10 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	backendIP := strings.TrimSpace(r.FormValue("backend_ip"))
 	externalRef := strings.TrimSpace(r.FormValue("external_reference"))
+	notes := strings.TrimSpace(r.FormValue("notes"))
+	if len(notes) > 10000 {
+		notes = notes[:10000]
+	}
 
 	if name == "" || backendIP == "" || clientID == 0 || planID == 0 {
 		redirectWithFlash(w, r, "/admin/services", "", "all fields required")
@@ -2117,10 +2130,14 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 	if externalRef != "" {
 		extRef = sql.NullString{String: externalRef, Valid: true}
 	}
+	var notesVal sql.NullString
+	if notes != "" {
+		notesVal = sql.NullString{String: notes, Valid: true}
+	}
 	if _, err := db.ExecContext(ctx,
 		`UPDATE services SET client_id = ?, name = ?, backend_ip = ?, allowed_port_start = ?,
-		   allowed_port_end = ?, plan_id = ?, node_group_id = ?, external_reference = ? WHERE id = ?`,
-		clientID, name, backendIP, portStart, portEnd, planID, nodeGroupID, extRef, id); err != nil {
+		   allowed_port_end = ?, plan_id = ?, node_group_id = ?, external_reference = ?, notes = ? WHERE id = ?`,
+		clientID, name, backendIP, portStart, portEnd, planID, nodeGroupID, extRef, notesVal, id); err != nil {
 		h.Logger.Error("service update", "err", err)
 		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
 		return
