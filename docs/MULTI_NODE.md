@@ -495,10 +495,13 @@ to another peer in the same group without requiring manual intervention.
   whether IP forwarding and iptables/nftables rules are correctly set on each
   node.
 
-**Full automatic failover** (move routes from a dead node to a live sibling in
-the same group) is not yet implemented at the application level. The current
-mechanism detects an unhealthy node and marks it in the UI; the operator
-triggers a manual resync to move routes.
+**Automatic failover** is implemented. When `failover.auto_enabled` is set
+(`Admin → Settings → Failover`), the alert evaluator moves active routes from
+a dead node to a healthy sibling in the same `mode=failover` node group and
+triggers a Caddy resync on the sibling. Each moved route is recorded in the
+audit log as `node.failover.route_moved`. A dry-run preview of what would be
+moved is available at `GET /admin/nodes/{id}/failover-preview` (shown on the
+node detail page).
 
 ---
 
