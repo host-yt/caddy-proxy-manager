@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 )
 
@@ -42,6 +44,34 @@ func TestPortalSafeBackTooLong(t *testing.T) {
 	long := "/" + string(make([]byte, portalMaxBackLen+10))
 	if got := portalSafeBack(long, "h"); got != "/" {
 		t.Errorf("over-length back not rejected: %q", got)
+	}
+}
+
+func TestPortal2FAStateRoundTrip(t *testing.T) {
+	st := portal2FAState{
+		UserID: 42, Email: "u@example.com", Username: "Alice",
+		Back: "/dash", Host: "app.example.com", RememberMe: true,
+		Attempts: 2, ExpiresAt: 1800000000,
+	}
+	b, err := json.Marshal(st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st2 portal2FAState
+	if err := json.Unmarshal(b, &st2); err != nil {
+		t.Fatal(err)
+	}
+	if st2.Attempts != 2 || st2.ExpiresAt != 1800000000 {
+		t.Errorf("round-trip lost fields: %+v", st2)
+	}
+	// Zero Attempts must be omitted (omitempty) so old states still unmarshal cleanly.
+	st3 := portal2FAState{UserID: 1, ExpiresAt: 1800000000}
+	b2, _ := json.Marshal(st3)
+	if strings.Contains(string(b2), `"a":`) {
+		t.Errorf("zero Attempts should be omitted from JSON: %s", b2)
+	}
+	if portal2FAMaxAttempts != 3 {
+		t.Errorf("portal2FAMaxAttempts = %d, want 3", portal2FAMaxAttempts)
 	}
 }
 
