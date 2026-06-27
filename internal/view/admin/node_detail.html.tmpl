@@ -192,6 +192,26 @@
     </div>
   </section>
 
+  {{if .ModuleMismatches}}
+  <section class="hpg-card border border-amber-200 dark:border-amber-800/60 bg-amber-50/40 dark:bg-amber-900/10">
+    <div class="flex items-start gap-2 mb-3">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 mt-0.5 shrink-0 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div>
+        <p class="text-sm font-semibold text-amber-800 dark:text-amber-200">Module mismatch - {{len .ModuleMismatches}} route{{if gt (len .ModuleMismatches) 1}}s{{end}}</p>
+        <p class="text-xs text-amber-700 dark:text-amber-300 mt-0.5">These routes require a Caddy module not detected on this node. Features are silently skipped when pushed.</p>
+      </div>
+    </div>
+    <div class="space-y-1.5">
+      {{range .ModuleMismatches}}
+      <div class="flex items-center gap-3 text-xs">
+        <span class="hpg-pill bg-amber-100 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300 shrink-0">{{.Missing}}</span>
+        <a href="/admin/hosts/{{.RouteID}}/edit" class="font-mono text-slate-700 dark:text-slate-200 hover:text-indigo-600 dark:hover:text-indigo-400 truncate">{{.Domain}}</a>
+      </div>
+      {{end}}
+    </div>
+  </section>
+  {{end}}
+
   {{if or .NodeBandwidth24h .NodeRequests24h}}
   <section class="hpg-card">
     <h3 class="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-3">Traffic · last 24h</h3>

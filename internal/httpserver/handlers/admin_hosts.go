@@ -1057,10 +1057,19 @@ type nodeDetailData struct {
 	RecentRoutes []hostRow
 	// GeoIPMeta surfaces DB status next to the GeoIP capability badge.
 	GeoIPMeta geoipView
+	// ModuleMismatches lists routes that require a module the node lacks.
+	ModuleMismatches []nodeMismatch
 	// 24h traffic aggregates for this node.
 	NodeBandwidth24h int64
 	NodeRequests24h  int64
 	TopRoutesBW      []nodeBWRoute
+}
+
+// nodeMismatch is a route that requires a Caddy module not available on its node.
+type nodeMismatch struct {
+	RouteID int64
+	Domain  string
+	Missing string // human-readable module name, e.g. "WAF", "GeoIP", "rate_limit"
 }
 
 // nodeBWRoute holds per-route 24h bandwidth summary for the node detail cockpit.
@@ -1263,6 +1272,32 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 			var bw nodeBWRoute
 			if e := bwrows.Scan(&bw.RouteID, &bw.Domain, &bw.BytesResp, &bw.Requests); e == nil {
 				d.TopRoutesBW = append(d.TopRoutesBW, bw)
+			}
+		}
+	}
+
+	// Preflight: routes that need a Caddy module the node doesn't have.
+	mmRows, mmErr := db.QueryContext(ctx, `
+		SELECT r.id, r.domain, CASE
+		  WHEN r.waf_enabled=1     AND n.has_waf=0       THEN 'WAF'
+		  WHEN r.geo_mode!='off'   AND n.has_geoip=0     THEN 'GeoIP'
+		  WHEN r.rate_enabled=1    AND n.has_rate_limit=0 THEN 'rate_limit'
+		END AS missing
+		FROM routes r
+		JOIN caddy_nodes n ON n.id = r.caddy_node_id
+		WHERE r.caddy_node_id = ? AND r.status != 'disabled'
+		  AND (
+		        (r.waf_enabled=1     AND n.has_waf=0)
+		     OR (r.geo_mode!='off'   AND n.has_geoip=0)
+		     OR (r.rate_enabled=1    AND n.has_rate_limit=0)
+		  )
+		ORDER BY r.domain LIMIT 50`, id)
+	if mmErr == nil {
+		defer mmRows.Close()
+		for mmRows.Next() {
+			var mm nodeMismatch
+			if e := mmRows.Scan(&mm.RouteID, &mm.Domain, &mm.Missing); e == nil {
+				d.ModuleMismatches = append(d.ModuleMismatches, mm)
 			}
 		}
 	}
