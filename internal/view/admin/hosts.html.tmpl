@@ -14,6 +14,60 @@
     </div>
   </div>
 
+  {{/* Status summary chips - computed once, click to filter */}}
+  {{$total := 0}}
+  {{range $k, $v := .StatusCounts}}{{$total = add $total $v}}{{end}}
+  {{if $total}}
+  <div class="flex flex-wrap gap-2">
+    <a href="/admin/hosts" class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors cursor-pointer
+      {{if eq .Status ""}}bg-slate-700 text-white dark:bg-slate-300 dark:text-slate-900{{else}}bg-slate-100 text-slate-700 dark:bg-slate-500/15 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-500/25{{end}}">
+      <span class="font-bold">{{$total}}</span> all
+    </a>
+    {{with index .StatusCounts "active"}}{{if gt . 0}}
+    <a href="/admin/hosts?status=active" class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors cursor-pointer
+      {{if eq $.Status "active"}}bg-emerald-600 text-white dark:bg-emerald-500 dark:text-white{{else}}bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300 hover:bg-emerald-200 dark:hover:bg-emerald-500/25{{end}}">
+      <span class="font-bold">{{.}}</span> active
+    </a>
+    {{end}}{{end}}
+    {{with index .StatusCounts "failed"}}{{if gt . 0}}
+    <a href="/admin/hosts?status=failed" class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors cursor-pointer
+      {{if eq $.Status "failed"}}bg-rose-600 text-white dark:bg-rose-500 dark:text-white{{else}}bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300 hover:bg-rose-200 dark:hover:bg-rose-500/25{{end}}">
+      <span class="font-bold">{{.}}</span> failed
+    </a>
+    {{end}}{{end}}
+    {{with index .StatusCounts "pending_dns"}}{{if gt . 0}}
+    <a href="/admin/hosts?status=pending_dns" class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors cursor-pointer
+      {{if eq $.Status "pending_dns"}}bg-amber-500 text-white{{else}}bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-500/25{{end}}">
+      <span class="font-bold">{{.}}</span> pending DNS
+    </a>
+    {{end}}{{end}}
+    {{with index .StatusCounts "dns_ok"}}{{if gt . 0}}
+    <a href="/admin/hosts?status=dns_ok" class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors cursor-pointer
+      {{if eq $.Status "dns_ok"}}bg-amber-500 text-white{{else}}bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-500/25{{end}}">
+      <span class="font-bold">{{.}}</span> DNS ok
+    </a>
+    {{end}}{{end}}
+    {{with index .StatusCounts "pending_ssl"}}{{if gt . 0}}
+    <a href="/admin/hosts?status=pending_ssl" class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors cursor-pointer
+      {{if eq $.Status "pending_ssl"}}bg-amber-500 text-white{{else}}bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 hover:bg-amber-200 dark:hover:bg-amber-500/25{{end}}">
+      <span class="font-bold">{{.}}</span> pending SSL
+    </a>
+    {{end}}{{end}}
+    {{with index .StatusCounts "disabled"}}{{if gt . 0}}
+    <a href="/admin/hosts?status=disabled" class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors cursor-pointer
+      {{if eq $.Status "disabled"}}bg-slate-500 text-white dark:bg-slate-400 dark:text-slate-900{{else}}bg-slate-100 text-slate-600 dark:bg-slate-500/15 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-500/25{{end}}">
+      <span class="font-bold">{{.}}</span> disabled
+    </a>
+    {{end}}{{end}}
+    {{with index .StatusCounts "maintenance"}}{{if gt . 0}}
+    <a href="/admin/hosts?status=maintenance" class="inline-flex items-center gap-1 text-xs font-medium px-2.5 py-1 rounded-full transition-colors cursor-pointer
+      {{if eq $.Status "maintenance"}}bg-purple-600 text-white dark:bg-purple-500 dark:text-white{{else}}bg-purple-100 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300 hover:bg-purple-200 dark:hover:bg-purple-500/25{{end}}">
+      <span class="font-bold">{{.}}</span> maintenance
+    </a>
+    {{end}}{{end}}
+  </div>
+  {{end}}
+
   <form method="GET" action="/admin/hosts" class="hpg-card flex flex-wrap items-end gap-3 text-sm">
     <div class="flex-1 min-w-[200px]">
       <label class="hpg-eyebrow mb-1 block">Search domain / client email</label>
