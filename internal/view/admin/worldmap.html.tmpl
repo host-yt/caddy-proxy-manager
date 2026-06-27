@@ -171,9 +171,19 @@
   function colorMap() {
     var svgEl = wrap.querySelector('svg');
     if (!svgEl) return;
-    svgEl.setAttribute('width', '100%');
-    svgEl.setAttribute('height', 'auto');
+    // Responsive scaling needs a viewBox; derive one from width/height if the
+    // asset lacks it, else width:100%+height:auto collapses to zero height.
+    if (!svgEl.getAttribute('viewBox')) {
+      var w = parseInt(svgEl.getAttribute('width') || '700', 10) || 700;
+      var h = parseInt(svgEl.getAttribute('height') || '700', 10) || 700;
+      svgEl.setAttribute('viewBox', '0 0 ' + w + ' ' + h);
+    }
+    // Size via CSS, not attributes (SVG height attr does not accept 'auto').
+    svgEl.removeAttribute('width');
+    svgEl.removeAttribute('height');
     svgEl.style.display = 'block';
+    svgEl.style.width = '100%';
+    svgEl.style.height = 'auto';
     svgEl.style.maxHeight = '540px';
 
     svgEl.querySelectorAll('path[id]').forEach(function(path){
