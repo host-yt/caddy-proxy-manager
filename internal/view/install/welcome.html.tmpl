@@ -1,34 +1,32 @@
 {{define "welcome"}}
-<h2 class="text-xl font-semibold mb-2">Welcome</h2>
-<p class="text-slate-600 dark:text-slate-300 mb-4">
+<p class="t-eyebrow" style="margin-bottom:0.25rem;">Setup</p>
+<h2 class="t-h2" style="margin-bottom:0.5rem;">Welcome</h2>
+<p class="t-body" style="color:rgb(var(--muted));margin-bottom:1rem;">
   This wizard will configure your control panel. You'll provide database
   credentials (local or external MariaDB/MySQL), create an admin user,
   set the panel URL, optionally configure SMTP, and register your first
   Caddy proxy node.
 </p>
-<ul class="text-sm text-slate-500 space-y-1 mb-6 list-disc list-inside">
+<ul class="t-small" style="color:rgb(var(--muted));margin-bottom:1.5rem;list-style:disc;padding-left:1.25rem;display:flex;flex-direction:column;gap:0.25rem;">
   <li>Have your DB host, port, user, and password ready.</li>
   <li>Use external managed DB or the bundled <code>mariadb</code> service.</li>
   <li>Pick a strong admin password (Argon2id-hashed at rest).</li>
   <li>Caddy node Admin API must be reachable from the app container.</li>
 </ul>
-<form method="POST" action="/install/start" class="space-y-4">
+<form method="POST" action="/install/start" style="display:flex;flex-direction:column;gap:1rem;">
   <div>
-    <label class="block text-sm font-medium text-slate-700 dark:text-slate-200 mb-1" for="install_token">Install token</label>
-    <input id="install_token" name="install_token" type="text" autocomplete="off"
-           class="w-full px-3 py-2 rounded border border-slate-300 dark:border-zinc-700 font-mono text-sm"
+    <label class="t-small" style="display:block;font-weight:500;margin-bottom:0.375rem;" for="install_token">Install token</label>
+    <input id="install_token" name="install_token" type="text" autocomplete="off" class="r-input"
+           style="font-family:monospace;"
            placeholder="paste the value of INSTALL_TOKEN env var here">
-    <p class="text-xs text-slate-500 mt-1">
+    <p class="t-caption" style="color:rgb(var(--muted));margin-top:0.375rem;">
       The panel ships locked. Paste the <code>INSTALL_TOKEN</code> you set in
       <code>.env</code> (or leave empty if connecting from <code>127.0.0.1</code>).
-      It is stored in a strict-SameSite cookie for the duration of the wizard
-      and discarded once setup completes.
+      Stored in a strict-SameSite cookie for the wizard duration.
     </p>
   </div>
-  <div class="flex justify-end">
-    <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">
-      Start setup →
-    </button>
+  <div style="display:flex;justify-content:flex-end;">
+    <button class="r-btn-primary" type="submit">Start setup &rarr;</button>
   </div>
 </form>
 {{end}}

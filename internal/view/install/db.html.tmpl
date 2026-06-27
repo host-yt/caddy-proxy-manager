@@ -1,81 +1,77 @@
 {{define "db"}}
-<h2 class="text-xl font-semibold mb-1">Database</h2>
-<p class="text-sm text-slate-500 dark:text-slate-400 mb-3">
+<p class="t-eyebrow" style="margin-bottom:0.25rem;">Step 3</p>
+<h2 class="t-h2" style="margin-bottom:0.375rem;">Database</h2>
+<p class="t-small" style="color:rgb(var(--muted));margin-bottom:1rem;">
   Local bundled <code>mariadb</code> or any external MariaDB/MySQL. We'll test
   the connection and run migrations.
 </p>
 
 {{if .Form.ProfileName}}
-<div class="mb-4 p-3 rounded-md bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 text-sm">
-  <span class="font-medium text-slate-700 dark:text-slate-200">Profile:</span>
-  <span class="ml-1 text-slate-600 dark:text-slate-300 capitalize">{{.Form.ProfileName}}</span>
-  <span class="mx-2 text-slate-300 dark:text-slate-600">·</span>
-  <span class="font-medium text-slate-700 dark:text-slate-200">Recommended DB:</span>
-  <span class="ml-1 text-slate-600 dark:text-slate-300">{{.Form.RecommendDB}}</span>
+<div style="margin-bottom:1rem;padding:0.625rem 0.875rem;border-radius:0.5rem;background:rgb(var(--surface-2));border:1px solid rgb(var(--border));" class="t-small">
+  <span style="font-weight:600;">Profile:</span>
+  <span style="color:rgb(var(--muted));margin-left:0.25rem;text-transform:capitalize;">{{.Form.ProfileName}}</span>
+  <span style="margin:0 0.5rem;color:rgb(var(--border));">&middot;</span>
+  <span style="font-weight:600;">Recommended DB:</span>
+  <span style="color:rgb(var(--muted));margin-left:0.25rem;">{{.Form.RecommendDB}}</span>
 </div>
 {{end}}
 
 {{if .Form.RequireMySQL}}
-<div class="mb-4 p-3 rounded-md bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 text-amber-800 dark:text-amber-300 text-sm">
+<div style="margin-bottom:1rem;padding:0.625rem 0.875rem;border-radius:0.5rem;background:rgb(var(--warning) / .08);border:1px solid rgb(var(--warning) / .3);color:rgb(var(--warning));" class="t-small">
   Provider mode requires MySQL/MariaDB. SQLite is not available for this profile.
 </div>
 {{end}}
 
-<div class="mb-4">
-  <p class="text-xs font-medium text-slate-700 dark:text-slate-200 mb-2">Driver</p>
-  <div class="space-y-2">
-    <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200 cursor-pointer">
+<div style="margin-bottom:1rem;">
+  <p class="t-caption" style="font-weight:600;margin-bottom:0.5rem;">Driver</p>
+  <div style="display:flex;flex-direction:column;gap:0.375rem;">
+    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;" class="t-small">
       <input type="radio" name="db_driver" value="mysql" checked
-             class="accent-indigo-600 cursor-pointer">
+             style="accent-color:rgb(var(--accent));cursor:pointer;">
       MySQL / MariaDB
     </label>
-    <label class="flex items-center gap-2 text-sm text-slate-400 dark:text-slate-500 cursor-not-allowed" title="SQLite support is not yet available">
+    <label style="display:flex;align-items:center;gap:0.5rem;cursor:not-allowed;opacity:.5;" class="t-small" title="SQLite support is not yet available">
       <input type="radio" name="db_driver" value="sqlite" disabled
-             class="cursor-not-allowed">
-      SQLite <span class="ml-1 text-xs italic">(planned - not yet available)</span>
+             style="cursor:not-allowed;">
+      SQLite <span style="margin-left:0.25rem;font-style:italic;">(planned - not yet available)</span>
     </label>
   </div>
 </div>
 
-<form method="POST" action="/install/db" class="space-y-4">
+<form method="POST" action="/install/db" style="display:flex;flex-direction:column;gap:0.875rem;">
   <input type="hidden" name="db_driver" value="mysql">
-  <div class="grid grid-cols-3 gap-3">
-    <div class="col-span-2">
-      <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Host</label>
-      <input name="host" value="{{.Form.Host}}" required
-             class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:0.75rem;">
+    <div>
+      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Host</label>
+      <input name="host" value="{{.Form.Host}}" required class="r-input">
     </div>
     <div>
-      <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Port</label>
-      <input name="port" value="{{.Form.Port}}" type="number" min="1" max="65535" required
-             class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Port</label>
+      <input name="port" value="{{.Form.Port}}" type="number" min="1" max="65535" required class="r-input" style="font-variant-numeric:tabular-nums;">
     </div>
   </div>
   <div>
-    <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Database name</label>
-    <input name="name" value="{{.Form.Name}}" required
-           class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+    <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Database name</label>
+    <input name="name" value="{{.Form.Name}}" required class="r-input">
   </div>
-  <div class="grid grid-cols-2 gap-3">
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
     <div>
-      <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">User</label>
-      <input name="user" value="{{.Form.User}}" required
-             class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">User</label>
+      <input name="user" value="{{.Form.User}}" required class="r-input">
     </div>
     <div>
-      <label class="block text-xs font-medium text-slate-700 dark:text-slate-200 mb-1">Password</label>
-      <input name="password" type="password" required
-             class="w-full px-3 py-2 rounded-md border border-slate-300 dark:border-zinc-700 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Password</label>
+      <input name="password" type="password" required class="r-input">
     </div>
   </div>
-  <label class="flex items-center gap-2 text-sm text-slate-700 dark:text-slate-200">
+  <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;" class="t-small">
     <input name="tls" type="checkbox" value="1" {{if .Form.TLS}}checked{{end}}
-           class="rounded border-slate-300 dark:border-zinc-700 text-indigo-600">
+           style="accent-color:rgb(var(--accent));">
     Use TLS to connect (for managed DBs)
   </label>
-  <div class="flex justify-end pt-2">
-    <button class="px-4 py-2 rounded-md bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">
-      Test connection &amp; run migrations &rarr;
+  <div style="display:flex;justify-content:flex-end;padding-top:0.375rem;">
+    <button class="r-btn-primary" type="submit" style="cursor:pointer;">
+      Test &amp; run migrations &rarr;
     </button>
   </div>
 </form>

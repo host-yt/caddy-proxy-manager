@@ -6,20 +6,46 @@
 <meta name="robots" content="noindex,nofollow">
 <title>Service Status - {{.ClientName}}</title>
 <link rel="stylesheet" href="/static/css/tailwind.css">
+<style>
+  :root {
+    --bg: 248 248 250;
+    --surface: 255 255 255;
+    --surface-2: 243 243 246;
+    --border: 226 226 232;
+    --text: 17 17 24;
+    --muted: 107 107 122;
+    --accent: 180 140 60;
+    --success: 34 197 94;
+    --warning: 234 179 8;
+    --danger: 239 68 68;
+  }
+  .dark {
+    --bg: 16 16 20;
+    --surface: 24 24 30;
+    --surface-2: 32 32 40;
+    --border: 48 48 60;
+    --text: 240 240 248;
+    --muted: 140 140 158;
+  }
+  .status-dot {
+    width:8px;height:8px;border-radius:9999px;flex-shrink:0;
+  }
+</style>
 </head>
-<body class="min-h-full bg-slate-50 text-slate-900">
-<div class="max-w-2xl mx-auto px-4 py-10 space-y-8">
+<body style="min-height:100vh;background:rgb(var(--bg));color:rgb(var(--text));">
+<div style="max-width:38rem;margin:0 auto;padding:2.5rem 1rem;display:flex;flex-direction:column;gap:1.75rem;">
 
   <!-- Header -->
-  <div class="flex items-center justify-between">
+  <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
     <div>
-      <h1 class="text-xl font-semibold">{{.ClientName}}</h1>
-      <p class="text-sm text-slate-500">Service status</p>
+      <h1 style="font-size:1.125rem;font-weight:600;line-height:1.4;">{{.ClientName}}</h1>
+      <p style="font-size:0.8125rem;color:rgb(var(--muted));">Service status</p>
     </div>
-    <span class="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-medium
-      {{if .AllUp}}bg-green-100 text-green-800{{else}}bg-red-100 text-red-800{{end}}">
-      <span class="w-2 h-2 rounded-full
-        {{if .AllUp}}bg-green-500{{else}}bg-red-500{{end}}"></span>
+    <span style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.3125rem 0.875rem;border-radius:9999px;font-size:0.8125rem;font-weight:500;
+      background:{{if .AllUp}}rgb(var(--success) / .1){{else}}rgb(var(--danger) / .1){{end}};
+      color:{{if .AllUp}}rgb(var(--success)){{else}}rgb(var(--danger)){{end}};
+      border:1px solid {{if .AllUp}}rgb(var(--success) / .25){{else}}rgb(var(--danger) / .25){{end}};">
+      <span class="status-dot" style="background:{{if .AllUp}}rgb(var(--success)){{else}}rgb(var(--danger)){{end}};"></span>
       {{if .AllUp}}All systems operational{{else}}Degraded{{end}}
     </span>
   </div>
@@ -27,24 +53,24 @@
   <!-- Hosts -->
   {{if .Routes}}
   <section>
-    <h2 class="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">Hosts</h2>
-    <div class="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <p style="font-size:0.6875rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgb(var(--muted));margin-bottom:0.75rem;">Hosts</p>
+    <div style="border-radius:0.875rem;border:1px solid rgb(var(--border));background:rgb(var(--surface));overflow:hidden;">
       {{range .Routes}}
-      <div class="flex items-center justify-between px-4 py-3">
-        <div>
-          <p class="text-sm font-medium">
-            {{.Domain}}{{if .PathPrefix}}<span class="text-slate-400">{{.PathPrefix}}</span>{{end}}
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;border-bottom:1px solid rgb(var(--border));">
+        <div style="flex:1;min-width:0;">
+          <p style="font-size:0.875rem;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            {{.Domain}}{{if .PathPrefix}}<span style="color:rgb(var(--muted));">{{.PathPrefix}}</span>{{end}}
           </p>
-          <p class="text-xs text-slate-400 mt-0.5">
+          <p style="font-size:0.75rem;color:rgb(var(--muted));margin-top:0.125rem;">
             {{if .SSL}}HTTPS{{else}}HTTP{{end}}
-            {{if eq .NodeHealth "down"}} &middot; <span class="text-red-500">node down</span>{{end}}
+            {{if eq .NodeHealth "down"}} &middot; <span style="color:rgb(var(--danger));">node down</span>{{end}}
           </p>
         </div>
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full
-          {{if eq .Status "active"}}bg-green-50 text-green-700
-          {{else if eq .Status "pending_ssl"}}bg-blue-50 text-blue-700
-          {{else if eq .Status "dns_ok"}}bg-yellow-50 text-yellow-700
-          {{else}}bg-red-50 text-red-700{{end}}">
+        <span style="flex-shrink:0;margin-left:0.75rem;font-size:0.7rem;font-weight:600;padding:0.2rem 0.625rem;border-radius:9999px;
+          {{if eq .Status "active"}}background:rgb(var(--success) / .1);color:rgb(var(--success));
+          {{else if eq .Status "pending_ssl"}}background:rgb(59 130 246 / .1);color:rgb(59 130 246);
+          {{else if eq .Status "dns_ok"}}background:rgb(var(--warning) / .1);color:rgb(var(--warning));
+          {{else}}background:rgb(var(--danger) / .1);color:rgb(var(--danger));{{end}}">
           {{.Status}}
         </span>
       </div>
@@ -56,13 +82,13 @@
   <!-- Tunnels -->
   {{if .Tunnels}}
   <section>
-    <h2 class="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">Tunnels (WireGuard)</h2>
-    <div class="divide-y divide-slate-200 rounded-xl border border-slate-200 bg-white overflow-hidden">
+    <p style="font-size:0.6875rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgb(var(--muted));margin-bottom:0.75rem;">Tunnels (WireGuard)</p>
+    <div style="border-radius:0.875rem;border:1px solid rgb(var(--border));background:rgb(var(--surface));overflow:hidden;">
       {{range .Tunnels}}
-      <div class="flex items-center justify-between px-4 py-3">
-        <div>
-          <p class="text-sm font-medium">{{.Name}}</p>
-          <p class="text-xs text-slate-400 mt-0.5">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:0.75rem 1rem;border-bottom:1px solid rgb(var(--border));">
+        <div style="flex:1;min-width:0;">
+          <p style="font-size:0.875rem;font-weight:500;">{{.Name}}</p>
+          <p style="font-size:0.75rem;color:rgb(var(--muted));margin-top:0.125rem;font-variant-numeric:tabular-nums;">
             {{.AssignedIP}}
             {{if .LastHandshakeAt}}
               &middot; last seen {{.LastHandshakeAt.Format "Jan 2 15:04 UTC"}}
@@ -74,9 +100,9 @@
             {{end}}
           </p>
         </div>
-        <span class="text-xs font-medium px-2 py-0.5 rounded-full
-          {{if .HandshakeStale}}bg-red-50 text-red-700
-          {{else}}bg-green-50 text-green-700{{end}}">
+        <span style="flex-shrink:0;margin-left:0.75rem;font-size:0.7rem;font-weight:600;padding:0.2rem 0.625rem;border-radius:9999px;
+          {{if .HandshakeStale}}background:rgb(var(--danger) / .1);color:rgb(var(--danger));
+          {{else}}background:rgb(var(--success) / .1);color:rgb(var(--success));{{end}}">
           {{if .HandshakeStale}}offline{{else}}online{{end}}
         </span>
       </div>
@@ -88,8 +114,10 @@
   <!-- Traffic sparkline (optional, admin-controlled per client) -->
   {{if .ShowTraffic}}
   <section>
-    <h2 class="text-sm font-medium text-slate-500 uppercase tracking-wide mb-3">Requests (14 days, approximate)</h2>
-    <canvas id="spark" class="w-full h-24"></canvas>
+    <p style="font-size:0.6875rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgb(var(--muted));margin-bottom:0.75rem;">Requests (14 days, approximate)</p>
+    <div style="border-radius:0.875rem;border:1px solid rgb(var(--border));background:rgb(var(--surface));padding:1rem;overflow:hidden;">
+      <canvas id="spark" style="width:100%;height:5rem;display:block;"></canvas>
+    </div>
     <script>
     (function(){
       var labels = {{.TrafficLabels}};
@@ -97,11 +125,11 @@
       var canvas = document.getElementById('spark');
       if (!canvas) return;
       var ctx = canvas.getContext('2d');
-      var w = canvas.offsetWidth || 600, h = canvas.offsetHeight || 96;
+      var w = canvas.offsetWidth || 560, h = canvas.offsetHeight || 80;
       canvas.width = w; canvas.height = h;
       var max = Math.max.apply(null, values) || 1;
       var step = w / ((labels.length - 1) || 1);
-      ctx.strokeStyle = '#6366f1'; ctx.lineWidth = 2; ctx.beginPath();
+      ctx.strokeStyle = 'rgb(180,140,60)'; ctx.lineWidth = 2; ctx.beginPath();
       values.forEach(function(v, i) {
         var x = i * step, y = h - (v / max) * (h - 8) - 4;
         i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
@@ -112,7 +140,7 @@
   </section>
   {{end}}
 
-  <p class="text-xs text-slate-400 text-center">
+  <p style="font-size:0.75rem;color:rgb(var(--muted));text-align:center;">
     Updated {{.GeneratedAt.Format "2006-01-02 15:04 UTC"}}
   </p>
 </div>
