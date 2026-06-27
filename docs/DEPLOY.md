@@ -37,8 +37,29 @@ Before starting the stack on a public VPS, verify every item:
 | 51820 | UDP | manager only | WireGuard mesh (multi-node) |
 | 2019 | - | - | Caddy Admin API - **must not be exposed publicly** |
 | 8080 | TCP | manager | Panel web UI - expose only if not behind a reverse proxy |
+| custom | TCP/UDP | every node | **L4 streams**: each stream rule listens on a port you configure; map those ports in `docker-compose.yml` under the `caddy` service `ports:` section. Example: `"5432:5432"` for a PostgreSQL passthrough stream. |
 
 The Caddy Admin API (`:2019`) stays on the internal Docker network (`internal` bridge). Never map it to `0.0.0.0`.
+
+### L4 stream port mapping
+
+Each L4 stream (TCP/UDP passthrough) created in the panel binds a port on the node's Caddy process. Caddy can only serve a port that is mapped through the Docker port bindings. For each L4 stream you create, add the corresponding port mapping to the `caddy` service in your compose file:
+
+```yaml
+# deploy/docker-compose.yml - caddy service
+services:
+  caddy:
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+      # --- L4 streams ---
+      - "5432:5432"     # PostgreSQL passthrough
+      - "6379:6379"     # Redis passthrough
+      - "25565:25565"   # Minecraft server
+```
+
+After adding ports, restart the Caddy container (`docker compose up -d caddy`) and resync the node from the panel so Caddy picks up the new stream configuration.
 
 ---
 
