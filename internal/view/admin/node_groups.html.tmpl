@@ -1,0 +1,129 @@
+{{define "node_groups"}}
+<div class="space-y-6">
+
+  {{if .Flash}}
+  <div class="rounded-xl bg-emerald-50 dark:bg-emerald-950/40 ring-1 ring-emerald-200 dark:ring-emerald-800/60 p-3 text-sm text-emerald-800 dark:text-emerald-200">{{.Flash}}</div>
+  {{end}}
+  {{if .Error}}
+  <div class="rounded-xl bg-rose-50 dark:bg-rose-950/40 ring-1 ring-rose-200 dark:ring-rose-800/60 p-3 text-sm text-rose-800 dark:text-rose-200">{{.Error}}</div>
+  {{end}}
+
+  <!-- Create form -->
+  <section class="hpg-card p-5">
+    <h3 class="hpg-eyebrow mb-3">New node group</h3>
+    <form method="POST" action="/admin/node-groups" class="flex flex-wrap gap-3 items-end text-sm">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div class="flex-1 min-w-[180px]">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
+        <input name="name" required maxlength="128" placeholder="e.g. eu-west"
+          class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm">
+      </div>
+      <div class="w-44">
+        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Mode</label>
+        <select name="mode" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm cursor-pointer">
+          <option value="single">single</option>
+          <option value="active_active">active-active</option>
+          <option value="failover">failover</option>
+        </select>
+      </div>
+      <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors cursor-pointer">Create</button>
+    </form>
+  </section>
+
+  <!-- List -->
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="flex items-center gap-3 px-5 py-4 border-b border-slate-100 dark:border-zinc-800">
+      <div>
+        <p class="hpg-eyebrow">Fleet / Edge</p>
+        <h2 class="font-semibold text-slate-800 dark:text-slate-100">Node groups</h2>
+      </div>
+      <span class="hpg-chip">{{len .Groups}}</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead class="sticky top-0 bg-white/95 dark:bg-zinc-900/95 backdrop-blur-sm z-10 text-left border-b border-slate-100 dark:border-zinc-800">
+          <tr>
+            <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Name</th>
+            <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Mode</th>
+            <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Nodes</th>
+            <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Plans</th>
+            <th class="px-4 py-3 text-right text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Actions</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+          {{range .Groups}}
+          <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors group/row">
+            <td class="px-4 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}</td>
+            <td class="px-4 py-3.5">
+              {{if eq .Mode "failover"}}
+              <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-400">failover</span>
+              {{else if eq .Mode "active_active"}}
+              <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">active-active</span>
+              {{else}}
+              <span class="text-xs font-medium px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 dark:bg-zinc-700 dark:text-slate-300">single</span>
+              {{end}}
+            </td>
+            <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{.NodeCount}}</td>
+            <td class="px-4 py-3.5 text-slate-600 dark:text-slate-300">{{.PlanCount}}</td>
+            <td class="px-4 py-3.5 text-right">
+              <button type="button"
+                class="ng-edit-btn text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                data-id="{{.ID}}" data-name="{{.Name}}" data-mode="{{.Mode}}">
+                Edit
+              </button>
+            </td>
+          </tr>
+          <!-- Inline edit row, hidden by default -->
+          <tr id="ng-edit-row-{{.ID}}" class="hidden bg-slate-50 dark:bg-zinc-800/40">
+            <td colspan="5" class="px-4 py-3">
+              <form method="POST" action="/admin/node-groups/{{.ID}}/update" class="flex flex-wrap gap-3 items-end text-sm">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <div class="flex-1 min-w-[180px]">
+                  <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Name</label>
+                  <input name="name" required maxlength="128" value="{{.Name}}"
+                    class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-white dark:bg-zinc-800 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm">
+                </div>
+                <div class="w-44">
+                  <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Mode</label>
+                  <select name="mode" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-white dark:bg-zinc-800 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 text-sm cursor-pointer">
+                    <option value="single"{{if eq .Mode "single"}} selected{{end}}>single</option>
+                    <option value="active_active"{{if eq .Mode "active_active"}} selected{{end}}>active-active</option>
+                    <option value="failover"{{if eq .Mode "failover"}} selected{{end}}>failover</option>
+                  </select>
+                </div>
+                <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium transition-colors cursor-pointer">Save</button>
+                <button type="button" class="ng-cancel-btn px-4 py-2 rounded-lg bg-slate-200 dark:bg-zinc-700 hover:bg-slate-300 dark:hover:bg-zinc-600 text-slate-700 dark:text-slate-200 text-sm font-medium transition-colors cursor-pointer" data-id="{{.ID}}">Cancel</button>
+              </form>
+            </td>
+          </tr>
+          {{else}}
+          <tr>
+            <td colspan="5" class="px-4 py-6 text-center text-sm text-slate-400">No node groups yet.</td>
+          </tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+<script nonce="{{.CSPNonce}}">
+(function () {
+  // toggle inline edit row
+  document.querySelectorAll('.ng-edit-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.dataset.id;
+      var row = document.getElementById('ng-edit-row-' + id);
+      if (row) row.classList.toggle('hidden');
+    });
+  });
+  document.querySelectorAll('.ng-cancel-btn').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.dataset.id;
+      var row = document.getElementById('ng-edit-row-' + id);
+      if (row) row.classList.add('hidden');
+    });
+  });
+})();
+</script>
+{{end}}
