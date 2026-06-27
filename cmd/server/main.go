@@ -644,7 +644,11 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 
 	// WG peer key rotation — leader-only, 6h cadence.
 	go runLeaderOnly(rootCtx, leaderElec, guard(logger, "wg-key-rotation", func(ctx context.Context) {
-		(&jobs.WGKeyRotationJob{DB: wizard.DB, Logger: logger, Peers: wgPeerSvc}).Run(ctx)
+		(&jobs.WGKeyRotationJob{
+			DB: wizard.DB, Logger: logger, Peers: wgPeerSvc,
+			Routes:   routesSvc,
+			Notifier: notifier,
+		}).Run(ctx)
 	}))
 
 	// GeoIP DB central download — leader-only, daily (HPG_GEOIP_INTERVAL override).
