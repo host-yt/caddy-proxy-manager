@@ -1033,6 +1033,7 @@ type nodeDetailData struct {
 	ActiveRoutes int
 	FailedRoutes int
 	RecentAudit  []nodeAuditLine
+	NodeAlerts   []nodeAlertRow
 	RecentRoutes []hostRow
 	// GeoIPMeta surfaces DB status next to the GeoIP capability badge.
 	GeoIPMeta geoipView
@@ -1090,6 +1091,13 @@ type nodeAuditLine struct {
 	Action string
 	Email  string
 	Meta   string
+}
+
+type nodeAlertRow struct {
+	RuleID   string
+	Severity string
+	Title    string
+	FiredAt  string
 }
 
 // NodeDetail renders /admin/nodes/{id}: per-node ops cockpit.
@@ -1188,6 +1196,24 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 			if e := arows.Scan(&t, &line.Action, &line.Email, &line.Meta); e == nil {
 				line.When = t.Format("2006-01-02 15:04:05")
 				d.RecentAudit = append(d.RecentAudit, line)
+			}
+		}
+	}
+
+	// Recent alerts for this node via labels_json; skip on unsupported JSON_EXTRACT.
+	alCtx, alCancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer alCancel()
+	alrows, alErr := db.QueryContext(alCtx,
+		`SELECT rule_id, severity, title, DATE_FORMAT(fired_at, '%Y-%m-%d %H:%i')
+		 FROM alert_log
+		 WHERE JSON_UNQUOTE(JSON_EXTRACT(labels_json, '$.node_id')) = ?
+		 ORDER BY id DESC LIMIT 10`, strconv.FormatInt(id, 10))
+	if alErr == nil {
+		defer alrows.Close()
+		for alrows.Next() {
+			var al nodeAlertRow
+			if e := alrows.Scan(&al.RuleID, &al.Severity, &al.Title, &al.FiredAt); e == nil {
+				d.NodeAlerts = append(d.NodeAlerts, al)
 			}
 		}
 	}
