@@ -139,6 +139,11 @@ docs/                   all the docs you'll find linked below
 | [`docs/API.md`](docs/API.md) | REST API v1 contract |
 | [`docs/SPEC.md`](docs/SPEC.md) | Functional specification |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model and security model |
+| [`docs/WAF.md`](docs/WAF.md) | Web Application Firewall (Coraza) |
+| [`docs/GEOIP.md`](docs/GEOIP.md) | GeoIP country filtering |
+| [`docs/DNS_PROVIDERS.md`](docs/DNS_PROVIDERS.md) | DNS-01 challenge providers for wildcard TLS |
+| [`docs/MTLS.md`](docs/MTLS.md) | Mutual TLS / client certificate auth |
+| [`docs/ANALYTICS.md`](docs/ANALYTICS.md) | Access log analytics |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Shipped features and planned work |
 | [`docs/FEATURE_MATRIX.md`](docs/FEATURE_MATRIX.md) | HPG vs alternatives comparison |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Common issues + fixes |
