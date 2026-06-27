@@ -3237,6 +3237,8 @@ type settingsData struct {
 	MTLSFailOpen bool
 	// RollupRetentionDays controls log_rollups pruning; 0 = keep forever.
 	RollupRetentionDays int
+	// AutoFailoverEnabled mirrors the failover.auto_enabled DB setting.
+	AutoFailoverEnabled bool
 }
 
 func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -3266,6 +3268,7 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			"apidocs.public_enabled",
 			"security.require_admin_2fa",
 			"analytics.rollup_retention_days",
+			"failover.auto_enabled",
 		})
 		d.OIDC = oidcView{
 			Enabled: kv["oidc.enabled"] == "1", ProviderName: defaultStr(kv["oidc.provider_name"], "Authentik"),
@@ -3341,6 +3344,10 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		d.MTLSFailOpen = mtlsKV["mtls.fail_open"] == "1"
 		if v := kv["analytics.rollup_retention_days"]; v != "" {
 			d.RollupRetentionDays, _ = strconv.Atoi(v)
+		}
+		// DB value takes precedence; empty = not yet saved, fall back to false.
+		if v := kv["failover.auto_enabled"]; v != "" {
+			d.AutoFailoverEnabled = v == "1"
 		}
 	}
 	d.SSOJump = h.loadSSOJumpSettingsView(r, d.AppURL)
@@ -3535,6 +3542,26 @@ func (h *AdminHandlers) SettingsAnalytics(w http.ResponseWriter, r *http.Request
 		return
 	}
 	redirectWithFlash(w, r, "/admin/settings", "Analytics settings saved", "")
+}
+
+// SettingsFailover handles POST /admin/settings/failover — toggles auto failover at runtime.
+func (h *AdminHandlers) SettingsFailover(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "database not connected")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	enabled := "0"
+	if r.FormValue("auto_failover_enabled") == "1" {
+		enabled = "1"
+	}
+	if err := h.saveSettings(ctx, db, map[string]string{"failover.auto_enabled": enabled}, false); err != nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
+		return
+	}
+	redirectWithFlash(w, r, "/admin/settings", "Failover settings saved", "")
 }
 
 // geoipRefresher is the minimal interface the handler needs from GeoIPUpdateJob.

@@ -46,6 +46,7 @@
           <button type="button" data-settings-tab="acme" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">ACME / TLS</button>
           <button type="button" data-settings-tab="mtls" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">mTLS</button>
           <button type="button" data-settings-tab="analytics" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Analytics</button>
+          <button type="button" data-settings-tab="failover" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Failover</button>
           <button type="button" data-settings-tab="geoip" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">GeoIP database</button>
         </div>
       </div>
@@ -664,6 +665,23 @@
       <div class="flex justify-end pt-4">
         <button type="submit" form="form-analytics"
                 class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">Save</button>
+      </div>
+    </form>
+  </section>
+
+  <section data-settings-pane="failover" class="hpg-settings-pane hidden hpg-card">
+    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Auto failover</h2>
+    <form method="POST" action="/admin/settings/failover" id="form-failover">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label class="flex items-center gap-3 cursor-pointer">
+        <input type="checkbox" name="auto_failover_enabled" value="1"
+               {{if .AutoFailoverEnabled}}checked{{end}}
+               class="w-4 h-4 rounded text-indigo-600">
+        <span class="text-sm font-medium">Enable automatic route failover</span>
+      </label>
+      <p class="text-xs text-slate-500 mt-2">When enabled, routes on a dead node move to a healthy sibling in the same failover node group. Requires node groups with mode=failover.</p>
+      <div class="flex justify-end pt-4">
+        <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">Save</button>
       </div>
     </form>
   </section>

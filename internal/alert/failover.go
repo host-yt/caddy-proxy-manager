@@ -12,7 +12,13 @@ import (
 // sibling, then resyncs the sibling. No-op when feature is disabled or wiring
 // is missing.
 func (e *Evaluator) tryAutoFailover(ctx context.Context, db *sql.DB, nodeID int64) {
-	if !e.Cfg.AutoFailoverEnabled {
+	// DB setting takes precedence over env; allows runtime toggle without restart.
+	autoEnabled := e.Cfg.AutoFailoverEnabled
+	var dbVal string
+	if db.QueryRowContext(ctx, "SELECT value FROM settings WHERE `key`=?", "failover.auto_enabled").Scan(&dbVal) == nil {
+		autoEnabled = dbVal == "1"
+	}
+	if !autoEnabled {
 		return
 	}
 	if e.RouteSvc == nil {
