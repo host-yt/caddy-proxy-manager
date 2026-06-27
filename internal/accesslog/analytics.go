@@ -70,6 +70,12 @@ type CountryHit struct {
 	Count   int64
 }
 
+// ASNOrgHit is a counted ASN organization from the ASN lookup.
+type ASNOrgHit struct {
+	Org   string
+	Count int64
+}
+
 // ProtoHit is a counted HTTP protocol version.
 type ProtoHit struct {
 	Proto string
@@ -208,6 +214,19 @@ func (s *Store) TopCountries(ctx context.Context, f AnalyticsFilter, limit int) 
 	out := make([]CountryHit, 0, len(rows))
 	for _, row := range rows {
 		out = append(out, CountryHit{Country: row.value, Count: row.count})
+	}
+	return out, nil
+}
+
+// TopASNOrgs returns the most frequent ASN organization names.
+func (s *Store) TopASNOrgs(ctx context.Context, f AnalyticsFilter, limit int) ([]ASNOrgHit, error) {
+	rows, err := s.topTextValues(ctx, f, "asn_org", "asn_org <> ''", limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ASNOrgHit, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, ASNOrgHit{Org: row.value, Count: row.count})
 	}
 	return out, nil
 }
