@@ -176,7 +176,7 @@ func TestKnownRuleIDs(t *testing.T) {
 	expected := []string{
 		"node_offline", "route_failed", "cert_failing", "wg_tunnel_stale",
 		"db_pool_saturated", "drill_stale", "wg_key_not_fetched",
-		"manual_cert_expiry", "high_error_rate",
+		"manual_cert_expiry", "high_error_rate", "waf_attack_surge",
 	}
 	ids := KnownRuleIDs()
 	idSet := make(map[string]bool, len(ids))
