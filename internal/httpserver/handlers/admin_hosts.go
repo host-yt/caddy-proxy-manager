@@ -1264,22 +1264,22 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 	// Load global GeoIP DB status so the template can show it next to the badge.
 	d.GeoIPMeta = h.loadGeoIPView(ctx, db)
 
-	// 24h total bandwidth + request count for all routes on this node.
+	// 24h total bandwidth + request count for all routes on this node (from rollups).
 	_ = db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(l.bytes_resp),0), COUNT(*)
-		 FROM host_access_log l
-		 JOIN routes r ON r.id = l.route_id
-		 WHERE r.caddy_node_id = ? AND l.ts >= NOW() - INTERVAL 24 HOUR`, id,
+		`SELECT COALESCE(SUM(lr.bytes_resp),0), COALESCE(SUM(lr.requests),0)
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id = lr.route_id
+		 WHERE r.caddy_node_id = ? AND lr.bucket_start >= NOW() - INTERVAL 24 HOUR`, id,
 	).Scan(&d.NodeBandwidth24h, &d.NodeRequests24h)
 
-	// Top 5 routes by 24h bandwidth on this node.
+	// Top 5 routes by 24h bandwidth on this node (from rollups).
 	bwrows, err := db.QueryContext(ctx,
-		`SELECT l.route_id, r.domain, COALESCE(SUM(l.bytes_resp),0), COUNT(*)
-		 FROM host_access_log l
-		 JOIN routes r ON r.id = l.route_id
-		 WHERE r.caddy_node_id = ? AND l.ts >= NOW() - INTERVAL 24 HOUR
-		 GROUP BY l.route_id, r.domain
-		 ORDER BY SUM(l.bytes_resp) DESC LIMIT 5`, id)
+		`SELECT lr.route_id, r.domain, COALESCE(SUM(lr.bytes_resp),0), COALESCE(SUM(lr.requests),0)
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id = lr.route_id
+		 WHERE r.caddy_node_id = ? AND lr.bucket_start >= NOW() - INTERVAL 24 HOUR
+		 GROUP BY lr.route_id, r.domain
+		 ORDER BY SUM(lr.bytes_resp) DESC LIMIT 5`, id)
 	if err == nil {
 		defer bwrows.Close()
 		for bwrows.Next() {
