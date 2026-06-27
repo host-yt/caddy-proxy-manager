@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -278,6 +279,116 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	h.render(w, "hosts", d)
+}
+
+// HostsExport streams GET /admin/hosts/export.csv: all routes matching filters as CSV.
+func (h *AdminHandlers) HostsExport(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+	sess := middleware.SessionFromContext(ctx)
+
+	if !checkLogsExportRateLimit(logsExportLimiterKey(r, sess), time.Now()) {
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	status := strings.TrimSpace(r.URL.Query().Get("status"))
+	nodeID, _ := strconv.ParseInt(r.URL.Query().Get("node_id"), 10, 64)
+	tag := strings.TrimSpace(r.URL.Query().Get("tag"))
+
+	where := []string{"1=1"}
+	args := []any{}
+	if q != "" {
+		where = append(where, "(r.domain LIKE ? OR u.email LIKE ?)")
+		args = append(args, "%"+q+"%", "%"+q+"%")
+	}
+	switch status {
+	case "active", "pending_dns", "dns_ok", "pending_ssl", "failed", "disabled":
+		where = append(where, "r.status = ?")
+		args = append(args, status)
+	}
+	if nodeID > 0 {
+		where = append(where, "r.caddy_node_id = ?")
+		args = append(args, nodeID)
+	}
+	if tag != "" {
+		where = append(where, "r.tag = ?")
+		args = append(args, tag)
+	}
+	whereSQL := strings.Join(where, " AND ")
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port,
+		        r.status, r.ssl_enabled, r.kind,
+		        s.name, COALESCE(NULLIF(c.display_name,''), u.email),
+		        n.name, COALESCE(r.tag,''),
+		        DATE_FORMAT(r.updated_at,'%Y-%m-%d %H:%i')
+		 FROM routes r
+		 JOIN services s    ON s.id = r.service_id
+		 JOIN clients c     ON c.id = s.client_id
+		 JOIN users u       ON u.id = c.user_id
+		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
+		 WHERE `+whereSQL+`
+		 ORDER BY r.id DESC LIMIT 10000`, args...)
+	if err != nil {
+		h.Logger.Error("hosts export query", "err", err)
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="hpg-routes.csv"`)
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"id", "domain", "path_prefix", "upstream_port", "status", "ssl", "kind", "service", "client", "node", "tag", "updated_at"})
+
+	count := 0
+	for rows.Next() {
+		var (
+			id, port       int64
+			domain, prefix string
+			st, svc        string
+			ssl            bool
+			kind, client   string
+			node, rtag, ts string
+		)
+		if err := rows.Scan(&id, &domain, &prefix, &port, &st, &ssl, &kind, &svc, &client, &node, &rtag, &ts); err != nil {
+			continue
+		}
+		sslStr := "0"
+		if ssl {
+			sslStr = "1"
+		}
+		_ = cw.Write(csvSafeRow([]string{
+			strconv.FormatInt(id, 10),
+			domain,
+			prefix,
+			strconv.FormatInt(port, 10),
+			st,
+			sslStr,
+			kind,
+			svc,
+			client,
+			node,
+			rtag,
+			ts,
+		}))
+		count++
+		if count%100 == 0 {
+			cw.Flush()
+		}
+	}
+	cw.Flush()
+
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "admin.hosts.export", Entity: "route",
+		Meta: map[string]any{"count": count, "q": q, "status": status, "tag": tag},
+	})
 }
 
 // hostsFilterQuery builds the "&key=val" suffix appended to page links so
