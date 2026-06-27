@@ -35,6 +35,8 @@ type Config struct {
 	ErrorRateWindowMinutes int // ALERT_ERROR_RATE_WINDOW_MIN, default 10
 	// Minimum requests in the window required before the rule can fire.
 	ErrorRateMinRequests int // ALERT_ERROR_RATE_MIN_REQS, default 10
+	// Move routes to a healthy sibling on node_offline when true.
+	AutoFailoverEnabled bool // ENABLE_AUTO_FAILOVER, default false
 }
 
 // LoadConfig reads env with sane defaults. Invalid numerics fall back to
@@ -55,6 +57,7 @@ func LoadConfig() Config {
 		ErrorRatePct:              envFloat("ALERT_ERROR_RATE_PCT", 0.25),
 		ErrorRateWindowMinutes:    envInt("ALERT_ERROR_RATE_WINDOW_MIN", 10),
 		ErrorRateMinRequests:      envInt("ALERT_ERROR_RATE_MIN_REQS", 10),
+		AutoFailoverEnabled:       os.Getenv("ENABLE_AUTO_FAILOVER") == "1",
 	}
 }
 

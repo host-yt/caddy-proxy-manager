@@ -32,6 +32,11 @@ type Alert struct {
 	Labels   map[string]string // e.g. {"node_id":"3","node_name":"eu-1"}
 }
 
+// NodeResyncer is the narrow interface the failover logic needs from routes.Service.
+type NodeResyncer interface {
+	Resync(ctx context.Context, nodeID int64) error
+}
+
 // Evaluator holds dependencies; created once in main.go. Every external
 // dep is nil-safe so the ticker degrades gracefully before wiring is live.
 type Evaluator struct {
@@ -41,6 +46,7 @@ type Evaluator struct {
 	Mailer   *mail.Mailer
 	SMS      *sms.Sender
 	Cfg      Config
+	RouteSvc NodeResyncer // nil-safe; needed only when AutoFailoverEnabled
 }
 
 // Tick is the per-interval entry point called by the leader ticker.

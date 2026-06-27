@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -59,6 +60,15 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
 	if e.SMS != nil && e.Cfg.AdminPhone != "" {
 		if err := e.SMS.Send(ctx, e.Cfg.AdminPhone, "[HPG] "+a.Title+": "+a.Detail); err != nil && e.Logger != nil {
 			e.Logger.Warn("alert sms failed", "rule", a.RuleID, "err", err)
+		}
+	}
+
+	// Trigger automatic failover for node_offline alerts.
+	if a.RuleID == "node_offline" {
+		if nodeIDStr := a.Labels["node_id"]; nodeIDStr != "" {
+			if id, err := strconv.ParseInt(nodeIDStr, 10, 64); err == nil {
+				go e.tryAutoFailover(context.Background(), db, id)
+			}
 		}
 	}
 }
