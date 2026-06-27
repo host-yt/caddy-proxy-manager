@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/deployment"
@@ -45,6 +46,8 @@ type ClientHandlers struct {
 	}
 	// Mailer (optional) used for Email OTP enrollment + login challenges.
 	Mailer *mail.Mailer
+	// AccessLogs (optional) reads stored per-route access log entries.
+	AccessLogs *accesslog.Store
 }
 
 type baseAppData struct {
@@ -1018,6 +1021,84 @@ func (h *ClientHandlers) loadClientAPIKeys(ctx context.Context) []clientAPIKeyRo
 		}
 	}
 	return out
+}
+
+// ---- Route logs (client view) ------------------------------------------
+
+type clientRouteLogsData struct {
+	baseAppData
+	RouteID        int64
+	Domain         string
+	Error          string
+	Entries        []accesslog.Entry
+	AnalyticsTotal int64
+	StatusBuckets  []accesslog.StatusBucket
+	ProtoBreakdown []accesslog.ProtoHit
+	BytesSummary   accesslog.BytesSummary
+	TopPaths       []accesslog.PathHit
+}
+
+// RouteLogs renders GET /app/routes/{id}/logs for the owning client.
+func (h *ClientHandlers) RouteLogs(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	db := h.DB()
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	d := clientRouteLogsData{baseAppData: h.base(r, "Route logs"), RouteID: id}
+	if db == nil || sess == nil || id == 0 {
+		h.render(w, "client_route_logs", d)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		http.Error(w, "no client record", http.StatusForbidden)
+		return
+	}
+
+	// Verify the route belongs to this client.
+	err = db.QueryRowContext(ctx,
+		`SELECT r.domain FROM routes r
+		 JOIN services s ON s.id = r.service_id
+		 WHERE r.id = ? AND s.client_id = ?`, id, clientID,
+	).Scan(&d.Domain)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+
+	if h.AccessLogs != nil {
+		entries, err := h.AccessLogs.Recent(ctx, id, 100)
+		if err != nil {
+			h.Logger.Warn("client route logs query", "id", id, "err", err)
+		}
+		d.Entries = entries
+
+		now := time.Now().UTC()
+		f := accesslog.AnalyticsFilter{
+			RouteID: id,
+			From:    now.Add(-24 * time.Hour),
+			To:      now,
+			Step:    time.Hour,
+		}
+		if buckets, err := h.AccessLogs.StatusBuckets(ctx, f); err == nil {
+			d.StatusBuckets = buckets
+			for _, b := range buckets {
+				d.AnalyticsTotal += b.Count
+			}
+		}
+		if proto, err := h.AccessLogs.ProtoBreakdown(ctx, f); err == nil {
+			d.ProtoBreakdown = proto
+		}
+		if bsum, err := h.AccessLogs.BytesSummary(ctx, f); err == nil {
+			d.BytesSummary = bsum
+		}
+		if paths, err := h.AccessLogs.TopPaths(ctx, f, 5); err == nil {
+			d.TopPaths = paths
+		}
+	}
+	h.render(w, "client_route_logs", d)
 }
 
 // ---- legacy stubs kept compiling ---------------------------------------
