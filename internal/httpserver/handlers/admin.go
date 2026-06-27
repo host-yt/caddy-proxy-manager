@@ -3161,6 +3161,8 @@ type settingsData struct {
 	AI aiView
 	// MTLSFailOpen mirrors the mtls.fail_open setting for the mTLS tab.
 	MTLSFailOpen bool
+	// RollupRetentionDays controls log_rollups pruning; 0 = keep forever.
+	RollupRetentionDays int
 }
 
 func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -3189,6 +3191,7 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			"sms_otp_available",
 			"apidocs.public_enabled",
 			"security.require_admin_2fa",
+			"analytics.rollup_retention_days",
 		})
 		d.OIDC = oidcView{
 			Enabled: kv["oidc.enabled"] == "1", ProviderName: defaultStr(kv["oidc.provider_name"], "Authentik"),
@@ -3262,6 +3265,9 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		d.AI = h.loadAIView(ctx)
 		mtlsKV := h.loadSettings(ctx, db, []string{"mtls.fail_open"})
 		d.MTLSFailOpen = mtlsKV["mtls.fail_open"] == "1"
+		if v := kv["analytics.rollup_retention_days"]; v != "" {
+			d.RollupRetentionDays, _ = strconv.Atoi(v)
+		}
 	}
 	d.SSOJump = h.loadSSOJumpSettingsView(r, d.AppURL)
 	// Branding tab: pre-fill from the shared cached loader (same source as
@@ -3427,6 +3433,34 @@ func (h *AdminHandlers) SettingsMTLS(w http.ResponseWriter, r *http.Request) {
 		EntityID: "mtls", Meta: map[string]any{"fail_open": failOpen == "1"},
 	})
 	redirectWithFlash(w, r, "/admin/settings#mtls", "mTLS settings saved.", "")
+}
+
+// SettingsAnalytics handles POST /admin/settings/analytics.
+func (h *AdminHandlers) SettingsAnalytics(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "database not connected")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	days := 0
+	if v := strings.TrimSpace(r.FormValue("rollup_retention_days")); v != "" {
+		if d, err := strconv.Atoi(v); err == nil && d >= 0 {
+			days = d
+		}
+	}
+	daysStr := "0"
+	if days > 0 {
+		daysStr = strconv.Itoa(days)
+	}
+	if err := h.saveSettings(ctx, db, map[string]string{
+		"analytics.rollup_retention_days": daysStr,
+	}, false); err != nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
+		return
+	}
+	redirectWithFlash(w, r, "/admin/settings", "Analytics settings saved", "")
 }
 
 // geoipRefresher is the minimal interface the handler needs from GeoIPUpdateJob.

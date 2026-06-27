@@ -536,6 +536,7 @@ func (s *Server) routes() {
 			r.Post("/smtp", s.deps.Admin.SettingsSMTP)
 			r.Post("/acme", s.deps.Admin.SettingsACME)
 			r.Post("/mtls", s.deps.Admin.SettingsMTLS)
+			r.Post("/analytics", s.deps.Admin.SettingsAnalytics)
 			r.Post("/geoip", s.deps.Admin.SettingsGeoIP)
 			r.Post("/geoip/refresh", s.deps.Admin.SettingsGeoIPRefresh)
 			r.Post("/oidc", s.deps.Admin.SettingsOIDC)
