@@ -35,11 +35,15 @@
           <td class="px-4 py-3 text-right space-x-3">
             <form method="POST" action="/admin/webhooks/{{.ID}}/test" class="inline">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button class="text-xs text-sky-700 dark:text-sky-400 hover:underline">test</button>
+              <button class="text-xs text-sky-700 dark:text-sky-400 hover:underline cursor-pointer">test</button>
+            </form>
+            <form method="POST" action="/admin/webhooks/{{.ID}}/rotate-secret" class="inline" data-confirm="Rotate signing secret for {{.Name}}? Current secret will stop working immediately.">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button type="submit" class="text-xs text-amber-600 dark:text-amber-400 hover:underline cursor-pointer">rotate secret</button>
             </form>
             <form method="POST" action="/admin/webhooks/{{.ID}}/delete" class="inline" data-confirm="Delete {{.Name}}?">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline">delete</button>
+              <button class="text-xs text-rose-600 dark:text-rose-400 hover:underline cursor-pointer">delete</button>
             </form>
           </td>
         </tr>

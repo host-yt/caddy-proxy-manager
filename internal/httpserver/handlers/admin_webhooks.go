@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"net/http"
 	"strconv"
 	"strings"
@@ -204,4 +206,45 @@ func (h *AdminHandlers) WebhooksTest(w http.ResponseWriter, r *http.Request) {
 	// Kick the dispatcher synchronously so the operator sees outcome immediately.
 	h.Webhooks.Dispatch(ctx)
 	redirectWithFlash(w, r, "/admin/webhooks", "test event queued + dispatched", "")
+}
+
+// WebhooksRotateSecret POST /admin/webhooks/{id}/rotate-secret — replaces the
+// signing secret with a fresh 64-char hex value; shows plaintext once via flash.
+func (h *AdminHandlers) WebhooksRotateSecret(w http.ResponseWriter, r *http.Request) {
+	if h.Webhooks == nil || h.Webhooks.State == nil {
+		http.Error(w, "webhook service not wired", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	db := h.DB()
+	if db == nil || id == 0 {
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+		return
+	}
+	// Generate 32 random bytes, hex-encoded = 64-char secret.
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		http.Error(w, "rng failed", http.StatusInternalServerError)
+		return
+	}
+	secret := hex.EncodeToString(raw)
+	enc, err := h.Webhooks.State.Encrypt(secret)
+	if err != nil {
+		http.Error(w, "encrypt failed", http.StatusInternalServerError)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if _, err := db.ExecContext(ctx,
+		"UPDATE webhook_endpoints SET secret_enc=?, updated_at=NOW() WHERE id=?", enc, id); err != nil {
+		redirectWithFlash(w, r, "/admin/webhooks", "", "rotate failed: "+sanitizeErr(err))
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "webhook.rotate_secret", Entity: "webhook_endpoint",
+		EntityID: strconv.FormatInt(id, 10),
+	})
+	// Plaintext shown exactly once via flash; never persisted.
+	redirectWithFlash(w, r, "/admin/webhooks", "New signing secret (save now, shown once): "+secret, "")
 }
