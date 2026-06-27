@@ -326,6 +326,57 @@ func (h *AdminHandlers) ClientsUpdateNotes(w http.ResponseWriter, r *http.Reques
 	redirectWithFlash(w, r, fmt.Sprintf("/admin/clients/%d", id), "Notes saved", "")
 }
 
+// ClientsBulk suspends or activates multiple clients in one POST.
+func (h *AdminHandlers) ClientsBulk(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	_ = r.ParseForm()
+	action := r.FormValue("action")
+	ids := r.Form["ids"]
+	if action == "" || len(ids) == 0 {
+		redirectWithFlash(w, r, "/admin/clients", "", "select rows and an action")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+	ok, fail := 0, 0
+	for _, s := range ids {
+		id, _ := strconv.ParseInt(s, 10, 64)
+		if id == 0 {
+			fail++
+			continue
+		}
+		var userID int64
+		if err := h.DB().QueryRowContext(ctx, "SELECT user_id FROM clients WHERE id=?", id).Scan(&userID); err != nil {
+			fail++
+			continue
+		}
+		switch action {
+		case "suspend":
+			if _, err := h.DB().ExecContext(ctx, "UPDATE users SET is_active=0 WHERE id=?", userID); err != nil {
+				fail++
+				continue
+			}
+			if h.Sessions != nil {
+				_, _ = h.Sessions.DestroyAllForUser(ctx, userID)
+			}
+		case "activate":
+			if _, err := h.DB().ExecContext(ctx, "UPDATE users SET is_active=1 WHERE id=?", userID); err != nil {
+				fail++
+				continue
+			}
+		default:
+			fail++
+			continue
+		}
+		ok++
+	}
+	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "admin.client.bulk", Entity: "client",
+		Meta: map[string]any{"action": action, "ok": ok, "fail": fail},
+	})
+	redirectWithFlash(w, r, "/admin/clients", strconv.Itoa(ok)+" client(s) "+action+"d", "")
+}
+
 // ClientChangePlan updates plan_id for all services of a client.
 func (h *AdminHandlers) ClientChangePlan(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
