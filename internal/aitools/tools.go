@@ -87,6 +87,12 @@ func (r *Registry) builtins() []Tool {
 			scopedExec:     r.routeLogsScoped,
 		},
 		{
+			Name:        "get_audit_log",
+			Description: "Return recent audit log entries (admin actions). Filter by actor email, action name (e.g. 'route.create'), or entity type. Useful for 'who changed what' queries.",
+			Schema:      json.RawMessage(`{"type":"object","properties":{"actor":{"type":"string","description":"filter by actor email (partial match)"},"action":{"type":"string","description":"filter by action string (partial match), e.g. 'route.create'"},"entity":{"type":"string","description":"filter by entity type, e.g. 'route', 'client', 'user'"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}`),
+			Exec:        r.auditLog,
+		},
+		{
 			Name:        "list_wg_peers",
 			Description: "List WireGuard tunnel peers: name, status, assigned IP, last handshake age. Useful for debugging tunnel connectivity issues. Private keys are never exposed.",
 			Schema:      json.RawMessage(`{"type":"object","properties":{"status":{"type":"string","description":"filter by status: active, revoked, pending"},"limit":{"type":"integer","minimum":1,"maximum":200}},"additionalProperties":false}`),
@@ -679,6 +685,68 @@ func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, 
 		return "", err
 	}
 	return toJSON(map[string]any{"route_id": routeID, "count": len(out), "entries": out})
+}
+
+// auditLog returns recent audit log entries. Never exposes meta JSON that could
+// contain secrets; only the scalar columns (actor email, action, entity, IP) are selected.
+func (r *Registry) auditLog(ctx context.Context, raw json.RawMessage) (string, error) {
+	var a struct {
+		Actor  string `json:"actor"`
+		Action string `json:"action"`
+		Entity string `json:"entity"`
+		Limit  int    `json:"limit"`
+	}
+	_ = json.Unmarshal(raw, &a)
+	limit := clampLimit(a.Limit, 30, 100)
+
+	q := `SELECT DATE_FORMAT(al.created_at,'%Y-%m-%dT%H:%i:%sZ'),
+	             COALESCE(u.email,'system'),
+	             al.action, COALESCE(al.entity,''), COALESCE(al.entity_id,''),
+	             COALESCE(al.ip,'')
+	      FROM audit_log al
+	      LEFT JOIN users u ON u.id = al.user_id
+	      WHERE 1=1`
+	args := []any{}
+	if a.Actor != "" {
+		q += " AND u.email LIKE ? ESCAPE '\\'"
+		args = append(args, "%"+strings.ReplaceAll(a.Actor, "%", `\%`)+"%")
+	}
+	if a.Action != "" {
+		q += " AND al.action LIKE ? ESCAPE '\\'"
+		args = append(args, "%"+strings.ReplaceAll(a.Action, "%", `\%`)+"%")
+	}
+	if a.Entity != "" {
+		q += " AND al.entity = ?"
+		args = append(args, a.Entity)
+	}
+	q += " ORDER BY al.created_at DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	type entry struct {
+		At       string `json:"at"`
+		Actor    string `json:"actor"`
+		Action   string `json:"action"`
+		Entity   string `json:"entity,omitempty"`
+		EntityID string `json:"entity_id,omitempty"`
+		IP       string `json:"ip,omitempty"`
+	}
+	out := make([]entry, 0, limit)
+	for rows.Next() {
+		var e entry
+		if err := rows.Scan(&e.At, &e.Actor, &e.Action, &e.Entity, &e.EntityID, &e.IP); err != nil {
+			return "", err
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return "", err
+	}
+	return toJSON(map[string]any{"count": len(out), "entries": out})
 }
 
 // listWGPeers returns WireGuard peer status. Private/server keys never selected.
