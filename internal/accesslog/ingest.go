@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -153,6 +154,7 @@ func (h *IngestHandler) ingest(ctx context.Context, line caddyLogLine) {
 		BytesReq:  line.BytesRead,
 		Proto:     normalizeProto(line.Request.Proto),
 		Country:   resolveCountry(line.Request.ClientIP, line.Request.RemoteIP),
+		ASNOrg:    resolveASNOrg(line.Request.ClientIP, line.Request.RemoteIP),
 	}
 	if err := h.Store.Insert(ctx, e); err != nil {
 		h.Logger.Warn("accesslog insert", "err", err)
@@ -176,6 +178,30 @@ func normalizeProto(p string) string {
 		}
 		return p
 	}
+}
+
+// resolveASNOrg returns the ASN organization name for the request client IP.
+// Falls back to remoteIP when clientIP is empty; returns "" if ASN DB is absent.
+func resolveASNOrg(clientIP, remoteIP string) string {
+	ip := clientIP
+	if ip == "" {
+		ip = remoteIP
+	}
+	if ip == "" {
+		return ""
+	}
+	parsed := net.ParseIP(ip)
+	if parsed == nil {
+		return ""
+	}
+	_, org, ok := geoip.LookupASN(parsed)
+	if !ok {
+		return ""
+	}
+	if len(org) > 128 {
+		org = org[:128]
+	}
+	return org
 }
 
 // resolveCountry returns the ISO-2 country code for the request client IP.

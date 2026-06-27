@@ -135,6 +135,11 @@ type statsData struct {
 	BytesTotal24h   int64
 	BytesTotalHuman string
 
+	TopASNs []struct {
+		Org   string
+		Count int64
+	}
+
 	// Pre-serialised JSON for Chart.js (avoids template-side escaping woes).
 	RouteStatusLabels jsonRaw
 	RouteStatusValues jsonRaw
@@ -440,6 +445,27 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 		if bytesSummary.TotalBytes > 0 {
 			d.BytesTotalHuman = humanBytes(uint64(bytesSummary.TotalBytes))
 		}
+	}
+
+	// --- Top ASNs (7d, from host_access_log) --------------------------
+	asnRows, asnErr := db.QueryContext(ctx,
+		`SELECT asn_org, COUNT(*) AS cnt
+		 FROM host_access_log
+		 WHERE asn_org != '' AND ts >= NOW() - INTERVAL 7 DAY
+		 GROUP BY asn_org
+		 ORDER BY cnt DESC
+		 LIMIT 10`)
+	if asnErr == nil {
+		for asnRows.Next() {
+			var row struct {
+				Org   string
+				Count int64
+			}
+			if err := asnRows.Scan(&row.Org, &row.Count); err == nil {
+				d.TopASNs = append(d.TopASNs, row)
+			}
+		}
+		asnRows.Close()
 	}
 
 	// --- Chart data ---------------------------------------------------
