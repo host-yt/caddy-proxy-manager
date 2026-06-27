@@ -1076,6 +1076,8 @@ func (r *Registry) clientDetail(ctx context.Context, raw json.RawMessage) (strin
 		ServiceCount int64  `json:"service_count"`
 		RouteCount   int64  `json:"route_count"`
 		WGPeerCount  int64  `json:"wg_peer_count"`
+		Bytes30d     int64  `json:"bytes_resp_30d"`
+		Requests24h  int64  `json:"requests_24h"`
 	}
 	var res result
 	err := r.db.QueryRowContext(ctx,
@@ -1094,6 +1096,15 @@ func (r *Registry) clientDetail(ctx context.Context, raw json.RawMessage) (strin
 	if err != nil {
 		return "", err
 	}
+	// Traffic from log_rollups (fast pre-aggregated).
+	_ = r.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(lr.bytes_resp),0),
+		        COALESCE(SUM(CASE WHEN lr.bucket_start >= NOW() - INTERVAL 24 HOUR THEN lr.requests ELSE 0 END),0)
+		 FROM log_rollups lr
+		 JOIN routes rt ON rt.id = lr.route_id
+		 JOIN services sv ON sv.id = rt.service_id
+		 WHERE sv.client_id = ? AND lr.bucket_start >= NOW() - INTERVAL 30 DAY`, res.ID,
+	).Scan(&res.Bytes30d, &res.Requests24h)
 	return toJSON(res)
 }
 
