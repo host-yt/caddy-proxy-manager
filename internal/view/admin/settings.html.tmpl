@@ -550,7 +550,16 @@
             <input name="key_{{.ID}}" type="password" autocomplete="new-password" placeholder="{{if .Configured}}leave blank to keep{{else}}paste API key{{end}}" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
             <button type="button" data-ai-test="{{.ID}}" class="px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-600 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors whitespace-nowrap">Test key</button>
           </div>
+          <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
+            <label class="block text-xs text-slate-600 dark:text-slate-300 sm:w-16 shrink-0">Model</label>
+            <select name="model_{{.ID}}" data-ai-model="{{.ID}}" data-ai-model-saved="{{.Model}}" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+              <option value="" {{if eq .Model ""}}selected{{end}}>Default ({{if eq .ID "anthropic"}}claude-3-5-haiku-latest{{else if eq .ID "openai"}}gpt-4o-mini{{else if eq .ID "gemini"}}gemini-1.5-flash{{else}}openai/gpt-4o-mini{{end}})</option>
+              {{if .Model}}<option value="{{.Model}}" selected>{{.Model}}</option>{{end}}
+            </select>
+            <button type="button" data-ai-models-refresh="{{.ID}}" class="px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-600 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors whitespace-nowrap">Refresh models</button>
+          </div>
           {{if .Configured}}<label class="flex items-center gap-2 mt-2 text-xs text-rose-700 dark:text-rose-400"><input type="checkbox" name="clear_{{.ID}}" value="1"> Remove stored key on save</label>{{end}}
+          <p data-ai-models-status="{{.ID}}" class="hidden mt-2 text-xs"></p>
           <p data-ai-test-result="{{.ID}}" class="hidden mt-2 text-xs"></p>
         </div>
         {{end}}
@@ -1072,7 +1081,7 @@
             if (!result) return;
             if (j && j.ok){
               result.className = 'mt-2 text-xs p-2 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200';
-              result.textContent = 'OK - key works.';
+              result.textContent = 'OK - key works' + (j.model ? ' (model: ' + j.model + ').' : '.');
             } else {
               result.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
               result.textContent = 'Failed: ' + ((j && j.error) || 'unknown error');
@@ -1083,6 +1092,59 @@
             if (!result) return;
             result.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
             result.textContent = 'Network error: ' + (err && err.message || err);
+          });
+      });
+    });
+  })();
+
+  // AI assistant: per-provider "Refresh models" buttons. GETs the live model
+  // list from the provider via /admin/settings/ai/models and fills the dropdown,
+  // preserving the currently-saved selection. Response is JSON {models|error}.
+  (function(){
+    document.querySelectorAll('[data-ai-models-refresh]').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var provider = btn.dataset.aiModelsRefresh;
+        var sel = document.querySelector('[data-ai-model="'+provider+'"]');
+        var status = document.querySelector('[data-ai-models-status="'+provider+'"]');
+        var saved = sel ? (sel.dataset.aiModelSaved || '') : '';
+        btn.disabled = true;
+        var prev = btn.textContent;
+        btn.textContent = 'Loading…';
+        if (status){ status.classList.remove('hidden'); status.className = 'mt-2 text-xs text-slate-500 dark:text-slate-400'; status.textContent = 'Fetching available models…'; }
+        fetch('/admin/settings/ai/models?provider=' + encodeURIComponent(provider), {
+          method: 'GET', credentials: 'same-origin', headers: {'Accept': 'application/json'}
+        }).then(function(r){ return r.json().catch(function(){ return {error:'invalid JSON response'}; }); })
+          .then(function(j){
+            btn.disabled = false; btn.textContent = prev;
+            if (j && j.error){
+              if (status){ status.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200'; status.textContent = 'Failed: ' + j.error; }
+              return;
+            }
+            var models = (j && j.models) || [];
+            if (sel){
+              // Keep the first "Default (...)" option; rebuild the rest.
+              var def = sel.options[0];
+              sel.innerHTML = '';
+              if (def) sel.appendChild(def);
+              var hasSaved = false;
+              models.forEach(function(m){
+                var o = document.createElement('option');
+                o.value = m; o.textContent = m;
+                if (m === saved){ o.selected = true; hasSaved = true; }
+                sel.appendChild(o);
+              });
+              // Saved model missing from the live list: re-add it so it sticks.
+              if (saved && !hasSaved){
+                var o2 = document.createElement('option');
+                o2.value = saved; o2.textContent = saved + ' (saved, not listed)'; o2.selected = true;
+                sel.appendChild(o2);
+              }
+            }
+            if (status){ status.className = 'mt-2 text-xs text-emerald-700 dark:text-emerald-400'; status.textContent = models.length + ' models loaded.'; }
+          })
+          .catch(function(err){
+            btn.disabled = false; btn.textContent = prev;
+            if (status){ status.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200'; status.textContent = 'Network error: ' + (err && err.message || err); }
           });
       });
     });

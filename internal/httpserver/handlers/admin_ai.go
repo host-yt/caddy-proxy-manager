@@ -17,6 +17,7 @@ type aiProviderView struct {
 	ID         string // lowercase provider id, e.g. "anthropic"
 	Label      string // human label
 	Configured bool   // a key is stored
+	Model      string // currently-saved model id ("" = adapter default)
 }
 
 // aiView backs the "AI assistant" settings pane.
@@ -40,6 +41,14 @@ var aiProviderLabels = map[string]string{
 	"openrouter": "OpenRouter",
 }
 
+// aiModelSetting maps a provider id to its plaintext selected-model row.
+var aiModelSetting = map[string]string{
+	"anthropic":  "ai.anthropic_model",
+	"openai":     "ai.openai_model",
+	"gemini":     "ai.gemini_model",
+	"openrouter": "ai.openrouter_model",
+}
+
 // loadAIView reads the AI settings rows and reports which keys are configured.
 // It checks the raw stored value for presence so it never needs to decrypt.
 func (h *AdminHandlers) loadAIView(ctx context.Context) aiView {
@@ -51,7 +60,7 @@ func (h *AdminHandlers) loadAIView(ctx context.Context) aiView {
 	// Read raw stored values; non-empty ciphertext means "configured".
 	keys := []string{"ai.default_provider"}
 	for _, p := range aichat.SupportedProviders() {
-		keys = append(keys, aiKeySetting[p])
+		keys = append(keys, aiKeySetting[p], aiModelSetting[p])
 	}
 	raw := h.loadSettingsRaw(ctx, db, keys)
 	v.DefaultProvider = raw["ai.default_provider"]
@@ -60,6 +69,7 @@ func (h *AdminHandlers) loadAIView(ctx context.Context) aiView {
 			ID:         p,
 			Label:      aiProviderLabels[p],
 			Configured: strings.TrimSpace(raw[aiKeySetting[p]]) != "",
+			Model:      strings.TrimSpace(raw[aiModelSetting[p]]),
 		})
 	}
 	return v
@@ -90,6 +100,16 @@ func (h *AdminHandlers) SettingsAI(w http.ResponseWriter, r *http.Request) {
 	if err := h.saveSettings(ctx, db, map[string]string{"ai.default_provider": provider}, false); err != nil {
 		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
 		return
+	}
+
+	// Per-provider selected model (plaintext, optional). Blank clears it so the
+	// adapter falls back to its default model.
+	for _, p := range aichat.SupportedProviders() {
+		model := strings.TrimSpace(r.FormValue("model_" + p))
+		if err := h.saveSettings(ctx, db, map[string]string{aiModelSetting[p]: model}, false); err != nil {
+			redirectWithFlash(w, r, "/admin/settings", "", "model save failed")
+			return
+		}
 	}
 
 	// Per-provider key writes. Blank = keep existing; "clear_<p>"=1 wipes it.
@@ -164,7 +184,48 @@ func (h *AdminHandlers) SettingsAITest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": sanitizeErr(err)})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "provider": client.Provider()})
+	// Report the model that was actually exercised so the admin can confirm.
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "provider": client.Provider(), "model": client.Model()})
+}
+
+// SettingsAIModels GET /admin/settings/ai/models?provider=X - admin-only live
+// fetch of the provider's available model ids using the stored key. Returns
+// JSON {"models":[...]} or {"error":...}; the key is never echoed.
+func (h *AdminHandlers) SettingsAIModels(w http.ResponseWriter, r *http.Request) {
+	if !h.aiAdminAllowed(w, r) {
+		writeJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+		return
+	}
+	if h.State == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "crypto not configured"})
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "no db"})
+		return
+	}
+	provider := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("provider")))
+	if provider == "" || aiKeySetting[provider] == "" {
+		writeJSON(w, http.StatusBadRequest, map[string]any{"error": "unknown provider"})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+
+	factory := aichat.NewFactory(db, h.State.Decrypt)
+	client, err := factory.For(ctx, provider)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
+	models, err := client.ListModels(ctx)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"error": sanitizeErr(err)})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"models": models})
 }
 
 // aiAdminAllowed restricts AI settings to super_admin/admin (support is

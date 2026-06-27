@@ -16,19 +16,32 @@ func TestNotConfiguredErrorIs(t *testing.T) {
 }
 
 func TestNewClientUnknownProvider(t *testing.T) {
-	if _, err := newClient("bogus", "k"); !errors.Is(err, ErrUnknownProvider) {
+	if _, err := newClient("bogus", "k", ""); !errors.Is(err, ErrUnknownProvider) {
 		t.Fatalf("want ErrUnknownProvider, got %v", err)
 	}
 }
 
 func TestNewClientAll(t *testing.T) {
 	for _, p := range SupportedProviders() {
-		c, err := newClient(p, "test-key")
+		c, err := newClient(p, "test-key", "")
 		if err != nil {
 			t.Fatalf("newClient(%s) error: %v", p, err)
 		}
 		if c.Provider() != p {
 			t.Fatalf("Provider() = %s, want %s", c.Provider(), p)
+		}
+		if c.Model() == "" {
+			t.Fatalf("Model() empty for %s; want adapter default", p)
+		}
+	}
+	// Configured model overrides the adapter default.
+	for _, p := range SupportedProviders() {
+		c, err := newClient(p, "test-key", "custom-model-x")
+		if err != nil {
+			t.Fatalf("newClient(%s, model) error: %v", p, err)
+		}
+		if c.Model() != "custom-model-x" {
+			t.Fatalf("Model() = %s, want custom-model-x", c.Model())
 		}
 	}
 }

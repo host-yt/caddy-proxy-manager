@@ -543,6 +543,7 @@ func (s *Server) routes() {
 			r.Post("/require-2fa", s.deps.Admin.SettingsRequire2FA)
 			r.Post("/ai", s.deps.Admin.SettingsAI)
 			r.Post("/ai/test", s.deps.Admin.SettingsAITest)
+			r.Get("/ai/models", s.deps.Admin.SettingsAIModels)
 		})
 	})
 

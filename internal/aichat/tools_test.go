@@ -19,7 +19,9 @@ type captureTransport struct {
 }
 
 func (c *captureTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	c.body, _ = io.ReadAll(r.Body)
+	if r.Body != nil {
+		c.body, _ = io.ReadAll(r.Body)
+	}
 	c.url = r.URL.String()
 	c.header = r.Header.Clone()
 	return &http.Response{
