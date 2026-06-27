@@ -643,6 +643,14 @@ type nodeEditData struct {
 	PublicIP       string
 	OutboundIPs    string // newline-separated for the textarea
 	Error          string
+
+	// Capability flags - reflect caddy_nodes columns set by node probe.
+	HasWAF       bool
+	HasL4        bool
+	HasDNSModule bool
+	HasRateLimit bool
+	HasGeoIP     bool
+	CaddyVersion string
 }
 
 // NodesEdit renders GET /admin/nodes/{id}/edit.
@@ -658,9 +666,12 @@ func (h *AdminHandlers) NodesEdit(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	var outboundIPsJSON sql.NullString
 	if err := db.QueryRowContext(ctx,
-		`SELECT name, api_url, COALESCE(public_hostname,''), COALESCE(public_ip,''), outbound_ips
+		`SELECT name, api_url, COALESCE(public_hostname,''), COALESCE(public_ip,''), outbound_ips,
+		        COALESCE(has_waf,0), COALESCE(has_l4,0), COALESCE(has_dns_module,0),
+		        COALESCE(has_rate_limit,0), COALESCE(has_geoip,0), COALESCE(caddy_version,'')
 		   FROM caddy_nodes WHERE id = ?`, id,
-	).Scan(&d.Name, &d.APIURL, &d.PublicHostname, &d.PublicIP, &outboundIPsJSON); err != nil {
+	).Scan(&d.Name, &d.APIURL, &d.PublicHostname, &d.PublicIP, &outboundIPsJSON,
+		&d.HasWAF, &d.HasL4, &d.HasDNSModule, &d.HasRateLimit, &d.HasGeoIP, &d.CaddyVersion); err != nil {
 		d.Error = "node not found"
 		h.render(w, "node_edit", d)
 		return
@@ -705,19 +716,31 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 		outboundIPsVal = sql.NullString{String: string(b), Valid: true}
 	}
 
+	// Parse capability checkboxes and caddy_version from form.
+	hasWAF := r.FormValue("has_waf") == "1"
+	hasL4 := r.FormValue("has_l4") == "1"
+	hasDNSModule := r.FormValue("has_dns_module") == "1"
+	hasRateLimit := r.FormValue("has_rate_limit") == "1"
+	hasGeoIP := r.FormValue("has_geoip") == "1"
+	caddyVersion := strings.TrimSpace(r.FormValue("caddy_version"))
+
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if _, err := db.ExecContext(ctx,
-		`UPDATE caddy_nodes SET outbound_ips = ? WHERE id = ?`, outboundIPsVal, id); err != nil {
+		`UPDATE caddy_nodes SET outbound_ips = ?,
+		        has_waf = ?, has_l4 = ?, has_dns_module = ?,
+		        has_rate_limit = ?, has_geoip = ?, caddy_version = ?
+		 WHERE id = ?`,
+		outboundIPsVal, hasWAF, hasL4, hasDNSModule, hasRateLimit, hasGeoIP, caddyVersion, id); err != nil {
 		redirectWithFlash(w, r, editPath, "", "update failed: "+sanitizeErr(err))
 		return
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.update", Entity: "node", EntityID: fmt.Sprintf("%d", id),
-		Meta: map[string]any{"outbound_ips": ips},
+		Meta: map[string]any{"outbound_ips": ips, "caddy_version": caddyVersion},
 	})
-	redirectWithFlash(w, r, "/admin/nodes", "Node outbound IPs updated", "")
+	redirectWithFlash(w, r, "/admin/nodes", "Node updated", "")
 }
 
 func (h *AdminHandlers) NodesToggle(w http.ResponseWriter, r *http.Request) {
