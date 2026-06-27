@@ -48,7 +48,7 @@
   animation: hpg-shimmer 1.3s infinite;
 }
 .dark .hpg-skel { background: rgba(63,63,70,0.55); }
-.dark .hpg-skel::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent); }
+.dark .hpg-skel::after { background: linear-gradient(90deg, transparent, rgba(255,255,255,0.06), transparent); }
 
 @keyframes hpg-shimmer { 100% { transform: translateX(100%); } }
 
@@ -660,4 +660,261 @@
   .hpg-inspector-actions {
     justify-content: flex-start;
   }
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────── */
+/* Fixed nav sidebar: zinc-900 dark, slate-50 light, right border divides. */
+.hpg-sidebar {
+  background: #f8fafc;
+  border-right: 1px solid rgba(203,213,225,0.7);
+}
+.dark .hpg-sidebar {
+  background: #18181b;
+  border-right-color: rgba(63,63,70,0.6);
+}
+
+/* Nav link base: flex row, icon + label, subtle default color. */
+.hpg-nav-link {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: #64748b;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+  white-space: nowrap;
+  text-decoration: none;
+  border-left: 2px solid transparent;
+}
+.dark .hpg-nav-link { color: #71717a; }
+.hpg-nav-link:hover { background: rgba(241,245,249,0.8); color: #1e293b; }
+.dark .hpg-nav-link:hover { background: rgba(39,39,42,0.8); color: #f4f4f5; }
+
+/* Active: indigo tint bg, lighter indigo text, 2px left border accent. */
+.hpg-nav-link.is-active {
+  background: rgba(99,102,241,0.1);
+  color: #4f46e5;
+  border-left-color: #6366f1;
+  margin-left: -1px;
+  padding-left: calc(0.75rem - 1px);
+}
+.dark .hpg-nav-link.is-active {
+  background: rgba(99,102,241,0.15);
+  color: #818cf8;
+  border-left-color: #6366f1;
+}
+
+/* Nav icon: 16x16, opacity dims inactive state, transitions with link. */
+.hpg-nav-icon {
+  flex: 0 0 auto;
+  width: 1rem;
+  height: 1rem;
+  opacity: 0.6;
+  transition: opacity 150ms ease;
+}
+.hpg-nav-link:hover .hpg-nav-icon,
+.hpg-nav-link.is-active .hpg-nav-icon { opacity: 1; }
+
+/* Section separator: 1px zinc divider between nav groups. */
+.hpg-nav-sep {
+  height: 1px;
+  background: rgba(203,213,225,0.6);
+  margin: 0.5rem 0.75rem;
+}
+.dark .hpg-nav-sep { background: rgba(63,63,70,0.5); }
+
+/* Eyebrow label above nav sections: uppercase micro-type. */
+.hpg-nav-section-label {
+  padding: 0.5rem 0.75rem 0.25rem;
+  font-size: 0.625rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  color: #94a3b8;
+}
+.dark .hpg-nav-section-label { color: #52525b; }
+
+/* ── Stat cards ──────────────────────────────────────────────────────── */
+/* Elevated card for dashboard KPIs; shadow layers give depth on dark bg. */
+.hpg-stat-card {
+  border-radius: 0.875rem;
+  border: 1px solid rgba(203,213,225,0.7);
+  padding: 1.25rem;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 12px rgba(0,0,0,0.04);
+  transition: box-shadow 200ms ease, border-color 200ms ease;
+}
+.dark .hpg-stat-card {
+  background: #1c1c1f;
+  border-color: rgba(63,63,70,0.6);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.25);
+}
+.hpg-stat-card:hover {
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.15), 0 4px 16px rgba(0,0,0,0.08);
+  border-color: rgba(99,102,241,0.2);
+}
+.dark .hpg-stat-card:hover {
+  box-shadow: 0 0 0 1px rgba(99,102,241,0.2), 0 8px 32px rgba(0,0,0,0.4);
+  border-color: rgba(99,102,241,0.25);
+}
+
+/* Large stat number: tabular-nums so digits don't shift width. */
+.hpg-stat-num {
+  font-size: 2.25rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+  color: #0f172a;
+}
+.dark .hpg-stat-num { color: #f4f4f5; }
+
+/* ── Icon chips ──────────────────────────────────────────────────────── */
+/* Rounded chip wrapping a colored SVG icon inside stat cards. */
+.hpg-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border-radius: 0.625rem;
+}
+.hpg-chip-indigo { background: rgba(99,102,241,0.12); color: #818cf8; }
+.hpg-chip-emerald { background: rgba(16,185,129,0.12); color: #34d399; }
+.hpg-chip-amber { background: rgba(245,158,11,0.12); color: #fbbf24; }
+.hpg-chip-rose { background: rgba(244,63,94,0.12); color: #fb7185; }
+.hpg-chip-sky { background: rgba(56,189,248,0.12); color: #38bdf8; }
+.hpg-chip-violet { background: rgba(139,92,246,0.12); color: #a78bfa; }
+
+/* ── General card ────────────────────────────────────────────────────── */
+/* Improved hpg-card: slightly lighter than body, subtle shadow in dark. */
+.hpg-card {
+  border-radius: 0.875rem;
+  border: 1px solid rgba(203,213,225,0.8);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+  transition: box-shadow 200ms ease;
+}
+.dark .hpg-card {
+  background: #1c1c1f;
+  border-color: rgba(63,63,70,0.6);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.4), 0 8px 24px rgba(0,0,0,0.25);
+}
+
+/* ── Table enhancements ──────────────────────────────────────────────── */
+/* Sticky header with backdrop blur keeps column labels visible on scroll. */
+.hpg-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  backdrop-filter: blur(8px);
+  background: rgba(248,250,252,0.9);
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: #94a3b8;
+  padding: 0.6rem 0.875rem;
+  border-bottom: 1px solid rgba(203,213,225,0.7);
+}
+.dark .hpg-table thead th {
+  background: rgba(24,24,27,0.85);
+  color: #71717a;
+  border-bottom-color: rgba(63,63,70,0.6);
+}
+
+/* Zebra striping + hover: subtle visual separation without harsh contrast. */
+.hpg-table tbody tr:nth-child(odd) { background: transparent; }
+.hpg-table tbody tr:nth-child(even) { background: rgba(241,245,249,0.5); }
+.dark .hpg-table tbody tr:nth-child(odd) { background: rgba(24,24,27,0.4); }
+.dark .hpg-table tbody tr:nth-child(even) { background: rgba(39,39,42,0.3); }
+.hpg-table tbody tr {
+  transition: background 120ms ease;
+}
+.hpg-table tbody tr:hover { background: rgba(241,245,249,0.9) !important; }
+.dark .hpg-table tbody tr:hover { background: rgba(39,39,42,0.6) !important; }
+
+.hpg-table tbody td {
+  padding: 0.7rem 0.875rem;
+  font-size: 0.8125rem;
+  border-bottom: 1px solid rgba(203,213,225,0.4);
+  color: #64748b;
+}
+.dark .hpg-table tbody td {
+  border-bottom-color: rgba(63,63,70,0.3);
+  color: #a1a1aa;
+}
+/* First column: primary data, brighter color. */
+.hpg-table tbody td:first-child { color: #0f172a; font-weight: 500; }
+.dark .hpg-table tbody td:first-child { color: #f4f4f5; }
+
+/* ── Status badges ───────────────────────────────────────────────────── */
+/* Small pill badge with a leading dot indicator for online/offline states. */
+.hpg-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+}
+.hpg-badge::before {
+  content: '';
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+.hpg-badge-online {
+  background: rgba(16,185,129,0.12);
+  color: #059669;
+}
+.dark .hpg-badge-online { color: #34d399; }
+.hpg-badge-online::before {
+  background: #10b981;
+  box-shadow: 0 0 0 2px rgba(16,185,129,0.25);
+}
+.hpg-badge-offline {
+  background: rgba(244,63,94,0.12);
+  color: #be123c;
+}
+.dark .hpg-badge-offline { color: #fb7185; }
+.hpg-badge-offline::before { background: #f43f5e; }
+.hpg-badge-warning {
+  background: rgba(245,158,11,0.12);
+  color: #b45309;
+}
+.dark .hpg-badge-warning { color: #fbbf24; }
+.hpg-badge-warning::before { background: #f59e0b; }
+
+/* ── Page header ─────────────────────────────────────────────────────── */
+/* Consistent page heading block: title + optional subtitle beneath. */
+.hpg-page-header { margin-bottom: 1.5rem; }
+.hpg-page-title {
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: #0f172a;
+}
+.dark .hpg-page-title { color: #f4f4f5; }
+.hpg-page-sub {
+  margin-top: 0.25rem;
+  font-size: 0.8125rem;
+  color: #64748b;
+  line-height: 1.5;
+}
+.dark .hpg-page-sub { color: #71717a; }
+
+/* Eyebrow: micro-uppercase label above a heading, accent color. */
+.hpg-eyebrow {
+  font-size: 0.6875rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  color: #6366f1;
+  margin-bottom: 0.25rem;
 }
