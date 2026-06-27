@@ -197,7 +197,10 @@
               </span>
             </td>
             <td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-[10rem] truncate" title="{{.RuleID}}">{{.RuleID}}</td>
-            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.RemoteIP}}</td>
+            <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400 whitespace-nowrap">
+              {{.RemoteIP}}
+              {{with index $.ASNS .RemoteIP}}<br><span class="text-[10px] text-slate-400/70 dark:text-slate-600 not-italic">{{.}}</span>{{end}}
+            </td>
             <td class="px-4 py-2 font-mono text-xs text-slate-600 dark:text-slate-300 max-w-[10rem] truncate" title="{{.Host}}">{{.Host}}</td>
             <td class="px-4 py-2 font-mono text-xs text-slate-700 dark:text-slate-300 max-w-xs truncate" title="{{.URI}}">{{.URI}}</td>
             <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400 max-w-xs truncate" title="{{.Message}}">{{.Message}}</td>
