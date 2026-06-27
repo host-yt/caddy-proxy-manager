@@ -295,6 +295,11 @@
     </header>
     {{if .Data.Flash}}<div data-toast="success" data-toast-msg="{{.Data.Flash}}" class="hidden"></div>{{end}}
     {{if .Data.Error}}<div data-toast="error" data-toast-msg="{{.Data.Error}}" class="hidden"></div>{{end}}
+    {{if .Data.SystemBanner}}
+    <div class="{{if eq .Data.SystemBannerType "error"}}bg-rose-50 border-rose-400 text-rose-800 dark:bg-rose-900/30 dark:border-rose-600 dark:text-rose-200{{else if eq .Data.SystemBannerType "warning"}}bg-amber-50 border-amber-400 text-amber-800 dark:bg-amber-900/30 dark:border-amber-600 dark:text-amber-200{{else}}bg-sky-50 border-sky-400 text-sky-800 dark:bg-sky-900/30 dark:border-sky-600 dark:text-sky-200{{end}} border-l-4 px-4 py-2 text-sm flex items-center gap-2">
+      <span>{{.Data.SystemBanner}}</span>
+    </div>
+    {{end}}
     {{if eq .Page "dashboard"}}{{template "dashboard" .Data}}{{end}}
     {{if eq .Page "hosts"}}{{template "hosts" .Data}}{{end}}
     {{if eq .Page "hosts_new"}}{{template "hosts_new" .Data}}{{end}}

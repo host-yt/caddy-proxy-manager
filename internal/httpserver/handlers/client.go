@@ -66,6 +66,9 @@ type baseAppData struct {
 	Brand             Branding
 	// Features gates client nav items by install profile (e.g. tunnels, api_tokens).
 	Features deployment.Features
+	// SystemBanner is shown site-wide; empty means no banner.
+	SystemBanner     string
+	SystemBannerType string // "info" | "warning" | "error"
 }
 
 func (h *ClientHandlers) base(r *http.Request, title string) baseAppData {
@@ -94,6 +97,21 @@ func (h *ClientHandlers) base(r *http.Request, title string) baseAppData {
 		prof = deployment.Parse(h.State.Get().Profile)
 	}
 	d.Features = prof.Features()
+	// Load system announcement banner from DB.
+	if db := h.DB(); db != nil {
+		var text, btype string
+		ctx2, can := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		defer can()
+		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_text").Scan(&text)
+		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_type").Scan(&btype)
+		if strings.TrimSpace(text) != "" {
+			d.SystemBanner = strings.TrimSpace(text)
+			d.SystemBannerType = btype
+			if d.SystemBannerType == "" {
+				d.SystemBannerType = "info"
+			}
+		}
+	}
 	return d
 }
 

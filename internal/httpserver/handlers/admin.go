@@ -157,6 +157,9 @@ type baseAdminData struct {
 	// request from install_state so the layout shows only enabled modules.
 	Profile  string
 	Features deployment.Features
+	// SystemBanner is shown site-wide; empty means no banner.
+	SystemBanner     string
+	SystemBannerType string // "info" | "warning" | "error"
 }
 
 // pageBreadcrumbs maps a page key to its breadcrumb trail (section + leaf).
@@ -228,6 +231,21 @@ func (h *AdminHandlers) base(r *http.Request, title string) baseAdminData {
 	}
 	d.Profile = string(prof)
 	d.Features = prof.Features()
+	// Load system announcement banner from DB.
+	if db := h.DB(); db != nil {
+		var text, btype string
+		ctx2, can := context.WithTimeout(r.Context(), 500*time.Millisecond)
+		defer can()
+		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_text").Scan(&text)
+		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_type").Scan(&btype)
+		if strings.TrimSpace(text) != "" {
+			d.SystemBanner = strings.TrimSpace(text)
+			d.SystemBannerType = btype
+			if d.SystemBannerType == "" {
+				d.SystemBannerType = "info"
+			}
+		}
+	}
 	return d
 }
 
@@ -3389,6 +3407,9 @@ type settingsData struct {
 	AlertManualCertDaysWarn int
 	AlertErrorRatePct       float64
 	AlertErrorRateWindowMin int
+	// Banner tab fields.
+	SystemBannerText string
+	SystemBannerType string
 }
 
 func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -3419,6 +3440,8 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			"security.require_admin_2fa",
 			"analytics.rollup_retention_days",
 			"failover.auto_enabled",
+			"system.banner_text",
+			"system.banner_type",
 		})
 		d.OIDC = oidcView{
 			Enabled: kv["oidc.enabled"] == "1", ProviderName: defaultStr(kv["oidc.provider_name"], "Authentik"),
@@ -3519,6 +3542,8 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			d.AlertErrorRatePct = alertCfg.ErrorRatePct
 		}
 		d.AlertErrorRateWindowMin = atoiOr(alertKV["alert.error_rate_window_minutes"], alertCfg.ErrorRateWindowMinutes)
+		d.SystemBannerText = kv["system.banner_text"]
+		d.SystemBannerType = defaultStr(kv["system.banner_type"], "info")
 	}
 	d.SSOJump = h.loadSSOJumpSettingsView(r, d.AppURL)
 	// Branding tab: pre-fill from the shared cached loader (same source as
@@ -4939,6 +4964,37 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 			}
 		}
 	}
+}
+
+// SettingsBanner handles POST /admin/settings/banner — upserts or clears the system banner.
+func (h *AdminHandlers) SettingsBanner(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "database not connected")
+		return
+	}
+	_ = r.ParseForm()
+	text := strings.TrimSpace(r.FormValue("banner_text"))
+	btype := r.FormValue("banner_type")
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if text == "" {
+		// Clear banner.
+		_, _ = db.ExecContext(ctx, "DELETE FROM settings WHERE `key` IN (?,?)", "system.banner_text", "system.banner_type")
+		redirectWithFlash(w, r, "/admin/settings?tab=banner", "Announcement cleared", "")
+		return
+	}
+	if btype != "warning" && btype != "error" {
+		btype = "info"
+	}
+	upsert := func(key, val string) {
+		_, _ = db.ExecContext(ctx,
+			"INSERT INTO settings (`key`,value) VALUES (?,?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
+			key, val)
+	}
+	upsert("system.banner_text", text)
+	upsert("system.banner_type", btype)
+	redirectWithFlash(w, r, "/admin/settings?tab=banner", "Announcement saved", "")
 }
 
 // ---- Stub for not-yet-built pages --------------------------------------
