@@ -1415,6 +1415,8 @@ type hostEditData struct {
 	GeoMode            string
 	GeoCountries       string
 	GeoModuleAvailable bool
+	// GeoIPAvailable reflects whether the runtime GeoIP database is loaded.
+	GeoIPAvailable bool
 
 	// Wildcard DNS-01 (B1, gated). WildcardZones = datalist of dns_providers.
 	WildcardEnabled bool
@@ -1612,6 +1614,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	d.RateLimitModuleAvailable = h.Routes.RateLimitModuleAvailable
 	d.WAFModuleAvailable = h.Routes.WAFModuleAvailable
 	d.GeoModuleAvailable = h.Routes.GeoModuleAvailable
+	d.GeoIPAvailable = geoip.Global().Available()
 	// Wildcard zones datalist (best-effort).
 	if zr, zerr := db.QueryContext(ctx, "SELECT name FROM dns_providers ORDER BY name ASC"); zerr == nil {
 		for zr.Next() {
