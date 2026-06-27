@@ -29,6 +29,8 @@ type caddyLogLine struct {
 	Duration float64 `json:"duration"`
 	// Size is response bytes as logged by Caddy's access log handler.
 	Size int64 `json:"size"`
+	// BytesRead is the request body bytes read by Caddy (emitted when > 0).
+	BytesRead int64 `json:"bytes_read"`
 }
 
 type caddyLogReq struct {
@@ -148,6 +150,7 @@ func (h *IngestHandler) ingest(ctx context.Context, line caddyLogLine) {
 		RemoteIP:  remote,
 		UserAgent: ua,
 		BytesResp: line.Size,
+		BytesReq:  line.BytesRead,
 		Proto:     normalizeProto(line.Request.Proto),
 		Country:   resolveCountry(line.Request.ClientIP, line.Request.RemoteIP),
 	}
