@@ -780,6 +780,14 @@ type nodeDetailRow struct {
 	FwdLastSetupError  sql.NullString
 	FwdReportedAt      sql.NullString
 	WGKeepalive        int // always 25 (PersistentKeepalive set by agent)
+
+	// Capability flags from Caddy module probe.
+	HasWAF       bool
+	HasL4        bool
+	HasDNSModule bool
+	HasRateLimit bool
+	HasGeoIP     bool
+	CaddyVersion string
 }
 
 type nodeAuditLine struct {
@@ -811,7 +819,9 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		        n.fwd_ip_forward_enabled, n.fwd_policy_drop_detected,
 		        n.fwd_docker_rules_installed,
 		        n.fwd_firewall_backend, n.fwd_last_setup_error,
-		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),'')
+		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),''),
+		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0), COALESCE(n.has_dns_module,0),
+		        COALESCE(n.has_rate_limit,0), COALESCE(n.has_geoip,0), COALESCE(n.caddy_version,'')
 		 FROM caddy_nodes n JOIN node_groups ng ON ng.id = n.node_group_id
 		 WHERE n.id = ?`, id,
 	).Scan(&d.Node.ID, &d.Node.Name, &d.Node.APIURL, &d.Node.PublicHost, &d.Node.PublicIP,
@@ -822,7 +832,9 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		&d.Node.FwdIPForward, &d.Node.FwdPolicyDrop,
 		&d.Node.FwdDockerRules,
 		&d.Node.FwdFirewallBackend, &d.Node.FwdLastSetupError,
-		&d.Node.FwdReportedAt)
+		&d.Node.FwdReportedAt,
+		&d.Node.HasWAF, &d.Node.HasL4, &d.Node.HasDNSModule,
+		&d.Node.HasRateLimit, &d.Node.HasGeoIP, &d.Node.CaddyVersion)
 	if err != nil {
 		d.Error = "node not found"
 		h.render(w, "node_detail", d)
