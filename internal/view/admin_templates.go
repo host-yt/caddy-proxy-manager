@@ -66,6 +66,22 @@ func CommonFuncs() template.FuncMap {
 		},
 		// mulf multiplies two float64 values; used to format percentages.
 		"mulf": func(a, b float64) float64 { return a * b },
+		// formatBytes converts a byte count to a human-readable string.
+		"formatBytes": func(n int64) string {
+			if n == 0 {
+				return "0 B"
+			}
+			if n < 1024 {
+				return fmt.Sprintf("%d B", n)
+			}
+			if n < 1024*1024 {
+				return fmt.Sprintf("%.1f KB", float64(n)/1024)
+			}
+			if n < 1024*1024*1024 {
+				return fmt.Sprintf("%.1f MB", float64(n)/1024/1024)
+			}
+			return fmt.Sprintf("%.2f GB", float64(n)/1024/1024/1024)
+		},
 	}
 }
 

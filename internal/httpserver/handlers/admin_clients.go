@@ -109,15 +109,62 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 		d.StatusSlug = slug.String
 		d.StatusURL = "/status/" + slug.String
 	}
+
+	// Load services with route counts.
+	rows, err := db.QueryContext(ctx,
+		`SELECT s.id, s.name, p.name, s.status,
+		        COUNT(r.id) AS total_routes,
+		        SUM(CASE WHEN r.status='active' THEN 1 ELSE 0 END) AS active_routes
+		 FROM services s
+		 JOIN plans p ON p.id = s.plan_id
+		 LEFT JOIN routes r ON r.service_id = s.id
+		 WHERE s.client_id = ?
+		 GROUP BY s.id, s.name, p.name, s.status
+		 ORDER BY s.id DESC`, id)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var row clientDetailServiceRow
+			if scanErr := rows.Scan(&row.ID, &row.Name, &row.PlanName, &row.Status,
+				&row.RouteCount, &row.ActiveRoutes); scanErr == nil {
+				d.Services = append(d.Services, row)
+				d.TotalRoutes += row.RouteCount
+				d.ActiveRoutes += row.ActiveRoutes
+			}
+		}
+	}
+
+	// Load 7-day bandwidth; ignore errors if column/table missing.
+	_ = db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(l.bytes_resp), 0)
+		 FROM host_access_log l
+		 JOIN routes r ON r.id = l.route_id
+		 JOIN services s ON s.id = r.service_id
+		 WHERE s.client_id = ? AND l.ts >= UNIX_TIMESTAMP(NOW() - INTERVAL 7 DAY)`, id,
+	).Scan(&d.BandwidthBytes7d)
+
 	h.render(w, "client_detail", d)
+}
+
+type clientDetailServiceRow struct {
+	ID           int64
+	Name         string
+	PlanName     string
+	Status       string
+	RouteCount   int
+	ActiveRoutes int
 }
 
 type clientDetailData struct {
 	baseAdminData
-	ID          int64
-	DisplayName string
-	Email       string
-	StatusSlug  string // empty if not yet generated
-	StatusURL   string // e.g. /status/abcdef...
-	ShowTraffic bool
+	ID              int64
+	DisplayName     string
+	Email           string
+	StatusSlug      string // empty if not yet generated
+	StatusURL       string // e.g. /status/abcdef...
+	ShowTraffic     bool
+	Services        []clientDetailServiceRow
+	TotalRoutes     int
+	ActiveRoutes    int
+	BandwidthBytes7d int64 // last 7 days from host_access_log
 }
