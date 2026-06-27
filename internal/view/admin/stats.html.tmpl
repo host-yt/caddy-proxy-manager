@@ -120,6 +120,32 @@
   </table></div>
 </section>
 {{end}}
+
+{{if .PlanViolations}}
+<section class="hpg-card mb-6 border border-rose-200 dark:border-rose-700/50">
+  <h2 class="font-semibold text-rose-700 dark:text-rose-400 mb-3">Plan violations</h2>
+  <div class="overflow-x-auto"><table class="w-full text-sm">
+    <thead class="text-left hpg-eyebrow">
+      <tr>
+        <th class="px-3 py-2">Client</th>
+        <th class="px-3 py-2">Plan</th>
+        <th class="px-3 py-2">Issue</th>
+      </tr>
+    </thead>
+    <tbody class="divide-y divide-rose-100 dark:divide-rose-900/40">
+      {{range .PlanViolations}}
+      <tr>
+        <td class="px-3 py-2">
+          <a href="/admin/clients/{{.ClientID}}" class="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer transition-colors">{{.ClientEmail}}</a>
+        </td>
+        <td class="px-3 py-2 text-slate-600 dark:text-slate-300">{{.PlanName}}</td>
+        <td class="px-3 py-2 text-rose-700 dark:text-rose-400">{{.Reason}}</td>
+      </tr>
+      {{end}}
+    </tbody>
+  </table></div>
+</section>
+{{end}}
 </div><!-- /Overview -->
 
 <!-- Traffic -->
