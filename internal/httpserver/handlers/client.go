@@ -333,8 +333,9 @@ type clientRouteRow struct {
 
 type clientRoutesData struct {
 	baseAppData
-	Routes               []clientRouteRow
-	HasSuspendedService  bool // true if any route's service is suspended
+	Routes              []clientRouteRow
+	HasSuspendedService bool   // true if any route's service is suspended
+	Q                   string // current search query
 }
 
 func (h *ClientHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
@@ -352,10 +353,22 @@ func (h *ClientHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 		h.render(w, "routes_list", d)
 		return
 	}
-	rows, err := db.QueryContext(ctx,
-		`SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port, s.name, r.status, COALESCE(r.last_error,''), COALESCE(r.maintenance_mode,0), s.status
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	d.Q = q
+
+	// build WHERE clause dynamically to support optional search filter
+	query := `SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port, s.name, r.status, COALESCE(r.last_error,''), COALESCE(r.maintenance_mode,0), s.status
 		 FROM routes r JOIN services s ON s.id = r.service_id
-		 WHERE s.client_id = ? ORDER BY r.id DESC`, clientID)
+		 WHERE s.client_id = ?`
+	args := []any{clientID}
+	if q != "" {
+		like := likeContains(q)
+		query += ` AND (r.domain LIKE ? OR s.name LIKE ?)`
+		args = append(args, like, like)
+	}
+	query += ` ORDER BY r.id DESC`
+
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
