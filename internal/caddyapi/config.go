@@ -79,6 +79,11 @@ type NodeSettings struct {
 	// node-agent tails it and forwards lines to the panel's authenticated
 	// /internal/access-log. Empty = logs stay on Caddy's stderr.
 	AccessLogURL string
+
+	// MTLSFailOpen controls the client_authentication mode for mTLS routes.
+	// true = "request" (present cert if available, never block); false (default)
+	// = "require_and_verify" (deny handshake when no valid cert presented).
+	MTLSFailOpen bool
 }
 
 // AccessLogFilePath is the on-node file both Caddy (writer) and the node-agent
@@ -234,7 +239,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	// require + verify a client cert against the route's selected CA. First-match
 	// by SNI; unmatched handshakes fall back to Caddy's default zero-value policy,
 	// so non-mTLS hosts keep working. Skipped entirely when no route opts in.
-	if pols := buildMTLSConnPolicies(routes); len(pols) > 0 {
+	if pols := buildMTLSConnPolicies(routes, s.MTLSFailOpen); len(pols) > 0 {
 		srv0["tls_connection_policies"] = pols
 	}
 
@@ -365,12 +370,13 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 }
 
 // buildMTLSConnPolicies returns the tls_connection_policies array for every
-// route that requires a client cert. Schema validated against Caddy 2.11
-// (modules/caddytls): policy.match.sni = []string, client_authentication.ca is
-// an inline CA pool ({"provider":"inline","trusted_ca_certs":[<base64 DER>]}),
-// mode "require_and_verify". The inline pool decodes base64-StdEncoding DER (NOT
-// PEM), so each CA cert PEM is converted to base64 DER before emission.
-func buildMTLSConnPolicies(routes []Route) []any {
+// route that requires a client cert. failOpen=true uses Caddy mode "request"
+// (present cert if available, never block); false uses "require_and_verify".
+func buildMTLSConnPolicies(routes []Route, failOpen bool) []any {
+	mode := "require_and_verify"
+	if failOpen {
+		mode = "request"
+	}
 	var out []any
 	for _, r := range routes {
 		if !r.RequireClientCert || r.MTLSCACertPEM == "" || len(r.Hosts) == 0 {
@@ -387,7 +393,7 @@ func buildMTLSConnPolicies(routes []Route) []any {
 					"provider":         "inline",
 					"trusted_ca_certs": ders,
 				},
-				"mode": "require_and_verify",
+				"mode": mode,
 			},
 		})
 	}
