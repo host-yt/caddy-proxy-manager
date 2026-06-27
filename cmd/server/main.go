@@ -301,6 +301,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Webhooks: whSvc, Mailer: mailer, SMS: smsSvc,
 		Cfg:      alert.LoadConfig(),
 		RouteSvc: routesSvc,
+		Metrics:  mtr,
 	}
 	// SIEM audit forwarder (nil-safe; disabled when AUDIT_SIEM_WEBHOOK empty).
 	siemFwd, err := audit.NewForwarder(cfg.Security.SIEMWebhook, logger)

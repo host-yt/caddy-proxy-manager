@@ -39,6 +39,11 @@ type NodeResyncer interface {
 	Resync(ctx context.Context, nodeID int64) error
 }
 
+// alertMetrics is the narrow interface for Prometheus counters.
+type alertMetrics interface {
+	AlertFired(ruleID, severity string)
+}
+
 // Evaluator holds dependencies; created once in main.go. Every external
 // dep is nil-safe so the ticker degrades gracefully before wiring is live.
 type Evaluator struct {
@@ -49,6 +54,7 @@ type Evaluator struct {
 	SMS      *sms.Sender
 	Cfg      Config
 	RouteSvc NodeResyncer // nil-safe; needed only when AutoFailoverEnabled
+	Metrics  alertMetrics // nil-safe
 }
 
 // Tick is the per-interval entry point called by the leader ticker.
