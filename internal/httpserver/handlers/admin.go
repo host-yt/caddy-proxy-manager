@@ -2532,6 +2532,55 @@ func (h *AdminHandlers) ServicesResume(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/services", "Service resumed", "")
 }
 
+// ServicesBulk applies suspend/resume/delete to a list of service IDs.
+func (h *AdminHandlers) ServicesBulk(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", 503)
+		return
+	}
+	_ = r.ParseForm()
+	action := r.FormValue("action")
+	ids := r.Form["ids[]"]
+	if len(ids) == 0 {
+		redirectWithFlash(w, r, "/admin/services", "", "no services selected")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	var ok, fail int
+	for _, rawID := range ids {
+		svcID, err := strconv.ParseInt(strings.TrimSpace(rawID), 10, 64)
+		if err != nil || svcID <= 0 {
+			fail++
+			continue
+		}
+		var execErr error
+		switch action {
+		case "suspend":
+			_, execErr = db.ExecContext(ctx, "UPDATE services SET status=? WHERE id=?", "suspended", svcID)
+		case "resume":
+			_, execErr = db.ExecContext(ctx, "UPDATE services SET status=? WHERE id=? AND status=?", "active", svcID, "suspended")
+		case "delete":
+			_, execErr = db.ExecContext(ctx, "DELETE FROM services WHERE id=?", svcID)
+		default:
+			redirectWithFlash(w, r, "/admin/services", "", "unknown action")
+			return
+		}
+		if execErr != nil {
+			fail++
+		} else {
+			ok++
+		}
+	}
+	msg := fmt.Sprintf("%s: %d done, %d failed", action, ok, fail)
+	if fail > 0 {
+		redirectWithFlash(w, r, "/admin/services", "", msg)
+		return
+	}
+	redirectWithFlash(w, r, "/admin/services", msg, "")
+}
+
 // ---- Users (staff + clients view) --------------------------------------
 
 type userRow struct {
