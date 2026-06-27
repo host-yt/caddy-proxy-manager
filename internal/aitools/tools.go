@@ -777,7 +777,8 @@ func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, 
 	if a.ErrorsOnly {
 		cond += " AND status >= 400"
 	}
-	qFull := `SELECT ts, method, uri, status, latency_ms, remote_ip, bytes_resp
+	// DATE_FORMAT is required: parseTime=true makes DATETIME scan fail into *string.
+	qFull := `SELECT DATE_FORMAT(ts,'%Y-%m-%dT%H:%i:%s.%fZ'), method, uri, status, latency_ms, remote_ip, bytes_resp
 	           FROM host_access_log WHERE ` + cond + ` ORDER BY ts DESC, id DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := r.db.QueryContext(ctx, qFull, args...)
