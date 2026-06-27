@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="/static/fonts/inter.css">
 <link rel="stylesheet" href="/static/css/tailwind.css">
 <link rel="stylesheet" href="/static/css/enhance.css">
-<script nonce="{{.Data.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
+<script nonce="{{.Data.CSPNonce}}">(function(){var t=localStorage.getItem('theme');if(!t)t='dark';if(t==='dark')document.documentElement.classList.add('dark');else document.documentElement.classList.remove('dark');})();</script>
 <!-- Palette theme bootstrap: client-side pick applies before paint, even before the ui_theme cookie round-trips. Allowlist-guarded so a tampered key cannot inject an arbitrary slug. -->
 <script nonce="{{.Data.CSPNonce}}">(function(){try{var ok={default:1,midnight:1,ocean:1,forest:1,violet:1,sunset:1,nord:1,mono:1};var p=localStorage.getItem('ui_theme');if(p&&ok[p]&&p!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=p;}catch(e){}})();</script>
 {{if .Data.Brand.FaviconURL}}<link rel="icon" href="{{.Data.Brand.FaviconURL}}">{{end}}
@@ -78,8 +78,8 @@
 
     </div></div>
 
-    <div data-nav-group="settings">
-    <button type="button" class="nav-group-btn mb-1 px-2"><span class="nav-eyebrow text-[10px]">Settings</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
+    <div data-nav-group="account">
+    <button type="button" class="nav-group-btn mb-1 px-2"><span class="nav-eyebrow text-[10px]">Account</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
     <div class="nav-group-body space-y-0.5 pb-1">
 
     <a href="/app/account" class="nav-link {{if eq .Page "account"}}is-active{{end}}">
@@ -108,7 +108,7 @@
   <!-- Sidebar footer -->
   <div class="border-t px-3 py-3 shrink-0" style="border-color:rgb(var(--border))">
     <div class="flex items-center gap-2 mb-3 min-w-0">
-      <div class="w-7 h-7 rounded-full bg-indigo-100 dark:bg-indigo-900/40 text-indigo-700 dark:text-indigo-300 text-[11px] font-semibold flex items-center justify-center shrink-0 uppercase select-none">
+      <div class="w-7 h-7 rounded-full text-[11px] font-semibold flex items-center justify-center shrink-0 uppercase select-none" style="background:rgb(var(--accent)/.15);color:rgb(var(--accent))">
         {{printf "%.1s" .Data.Email}}
       </div>
       <span class="text-xs truncate min-w-0" style="color:rgb(var(--text))">{{.Data.Email}}</span>
@@ -155,19 +155,58 @@
     <span class="font-semibold text-sm truncate" style="color:rgb(var(--text))">{{.Data.Title}}</span>
   </header>
 
-  <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-7xl w-full">
-    <div class="hidden lg:flex items-center justify-between gap-4 mb-5">
-      <div>
-        <p class="hpg-eyebrow">Client portal</p>
-        <div data-greeting class="text-xs font-medium mb-0.5" style="color:rgb(var(--accent))"></div>
-        <h1 class="text-2xl font-semibold tracking-tight" style="color:rgb(var(--text))">{{.Data.Title}}</h1>
+  <!-- Desktop top bar -->
+  <header class="hidden lg:flex sticky top-0 z-20 border-b shrink-0 items-center justify-between gap-4 px-6 h-14" style="background:rgb(var(--surface)/.95);border-color:rgb(var(--border));backdrop-filter:blur(8px)">
+    <div class="flex items-center gap-3 min-w-0">
+      <div class="min-w-0">
+        <div class="t-eyebrow leading-none">Client portal</div>
+        <div data-greeting class="text-xs font-medium leading-tight" style="color:rgb(var(--accent))"></div>
       </div>
-      <div class="flex items-center gap-2">
-        <a href="/app/services" class="r-btn-secondary text-sm">Services</a>
-        <a href="/app/tunnels" class="r-btn-secondary text-sm">Tunnels</a>
-        <a href="/app/routes/new" class="r-btn-primary text-sm">New route</a>
-      </div>
+      <svg class="w-4 h-4 shrink-0" style="color:rgb(var(--border))" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="1.5"><path d="M6 4l4 4-4 4"/></svg>
+      <span class="text-sm font-medium truncate" style="color:rgb(var(--text))">{{.Data.Title}}</span>
     </div>
+    <div class="flex items-center gap-1 shrink-0">
+      <!-- ⌘K trigger -->
+      <button type="button" id="cmd-palette-btn" class="r-btn-ghost h-8 px-2.5 gap-1.5 text-xs" style="color:rgb(var(--muted))" title="Command palette (⌘K)">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <span class="hidden sm:inline">⌘K</span>
+      </button>
+      <!-- Theme toggle -->
+      <button type="button" data-theme-toggle title="Toggle theme" class="r-btn-ghost h-8 w-8 p-0">
+        <span id="icon-moon-top">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </span>
+        <span id="icon-sun-top" class="hidden">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </span>
+      </button>
+      <!-- Palette picker -->
+      <div class="relative" id="palette-menu-wrap">
+        <button type="button" id="palette-menu-btn" class="r-btn-ghost h-8 w-8 p-0" title="Switch palette">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><path d="M12 2a10 10 0 0 1 0 20"/><path d="M2 12h20"/></svg>
+        </button>
+        <div id="palette-dropdown" class="hidden absolute right-0 top-full mt-1 rounded-[12px] border p-2 z-50 min-w-[10rem] shadow-lg" style="background:rgb(var(--surface-2));border-color:rgb(var(--border))">
+          <div class="t-eyebrow px-2 mb-2">Palette</div>
+          <div class="grid grid-cols-2 gap-1">
+            <button type="button" class="palette-pick text-xs px-2 py-1.5 rounded-lg text-left transition-colors" data-palette="default" style="color:rgb(var(--text))">default</button>
+            <button type="button" class="palette-pick text-xs px-2 py-1.5 rounded-lg text-left transition-colors" data-palette="midnight" style="color:rgb(var(--text))">midnight</button>
+            <button type="button" class="palette-pick text-xs px-2 py-1.5 rounded-lg text-left transition-colors" data-palette="ocean" style="color:rgb(var(--text))">ocean</button>
+            <button type="button" class="palette-pick text-xs px-2 py-1.5 rounded-lg text-left transition-colors" data-palette="forest" style="color:rgb(var(--text))">forest</button>
+            <button type="button" class="palette-pick text-xs px-2 py-1.5 rounded-lg text-left transition-colors" data-palette="violet" style="color:rgb(var(--text))">violet</button>
+            <button type="button" class="palette-pick text-xs px-2 py-1.5 rounded-lg text-left transition-colors" data-palette="sunset" style="color:rgb(var(--text))">sunset</button>
+            <button type="button" class="palette-pick text-xs px-2 py-1.5 rounded-lg text-left transition-colors" data-palette="nord" style="color:rgb(var(--text))">nord</button>
+            <button type="button" class="palette-pick text-xs px-2 py-1.5 rounded-lg text-left transition-colors" data-palette="mono" style="color:rgb(var(--text))">mono</button>
+          </div>
+        </div>
+      </div>
+      <!-- Account -->
+      <a href="/app/account" class="r-btn-ghost h-8 w-8 p-0" title="Account ({{.Data.Email}})">
+        <div class="w-6 h-6 rounded-full text-[10px] font-semibold flex items-center justify-center uppercase select-none" style="background:rgb(var(--accent)/.15);color:rgb(var(--accent))">{{printf "%.1s" .Data.Email}}</div>
+      </a>
+    </div>
+  </header>
+
+  <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 max-w-7xl w-full">
     {{if .Data.Flash}}<div class="mb-4 p-3 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-sm">{{.Data.Flash}}</div>{{end}}
     {{if .Data.Error}}<div class="mb-4 p-3 rounded-md bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 text-sm">{{.Data.Error}}</div>{{end}}
     {{if .Data.SystemBanner}}
@@ -281,10 +320,13 @@ window.hpgPrompt = function(msg, defaultValue){
 </script>
 <script nonce="{{.Data.CSPNonce}}">
 function updateThemeIcons(dark) {
-  var moon = document.getElementById('icon-moon');
-  var sun = document.getElementById('icon-sun');
-  if (moon) moon.classList.toggle('hidden', dark);
-  if (sun) sun.classList.toggle('hidden', !dark);
+  var ids = [['icon-moon','icon-sun'],['icon-moon-top','icon-sun-top']];
+  ids.forEach(function(pair){
+    var moon = document.getElementById(pair[0]);
+    var sun  = document.getElementById(pair[1]);
+    if (moon) moon.classList.toggle('hidden', dark);
+    if (sun)  sun.classList.toggle('hidden', !dark);
+  });
 }
 function toggleTheme(){
   var dark = document.documentElement.classList.toggle('dark');
@@ -297,6 +339,30 @@ document.addEventListener('DOMContentLoaded', function(){
   document.querySelectorAll('[data-theme-toggle]').forEach(function(el){
     el.addEventListener('click', toggleTheme);
   });
+
+  // Palette picker dropdown
+  var paletteBtn = document.getElementById('palette-menu-btn');
+  var paletteDrop = document.getElementById('palette-dropdown');
+  if (paletteBtn && paletteDrop) {
+    paletteBtn.addEventListener('click', function(e){
+      e.stopPropagation();
+      paletteDrop.classList.toggle('hidden');
+    });
+    document.addEventListener('click', function(){ paletteDrop.classList.add('hidden'); });
+    paletteDrop.addEventListener('click', function(e){ e.stopPropagation(); });
+    paletteDrop.querySelectorAll('.palette-pick').forEach(function(btn){
+      btn.addEventListener('click', function(){
+        var p = btn.dataset.palette;
+        var ok={default:1,midnight:1,ocean:1,forest:1,violet:1,sunset:1,nord:1,mono:1};
+        if (!ok[p]) return;
+        document.documentElement.dataset.theme = p;
+        try { localStorage.setItem('ui_theme', p); } catch(e){}
+        paletteDrop.classList.add('hidden');
+        fetch('/app/settings/theme', {method:'POST', headers:{'Content-Type':'application/x-www-form-urlencoded','X-CSRF-Token':document.querySelector('meta[name=csrf-token]').content}, body:'theme='+encodeURIComponent(p)}).catch(function(){});
+      });
+    });
+  }
+
   document.querySelectorAll('form[data-confirm]').forEach(function(f){
     var armed = false;
     f.addEventListener('submit', function(e){

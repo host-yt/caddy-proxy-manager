@@ -16,6 +16,10 @@
  * and dark mode. ':root' below holds the stock Tailwind v3 values, which
  * makes the 'default' theme visually/pixel-identical to before this layer
  * existed (emitted CSS differs only by var indirection).
+ *
+ * DEFAULT MECHANISM: :root = LIGHT parity; .dark = dark ops values.
+ * Layouts add class="dark" by default (no localStorage pref) so first
+ * load = dark ops look. User picking light removes .dark from <html>.
  * ========================================================================= */
 
 :root {
@@ -45,7 +49,20 @@
   --c-zinc-900: 24 24 27;
   --c-zinc-950: 9 9 11;
 
-  /* indigo - primary accent */
+  /* teal - primary accent (default palette, replaces gold) */
+  --c-teal-50:  240 253 250;
+  --c-teal-100: 204 251 241;
+  --c-teal-200: 153 246 228;
+  --c-teal-300: 94 234 212;
+  --c-teal-400: 45 212 191;
+  --c-teal-500: 20 184 166;
+  --c-teal-600: 13 148 136;
+  --c-teal-700: 15 118 110;
+  --c-teal-800: 17 94 89;
+  --c-teal-900: 19 78 74;
+  --c-teal-950: 4 47 46;
+
+  /* indigo - accent ramp (other palettes override) */
   --c-indigo-50: 238 242 255;
   --c-indigo-100: 224 231 255;
   --c-indigo-200: 199 210 254;
@@ -110,7 +127,7 @@
   --c-sky-900: 12 74 110;
   --c-sky-950: 8 47 73;
 
-  /* gold - primary accent (Hostyt brand, replaces indigo as default accent) */
+  /* gold - kept for backward compat with any existing utility refs */
   --c-gold-50:  254 252 232;
   --c-gold-100: 254 249 195;
   --c-gold-200: 254 240 138;
@@ -125,33 +142,82 @@
 }
 
 /* =========================================================================
- * Midnight - OLED near-black zinc, cool blue-tinted slate, bright indigo.
+ * Semantic token layer - ops-dark redesign.
+ * Channels only (space-separated RGB), never hex - keeps /<alpha-value>.
+ * :root = LIGHT parity; .dark = dark ops values (dark is the default look).
+ * Default palette accent = teal.
+ * ========================================================================= */
+:root {
+  /* neutrals - light */
+  --bg:        250 250 250;
+  --surface:   255 255 255;
+  --surface-2: 244 244 245;
+  --border:    228 228 231;
+  --text:      24 24 27;
+  --muted:     113 113 122;
+  --muted-2:   var(--c-zinc-400);
+
+  /* teal accent - light (readable on white, teal-600) */
+  --accent:          13 148 136;
+  --accent-strong:   15 118 110;
+  --accent-text-on:  255 255 255;
+  --accent-weak:     var(--c-teal-50);
+  /* legacy alias */
+  --accent-on:       255 255 255;
+
+  /* semantic status - light */
+  --success: 5 150 105;    --success-weak: var(--c-emerald-50);
+  --warning: 217 119 6;    --warning-weak: var(--c-amber-50);
+  --danger:  220 38 38;    --danger-weak:  var(--c-rose-50);
+  --info:    2 132 199;    --info-weak:    var(--c-sky-50);
+
+  /* effects */
+  --focus-ring: 13 148 136;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
+  --gradient-brand: linear-gradient(135deg, rgb(var(--accent)) 0%, rgb(var(--accent-strong)) 100%);
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / .08);
+  --shadow-hair: 0 0 0 1px rgb(0 0 0 / .06);
+  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-pill: 9999px;
+  --ease: cubic-bezier(.2,.6,.2,1); --t-fast: 150ms; --t-base: 200ms; --t-slow: 250ms;
+}
+
+/* dark ops - primary look (class added by layout JS on first load) */
+.dark {
+  /* neutrals - ops-dark ramp (shared by ALL palettes) */
+  --bg:        9 9 11;
+  --surface:   18 18 21;
+  --surface-2: 30 30 34;
+  --border:    39 39 44;
+  --text:      244 244 245;
+  --muted:     148 148 158;
+  --muted-2:   var(--c-zinc-600);
+
+  /* teal accent - dark (neon, teal-400) */
+  --accent:          45 212 191;
+  --accent-strong:   20 184 166;
+  --accent-text-on:  4 17 19;
+  --accent-weak:     var(--c-teal-950);
+  --accent-on:       4 17 19;
+
+  /* semantic status - dark (neon bright) */
+  --success: 52 211 153;   --success-weak: var(--c-emerald-950);
+  --warning: 251 191 36;   --warning-weak: var(--c-amber-950);
+  --danger:  248 113 113;  --danger-weak:  var(--c-rose-950);
+  --info:    56 189 248;   --info-weak:    var(--c-sky-950);
+
+  /* effects */
+  --focus-ring: 45 212 191;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
+  --gradient-brand: linear-gradient(135deg, rgb(var(--accent)) 0%, rgb(var(--accent-strong)) 100%);
+  --shadow-soft: 0 1px 2px rgb(0 0 0 / .4);
+  --shadow-hair: 0 0 0 1px rgb(255 255 255 / .04);
+}
+
+/* =========================================================================
+ * Midnight - indigo accent, ops-dark neutral shell.
  * ========================================================================= */
 [data-theme="midnight"] {
-  --c-slate-50: 244 246 251;
-  --c-slate-100: 234 238 247;
-  --c-slate-200: 214 221 238;
-  --c-slate-300: 184 195 222;
-  --c-slate-400: 132 146 184;
-  --c-slate-500: 96 110 150;
-  --c-slate-600: 67 80 117;
-  --c-slate-700: 45 56 88;
-  --c-slate-800: 24 32 56;
-  --c-slate-900: 12 17 34;
-  --c-slate-950: 4 7 18;
-
-  --c-zinc-50: 245 246 250;
-  --c-zinc-100: 232 234 242;
-  --c-zinc-200: 205 209 224;
-  --c-zinc-300: 160 166 190;
-  --c-zinc-400: 110 116 140;
-  --c-zinc-500: 74 80 102;
-  --c-zinc-600: 46 51 70;
-  --c-zinc-700: 28 31 46;
-  --c-zinc-800: 16 18 28;
-  --c-zinc-900: 8 9 16;
-  --c-zinc-950: 2 3 7;
-
+  /* accent ramp override - bright indigo for indigo utilities */
   --c-indigo-300: 173 184 255;
   --c-indigo-400: 139 150 255;
   --c-indigo-500: 109 114 255;
@@ -162,44 +228,46 @@
 
   --c-sky-400: 96 198 255;
   --c-sky-500: 56 178 255;
+
+  /* light semantics - indigo readable on white */
+  --accent:          79 70 229;
+  --accent-strong:   67 56 202;
+  --accent-text-on:  255 255 255;
+  --accent-weak:     var(--c-indigo-50);
+  --accent-on:       255 255 255;
+  --focus-ring:      79 70 229;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
+}
+[data-theme="midnight"].dark {
+  /* ops-dark neutrals (same shell as default) */
+  --bg:        9 9 11;
+  --surface:   18 18 21;
+  --surface-2: 30 30 34;
+  --border:    39 39 44;
+  --text:      244 244 245;
+  --muted:     148 148 158;
+
+  /* neon indigo accent */
+  --accent:          139 150 255;
+  --accent-strong:   109 114 255;
+  --accent-text-on:  15 12 60;
+  --accent-weak:     var(--c-indigo-950);
+  --accent-on:       15 12 60;
+  --focus-ring:      139 150 255;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
 }
 
 /* =========================================================================
- * Ocean - deep blue-slate surfaces, cyan/sky accent in place of indigo.
+ * Ocean - cyan/sky accent, ops-dark neutral shell.
  * ========================================================================= */
 [data-theme="ocean"] {
-  --c-slate-50: 240 248 252;
-  --c-slate-100: 224 240 248;
-  --c-slate-200: 197 224 238;
-  --c-slate-300: 158 199 222;
-  --c-slate-400: 106 152 184;
-  --c-slate-500: 68 112 146;
-  --c-slate-600: 44 84 116;
-  --c-slate-700: 30 62 90;
-  --c-slate-800: 19 44 67;
-  --c-slate-900: 11 30 48;
-  --c-slate-950: 5 17 30;
-
-  --c-zinc-50: 240 247 251;
-  --c-zinc-100: 219 235 244;
-  --c-zinc-200: 184 211 228;
-  --c-zinc-300: 138 172 198;
-  --c-zinc-400: 92 126 156;
-  --c-zinc-500: 58 90 120;
-  --c-zinc-600: 38 66 92;
-  --c-zinc-700: 25 49 71;
-  --c-zinc-800: 16 35 53;
-  --c-zinc-900: 9 24 39;
-  --c-zinc-950: 4 13 24;
-
-  /* indigo accent -> cyan/sky family */
+  /* accent ramp override - cyan/sky family */
   --c-indigo-50: 236 250 255;
   --c-indigo-100: 207 242 253;
   --c-indigo-200: 165 227 248;
   --c-indigo-300: 110 205 240;
   --c-indigo-400: 56 182 228;
   --c-indigo-500: 20 154 206;
-  /* AA: 600/700 darkened so text-indigo-600 link passes on slate-50 */
   --c-indigo-600: 7 118 168;
   --c-indigo-700: 8 98 142;
   --c-indigo-800: 12 82 118;
@@ -209,80 +277,85 @@
   --c-sky-400: 56 191 248;
   --c-sky-500: 14 168 230;
   --c-sky-600: 4 138 199;
+
+  /* light semantics - ocean cyan readable on white */
+  --accent:          7 118 168;
+  --accent-strong:   8 98 142;
+  --accent-text-on:  255 255 255;
+  --accent-weak:     var(--c-indigo-50);
+  --accent-on:       255 255 255;
+  --focus-ring:      7 118 168;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
+}
+[data-theme="ocean"].dark {
+  /* ops-dark neutrals */
+  --bg:        9 9 11;
+  --surface:   18 18 21;
+  --surface-2: 30 30 34;
+  --border:    39 39 44;
+  --text:      244 244 245;
+  --muted:     148 148 158;
+
+  /* neon sky/cyan accent */
+  --accent:          56 191 248;
+  --accent-strong:   14 168 230;
+  --accent-text-on:  4 20 40;
+  --accent-weak:     var(--c-indigo-950);
+  --accent-on:       4 20 40;
+  --focus-ring:      56 191 248;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
 }
 
 /* =========================================================================
- * Forest - desaturated green-gray surfaces, emerald accent.
+ * Forest - emerald accent, ops-dark neutral shell.
  * ========================================================================= */
 [data-theme="forest"] {
-  --c-slate-50: 246 249 246;
-  --c-slate-100: 236 243 236;
-  --c-slate-200: 215 228 215;
-  --c-slate-300: 184 204 184;
-  --c-slate-400: 134 160 137;
-  --c-slate-500: 90 114 94;
-  --c-slate-600: 68 92 73;
-  --c-slate-700: 49 70 54;
-  --c-slate-800: 31 48 36;
-  --c-slate-900: 18 32 23;
-  --c-slate-950: 8 18 12;
-
-  --c-zinc-50: 245 248 245;
-  --c-zinc-100: 232 240 232;
-  --c-zinc-200: 206 220 206;
-  --c-zinc-300: 166 188 168;
-  --c-zinc-400: 118 142 122;
-  --c-zinc-500: 82 106 87;
-  --c-zinc-600: 56 78 61;
-  --c-zinc-700: 38 56 43;
-  --c-zinc-800: 24 38 28;
-  --c-zinc-900: 14 26 18;
-  --c-zinc-950: 6 14 9;
-
-  /* indigo accent -> emerald family */
+  /* accent ramp override - emerald family */
   --c-indigo-50: 236 253 244;
   --c-indigo-100: 209 250 226;
   --c-indigo-200: 167 240 202;
   --c-indigo-300: 110 224 168;
   --c-indigo-400: 52 200 134;
-  /* AA: 500-700 darkened so white-on-600 + text-indigo-600 on slate-50 pass */
   --c-indigo-500: 14 160 100;
   --c-indigo-600: 5 128 80;
   --c-indigo-700: 5 104 66;
   --c-indigo-800: 6 90 60;
   --c-indigo-900: 6 73 50;
   --c-indigo-950: 2 42 30;
+
+  /* light semantics - emerald readable on white */
+  --accent:          5 128 80;
+  --accent-strong:   5 104 66;
+  --accent-text-on:  255 255 255;
+  --accent-weak:     var(--c-indigo-50);
+  --accent-on:       255 255 255;
+  --focus-ring:      5 128 80;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
+}
+[data-theme="forest"].dark {
+  /* ops-dark neutrals */
+  --bg:        9 9 11;
+  --surface:   18 18 21;
+  --surface-2: 30 30 34;
+  --border:    39 39 44;
+  --text:      244 244 245;
+  --muted:     148 148 158;
+
+  /* neon emerald accent */
+  --accent:          52 200 134;
+  --accent-strong:   14 160 100;
+  --accent-text-on:  3 25 15;
+  --accent-weak:     var(--c-indigo-950);
+  --accent-on:       3 25 15;
+  --focus-ring:      52 200 134;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
 }
 
 /* =========================================================================
- * Violet - plum surfaces, violet accent.
+ * Violet - violet accent, ops-dark neutral shell.
  * ========================================================================= */
 [data-theme="violet"] {
-  --c-slate-50: 250 248 252;
-  --c-slate-100: 245 240 250;
-  --c-slate-200: 233 222 243;
-  --c-slate-300: 211 192 230;
-  --c-slate-400: 168 142 196;
-  --c-slate-500: 130 102 160;
-  --c-slate-600: 100 74 128;
-  --c-slate-700: 74 53 98;
-  --c-slate-800: 50 35 70;
-  --c-slate-900: 32 21 48;
-  --c-slate-950: 17 10 28;
-
-  --c-zinc-50: 249 247 252;
-  --c-zinc-100: 243 238 249;
-  --c-zinc-200: 226 216 238;
-  --c-zinc-300: 196 178 218;
-  --c-zinc-400: 150 124 180;
-  --c-zinc-500: 112 88 142;
-  --c-zinc-600: 82 62 108;
-  --c-zinc-700: 58 43 80;
-  --c-zinc-800: 38 27 56;
-  --c-zinc-900: 24 16 38;
-  --c-zinc-950: 12 7 22;
-
-  /* indigo accent -> violet family */
+  /* accent ramp override - violet family */
   --c-indigo-50: 245 243 255;
   --c-indigo-100: 237 233 254;
   --c-indigo-200: 221 214 254;
@@ -294,40 +367,40 @@
   --c-indigo-800: 91 33 182;
   --c-indigo-900: 76 29 149;
   --c-indigo-950: 46 16 101;
+
+  /* light semantics - violet readable on white */
+  --accent:          124 58 237;
+  --accent-strong:   109 40 217;
+  --accent-text-on:  255 255 255;
+  --accent-weak:     var(--c-indigo-50);
+  --accent-on:       255 255 255;
+  --focus-ring:      124 58 237;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
+}
+[data-theme="violet"].dark {
+  /* ops-dark neutrals */
+  --bg:        9 9 11;
+  --surface:   18 18 21;
+  --surface-2: 30 30 34;
+  --border:    39 39 44;
+  --text:      244 244 245;
+  --muted:     148 148 158;
+
+  /* neon violet accent */
+  --accent:          167 139 250;
+  --accent-strong:   139 92 246;
+  --accent-text-on:  20 8 60;
+  --accent-weak:     var(--c-indigo-950);
+  --accent-on:       20 8 60;
+  --focus-ring:      167 139 250;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
 }
 
 /* =========================================================================
- * Sunset - warm charcoal surfaces, amber/rose accent.
+ * Sunset - amber/rust accent, ops-dark neutral shell.
  * ========================================================================= */
 [data-theme="sunset"] {
-  --c-slate-50: 252 248 244;
-  --c-slate-100: 250 241 232;
-  --c-slate-200: 242 224 208;
-  --c-slate-300: 228 197 170;
-  --c-slate-400: 196 154 120;
-  --c-slate-500: 146 104 76;
-  --c-slate-600: 124 86 62;
-  --c-slate-700: 92 62 46;
-  --c-slate-800: 62 42 33;
-  --c-slate-900: 40 27 23;
-  --c-slate-950: 22 14 12;
-
-  --c-zinc-50: 251 247 244;
-  --c-zinc-100: 247 239 232;
-  --c-zinc-200: 233 218 206;
-  --c-zinc-300: 206 182 166;
-  --c-zinc-400: 168 138 120;
-  --c-zinc-500: 130 102 86;
-  --c-zinc-600: 96 72 60;
-  --c-zinc-700: 68 50 42;
-  --c-zinc-800: 44 32 27;
-  --c-zinc-900: 28 20 17;
-  --c-zinc-950: 16 11 9;
-
-  /* indigo accent -> warm rust/burnt-orange family.
-     AA: amber is too light as primary-on-white (3.27); 500-700 are a deeper
-     rust so white-on-600 + text-indigo-600 on slate-50 pass. Amber stays the
-     warning role (--c-amber-*) and the light 50-400 bg/border shades stay warm. */
+  /* accent ramp override - warm rust/amber family */
   --c-indigo-50: 255 250 235;
   --c-indigo-100: 254 244 206;
   --c-indigo-200: 253 228 146;
@@ -339,44 +412,45 @@
   --c-indigo-800: 150 62 18;
   --c-indigo-900: 122 50 18;
   --c-indigo-950: 70 28 10;
+
+  /* light semantics - rust readable on white */
+  --accent:          190 70 28;
+  --accent-strong:   158 56 26;
+  --accent-text-on:  255 255 255;
+  --accent-weak:     var(--c-indigo-50);
+  --accent-on:       255 255 255;
+  --focus-ring:      190 70 28;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
+}
+[data-theme="sunset"].dark {
+  /* ops-dark neutrals */
+  --bg:        9 9 11;
+  --surface:   18 18 21;
+  --surface-2: 30 30 34;
+  --border:    39 39 44;
+  --text:      244 244 245;
+  --muted:     148 148 158;
+
+  /* neon amber/sunset accent */
+  --accent:          250 178 44;
+  --accent-strong:   236 118 28;
+  --accent-text-on:  40 20 4;
+  --accent-weak:     var(--c-indigo-950);
+  --accent-on:       40 20 4;
+  --focus-ring:      250 178 44;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
 }
 
 /* =========================================================================
- * Nord - canonical Nord palette (cool desaturated polar night + frost).
+ * Nord - frost-blue accent, ops-dark neutral shell.
  * ========================================================================= */
 [data-theme="nord"] {
-  --c-slate-50: 236 241 246;
-  --c-slate-100: 229 233 240;   /* nord4 */
-  --c-slate-200: 216 222 233;   /* nord4 light */
-  --c-slate-300: 192 200 214;
-  --c-slate-400: 143 156 177;
-  --c-slate-500: 96 108 130;
-  --c-slate-600: 76 86 106;     /* nord3 */
-  --c-slate-700: 59 66 82;      /* nord1 */
-  --c-slate-800: 46 52 64;      /* nord0 */
-  --c-slate-900: 39 44 54;
-  --c-slate-950: 30 34 42;
-
-  --c-zinc-50: 236 241 246;
-  --c-zinc-100: 229 233 240;
-  --c-zinc-200: 212 218 228;
-  --c-zinc-300: 168 178 196;
-  --c-zinc-400: 124 136 158;
-  --c-zinc-500: 94 105 126;
-  --c-zinc-600: 67 76 94;
-  --c-zinc-700: 59 66 82;       /* nord1 */
-  --c-zinc-800: 46 52 64;       /* nord0 */
-  --c-zinc-900: 38 43 53;
-  --c-zinc-950: 30 34 42;
-
-  /* indigo accent -> nord frost blue (nord8/9/10) */
+  /* accent ramp override - nord frost blue (nord8/9/10) */
   --c-indigo-50: 236 244 248;
   --c-indigo-100: 216 232 240;
   --c-indigo-200: 175 208 224;
-  --c-indigo-300: 143 188 211;  /* nord9 */
-  --c-indigo-400: 136 192 208;  /* nord8 */
-  /* AA: 500-700 darkened from nord10 so white-on-600 + text-indigo-600 on
-     slate-50 pass; lighter frost (300/400 nord8/9) kept for borders/icons */
+  --c-indigo-300: 143 188 211;
+  --c-indigo-400: 136 192 208;
   --c-indigo-500: 110 140 178;
   --c-indigo-600: 78 108 150;
   --c-indigo-700: 62 90 128;
@@ -384,44 +458,47 @@
   --c-indigo-900: 52 78 110;
   --c-indigo-950: 36 54 78;
 
-  /* status colors -> nord aurora for cohesion */
-  --c-emerald-500: 163 190 140; /* nord14 */
+  /* nord aurora status for cohesion */
+  --c-emerald-500: 163 190 140;
   --c-emerald-600: 138 168 116;
-  --c-rose-500: 191 97 106;     /* nord11 */
+  --c-rose-500: 191 97 106;
   --c-rose-600: 169 84 92;
-  --c-amber-500: 235 203 139;   /* nord13 */
+  --c-amber-500: 235 203 139;
   --c-amber-600: 214 178 110;
+
+  /* light semantics - frost readable on white */
+  --accent:          78 108 150;
+  --accent-strong:   62 90 128;
+  --accent-text-on:  255 255 255;
+  --accent-weak:     var(--c-indigo-50);
+  --accent-on:       255 255 255;
+  --focus-ring:      78 108 150;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
+}
+[data-theme="nord"].dark {
+  /* ops-dark neutrals */
+  --bg:        9 9 11;
+  --surface:   18 18 21;
+  --surface-2: 30 30 34;
+  --border:    39 39 44;
+  --text:      244 244 245;
+  --muted:     148 148 158;
+
+  /* neon nord frost accent (nord8 brightened) */
+  --accent:          136 192 208;
+  --accent-strong:   110 140 178;
+  --accent-text-on:  8 24 32;
+  --accent-weak:     var(--c-indigo-950);
+  --accent-on:       8 24 32;
+  --focus-ring:      136 192 208;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
 }
 
 /* =========================================================================
- * Mono - neutral grayscale, high contrast, accent = near-black/white gray.
+ * Mono - neutral gray accent, ops-dark neutral shell.
  * ========================================================================= */
 [data-theme="mono"] {
-  --c-slate-50: 250 250 250;
-  --c-slate-100: 244 244 244;
-  --c-slate-200: 229 229 229;
-  --c-slate-300: 212 212 212;
-  --c-slate-400: 163 163 163;
-  --c-slate-500: 115 115 115;
-  --c-slate-600: 82 82 82;
-  --c-slate-700: 56 56 56;
-  --c-slate-800: 33 33 33;
-  --c-slate-900: 18 18 18;
-  --c-slate-950: 8 8 8;
-
-  --c-zinc-50: 250 250 250;
-  --c-zinc-100: 243 243 243;
-  --c-zinc-200: 224 224 224;
-  --c-zinc-300: 198 198 198;
-  --c-zinc-400: 150 150 150;
-  --c-zinc-500: 109 109 109;
-  --c-zinc-600: 78 78 78;
-  --c-zinc-700: 52 52 52;
-  --c-zinc-800: 30 30 30;
-  --c-zinc-900: 16 16 16;
-  --c-zinc-950: 6 6 6;
-
-  /* indigo accent -> neutral high-contrast gray */
+  /* accent ramp override - neutral high-contrast gray */
   --c-indigo-50: 245 245 245;
   --c-indigo-100: 231 231 231;
   --c-indigo-200: 209 209 209;
@@ -433,77 +510,31 @@
   --c-indigo-800: 28 28 28;
   --c-indigo-900: 20 20 20;
   --c-indigo-950: 10 10 10;
+
+  /* light semantics - dark gray readable on white */
+  --accent:          82 82 82;
+  --accent-strong:   52 52 52;
+  --accent-text-on:  255 255 255;
+  --accent-weak:     var(--c-indigo-50);
+  --accent-on:       255 255 255;
+  --focus-ring:      82 82 82;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
 }
+[data-theme="mono"].dark {
+  /* ops-dark neutrals */
+  --bg:        9 9 11;
+  --surface:   18 18 21;
+  --surface-2: 30 30 34;
+  --border:    39 39 44;
+  --text:      244 244 245;
+  --muted:     148 148 158;
 
-/* =========================================================================
- * Semantic token layer - Hostyt redesign.
- * Channels only (space-separated RGB), never hex - keeps /<alpha-value>.
- * Light defaults in :root; dark flips neutrals under .dark.
- * Accent = Gold (#EAB308). text-on-accent = near-black (gold is light).
- * ========================================================================= */
-:root {
-  /* neutrals - light (zinc-50 bg, white surface, zinc-100 surface-2) */
-  --bg:        var(--c-zinc-50);
-  --surface:   255 255 255;
-  --surface-2: var(--c-zinc-100);
-  --border:    var(--c-zinc-200);
-  --text:       10  10  11;
-  --muted:     var(--c-zinc-500);
-  --muted-2:   var(--c-zinc-400);
-
-  /* gold accent */
-  --accent:        var(--c-gold-500);
-  --accent-strong: var(--c-gold-600);
-  --accent-weak:   var(--c-gold-100);
-  --accent-on:      10  10  11;
-
-  /* semantic status */
-  --success: var(--c-emerald-600); --success-weak: var(--c-emerald-50);
-  --warning: var(--c-amber-600);   --warning-weak: var(--c-amber-50);
-  --danger:  var(--c-rose-600);    --danger-weak:  var(--c-rose-50);
-  --info:    var(--c-sky-500);     --info-weak:    var(--c-sky-50);
-
-  /* effects */
-  --focus-ring: var(--c-gold-500);
-  --gradient-brand: linear-gradient(135deg, #EAB308 0%, #D97706 100%);
-  --r-sm: 8px; --r-md: 12px; --r-lg: 16px; --r-xl: 20px; --r-pill: 9999px;
-  --shadow-hair: 0 1px 2px rgb(16 24 40 / .04);
-  --shadow-soft: 0 8px 24px -6px rgb(16 24 40 / .10);
-  --ease: cubic-bezier(.2,.6,.2,1); --t-fast: 150ms; --t-base: 200ms; --t-slow: 250ms;
+  /* bright gray accent on dark */
+  --accent:          168 168 168;
+  --accent-strong:   120 120 120;
+  --accent-text-on:  9 9 11;
+  --accent-weak:     var(--c-indigo-950);
+  --accent-on:       9 9 11;
+  --focus-ring:      168 168 168;
+  --accent-gradient: linear-gradient(135deg, rgb(var(--accent)), rgb(var(--accent-strong)));
 }
-
-/* neutrals - dark */
-.dark {
-  --bg:        var(--c-zinc-950);
-  --surface:   var(--c-zinc-900);
-  --surface-2: var(--c-zinc-800);
-  --border:    var(--c-zinc-800);
-  --text:      245 245 246;
-  --muted:     var(--c-zinc-400);
-  --muted-2:   var(--c-zinc-600);
-  --accent-weak:  var(--c-gold-950);
-  --success-weak: var(--c-emerald-950);
-  --warning-weak: var(--c-amber-950);
-  --danger-weak:  var(--c-rose-950);
-  --info-weak:    var(--c-sky-950);
-  --shadow-soft: 0 8px 24px -6px rgb(0 0 0 / .45);
-}
-
-/* Per-palette accent overrides (palettes keep their existing surface ramps;
-   only --accent/--accent-strong/--accent-weak need updating per theme).
-   Palettes that override --c-indigo-* already have their accent in those vars;
-   we point --accent at them so new semantic utilities follow the palette. */
-[data-theme="midnight"]       { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-950); }
-[data-theme="midnight"].dark  { --accent-weak: var(--c-indigo-950); }
-[data-theme="ocean"]          { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
-[data-theme="ocean"].dark     { --accent-weak: var(--c-indigo-950); }
-[data-theme="forest"]         { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
-[data-theme="forest"].dark    { --accent-weak: var(--c-indigo-950); }
-[data-theme="violet"]         { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
-[data-theme="violet"].dark    { --accent-weak: var(--c-indigo-950); }
-[data-theme="sunset"]         { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
-[data-theme="sunset"].dark    { --accent-weak: var(--c-indigo-950); }
-[data-theme="nord"]           { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
-[data-theme="nord"].dark      { --accent-weak: var(--c-indigo-950); }
-[data-theme="mono"]           { --accent: var(--c-indigo-500); --accent-strong: var(--c-indigo-600); --accent-weak: var(--c-indigo-50); }
-[data-theme="mono"].dark      { --accent-weak: var(--c-indigo-950); }

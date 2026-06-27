@@ -8,7 +8,7 @@
 <link rel="stylesheet" href="/static/fonts/inter.css">
 <link rel="stylesheet" href="/static/css/tailwind.css">
 <link rel="stylesheet" href="/static/css/enhance.css">
-<script nonce="{{.Data.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
+<script nonce="{{.Data.CSPNonce}}">(function(){var t=localStorage.getItem('theme');if(t==='light'){/* keep light */}else{document.documentElement.classList.add('dark');}})();</script>
 <!-- Palette theme bootstrap: client-side pick applies before paint, even before the ui_theme cookie round-trips. -->
 <script nonce="{{.Data.CSPNonce}}">(function(){try{var ok={default:1,midnight:1,ocean:1,forest:1,violet:1,sunset:1,nord:1,mono:1};var p=localStorage.getItem('ui_theme');if(p&&ok[p]&&p!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=p;}catch(e){}})();</script>
 {{if .Data.Brand.FaviconURL}}<link rel="icon" href="{{.Data.Brand.FaviconURL}}">{{end}}
@@ -33,14 +33,14 @@
 <body class="h-full" style="background:rgb(var(--bg));color:rgb(var(--text))">
 <a href="#main-content" class="skip-link">Skip to content</a>
 <!-- Mobile top bar (sticky, md:hidden). Brand left, burger right. -->
-<div class="md:hidden sticky top-0 z-30 flex items-center justify-between bg-white dark:bg-zinc-950 text-slate-900 dark:text-white px-4 py-3 ring-1 ring-slate-200/70 dark:ring-zinc-800">
+<div class="md:hidden sticky top-0 z-30 flex items-center justify-between px-4 py-3 ring-1" style="background:rgb(var(--surface));color:rgb(var(--text));ring-color:rgb(var(--border))">
   <span class="font-semibold tracking-tight flex items-center gap-2">
     {{if .Data.Brand.LogoURLLight}}<img src="{{.Data.Brand.LogoURLLight}}" alt="" class="h-5 dark:hidden">{{end}}
     {{if .Data.Brand.LogoURLDark}}<img src="{{.Data.Brand.LogoURLDark}}" alt="" class="h-5 hidden dark:block">{{end}}
     {{if not (or .Data.Brand.LogoURLLight .Data.Brand.LogoURLDark)}}<span class="inline-block w-2 h-2 rounded-full bg-accent" style="box-shadow:0 0 0 4px rgb(var(--accent)/.15)"></span>{{end}}
     {{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}
   </span>
-  <button type="button" data-nav-toggle aria-label="Menu" class="text-slate-600 dark:text-slate-300 p-1 -m-1">
+  <button type="button" data-nav-toggle aria-label="Menu" class="p-1 -m-1 cursor-pointer" style="color:rgb(var(--muted))">
     <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h16"/></svg>
   </button>
 </div>
@@ -50,237 +50,277 @@
     <div class="font-semibold text-base tracking-tight mb-6 pb-4 border-b flex items-center gap-2.5" style="border-color:rgb(var(--border))">
       {{if .Data.Brand.LogoURLLight}}<img src="{{.Data.Brand.LogoURLLight}}" alt="" class="h-6 dark:hidden">{{end}}
       {{if .Data.Brand.LogoURLDark}}<img src="{{.Data.Brand.LogoURLDark}}" alt="" class="h-6 hidden dark:block">{{end}}
-      {{if not (or .Data.Brand.LogoURLLight .Data.Brand.LogoURLDark)}}<span class="inline-block w-2.5 h-2.5 rounded-full bg-accent" style="box-shadow:0 0 0 4px rgb(var(--accent)/.15)"></span>{{end}}
+      {{if not (or .Data.Brand.LogoURLLight .Data.Brand.LogoURLDark)}}<span class="inline-block w-2.5 h-2.5 rounded-full" style="background:rgb(var(--accent));box-shadow:0 0 0 4px rgb(var(--accent)/.15)"></span>{{end}}
       {{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}
     </div>
     <nav class="text-sm flex-1">
       {{if eq .Data.Role "support"}}
+      <!-- Support: read-only limited view -->
       <div data-nav-group="support">
       <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Read-only</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
       <div class="space-y-0.5 nav-group-body">
         <a href="/admin/map" class="nav-link {{if eq .Page "map"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
           Infrastructure map
         </a>
         <a href="/admin/worldmap" class="nav-link {{if eq .Page "worldmap"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           Traffic map
         </a>
         <a href="/admin/tunnels" class="nav-link {{if eq .Page "tunnels"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
           Tunnels (WG)
         </a>
       </div>
       </div>
       <p class="mt-4 px-3 text-xs leading-relaxed" style="color:rgb(var(--muted))">Support access is read-only and limited to assigned clients.</p>
       {{else}}
-      <!-- Grouped nav. Active item = soft accent pill plus left accent bar.
-           Groups are hidden entirely when all their links are feature-flagged off. -->
+      <!-- Grouped nav per spec: Overview / Proxy / Network / Customers / Security / Observability / Platform / AI -->
+
+      <!-- Overview: Dashboard, Infrastructure map, Traffic map -->
       <div data-nav-group="overview">
       <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Overview</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
       <div class="space-y-0.5 nav-group-body">
         <a href="/admin" class="nav-link {{if eq .Page "dashboard"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"/></svg>
           Dashboard
         </a>
-      </div>
-      </div>
-
-      {{if or .Data.Features.Map .Data.Features.Nodes .Data.Features.Tunnels}}
-      <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="fleet">
-      <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Fleet / Edge</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
-      <div class="space-y-0.5 nav-group-body">
         {{if .Data.Features.Map}}<a href="/admin/map" class="nav-link {{if eq .Page "map"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/></svg>
           Infrastructure map
         </a>{{end}}
         {{if .Data.Features.Map}}<a href="/admin/worldmap" class="nav-link {{if eq .Page "worldmap"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
           Traffic map
         </a>{{end}}
-        {{if .Data.Features.Nodes}}<a href="/admin/nodes" class="nav-link {{if eq .Page "nodes"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
-          Caddy nodes
-        </a>{{end}}
-        {{if .Data.Features.Nodes}}<a href="/admin/node-groups" class="nav-link {{if eq .Page "node_groups"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-          Node groups
-        </a>{{end}}
-        {{if .Data.Features.Tunnels}}<a href="/admin/tunnels" class="nav-link {{if eq .Page "tunnels"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-          Tunnels (WG)
-        </a>{{end}}
       </div>
       </div>
-      {{end}}
 
+      <!-- Proxy: Hosts, Streams (L4), Certificates -->
       {{if or .Data.Features.Hosts .Data.Features.Streams .Data.Features.Certs}}
-      <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="traffic">
-      <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Traffic</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
+      <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="proxy">
+      <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Proxy</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
       <div class="space-y-0.5 nav-group-body">
         {{if .Data.Features.Hosts}}<a href="/admin/hosts" class="nav-link {{if eq .Page "hosts"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
           Hosts
         </a>{{end}}
         {{if .Data.Features.Streams}}<a href="/admin/streams" class="nav-link {{if eq .Page "streams"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
           Streams (L4)
         </a>{{end}}
         {{if .Data.Features.Certs}}<a href="/admin/certs" class="nav-link {{if eq .Page "certs"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/></svg>
           Certificates
         </a>{{end}}
       </div>
       </div>
       {{end}}
 
+      <!-- Network: Caddy nodes, Node groups, Tunnels (WG) -->
+      {{if or .Data.Features.Nodes .Data.Features.Tunnels}}
+      <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="network">
+      <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Network</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
+      <div class="space-y-0.5 nav-group-body">
+        {{if .Data.Features.Nodes}}<a href="/admin/nodes" class="nav-link {{if eq .Page "nodes"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01"/></svg>
+          Caddy nodes
+        </a>{{end}}
+        {{if .Data.Features.Nodes}}<a href="/admin/node-groups" class="nav-link {{if eq .Page "node_groups"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Node groups
+        </a>{{end}}
+        {{if .Data.Features.Tunnels}}<a href="/admin/tunnels" class="nav-link {{if eq .Page "tunnels"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+          Tunnels (WG)
+        </a>{{end}}
+      </div>
+      </div>
+      {{end}}
+
+      <!-- Customers: Clients, Plans, Services -->
       {{if or .Data.Features.Clients .Data.Features.Plans .Data.Features.Services}}
       <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="customers">
       <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Customers</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
       <div class="space-y-0.5 nav-group-body">
         {{if .Data.Features.Clients}}<a href="/admin/clients" class="nav-link {{if eq .Page "clients"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
           Clients
         </a>{{end}}
         {{if .Data.Features.Plans}}<a href="/admin/plans" class="nav-link {{if eq .Page "plans"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
           Plans
         </a>{{end}}
         {{if .Data.Features.Services}}<a href="/admin/services" class="nav-link {{if eq .Page "services"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
           Services
         </a>{{end}}
       </div>
       </div>
       {{end}}
 
-      {{if or .Data.Features.Users .Data.Features.Audit .Data.Features.ExternalAllowlist .Data.Features.WAF}}
+      <!-- Security: Users, WAF, mTLS, Audit, External allowlist -->
+      {{if or .Data.Features.Users .Data.Features.WAF .Data.Features.Certs .Data.Features.Audit .Data.Features.ExternalAllowlist}}
       <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="security">
       <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Security</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
       <div class="space-y-0.5 nav-group-body">
         {{if .Data.Features.Users}}<a href="/admin/users" class="nav-link {{if eq .Page "users"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
           Users
         </a>{{end}}
-        {{if .Data.Features.Audit}}<a href="/admin/audit" class="nav-link {{if eq .Page "audit"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-          Audit log
-        </a>{{end}}
-        {{if .Data.Features.ExternalAllowlist}}<a href="/admin/settings/external-allowlist" class="nav-link {{if eq .Page "external_allowlist"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-          External allowlist
-        </a>{{end}}
         {{if .Data.Features.WAF}}<a href="/admin/waf" class="nav-link {{if eq .Page "waf_events"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016zM12 9v2m0 4h.01"/></svg>
-          WAF events
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016zM12 9v2m0 4h.01"/></svg>
+          WAF
         </a>{{end}}
         {{if .Data.Features.Certs}}<a href="/admin/mtls" class="nav-link {{if eq .Page "mtls"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-          mTLS authorities
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/></svg>
+          mTLS
+        </a>{{end}}
+        {{if .Data.Features.Audit}}<a href="/admin/audit" class="nav-link {{if eq .Page "audit"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+          Audit
+        </a>{{end}}
+        {{if .Data.Features.ExternalAllowlist}}<a href="/admin/settings/external-allowlist" class="nav-link {{if eq .Page "external_allowlist"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          External allowlist
         </a>{{end}}
       </div>
       </div>
       {{end}}
 
+      <!-- Observability: Stats, Alerts, Webhooks -->
       {{if or .Data.Features.Stats .Data.Features.Alerts}}
       <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="obs">
       <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Observability</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
       <div class="space-y-0.5 nav-group-body">
         {{if .Data.Features.Stats}}<a href="/admin/stats" class="nav-link {{if eq .Page "stats"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
-          Statistics
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/></svg>
+          Stats
         </a>{{end}}
         {{if .Data.Features.Alerts}}<a href="/admin/alerts" class="nav-link {{if eq .Page "alerts"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
           Alerts
         </a>{{end}}
-      </div>
-      </div>
-      {{end}}
-
-      {{if or .Data.Features.Backups .Data.Features.Settings .Data.Features.DNSProviders (eq .Data.Role "super_admin")}}
-      <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="system">
-      <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">System</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
-      <div class="space-y-0.5 nav-group-body">
-        {{if .Data.Features.Backups}}<a href="/admin/backups" class="nav-link {{if eq .Page "backups"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
-          Backups
-        </a>{{end}}
-        {{if .Data.Features.Settings}}<a href="/admin/settings" class="nav-link {{if eq .Page "settings"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-          Settings
-        </a>{{end}}
-        {{if .Data.Features.DNSProviders}}<a href="/admin/settings/dns-providers" class="nav-link {{if eq .Page "dns_providers"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          DNS providers
-        </a>{{end}}
-        {{if eq .Data.Role "super_admin"}}<a href="/admin/deployment" class="nav-link {{if eq .Page "deployment"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
-          Deployment
-        </a>{{end}}
-      </div>
-      </div>
-      {{end}}
-
-      {{if .Data.Features.NPMImport}}
-      <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="tools">
-      <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Tools</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
-      <div class="space-y-0.5 nav-group-body">
-        <a href="/admin/tools/npm-import" class="nav-link {{if eq .Page "npm_import"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-          NPM import
+        <a href="/admin/webhooks" class="nav-link {{if eq .Page "webhooks"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1"/></svg>
+          Webhooks
         </a>
       </div>
       </div>
       {{end}}
 
+      <!-- Platform: Settings, Branding, Backups, DNS providers, NPM import, Deployment, Legal -->
+      {{if or .Data.Features.Backups .Data.Features.Settings .Data.Features.DNSProviders .Data.Features.NPMImport (eq .Data.Role "super_admin")}}
+      <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="platform">
+      <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">Platform</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
+      <div class="space-y-0.5 nav-group-body">
+        {{if .Data.Features.Settings}}<a href="/admin/settings" class="nav-link {{if eq .Page "settings"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          Settings
+        </a>{{end}}
+        <a href="/admin/branding" class="nav-link {{if eq .Page "branding"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h12a2 2 0 002-2v-4a2 2 0 00-2-2h-2.343M11 7.343l1.657-1.657a2 2 0 012.828 0l2.829 2.829a2 2 0 010 2.828l-8.486 8.485M7 17h.01"/></svg>
+          Branding
+        </a>
+        {{if .Data.Features.Backups}}<a href="/admin/backups" class="nav-link {{if eq .Page "backups"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+          Backups
+        </a>{{end}}
+        {{if .Data.Features.DNSProviders}}<a href="/admin/settings/dns-providers" class="nav-link {{if eq .Page "dns_providers"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          DNS providers
+        </a>{{end}}
+        {{if .Data.Features.NPMImport}}<a href="/admin/tools/npm-import" class="nav-link {{if eq .Page "npm_import"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+          NPM import
+        </a>{{end}}
+        {{if eq .Data.Role "super_admin"}}<a href="/admin/deployment" class="nav-link {{if eq .Page "deployment"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+          Deployment
+        </a>{{end}}
+        <a href="/admin/legal" class="nav-link {{if eq .Page "legal"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6l3 1m0 0l-3 9a5.002 5.002 0 006.001 0M6 7l3 9M6 7l6-2m6 2l3-1m-3 1l-3 9a5.002 5.002 0 006.001 0M18 7l3 9m-3-9l-6-2m0-2v2m0 16V5m0 16H9m3 0h3"/></svg>
+          Legal
+        </a>
+      </div>
+      </div>
+      {{end}}
+
+      <!-- AI: AI chat -->
       <div class="mt-4 pt-4" style="border-top:1px solid rgb(var(--border))" data-nav-group="ai">
       <button type="button" class="nav-group-btn mb-1"><span class="nav-eyebrow">AI</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
       <div class="space-y-0.5 nav-group-body">
         <a href="/admin/ai/chat" class="nav-link {{if eq .Page "ai_chat"}}is-active{{end}}">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 opacity-70" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
             <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
           </svg>
-          AI assistant
+          AI chat
         </a>
       </div>
       </div>
 
       <div class="mt-5 pt-4" style="border-top:1px solid rgb(var(--border))">
-        <a href="/api-docs" target="_blank" rel="noopener" class="nav-link mt-5">API docs ↗</a>
+        <a href="/api-docs" target="_blank" rel="noopener" class="nav-link">API docs ↗</a>
       </div>
       {{end}}
     </nav>
   </aside>
   <main id="main-content" role="main" class="p-6 md:p-8 min-w-0 max-w-full overflow-x-hidden">
-    <header class="sticky top-0 z-20 -mx-6 md:-mx-8 px-6 md:px-8 py-3 mb-6 min-h-[4.5rem] backdrop-blur ring-1 flex items-center justify-between gap-4" style="background:rgb(var(--surface)/.85);border-color:rgb(var(--border))">
-      <!-- Unified page shell: fixed-height box, single-line breadcrumb + title so it never jumps between pages. -->
-      <div class="min-w-0">
-        <div data-greeting class="text-xs font-medium mb-0.5" style="color:rgb(var(--accent))"></div>
-        {{if .Data.Breadcrumbs}}
-        <nav aria-label="Breadcrumb" class="flex items-center flex-nowrap gap-1 text-xs mb-0.5 overflow-hidden whitespace-nowrap" style="color:rgb(var(--muted))">
-          {{range $i, $c := .Data.Breadcrumbs}}
-            {{if $i}}<span class="text-slate-300 dark:text-zinc-600 shrink-0">/</span>{{end}}
-            {{if $c.URL}}<a href="{{$c.URL}}" class="shrink-0 hover:text-slate-900 dark:hover:text-white transition-colors">{{$c.Label}}</a>{{else}}<span class="truncate text-slate-600 dark:text-slate-300">{{$c.Label}}</span>{{end}}
+    <!-- Sticky top status bar: breadcrumb + live chips left; controls right -->
+    <header class="sticky top-0 z-20 -mx-6 md:-mx-8 px-4 md:px-6 py-2 mb-6 backdrop-blur ring-1 flex items-center justify-between gap-3 flex-wrap" style="background:rgb(var(--surface)/.92);border-color:rgb(var(--border))">
+      <!-- Left: breadcrumb + live status chips -->
+      <div class="flex items-center gap-3 min-w-0 flex-wrap">
+        <div class="min-w-0">
+          {{if .Data.Breadcrumbs}}
+          <nav aria-label="Breadcrumb" class="flex items-center flex-nowrap gap-1 text-xs overflow-hidden whitespace-nowrap" style="color:rgb(var(--muted))">
+            {{range $i, $c := .Data.Breadcrumbs}}
+              {{if $i}}<span class="shrink-0" style="color:rgb(var(--border))">/</span>{{end}}
+              {{if $c.URL}}<a href="{{$c.URL}}" class="shrink-0 transition-colors hover:underline" style="color:rgb(var(--muted))">{{$c.Label}}</a>{{else}}<span class="truncate" style="color:rgb(var(--text))">{{$c.Label}}</span>{{end}}
+            {{end}}
+          </nav>
+          {{else}}
+          <div class="text-xs font-medium" style="color:rgb(var(--muted))">Admin</div>
           {{end}}
-        </nav>
+          {{if ne .Page "dashboard"}}<div class="text-sm font-semibold tracking-tight truncate" style="color:rgb(var(--text))">{{.Data.Title}}</div>{{end}}
+        </div>
+        <!-- Live status chips (admin only, not support) -->
+        {{if ne .Data.Role "support"}}
+        <div class="hidden sm:flex items-center gap-1.5 flex-wrap">
+          <span class="r-pill r-pill-success">
+            <span style="display:inline-block;width:.45rem;height:.45rem;border-radius:999px;background:currentColor"></span>
+            live
+          </span>
+          {{if .Data.Features.Nodes}}
+          <span class="r-pill r-pill-info" id="hpg-nodes-chip" title="Active Caddy nodes">
+            <svg class="w-3 h-3" fill="none" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.8"><rect x="1" y="1" width="4" height="4" rx="1"/><rect x="7" y="1" width="4" height="4" rx="1"/><rect x="1" y="7" width="4" height="4" rx="1"/><rect x="7" y="7" width="4" height="4" rx="1"/></svg>
+            nodes
+          </span>
+          {{end}}
+          {{if .Data.Features.WAF}}
+          <span class="r-pill r-pill-warning" id="hpg-waf-chip" title="WAF">
+            <svg class="w-3 h-3" fill="none" viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.8"><path d="M6 1l4 1.5v3.5a4 4 0 01-4 4 4 4 0 01-4-4V2.5L6 1z"/></svg>
+            WAF
+          </span>
+          {{end}}
+        </div>
         {{end}}
-        {{if ne .Page "dashboard"}}<h1 class="text-xl md:text-2xl font-semibold tracking-tight truncate" style="color:rgb(var(--text))">{{.Data.Title}}</h1>{{end}}
-        {{if .Data.PageDesc}}<p class="text-sm text-slate-500 dark:text-slate-400 mt-0.5 truncate">{{.Data.PageDesc}}</p>{{end}}
       </div>
-      <div class="flex items-center gap-3 text-xs text-slate-600 dark:text-slate-300">
-        <!-- Command palette trigger -->
+      <!-- Right: controls -->
+      <div class="flex items-center gap-1.5 text-xs shrink-0" style="color:rgb(var(--muted))">
+        <!-- ⌘K command palette trigger -->
         <button type="button" id="cmd-palette-btn"
-                class="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs text-slate-500 dark:text-slate-400 cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800 ring-1 ring-slate-200/70 dark:ring-zinc-700 font-mono"
+                class="hidden sm:flex items-center gap-1 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors font-mono ring-1"
+                style="color:rgb(var(--muted));background:rgb(var(--surface-2));ring-color:rgb(var(--border))"
                 title="Search (Cmd+K / Ctrl+K)">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
           </svg>
           <span>Search</span>
-          <kbd class="ml-1 px-1 py-0.5 rounded bg-slate-100 dark:bg-zinc-700 text-slate-400 dark:text-slate-500 text-[10px] leading-none border border-slate-200 dark:border-zinc-600">⌘K</kbd>
+          <kbd class="px-1 py-0.5 rounded text-[10px] leading-none" style="background:rgb(var(--surface));border:1px solid rgb(var(--border));color:rgb(var(--muted))">⌘K</kbd>
         </button>
-        <button type="button" data-theme-toggle class="flex items-center gap-1.5 px-3 py-1.5 rounded-full cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800" title="Toggle theme">
-          <!-- Heroicons-style moon/sun; JS toggles d.moon/d.sun visibility via the theme-icon group. -->
+        <!-- Theme toggle -->
+        <button type="button" data-theme-toggle class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors" style="color:rgb(var(--muted))" title="Toggle theme"
+                onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''">
           <svg id="theme-icon" data-mode="moon" xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path data-moon stroke-linecap="round" stroke-linejoin="round" d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
             <g data-sun class="hidden">
@@ -290,33 +330,40 @@
           </svg>
           <span class="hidden sm:inline">Theme</span>
         </button>
-        <!-- Palette switcher: navigates to /theme/{slug} (server switch) and mirrors the choice into localStorage for instant apply. -->
+        <!-- Palette switcher -->
         <div class="relative" data-palette-menu>
-          <button type="button" data-palette-toggle class="flex items-center gap-1.5 px-3 py-1.5 rounded-full cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800" title="Color palette" aria-haspopup="true" aria-expanded="false">
-            <span class="inline-block w-3 h-3 rounded-full bg-gradient-to-br from-indigo-500 to-emerald-500 ring-1 ring-black/10"></span>
+          <button type="button" data-palette-toggle class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors" style="color:rgb(var(--muted))" title="Color palette" aria-haspopup="true" aria-expanded="false"
+                  onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''">
+            <span class="inline-block w-3 h-3 rounded-full shrink-0" style="background:var(--accent-gradient,rgb(var(--accent)))"></span>
             <span class="hidden sm:inline">Palette</span>
           </button>
-          <div data-palette-list class="hidden absolute right-0 mt-2 z-30 w-44 py-1.5 rounded-2xl bg-white dark:bg-zinc-900 ring-1 ring-slate-200/70 dark:ring-zinc-700 shadow-lg shadow-slate-900/10 text-sm">
+          <div data-palette-list class="hidden absolute right-0 mt-2 z-30 w-44 py-1.5 rounded-2xl ring-1 shadow-lg text-sm" style="background:rgb(var(--surface));border-color:rgb(var(--border));ring-color:rgb(var(--border))">
             {{$cur := .Data.Theme}}
-            <a href="/theme/default" data-palette-pick="default" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "default" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Slate (default)</span>{{if eq "default" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
-            <a href="/theme/midnight" data-palette-pick="midnight" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "midnight" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Midnight</span>{{if eq "midnight" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
-            <a href="/theme/ocean" data-palette-pick="ocean" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "ocean" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Ocean</span>{{if eq "ocean" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
-            <a href="/theme/forest" data-palette-pick="forest" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "forest" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Forest</span>{{if eq "forest" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
-            <a href="/theme/violet" data-palette-pick="violet" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "violet" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Violet</span>{{if eq "violet" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
-            <a href="/theme/sunset" data-palette-pick="sunset" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "sunset" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Sunset</span>{{if eq "sunset" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
-            <a href="/theme/nord" data-palette-pick="nord" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "nord" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Nord</span>{{if eq "nord" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
-            <a href="/theme/mono" data-palette-pick="mono" class="flex items-center justify-between gap-2 px-3 py-1.5 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-zinc-800 {{if eq "mono" $cur}}bg-slate-100 dark:bg-zinc-800 font-medium{{end}}"><span>Mono</span>{{if eq "mono" $cur}}<svg class="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/default" data-palette-pick="default" class="flex items-center justify-between gap-2 px-3 py-1.5 transition-colors" style="color:rgb(var(--text))" onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''"><span>Teal (default)</span>{{if eq "default" $cur}}<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgb(var(--accent))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/midnight" data-palette-pick="midnight" class="flex items-center justify-between gap-2 px-3 py-1.5 transition-colors" style="color:rgb(var(--text))" onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''"><span>Midnight</span>{{if eq "midnight" $cur}}<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgb(var(--accent))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/ocean" data-palette-pick="ocean" class="flex items-center justify-between gap-2 px-3 py-1.5 transition-colors" style="color:rgb(var(--text))" onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''"><span>Ocean</span>{{if eq "ocean" $cur}}<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgb(var(--accent))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/forest" data-palette-pick="forest" class="flex items-center justify-between gap-2 px-3 py-1.5 transition-colors" style="color:rgb(var(--text))" onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''"><span>Forest</span>{{if eq "forest" $cur}}<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgb(var(--accent))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/violet" data-palette-pick="violet" class="flex items-center justify-between gap-2 px-3 py-1.5 transition-colors" style="color:rgb(var(--text))" onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''"><span>Violet</span>{{if eq "violet" $cur}}<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgb(var(--accent))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/sunset" data-palette-pick="sunset" class="flex items-center justify-between gap-2 px-3 py-1.5 transition-colors" style="color:rgb(var(--text))" onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''"><span>Sunset</span>{{if eq "sunset" $cur}}<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgb(var(--accent))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/nord" data-palette-pick="nord" class="flex items-center justify-between gap-2 px-3 py-1.5 transition-colors" style="color:rgb(var(--text))" onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''"><span>Nord</span>{{if eq "nord" $cur}}<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgb(var(--accent))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
+            <a href="/theme/mono" data-palette-pick="mono" class="flex items-center justify-between gap-2 px-3 py-1.5 transition-colors" style="color:rgb(var(--text))" onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''"><span>Mono</span>{{if eq "mono" $cur}}<svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color:rgb(var(--accent))"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>{{end}}</a>
           </div>
         </div>
+        <!-- Role badge -->
+        {{if .Data.Role}}<span class="r-pill r-pill-neutral hidden md:inline-flex">{{.Data.Role}}</span>{{end}}
+        <!-- Account link -->
         <a href="/admin/account" title="Account settings"
-           class="hidden md:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full hover:bg-slate-100 dark:hover:bg-zinc-800 truncate max-w-[14rem] {{if or (eq .Page "admin_account") (eq .Page "api_keys") (eq .Page "twofa")}}bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300 font-medium{{end}}">
+           class="hidden md:inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg transition-colors truncate max-w-[10rem]"
+           style="color:rgb(var(--muted))"
+           onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
           <span class="truncate">{{.Data.Email}}</span>
         </a>
-        {{if .Data.Role}}<span class="px-2.5 py-0.5 rounded-full bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-slate-300">{{.Data.Role}}</span>{{end}}
+        <!-- Sign out -->
         <form action="/auth/logout" method="POST" class="inline">
           <input type="hidden" name="csrf_token" value="{{.Data.CSRF}}">
-          <button class="px-3 py-1.5 rounded-full cursor-pointer transition-colors hover:bg-slate-100 dark:hover:bg-zinc-800">{{T .Data.Lang "nav.signout"}}</button>
+          <button class="px-2.5 py-1.5 rounded-lg cursor-pointer transition-colors" style="color:rgb(var(--muted))"
+                  onmouseover="this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.background=''">{{T .Data.Lang "nav.signout"}}</button>
         </form>
       </div>
     </header>
@@ -405,7 +452,7 @@
 </div>
 
 <!-- Command palette overlay -->
-<div id="hpg-palette" class="fixed inset-0 z-[60] items-start justify-center pt-20 p-4" style="display:none;background:rgba(0,0,0,.5);backdrop-filter:blur(4px)" role="dialog" aria-modal="true" aria-label="Command palette">
+<div id="hpg-palette" class="fixed inset-0 z-[60] items-center justify-center p-4" style="display:none;background:rgba(0,0,0,.5);backdrop-filter:blur(4px)" role="dialog" aria-modal="true" aria-label="Command palette">
   <div class="rounded-[var(--r-lg,16px)] border w-full max-w-xl overflow-hidden" style="background:rgb(var(--surface));border-color:rgb(var(--border));box-shadow:var(--shadow-soft)">
     <div class="flex items-center gap-2 px-4 py-3 border-b" style="border-color:rgb(var(--border))">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
