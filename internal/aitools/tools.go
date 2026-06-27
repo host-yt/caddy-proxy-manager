@@ -378,7 +378,8 @@ func (r *Registry) listServices(ctx context.Context, raw json.RawMessage) (strin
 	var a limitArgs
 	_ = json.Unmarshal(raw, &a)
 	limit := clampLimit(a.Limit, 50, 200)
-	const q = `SELECT s.name, s.status, COALESCE(p.name,''), COALESCE(c.display_name,'')
+	const q = `SELECT s.name, s.status, COALESCE(p.name,''), COALESCE(c.display_name,''),
+	                  COALESCE((SELECT COUNT(*) FROM routes r WHERE r.service_id=s.id),0)
 	           FROM services s
 	           JOIN plans p ON p.id = s.plan_id
 	           JOIN clients c ON c.id = s.client_id
@@ -389,15 +390,16 @@ func (r *Registry) listServices(ctx context.Context, raw json.RawMessage) (strin
 	}
 	defer rows.Close()
 	type service struct {
-		Name   string `json:"name"`
-		Status string `json:"status"`
-		Plan   string `json:"plan"`
-		Client string `json:"client"`
+		Name        string `json:"name"`
+		Status      string `json:"status"`
+		Plan        string `json:"plan"`
+		Client      string `json:"client"`
+		DomainCount int    `json:"domain_count"`
 	}
 	out := make([]service, 0, limit)
 	for rows.Next() {
 		var s service
-		if err := rows.Scan(&s.Name, &s.Status, &s.Plan, &s.Client); err != nil {
+		if err := rows.Scan(&s.Name, &s.Status, &s.Plan, &s.Client, &s.DomainCount); err != nil {
 			return "", err
 		}
 		out = append(out, s)
