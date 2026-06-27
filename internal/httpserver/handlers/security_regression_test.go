@@ -145,6 +145,10 @@ func TestNoSQLAntiPatterns(t *testing.T) {
 			if strings.Contains(code, "action='block'") || strings.Contains(code, `action = 'block'`) {
 				t.Errorf("%s: WAF action='block' never matches - node-agent stores 'blocked'", e.Name())
 			}
+			// waf_events.ts is indexed; waf_events.created_at skips the index.
+			if strings.Contains(code, "we.created_at") || strings.Contains(code, "waf_events.created_at") {
+				t.Errorf("%s: filter waf_events by we.ts (indexed), not we.created_at", e.Name())
+			}
 		}
 	}
 }
