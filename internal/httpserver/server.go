@@ -497,6 +497,14 @@ func (s *Server) routes() {
 			r.Get("/npm-import", s.deps.Admin.NpmImportPage)
 			r.Post("/npm-import", s.deps.Admin.NpmImportSubmit)
 		})
+		r.Route("/ai", func(r chi.Router) {
+			r.Get("/chat", s.deps.Admin.AIChatPage)
+			r.Get("/chat/sessions", s.deps.Admin.AIChatListSessions)
+			r.Post("/chat/sessions", s.deps.Admin.AIChatCreateSession)
+			r.Get("/chat/sessions/{id}", s.deps.Admin.AIChatGetSession)
+			r.Delete("/chat/sessions/{id}", s.deps.Admin.AIChatDeleteSession)
+			r.Post("/chat/sessions/{id}/message", s.deps.Admin.AIChatSendMessage)
+		})
 		r.Route("/settings", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.SettingsPage)
 			r.Get("/dns-providers", s.deps.Admin.DNSProvidersPage)
