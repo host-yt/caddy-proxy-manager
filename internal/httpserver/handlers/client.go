@@ -142,6 +142,8 @@ type clientDashboardData struct {
 	PendingRoutes     int
 	FailedRoutes      int
 	TotalBandwidth7d  string // formatted bytes for last 7 days
+	Requests24h       int64  // total requests in last 24h across all client routes
+	Errors24h         int64  // 4xx+5xx in last 24h
 	Bandwidth30dDays  []accesslog.BandwidthDayBucket // 30-day daily totals
 	Bandwidth30dTotal int64                           // sum across Bandwidth30dDays
 	MaxDay30dBytes    int64                           // max bucket for bar scaling
@@ -180,6 +182,15 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		 JOIN services s ON s.id=r.service_id
 		 WHERE s.client_id=? AND lr.bucket_start >= NOW()-INTERVAL 7 DAY`, clientID).Scan(&bw7d)
 	d.TotalBandwidth7d = formatBytes(bw7d)
+	// 24h request + error counts.
+	_ = db.QueryRowContext(ctx,
+		`SELECT COUNT(*),
+		        SUM(CASE WHEN l.status >= 400 THEN 1 ELSE 0 END)
+		 FROM host_access_log l
+		 JOIN routes r ON r.id = l.route_id
+		 JOIN services s ON s.id = r.service_id
+		 WHERE s.client_id = ? AND l.ts >= NOW() - INTERVAL 24 HOUR`, clientID,
+	).Scan(&d.Requests24h, &d.Errors24h)
 	// 30-day per-day bandwidth for the chart.
 	rows, err2 := db.QueryContext(ctx,
 		`SELECT DATE(l.ts) AS day, COALESCE(SUM(l.bytes_resp),0)
