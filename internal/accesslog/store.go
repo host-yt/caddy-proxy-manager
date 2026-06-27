@@ -201,6 +201,7 @@ type Filter struct {
 	To         time.Time
 	Limit      int
 	Country    string // ISO2 code filter, empty = no filter
+	ASNOrg     string // LIKE substring on asn_org, empty = no filter
 }
 
 // MaxExportRows is the hard cap for Filtered when Limit exceeds maxPerHost.
@@ -265,6 +266,19 @@ func (s *Store) Filtered(ctx context.Context, routeID int64, f Filter) ([]Entry,
 	if f.Country != "" {
 		conds = append(conds, "country = ?")
 		args = append(args, strings.ToUpper(f.Country))
+	}
+	if f.ASNOrg != "" {
+		org := f.ASNOrg
+		if len(org) > 128 {
+			org = org[:128]
+		}
+		org = strings.ReplaceAll(org, `\`, `\\`)
+		org = strings.ReplaceAll(org, "_", `\_`)
+		if !strings.Contains(org, "%") {
+			org = "%" + org + "%"
+		}
+		conds = append(conds, `asn_org LIKE ? ESCAPE '\\'`)
+		args = append(args, org)
 	}
 	if !f.From.IsZero() {
 		conds = append(conds, "ts >= ?")
