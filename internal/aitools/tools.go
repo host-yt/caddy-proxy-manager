@@ -438,10 +438,10 @@ func (r *Registry) trafficStats(ctx context.Context, raw json.RawMessage) (strin
 	var total int64
 	var errors4xx, errors5xx sql.NullInt64
 	row := r.db.QueryRowContext(ctx,
-		`SELECT COUNT(*),
-		        SUM(CASE WHEN status BETWEEN 400 AND 499 THEN 1 ELSE 0 END),
-		        SUM(CASE WHEN status BETWEEN 500 AND 599 THEN 1 ELSE 0 END)
-		 FROM host_access_log WHERE ts >= ?`, since)
+		`SELECT COALESCE(SUM(requests),0),
+		        COALESCE(SUM(errors_4xx),0),
+		        COALESCE(SUM(errors_5xx),0)
+		 FROM log_rollups WHERE bucket_start >= ?`, since)
 	if err := row.Scan(&total, &errors4xx, &errors5xx); err != nil {
 		return "", err
 	}
@@ -525,9 +525,9 @@ type countHit struct {
 }
 
 func (r *Registry) topHosts(ctx context.Context, since time.Time, limit int) ([]countHit, error) {
-	const q = `SELECT rt.domain, COUNT(*) c
-	           FROM host_access_log hal JOIN routes rt ON rt.id = hal.route_id
-	           WHERE hal.ts >= ?
+	const q = `SELECT rt.domain, SUM(lr.requests) c
+	           FROM log_rollups lr JOIN routes rt ON rt.id = lr.route_id
+	           WHERE lr.bucket_start >= ?
 	           GROUP BY rt.domain ORDER BY c DESC, rt.domain ASC LIMIT ?`
 	return scanCountHits(ctx, r.db, q, since, limit)
 }
