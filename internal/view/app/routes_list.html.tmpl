@@ -9,6 +9,18 @@
     <a href="/app/routes/new" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New route</a>
   </div>
 
+  <form method="GET" action="/app/routes" class="mb-4">
+    <div class="flex items-center gap-2">
+      <input type="search" name="q" value="{{.Q}}" placeholder="Search domains or services…"
+             class="flex-1 px-3.5 py-2 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none text-sm">
+      <button type="submit" class="px-4 py-2 rounded-full bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">Search</button>
+      {{if .Q}}<a href="/app/routes" class="px-3 py-2 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Clear</a>{{end}}
+    </div>
+  </form>
+  {{if .Q}}
+  <p class="text-sm text-slate-500 dark:text-slate-400 mb-3">Showing results for <span class="font-medium text-slate-700 dark:text-slate-200">"{{.Q}}"</span></p>
+  {{end}}
+
   {{if .HasSuspendedService}}
   <div class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
