@@ -753,6 +753,8 @@ type nodeDetailData struct {
 	FailedRoutes int
 	RecentAudit  []nodeAuditLine
 	RecentRoutes []hostRow
+	// GeoIPMeta surfaces DB status next to the GeoIP capability badge.
+	GeoIPMeta geoipView
 }
 
 type nodeDetailRow struct {
@@ -896,6 +898,9 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
+
+	// Load global GeoIP DB status so the template can show it next to the badge.
+	d.GeoIPMeta = h.loadGeoIPView(ctx, db)
 
 	h.render(w, "node_detail", d)
 }
