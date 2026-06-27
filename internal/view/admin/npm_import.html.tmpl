@@ -1,9 +1,9 @@
 {{define "npm_import"}}
 <div class="max-w-2xl space-y-6">
 
-  <div class="hpg-card">
-    <h2 class="hpg-eyebrow mb-1">Import from Nginx Proxy Manager</h2>
-    <p class="text-sm text-slate-500 dark:text-zinc-400 mb-5">
+  <div class="r-card">
+    <h2 class="t-eyebrow mb-1">Import from Nginx Proxy Manager</h2>
+    <p class="t-small mb-5" style="color:rgb(var(--muted))">
       Upload your own NPM JSON backup (<code>Full Backup</code> export).
       Only <strong>enabled</strong> proxy hosts are imported; redirects and stream hosts are skipped.
     </p>
@@ -11,43 +11,46 @@
     <form id="npm-import-form" enctype="multipart/form-data" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 
-      <div>
-        <label class="block text-xs font-medium text-slate-600 dark:text-slate-300 mb-1" for="npm-file">
-          NPM backup file (.json)
-        </label>
-        <input id="npm-file" type="file" name="file" accept=".json"
-               class="block w-full text-sm text-slate-700 dark:text-zinc-300
-                      file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0
-                      file:text-sm file:font-medium file:cursor-pointer
-                      file:bg-indigo-50 file:text-indigo-700 dark:file:bg-indigo-500/20 dark:file:text-indigo-300
-                      hover:file:bg-indigo-100 dark:hover:file:bg-indigo-500/30">
+      <!-- Drag-drop upload zone -->
+      <div id="npm-drop-zone" class="r-card cursor-pointer transition-colors flex flex-col items-center justify-center gap-3 py-10"
+           style="border:2px dashed rgb(var(--border));background:rgb(var(--surface-2) / .5)">
+        <span class="icon-chip">
+          <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 15V3"/>
+          </svg>
+        </span>
+        <div class="text-center">
+          <p class="t-body font-medium" style="color:rgb(var(--text))">Drop NPM backup file here</p>
+          <p class="t-small mt-0.5" style="color:rgb(var(--muted))">or click to browse (.json)</p>
+        </div>
+        <input id="npm-file" type="file" name="file" accept=".json" class="sr-only">
       </div>
+      <p id="npm-file-name" class="t-small hidden" style="color:rgb(var(--accent))"></p>
 
-      <button type="submit" id="npm-import-btn"
-              class="px-5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer disabled:opacity-60">
+      <button type="submit" id="npm-import-btn" class="r-btn-primary cursor-pointer transition-colors disabled:opacity-60">
         Import
       </button>
     </form>
   </div>
 
   <!-- result card - hidden until submission -->
-  <div id="npm-result" class="hpg-card hidden">
-    <h3 class="hpg-eyebrow mb-3">Import result</h3>
+  <div id="npm-result" class="r-card hidden">
+    <h3 class="t-eyebrow mb-3">Import result</h3>
     <div class="flex gap-6 mb-4">
       <div class="text-center">
-        <div id="npm-imported" class="text-3xl font-bold text-emerald-600 dark:text-emerald-400">0</div>
-        <div class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">imported</div>
+        <div id="npm-imported" class="t-display tabular-nums" style="color:rgb(var(--success))">0</div>
+        <div class="t-small mt-0.5" style="color:rgb(var(--muted))">imported</div>
       </div>
       <div class="text-center">
-        <div id="npm-skipped" class="text-3xl font-bold text-amber-500 dark:text-amber-400">0</div>
-        <div class="text-xs text-slate-500 dark:text-zinc-400 mt-0.5">skipped</div>
+        <div id="npm-skipped" class="t-display tabular-nums" style="color:rgb(var(--warning))">0</div>
+        <div class="t-small mt-0.5" style="color:rgb(var(--muted))">skipped</div>
       </div>
     </div>
     <div id="npm-errors-wrap" class="hidden">
-      <p class="text-xs font-medium text-slate-600 dark:text-slate-300 mb-1">Errors</p>
-      <ul id="npm-errors" class="text-xs text-rose-600 dark:text-rose-400 space-y-1 list-disc pl-4"></ul>
+      <p class="t-small font-medium mb-1" style="color:rgb(var(--text))">Errors</p>
+      <ul id="npm-errors" class="t-small space-y-1 list-disc pl-4" style="color:rgb(var(--danger))"></ul>
     </div>
-    <a href="/admin/hosts" class="mt-4 inline-block text-sm text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">
+    <a href="/admin/hosts" class="mt-4 inline-block t-small hover:underline cursor-pointer" style="color:rgb(var(--accent))">
       View hosts &rarr;
     </a>
   </div>
@@ -59,10 +62,40 @@
   var form = document.getElementById('npm-import-form');
   var btn  = document.getElementById('npm-import-btn');
   var resultCard = document.getElementById('npm-result');
+  var dropZone = document.getElementById('npm-drop-zone');
+  var fileInput = document.getElementById('npm-file');
+  var fileName  = document.getElementById('npm-file-name');
+
+  // open file picker on zone click
+  dropZone.addEventListener('click', function () { fileInput.click(); });
+
+  fileInput.addEventListener('change', function () {
+    if (fileInput.files.length) {
+      fileName.textContent = fileInput.files[0].name;
+      fileName.classList.remove('hidden');
+    }
+  });
+
+  // drag-over highlight
+  dropZone.addEventListener('dragover', function (e) {
+    e.preventDefault();
+    dropZone.style.borderColor = 'rgb(var(--accent))';
+  });
+  dropZone.addEventListener('dragleave', function () {
+    dropZone.style.borderColor = 'rgb(var(--border))';
+  });
+  dropZone.addEventListener('drop', function (e) {
+    e.preventDefault();
+    dropZone.style.borderColor = 'rgb(var(--border))';
+    if (e.dataTransfer.files.length) {
+      fileInput.files = e.dataTransfer.files;
+      fileName.textContent = e.dataTransfer.files[0].name;
+      fileName.classList.remove('hidden');
+    }
+  });
 
   form.addEventListener('submit', function (e) {
     e.preventDefault();
-    var fileInput = document.getElementById('npm-file');
     if (!fileInput.files.length) {
       alert('Please select a JSON file.');
       return;
