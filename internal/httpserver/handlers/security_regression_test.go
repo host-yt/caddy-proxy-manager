@@ -2,9 +2,13 @@ package handlers
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
@@ -46,6 +50,23 @@ func TestClientTwofaEnrollNoHiddenSecret(t *testing.T) {
 	}
 	if strings.Contains(html, `name="secret" value=`) {
 		t.Fatal("'secret' value attribute in form - secret must not round-trip through the browser")
+	}
+}
+
+// TestUsersReset2FARequiresSuperAdmin verifies that a non-super_admin session
+// cannot reset another user's 2FA. This would allow privilege escalation via
+// disabling MFA on a super_admin account.
+func TestUsersReset2FARequiresSuperAdmin(t *testing.T) {
+	h := &AdminHandlers{}
+	for _, role := range []string{"admin", "support", "client", ""} {
+		req := httptest.NewRequest(http.MethodPost, "/admin/users/1/reset-2fa", nil)
+		sess := &auth.Session{UserID: 99, Role: role}
+		req = req.WithContext(middleware.ContextWithSession(req.Context(), sess))
+		rr := httptest.NewRecorder()
+		h.UsersReset2FA(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("role %q: expected 403 Forbidden, got %d", role, rr.Code)
+		}
 	}
 }
 
