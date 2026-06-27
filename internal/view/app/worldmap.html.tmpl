@@ -2,23 +2,23 @@
 <div class="space-y-6">
 
 {{if .DBUnavailable}}
-<div class="rounded-xl bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 px-4 py-3 text-sm text-rose-800 dark:text-rose-200">
-  Database is not available - traffic by country cannot be built right now.
+<div class="r-card" style="background:rgb(var(--danger)/.10);border-color:rgb(var(--danger)/.30)">
+  <p class="t-small" style="color:rgb(var(--danger))">Database is not available - traffic by country cannot be built right now.</p>
 </div>
 {{else}}
 
 {{if not .GeoIPAvailable}}
-<div class="rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 px-4 py-3 text-sm text-amber-800 dark:text-amber-200 flex items-start gap-3">
-  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0 mt-0.5 text-amber-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-  <span>GeoIP database is not configured - visitor countries are unavailable. All requests fall into the unknown bucket below.</span>
+<div class="r-card flex items-start gap-3" style="background:rgb(var(--warning)/.10);border-color:rgb(var(--warning)/.30)">
+  <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 shrink-0 mt-0.5" style="color:rgb(var(--warning))" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+  <span class="t-small" style="color:rgb(var(--warning))">GeoIP database is not configured - visitor countries are unavailable. All requests fall into the unknown bucket below.</span>
 </div>
 {{end}}
 
 <!-- Filters -->
-<div class="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-slate-200 dark:ring-zinc-800 shadow-sm p-4 flex flex-wrap items-end gap-4">
+<div class="r-card flex flex-wrap items-end gap-4">
   <div class="min-w-[220px] flex-1">
-    <label for="wm-host" class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Host</label>
-    <select id="wm-host" class="w-full rounded-lg border border-slate-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 px-3 py-2 text-sm text-slate-900 dark:text-white cursor-pointer transition-colors focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500">
+    <label for="wm-host" class="block t-caption font-medium mb-1">Host</label>
+    <select id="wm-host" class="r-select w-full cursor-pointer">
       <option value="0" {{if eq .SelectedRoute 0}}selected{{end}}>All my hosts</option>
       {{range .Hosts}}
       <option value="{{.RouteID}}" {{if eq $.SelectedRoute .RouteID}}selected{{end}}>{{.Label}}</option>
@@ -26,64 +26,65 @@
     </select>
   </div>
   <div>
-    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Time range</label>
-    <div id="wm-range" class="inline-flex rounded-lg border border-slate-200 dark:border-zinc-700 overflow-hidden" role="group">
-      <button type="button" data-range="24h" class="wm-range-btn px-3 py-2 text-sm cursor-pointer transition-colors {{if eq .Range "24h"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">24h</button>
-      <button type="button" data-range="7d" class="wm-range-btn px-3 py-2 text-sm cursor-pointer transition-colors border-l border-slate-200 dark:border-zinc-700 {{if eq .Range "7d"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">7d</button>
-      <button type="button" data-range="30d" class="wm-range-btn px-3 py-2 text-sm cursor-pointer transition-colors border-l border-slate-200 dark:border-zinc-700 {{if eq .Range "30d"}}bg-indigo-600 text-white{{else}}bg-white dark:bg-zinc-900 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-zinc-800{{end}}">30d</button>
+    <label class="block t-caption font-medium mb-1">Time range</label>
+    <div id="wm-range" class="r-segment" role="group">
+      <button type="button" data-range="24h" class="r-segment-item cursor-pointer {{if eq .Range "24h"}}is-active{{end}}">24h</button>
+      <button type="button" data-range="7d" class="r-segment-item cursor-pointer {{if eq .Range "7d"}}is-active{{end}}">7d</button>
+      <button type="button" data-range="30d" class="r-segment-item cursor-pointer {{if eq .Range "30d"}}is-active{{end}}">30d</button>
     </div>
   </div>
 </div>
 
 <!-- Map heatmap -->
-<div class="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-slate-200 dark:ring-zinc-800 shadow-sm overflow-hidden">
-  <div class="px-5 py-4 border-b border-slate-200/70 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-3">
+<div class="r-card !p-0 overflow-hidden">
+  <div class="px-5 py-4 flex flex-wrap items-center justify-between gap-3" style="border-bottom:1px solid rgb(var(--border))">
     <div>
-      <p class="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Visitor traffic</p>
-      <p class="text-sm text-slate-600 dark:text-slate-400 mt-0.5">
+      <p class="t-eyebrow">Visitor traffic</p>
+      <p class="t-small mt-0.5" style="color:rgb(var(--muted))">
         {{if .SelectedHost}}{{.SelectedHost}}{{else}}All my hosts{{end}}
         &middot; {{len .Countries}} countr{{if eq (len .Countries) 1}}y{{else}}ies{{end}}
       </p>
     </div>
-    <div class="flex items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-      <span>Fewer</span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#e0e7ff"></span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#a5b4fc"></span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#6366f1"></span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#4338ca"></span>
-      <span class="inline-block w-4 h-3 rounded-sm" style="background:#312e81"></span>
-      <span>More</span>
+    <div class="flex items-center gap-2 t-caption">
+      <span style="color:rgb(var(--muted))">Fewer</span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:rgb(var(--accent)/.15)"></span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:rgb(var(--accent)/.40)"></span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:rgb(var(--accent)/.65)"></span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:rgb(var(--accent)/.85)"></span>
+      <span class="inline-block w-4 h-3 rounded-sm" style="background:rgb(var(--accent))"></span>
+      <span style="color:rgb(var(--muted))">More</span>
     </div>
   </div>
 
-  <div class="relative bg-slate-50 dark:bg-zinc-900/50 select-none overflow-hidden" id="worldmap-wrap">
+  <div class="relative select-none overflow-hidden" id="worldmap-wrap" style="background:rgb(var(--surface-2))">
     {{if .WorldSVG}}
     <div id="worldmap-inner" class="w-full">{{.WorldSVG}}</div>
     {{else}}
-    <div class="py-16 text-center text-sm text-slate-400 dark:text-slate-500">World map asset not available.</div>
+    <div class="py-16 text-center t-small" style="color:rgb(var(--muted))">World map asset not available.</div>
     {{end}}
     <!-- Reset zoom button -->
     <button id="wm-zoom-reset" style="display:none"
-      class="absolute top-3 right-3 z-10 flex items-center gap-1.5 rounded-md bg-white/90 dark:bg-zinc-800/90 backdrop-blur px-2.5 py-1.5 text-xs font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 shadow cursor-pointer hover:bg-white dark:hover:bg-zinc-800 transition-colors">
+      class="absolute top-3 right-3 z-10 flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 r-btn-ghost t-caption cursor-pointer">
       <svg class="h-3 w-3 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 18 0 9 9 0 0 0-18 0"/><path d="m15 9-6 6M9 9l6 6"/></svg>
       Reset zoom
     </button>
-    <p class="absolute bottom-2 left-0 right-0 text-center text-[10px] text-slate-400/60 dark:text-slate-600/60 pointer-events-none select-none">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</p>
+    <p class="absolute bottom-2 left-0 right-0 text-center t-caption pointer-events-none select-none" style="color:rgb(var(--muted)/.60)">Scroll to zoom &middot; Drag to pan &middot; Double-click to reset</p>
     <div id="wm-tooltip"
-         class="pointer-events-none absolute z-20 hidden rounded-lg bg-white dark:bg-zinc-900 ring-1 ring-slate-200 dark:ring-zinc-700 shadow-lg px-3 py-2 text-xs text-slate-700 dark:text-slate-200 min-w-[140px]">
-      <p id="wm-tt-name" class="font-semibold text-sm text-slate-900 dark:text-white mb-0.5"></p>
-      <p id="wm-tt-count" class="text-slate-500 dark:text-slate-400"></p>
-      <p id="wm-tt-pct" class="mt-0.5 font-medium text-indigo-600 dark:text-indigo-400"></p>
+         class="pointer-events-none absolute z-20 hidden rounded-xl px-3 py-2 t-small min-w-[140px]"
+         style="background:rgb(var(--surface));border:1px solid rgb(var(--border));box-shadow:0 4px 16px rgba(0,0,0,.12)">
+      <p id="wm-tt-name" class="font-semibold t-body mb-0.5" style="color:rgb(var(--text))"></p>
+      <p id="wm-tt-count" style="color:rgb(var(--muted))"></p>
+      <p id="wm-tt-pct" class="mt-0.5 font-medium" style="color:rgb(var(--accent))"></p>
     </div>
   </div>
 </div>
 
 <!-- Ranked country list -->
-<div class="bg-white dark:bg-zinc-900 rounded-xl ring-1 ring-slate-200 dark:ring-zinc-800 shadow-sm p-5">
+<div class="r-card">
   <div class="flex flex-wrap items-baseline justify-between gap-2 mb-4">
-    <p class="text-[11px] font-bold uppercase tracking-widest text-slate-400 dark:text-slate-500">Countries by request volume</p>
-    <p class="text-sm text-slate-500 dark:text-slate-400">
-      <span class="font-semibold text-slate-900 dark:text-white">{{.TotalRequests}}</span> total requests
+    <p class="t-eyebrow">Countries by request volume</p>
+    <p class="t-small" style="color:rgb(var(--muted))">
+      <span class="font-semibold tabular-nums" style="color:rgb(var(--text))">{{.TotalRequests}}</span> total requests
     </p>
   </div>
 
@@ -91,30 +92,30 @@
   <div class="space-y-2">
     {{range .Countries}}
     <div class="flex items-center gap-3">
-      <span class="shrink-0 w-9 px-1 py-0.5 rounded text-[11px] font-mono font-bold text-center bg-indigo-100 text-indigo-700 dark:bg-indigo-500/20 dark:text-indigo-300">{{.Code}}</span>
-      <span class="shrink-0 w-36 truncate text-sm font-medium text-slate-900 dark:text-white">{{.Name}}</span>
-      <div class="flex-1 h-2.5 rounded-full bg-slate-100 dark:bg-zinc-800 overflow-hidden">
-        <div class="h-full rounded-full bg-indigo-500 dark:bg-indigo-400" style="width: {{printf "%.1f" .BarPercent}}%"></div>
+      <span class="shrink-0 w-9 px-1 py-0.5 rounded-md t-caption font-mono font-bold text-center tabular-nums" style="background:rgb(var(--accent)/.15);color:rgb(var(--accent))">{{.Code}}</span>
+      <span class="shrink-0 w-36 truncate t-small font-medium" style="color:rgb(var(--text))">{{.Name}}</span>
+      <div class="flex-1 h-2 rounded-full overflow-hidden" style="background:rgb(var(--surface-2))">
+        <div class="h-full rounded-full" style="width:{{printf "%.1f" .BarPercent}}%;background:rgb(var(--accent))"></div>
       </div>
-      <span class="shrink-0 w-20 text-right text-sm tabular-nums text-slate-700 dark:text-slate-300">{{.Count}}</span>
-      <span class="shrink-0 w-14 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">{{printf "%.1f" .Percent}}%</span>
+      <span class="shrink-0 w-20 text-right t-small tabular-nums" style="color:rgb(var(--text))">{{.Count}}</span>
+      <span class="shrink-0 w-14 text-right t-caption tabular-nums" style="color:rgb(var(--muted))">{{printf "%.1f" .Percent}}%</span>
     </div>
     {{end}}
   </div>
   {{end}}
 
   {{if .UnknownCount}}
-  <div class="{{if .Countries}}mt-4 pt-4 border-t border-slate-200/70 dark:border-zinc-800{{end}} flex items-center gap-3">
-    <span class="shrink-0 w-9 px-1 py-0.5 rounded text-[11px] font-mono font-bold text-center bg-slate-200 text-slate-600 dark:bg-zinc-700 dark:text-slate-300">?</span>
-    <span class="shrink-0 w-36 truncate text-sm font-medium text-slate-500 dark:text-slate-400">Unknown location</span>
+  <div class="{{if .Countries}}mt-4 pt-4{{end}} flex items-center gap-3" style="{{if .Countries}}border-top:1px solid rgb(var(--border)){{end}}">
+    <span class="shrink-0 w-9 px-1 py-0.5 rounded-md t-caption font-mono font-bold text-center" style="background:rgb(var(--surface-2));color:rgb(var(--muted))">?</span>
+    <span class="shrink-0 w-36 truncate t-small font-medium" style="color:rgb(var(--muted))">Unknown location</span>
     <div class="flex-1"></div>
-    <span class="shrink-0 w-20 text-right text-sm tabular-nums text-slate-500 dark:text-slate-400">{{.UnknownCount}}</span>
-    <span class="shrink-0 w-14 text-right text-xs tabular-nums text-slate-400 dark:text-slate-500">{{printf "%.1f" .UnknownPercent}}%</span>
+    <span class="shrink-0 w-20 text-right t-small tabular-nums" style="color:rgb(var(--muted))">{{.UnknownCount}}</span>
+    <span class="shrink-0 w-14 text-right t-caption tabular-nums" style="color:rgb(var(--muted))">{{printf "%.1f" .UnknownPercent}}%</span>
   </div>
   {{end}}
 
   {{if and (not .Countries) (not .UnknownCount)}}
-  <p class="text-sm text-slate-500 dark:text-slate-400 py-6 text-center">No traffic recorded in this window.</p>
+  <p class="t-small py-6 text-center" style="color:rgb(var(--muted))">No traffic recorded in this window.</p>
   {{end}}
 </div>
 
@@ -134,7 +135,7 @@
       window.location.search = p.toString();
     });
   }
-  document.querySelectorAll('.wm-range-btn').forEach(function(btn){
+  document.querySelectorAll('[data-range]').forEach(function(btn){
     btn.addEventListener('click', function(){
       var p = new URLSearchParams(window.location.search);
       p.set('range', this.getAttribute('data-range'));

@@ -1,58 +1,58 @@
 {{define "map"}}
 <div class="space-y-6">
   {{if .DBUnavailable}}
-  <section class="hpg-card text-sm text-slate-600 dark:text-slate-300">
+  <section class="r-card text-sm" style="color:rgb(var(--muted))">
     Database is not available, so the infrastructure map cannot be built right now.
   </section>
   {{else}}
 
   <section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-    <div class="hpg-card">
+    <div class="r-card">
       <div class="flex items-start justify-between gap-3">
         <div class="min-w-0">
-          <p class="hpg-eyebrow">Clients</p>
-          <p class="mt-2 text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">{{.Counts.Clients}}</p>
+          <p class="t-eyebrow">Clients</p>
+          <p class="mt-2 t-display">{{.Counts.Clients}}</p>
         </div>
-        {{if .ScopeLimited}}<span class="hpg-pill hpg-pill-muted shrink-0">scoped</span>{{end}}
+        {{if .ScopeLimited}}<span class="r-pill r-pill-neutral shrink-0">scoped</span>{{end}}
       </div>
-      <p class="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Customer owners in the visible topology.</p>
+      <p class="mt-2 t-caption">Customer owners in the visible topology.</p>
     </div>
-    <div class="hpg-card">
-      <p class="hpg-eyebrow">Services</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Services</p>
       <div class="mt-2 flex items-end justify-between gap-3">
-        <p class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">{{.Counts.Services}}</p>
-        <span class="hpg-pill hpg-pill-muted shrink-0">backends</span>
+        <p class="t-display">{{.Counts.Services}}</p>
+        <span class="r-pill r-pill-neutral shrink-0">backends</span>
       </div>
-      <p class="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Managed service targets grouped under clients.</p>
+      <p class="mt-2 t-caption">Managed service targets grouped under clients.</p>
     </div>
-    <div class="hpg-card">
-      <p class="hpg-eyebrow">Routes / hosts</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Routes / hosts</p>
       <div class="mt-2 flex items-end justify-between gap-3">
-        <p class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">{{.Counts.Routes}}</p>
-        <span class="hpg-pill hpg-pill-ok shrink-0">{{.Counts.ActiveRoutes}} active</span>
+        <p class="t-display">{{.Counts.Routes}}</p>
+        <span class="r-pill r-pill-success shrink-0">{{.Counts.ActiveRoutes}} active</span>
       </div>
-      <p class="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Public host mappings and upstream ports.</p>
+      <p class="mt-2 t-caption">Public host mappings and upstream ports.</p>
     </div>
-    <div class="hpg-card">
-      <p class="hpg-eyebrow">Fleet / tunnels</p>
+    <div class="r-card">
+      <p class="t-eyebrow">Fleet / tunnels</p>
       <div class="mt-2 flex items-end justify-between gap-3">
-        <p class="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">{{.Counts.HealthyNodes}}/{{.Counts.Nodes}}</p>
-        <span class="hpg-pill {{if eq .Counts.ActiveTunnels .Counts.Tunnels}}hpg-pill-ok{{else}}hpg-pill-warn{{end}} shrink-0">{{.Counts.ActiveTunnels}} WG</span>
+        <p class="t-display tabular-nums">{{.Counts.HealthyNodes}}/{{.Counts.Nodes}}</p>
+        <span class="r-pill {{if eq .Counts.ActiveTunnels .Counts.Tunnels}}r-pill-success{{else}}r-pill-warning{{end}} shrink-0">{{.Counts.ActiveTunnels}} WG</span>
       </div>
-      <p class="mt-2 text-xs leading-5 text-slate-500 dark:text-slate-400">Healthy edge nodes and active WireGuard peers.</p>
+      <p class="mt-2 t-caption">Healthy edge nodes and active WireGuard peers.</p>
     </div>
   </section>
 
   {{if .ScopeLimited}}
-  <div class="rounded-lg bg-sky-50 px-4 py-3 text-sm leading-6 text-sky-800 ring-1 ring-sky-200 dark:bg-sky-500/10 dark:text-sky-200 dark:ring-sky-500/30">
-    This map is limited to clients assigned to your admin scope. Fleet nodes are shown only when connected to visible routes or tunnels.
+  <div class="r-card" style="background:rgb(var(--accent)/.08);border-color:rgb(var(--accent)/.25)">
+    <p class="t-small" style="color:rgb(var(--accent))">This map is limited to clients assigned to your admin scope. Fleet nodes are shown only when connected to visible routes or tunnels.</p>
   </div>
   {{end}}
 
   <section class="hpg-topology-shell">
     <div class="hpg-topology-head">
       <div class="min-w-0">
-        <p class="hpg-eyebrow">Live topology</p>
+        <p class="t-eyebrow">Live topology</p>
         <h2>Traffic path from customer to edge</h2>
         <p>Each lane shows how a client reaches services, public hosts, edge nodes, and private WG peers.</p>
       </div>
@@ -60,13 +60,13 @@
         <label class="hpg-topology-search">
           <span class="sr-only">Search topology</span>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
-          <input id="hpg-topology-search" type="search" placeholder="Search clients, hosts, nodes, WG IPs">
+          <input id="hpg-topology-search" type="search" class="r-input" placeholder="Search clients, hosts, nodes, WG IPs">
         </label>
-        <div class="hpg-topology-filters" aria-label="Topology filters">
-          <button type="button" data-topology-filter="all" class="is-active"><i class="hpg-dot"></i>all</button>
-          <button type="button" data-topology-filter="ok"><i class="hpg-dot hpg-dot-ok"></i>active</button>
-          <button type="button" data-topology-filter="warn"><i class="hpg-dot hpg-dot-warn"></i>pending</button>
-          <button type="button" data-topology-filter="err"><i class="hpg-dot hpg-dot-err"></i>failed</button>
+        <div class="r-segment" aria-label="Topology filters">
+          <button type="button" data-topology-filter="all" class="r-segment-item is-active cursor-pointer"><i class="hpg-dot"></i>all</button>
+          <button type="button" data-topology-filter="ok" class="r-segment-item cursor-pointer"><i class="hpg-dot hpg-dot-ok"></i>active</button>
+          <button type="button" data-topology-filter="warn" class="r-segment-item cursor-pointer"><i class="hpg-dot hpg-dot-warn"></i>pending</button>
+          <button type="button" data-topology-filter="err" class="r-segment-item cursor-pointer"><i class="hpg-dot hpg-dot-err"></i>failed</button>
         </div>
       </div>
     </div>
@@ -83,7 +83,7 @@
         {{range .Clients}}
         <article class="hpg-topology-grid hpg-topology-lane" data-topology-lane>
           <div class="hpg-map-node hpg-map-node-client" tabindex="0" data-map-card data-map-type="Client" data-map-title="{{.Name}}" data-map-status="visible" data-map-meta="{{.ServiceCount}} services · {{.RouteCount}} routes · {{.TunnelCount}} WG peers">
-            <div class="hpg-map-avatar">{{firstRune .Name}}</div>
+            <div class="r-avatar hpg-map-avatar">{{firstRune .Name}}</div>
             <div class="min-w-0">
               <h3>{{.Name}}</h3>
               <p>{{.Email}}</p>
@@ -158,7 +158,7 @@
     </div>
     <div class="hpg-topology-inspector" id="hpg-topology-inspector">
       <div>
-        <p class="hpg-eyebrow">Inspector</p>
+        <p class="t-eyebrow">Inspector</p>
         <strong id="hpg-inspector-title">Hover or focus an object</strong>
         <span id="hpg-inspector-meta">Use search and status filters to isolate a client path.</span>
       </div>
@@ -176,145 +176,144 @@
   </section>
 
   <div class="grid gap-6 xl:grid-cols-[minmax(0,1fr)_23rem]">
-    <section class="hpg-card !p-0 overflow-hidden">
-      <div class="border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
+    <section class="r-card !p-0 overflow-hidden">
+      <div class="px-5 py-4" style="border-bottom:1px solid rgb(var(--border))">
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div class="min-w-0">
-            <p class="hpg-eyebrow">Detailed inventory</p>
-            <h2 class="mt-1 text-base font-semibold text-slate-900 dark:text-white">Clients, services, routes, nodes, and WG peers</h2>
+            <p class="t-eyebrow">Detailed inventory</p>
+            <h2 class="mt-1 t-h3">Clients, services, routes, nodes, and WG peers</h2>
           </div>
-          <div class="flex flex-wrap gap-2 text-xs">
-            <span class="hpg-pill hpg-pill-muted">showing {{.Limits.Clients}} newest clients</span>
-            {{if gt .Counts.Clients .Limits.Clients}}<span class="hpg-pill hpg-pill-warn">list clipped</span>{{end}}
+          <div class="flex flex-wrap gap-2">
+            <span class="r-pill r-pill-neutral">showing {{.Limits.Clients}} newest clients</span>
+            {{if gt .Counts.Clients .Limits.Clients}}<span class="r-pill r-pill-warning">list clipped</span>{{end}}
           </div>
         </div>
-        <div class="mt-4 flex flex-wrap gap-2 text-[11px]">
-          <span class="hpg-pill hpg-pill-ok">healthy / active</span>
-          <span class="hpg-pill hpg-pill-warn">pending / degraded</span>
-          <span class="hpg-pill hpg-pill-err">down / failed</span>
-          <span class="hpg-pill hpg-pill-muted">not shown / disabled</span>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <span class="r-pill r-pill-success">healthy / active</span>
+          <span class="r-pill r-pill-warning">pending / degraded</span>
+          <span class="r-pill r-pill-danger">down / failed</span>
+          <span class="r-pill r-pill-neutral">not shown / disabled</span>
         </div>
       </div>
 
-      <div class="divide-y divide-slate-100 dark:divide-zinc-800">
+      <div style="divide-y:1px solid rgb(var(--border))">
         {{range .Clients}}
-        <article class="p-4 sm:p-5">
+        <article class="p-4 sm:p-5" style="border-bottom:1px solid rgb(var(--border))">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-3">
-              <div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-50 text-sm font-semibold text-indigo-700 ring-1 ring-indigo-100 dark:bg-indigo-500/15 dark:text-indigo-300 dark:ring-indigo-500/20">{{firstRune .Name}}</div>
+              <div class="icon-chip shrink-0">{{firstRune .Name}}</div>
               <div class="min-w-0">
-                <h3 class="truncate text-sm font-semibold text-slate-900 dark:text-white">{{.Name}}</h3>
-                <p class="truncate text-xs text-slate-500 dark:text-slate-400">{{.Email}}</p>
+                <h3 class="truncate t-h3">{{.Name}}</h3>
+                <p class="truncate t-caption">{{.Email}}</p>
               </div>
             </div>
-            <div class="grid w-full grid-cols-3 gap-2 text-center text-xs sm:w-auto sm:min-w-[17rem]">
-              <div class="rounded-md bg-slate-50 px-2 py-1.5 ring-1 ring-slate-200/70 dark:bg-zinc-900/60 dark:ring-zinc-800">
-                <p class="font-mono text-slate-900 dark:text-white">{{.ServiceCount}}</p>
-                <p class="truncate text-[10px] uppercase text-slate-400 dark:text-slate-500">services</p>
+            <div class="grid w-full grid-cols-3 gap-2 text-center sm:w-auto sm:min-w-[17rem]">
+              <div class="rounded-lg px-2 py-1.5" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">
+                <p class="font-mono tabular-nums" style="color:rgb(var(--text))">{{.ServiceCount}}</p>
+                <p class="t-caption uppercase tracking-wider">services</p>
               </div>
-              <div class="rounded-md bg-slate-50 px-2 py-1.5 ring-1 ring-slate-200/70 dark:bg-zinc-900/60 dark:ring-zinc-800">
-                <p class="font-mono text-slate-900 dark:text-white">{{.RouteCount}}</p>
-                <p class="truncate text-[10px] uppercase text-slate-400 dark:text-slate-500">routes</p>
+              <div class="rounded-lg px-2 py-1.5" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">
+                <p class="font-mono tabular-nums" style="color:rgb(var(--text))">{{.RouteCount}}</p>
+                <p class="t-caption uppercase tracking-wider">routes</p>
               </div>
-              <div class="rounded-md bg-slate-50 px-2 py-1.5 ring-1 ring-slate-200/70 dark:bg-zinc-900/60 dark:ring-zinc-800">
-                <p class="font-mono text-slate-900 dark:text-white">{{.TunnelCount}}</p>
-                <p class="truncate text-[10px] uppercase text-slate-400 dark:text-slate-500">WG</p>
+              <div class="rounded-lg px-2 py-1.5" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">
+                <p class="font-mono tabular-nums" style="color:rgb(var(--text))">{{.TunnelCount}}</p>
+                <p class="t-caption uppercase tracking-wider">WG</p>
               </div>
             </div>
           </div>
 
-          <div class="mt-4 space-y-3 border-l border-slate-200 pl-3 dark:border-zinc-800 sm:pl-4">
+          <div class="mt-4 space-y-3 pl-3 sm:pl-4" style="border-left:2px solid rgb(var(--border))">
             {{range .Services}}
-            <div class="relative rounded-lg bg-slate-50/75 p-3 ring-1 ring-slate-200/80 dark:bg-zinc-900/60 dark:ring-zinc-800">
-              <div class="absolute -left-[1.05rem] top-5 h-2 w-2 rounded-full bg-slate-300 ring-2 ring-white dark:bg-zinc-600 dark:ring-zinc-950"></div>
+            <div class="relative rounded-xl p-3" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">
+              <div class="absolute -left-[1.1rem] top-5 h-2 w-2 rounded-full" style="background:rgb(var(--border))"></div>
               <div class="flex flex-wrap items-start justify-between gap-3">
                 <div class="min-w-0">
                   <div class="flex min-w-0 flex-wrap items-center gap-2">
-                    <span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else if eq .Status "suspended"}}hpg-pill-warn{{else}}hpg-pill-err{{end}} shrink-0">{{.Status}}</span>
-                    <p class="min-w-0 break-words text-sm font-semibold text-slate-900 dark:text-white">{{.Name}}</p>
+                    <span class="r-pill {{if eq .Status "active"}}r-pill-success{{else if eq .Status "suspended"}}r-pill-warning{{else}}r-pill-danger{{end}} shrink-0">{{.Status}}</span>
+                    <p class="min-w-0 break-words t-h3">{{.Name}}</p>
                   </div>
-                  <div class="mt-2 flex flex-wrap items-center gap-2 text-xs text-slate-500 dark:text-slate-400">
-                    <code class="max-w-full break-all rounded bg-white px-1.5 py-0.5 font-mono text-[11px] text-slate-600 ring-1 ring-slate-200 dark:bg-zinc-950 dark:text-slate-300 dark:ring-zinc-800">{{.BackendIP}}</code>
-                    <span class="font-mono">ports {{.PortStart}}-{{.PortEnd}}</span>
+                  <div class="mt-2 flex flex-wrap items-center gap-2">
+                    <code class="max-w-full break-all rounded-md px-1.5 py-0.5 font-mono text-[11px]" style="background:rgb(var(--surface));border:1px solid rgb(var(--border));color:rgb(var(--text))">{{.BackendIP}}</code>
+                    <span class="font-mono t-small">ports {{.PortStart}}-{{.PortEnd}}</span>
                   </div>
                 </div>
-                <span class="hpg-pill hpg-pill-muted shrink-0 font-mono">svc #{{.ID}}</span>
+                <span class="r-pill r-pill-neutral shrink-0 font-mono">svc #{{.ID}}</span>
               </div>
 
-              <!-- Host routes table - collapses action buttons to overflow menu on mobile -->
-              <div class="mt-3 overflow-hidden rounded-lg bg-white ring-1 ring-slate-200/80 dark:bg-zinc-950/70 dark:ring-zinc-800">
+              <div class="mt-3 overflow-hidden rounded-lg" style="background:rgb(var(--surface));border:1px solid rgb(var(--border))">
                 {{range .Routes}}
-                <div class="border-b border-slate-100 p-3 last:border-b-0 dark:border-zinc-800">
+                <div class="p-3" style="border-bottom:1px solid rgb(var(--border))">
+                  <div class="last:border-b-0">
                   <div class="grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(12rem,0.8fr)]">
                     <div class="min-w-0">
                       <div class="flex min-w-0 flex-wrap items-center gap-2">
-                        <span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else if or (eq .Status "pending_dns") (eq .Status "pending_ssl") (eq .Status "dns_ok")}}hpg-pill-warn{{else}}hpg-pill-err{{end}} shrink-0">{{.Status}}</span>
-                        <a href="/admin/hosts/{{.ID}}/edit" class="min-w-0 break-all text-sm font-medium text-indigo-700 hover:underline dark:text-indigo-300">{{.Domain}}</a>
-                        {{if .PathPrefix}}<code class="max-w-full break-all rounded bg-slate-100 px-1.5 py-0.5 font-mono text-[11px] text-slate-500 dark:bg-zinc-800 dark:text-slate-300">{{.PathPrefix}}</code>{{end}}
+                        <span class="r-pill {{if eq .Status "active"}}r-pill-success{{else if or (eq .Status "pending_dns") (eq .Status "pending_ssl") (eq .Status "dns_ok")}}r-pill-warning{{else}}r-pill-danger{{end}} shrink-0">{{.Status}}</span>
+                        <a href="/admin/hosts/{{.ID}}/edit" class="min-w-0 break-all t-small font-medium" style="color:rgb(var(--accent))">{{.Domain}}</a>
+                        {{if .PathPrefix}}<code class="max-w-full break-all rounded-md px-1.5 py-0.5 font-mono text-[11px]" style="background:rgb(var(--surface-2));color:rgb(var(--muted))">{{.PathPrefix}}</code>{{end}}
                       </div>
-                      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">upstream <span class="font-mono">:{{.UpstreamPort}}</span></p>
+                      <p class="mt-1 t-caption">upstream <span class="font-mono">:{{.UpstreamPort}}</span></p>
                     </div>
-                    <div class="min-w-0 border-t border-slate-100 pt-2 dark:border-zinc-800 lg:border-l lg:border-t-0 lg:pl-3 lg:pt-0">
+                    <div class="min-w-0 pt-2 lg:pl-3 lg:pt-0" style="border-top:1px solid rgb(var(--border));border-left:none">
                       <div class="flex min-w-0 items-center justify-between gap-2">
-                        <a href="/admin/nodes/{{.NodeID}}" class="min-w-0 truncate text-xs font-medium text-slate-700 hover:text-indigo-700 dark:text-slate-200 dark:hover:text-indigo-300">{{.NodeName}}</a>
-                        <span class="hpg-pill {{if and .NodeEnabled (eq .NodeHealth "healthy")}}hpg-pill-ok{{else if eq .NodeHealth "down"}}hpg-pill-err{{else}}hpg-pill-warn{{end}} shrink-0">{{.NodeHealth}}</span>
+                        <a href="/admin/nodes/{{.NodeID}}" class="min-w-0 truncate t-small font-medium" style="color:rgb(var(--text))">{{.NodeName}}</a>
+                        <span class="r-pill {{if and .NodeEnabled (eq .NodeHealth "healthy")}}r-pill-success{{else if eq .NodeHealth "down"}}r-pill-danger{{else}}r-pill-warning{{end}} shrink-0">{{.NodeHealth}}</span>
                       </div>
                       {{if .WGPeerID}}
-                      <p class="mt-1 min-w-0 break-words text-xs text-slate-500 dark:text-slate-400">via WG <span class="font-medium text-slate-700 dark:text-slate-200">{{.WGPeerName}}</span> <span class="font-mono">{{.WGPeerIP}}</span></p>
+                      <p class="mt-1 min-w-0 break-words t-caption">via WG <span class="font-medium">{{.WGPeerName}}</span> <span class="font-mono">{{.WGPeerIP}}</span></p>
                       {{else}}
-                      <p class="mt-1 text-xs text-slate-400 dark:text-slate-500">direct node upstream</p>
+                      <p class="mt-1 t-caption">direct node upstream</p>
                       {{end}}
                     </div>
                   </div>
                   <!-- Mobile overflow menu for row actions -->
                   <div class="mt-2 flex items-center justify-end gap-2 sm:hidden">
                     <div class="hpg-row-actions" data-row-actions>
-                      <button type="button" class="hpg-row-actions-toggle cursor-pointer rounded-md p-1 text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-zinc-800 dark:hover:text-slate-200" aria-label="Row actions" aria-expanded="false" aria-haspopup="menu">
+                      <button type="button" class="hpg-row-actions-toggle cursor-pointer rounded-md p-1 transition-colors" style="color:rgb(var(--muted))" aria-label="Row actions" aria-expanded="false" aria-haspopup="menu">
                         <svg class="h-4 w-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg>
                       </button>
                       <div class="hpg-row-actions-menu hidden" role="menu">
-                        <a href="/admin/hosts/{{.ID}}/edit" role="menuitem" class="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-zinc-800">
+                        <a href="/admin/hosts/{{.ID}}/edit" role="menuitem" class="flex cursor-pointer items-center gap-2 px-3 py-2 t-small transition-colors">
                           <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/></svg>
                           Edit host
                         </a>
-                        <a href="/admin/nodes/{{.NodeID}}" role="menuitem" class="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-200 dark:hover:bg-zinc-800">
+                        <a href="/admin/nodes/{{.NodeID}}" role="menuitem" class="flex cursor-pointer items-center gap-2 px-3 py-2 t-small transition-colors">
                           <svg class="h-3.5 w-3.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M5 12h14M12 5l7 7-7 7"/></svg>
                           View node
                         </a>
                       </div>
                     </div>
                   </div>
+                  </div>
                 </div>
                 {{else}}
-                <div class="px-3 py-6 text-center text-sm text-slate-500 dark:text-slate-400">
-                  <p class="font-medium text-slate-600 dark:text-slate-300">No routes on this service.</p>
-                  <p class="mt-1 text-xs">Add a host mapping to connect this backend to an edge node.</p>
+                <div class="px-3 py-6 text-center">
+                  <p class="t-small font-medium">No routes on this service.</p>
+                  <p class="mt-1 t-caption">Add a host mapping to connect this backend to an edge node.</p>
                 </div>
                 {{end}}
               </div>
             </div>
             {{else}}
-            <div class="rounded-lg border border-dashed border-slate-200 px-4 py-8 text-center text-sm text-slate-500 dark:border-zinc-800 dark:text-slate-400">
-              <p class="font-medium text-slate-600 dark:text-slate-300">No services for this client.</p>
-              <p class="mt-1 text-xs">Services will appear here before their host routes and node targets.</p>
+            <div class="rounded-xl border border-dashed px-4 py-8 text-center" style="border-color:rgb(var(--border))">
+              <p class="t-small font-medium">No services for this client.</p>
+              <p class="mt-1 t-caption">Services will appear here before their host routes and node targets.</p>
             </div>
             {{end}}
           </div>
 
           {{if .Tunnels}}
           <div class="mt-4">
-            <p class="hpg-eyebrow mb-2">Visible WG peers</p>
-            <!-- Inline health / key-age chips on tunnel badges -->
+            <p class="t-eyebrow mb-2">Visible WG peers</p>
             <div class="flex flex-wrap gap-2">
               {{range .Tunnels}}
-              <span class="group inline-flex max-w-full cursor-default flex-col gap-0.5 rounded-xl bg-emerald-50 px-3 py-1.5 text-xs text-emerald-800 ring-1 ring-emerald-200 transition-shadow hover:ring-2 dark:bg-emerald-500/10 dark:text-emerald-200 dark:ring-emerald-500/30">
+              <span class="group inline-flex max-w-full cursor-default flex-col gap-0.5 rounded-xl px-3 py-1.5 t-small transition-shadow" style="background:rgb(var(--success)/.10);color:rgb(var(--success));border:1px solid rgb(var(--success)/.25)">
                 <span class="flex items-center gap-1.5">
-                  <!-- health dot: green when handshake fresh, amber otherwise -->
                   <span class="h-1.5 w-1.5 shrink-0 rounded-full {{if .Healthy}}bg-emerald-500{{else}}bg-amber-400{{end}}" title="{{if .Healthy}}handshake fresh{{else}}stale or no handshake{{end}}"></span>
                   <span class="min-w-0 truncate font-medium">{{.Name}}</span>
-                  <span class="shrink-0 font-mono">{{.AssignedIP}}</span>
+                  <span class="shrink-0 font-mono tabular-nums">{{.AssignedIP}}</span>
                 </span>
-                <span class="flex flex-wrap items-center gap-2 pl-3 text-[10px] opacity-75">
+                <span class="flex flex-wrap items-center gap-2 pl-3 t-caption opacity-75">
                   <span class="min-w-0 truncate">{{.NodeName}}</span>
                   {{if .LastHandshakeAt}}<span title="last handshake">{{.LastHandshakeAt}}</span>{{end}}
                   {{if .KeyAgeHuman}}<span title="key age" class="font-mono">key {{.KeyAgeHuman}}</span>{{end}}
@@ -327,92 +326,90 @@
         </article>
         {{else}}
         <div class="px-5 py-16 text-center">
-          <p class="font-medium text-slate-700 dark:text-slate-200">No topology data to show.</p>
-          <p class="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">{{if .ScopeLimited}}No clients are currently assigned to your admin scope.{{else}}Create a client, service, and host to populate the map.{{end}}</p>
+          <p class="t-body font-medium">No topology data to show.</p>
+          <p class="mx-auto mt-1 max-w-md t-small">{{if .ScopeLimited}}No clients are currently assigned to your admin scope.{{else}}Create a client, service, and host to populate the map.{{end}}</p>
         </div>
         {{end}}
       </div>
     </section>
 
     <aside class="space-y-4">
-      <section class="hpg-card !p-0 overflow-hidden">
-        <div class="border-b border-slate-100 px-5 py-4 dark:border-zinc-800">
+      <section class="r-card !p-0 overflow-hidden">
+        <div class="px-5 py-4" style="border-bottom:1px solid rgb(var(--border))">
           <div class="flex items-start justify-between gap-3">
             <div class="min-w-0">
-              <p class="hpg-eyebrow">Nodes</p>
-              <h2 class="mt-1 font-semibold text-slate-900 dark:text-white">Fleet edge</h2>
+              <p class="t-eyebrow">Nodes</p>
+              <h2 class="mt-1 t-h3 font-semibold">Fleet edge</h2>
             </div>
-            {{if gt .Counts.Nodes .Limits.Nodes}}<span class="hpg-pill hpg-pill-warn shrink-0">clipped</span>{{end}}
+            {{if gt .Counts.Nodes .Limits.Nodes}}<span class="r-pill r-pill-warning shrink-0">clipped</span>{{end}}
           </div>
         </div>
-        <div class="divide-y divide-slate-100 dark:divide-zinc-800">
+        <div>
           {{range .Nodes}}
-          <div class="p-4">
+          <div class="p-4" style="border-bottom:1px solid rgb(var(--border))">
             <div class="flex items-start justify-between gap-3">
               <div class="min-w-0">
-                <a href="/admin/nodes/{{.ID}}" class="block truncate font-medium text-slate-900 hover:text-indigo-700 dark:text-white dark:hover:text-indigo-300">{{.Name}}</a>
-                <p class="mt-1 break-all text-xs text-slate-500 dark:text-slate-400">{{if .PublicHostname}}{{.PublicHostname}}{{else if .PublicIP}}{{.PublicIP}}{{else}}no public endpoint{{end}}</p>
+                <a href="/admin/nodes/{{.ID}}" class="block truncate t-body font-medium" style="color:rgb(var(--text))">{{.Name}}</a>
+                <p class="mt-1 break-all t-caption">{{if .PublicHostname}}{{.PublicHostname}}{{else if .PublicIP}}{{.PublicIP}}{{else}}no public endpoint{{end}}</p>
               </div>
-              <span class="hpg-pill {{if and .Enabled (eq .HealthStatus "healthy")}}hpg-pill-ok{{else if eq .HealthStatus "down"}}hpg-pill-err{{else}}hpg-pill-warn{{end}} shrink-0">{{.HealthStatus}}</span>
+              <span class="r-pill {{if and .Enabled (eq .HealthStatus "healthy")}}r-pill-success{{else if eq .HealthStatus "down"}}r-pill-danger{{else}}r-pill-warning{{end}} shrink-0">{{.HealthStatus}}</span>
             </div>
-            <div class="mt-3 grid grid-cols-2 gap-2 text-xs">
-              <div class="rounded-md bg-slate-50 px-2.5 py-2 dark:bg-zinc-900">
-                <p class="truncate text-slate-400 dark:text-slate-500">route load</p>
-                <p class="font-mono text-slate-700 dark:text-slate-200">{{.CurrentRoutes}}/{{.MaxRoutes}}</p>
+            <div class="mt-3 grid grid-cols-2 gap-2">
+              <div class="rounded-lg px-2.5 py-2" style="background:rgb(var(--surface-2))">
+                <p class="t-caption">route load</p>
+                <p class="font-mono tabular-nums t-small" style="color:rgb(var(--text))">{{.CurrentRoutes}}/{{.MaxRoutes}}</p>
               </div>
-              <div class="rounded-md bg-slate-50 px-2.5 py-2 dark:bg-zinc-900">
-                <p class="truncate text-slate-400 dark:text-slate-500">visible here</p>
-                <p class="font-mono text-slate-700 dark:text-slate-200">{{.RoutesShown}}R / {{.TunnelsShown}}WG</p>
+              <div class="rounded-lg px-2.5 py-2" style="background:rgb(var(--surface-2))">
+                <p class="t-caption">visible here</p>
+                <p class="font-mono tabular-nums t-small" style="color:rgb(var(--text))">{{.RoutesShown}}R / {{.TunnelsShown}}WG</p>
               </div>
             </div>
             {{if .TunnelEnabled}}
-            <div class="mt-3 rounded-md bg-emerald-50 px-3 py-2 text-xs text-emerald-800 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-200 dark:ring-emerald-500/30">
+            <div class="mt-3 rounded-lg px-3 py-2 t-small" style="background:rgb(var(--success)/.10);color:rgb(var(--success));border:1px solid rgb(var(--success)/.25)">
               <div class="flex min-w-0 items-center justify-between gap-2">
                 <span class="font-medium">WG enabled</span>
-                {{if .WGIP}}<span class="shrink-0 font-mono">{{.WGIP}}</span>{{end}}
+                {{if .WGIP}}<span class="shrink-0 font-mono tabular-nums">{{.WGIP}}</span>{{end}}
               </div>
               {{if .TunnelSubnet}}<p class="mt-1 break-all font-mono opacity-80">{{.TunnelSubnet}}</p>{{end}}
-              <!-- MTU inline on node card -->
-              {{if .TunnelMTU.Valid}}<p class="mt-1 text-[10px] opacity-70">MTU {{.TunnelMTU.Int32}}</p>{{end}}
+              {{if .TunnelMTU.Valid}}<p class="mt-1 t-caption opacity-70">MTU {{.TunnelMTU.Int32}}</p>{{end}}
             </div>
             {{else}}
-            <div class="mt-3 rounded-md bg-slate-50 px-3 py-2 text-xs text-slate-500 ring-1 ring-slate-200/70 dark:bg-zinc-900 dark:text-slate-400 dark:ring-zinc-800">WG disabled on this node.</div>
+            <div class="mt-3 rounded-lg px-3 py-2 t-caption" style="background:rgb(var(--surface-2));border:1px solid rgb(var(--border))">WG disabled on this node.</div>
             {{end}}
             {{if .Tunnels}}
             <div class="mt-3 space-y-1.5">
               {{range .Tunnels}}
-              <!-- Per-peer health + key age inline in node card -->
-              <div class="flex items-start justify-between gap-2 rounded-md bg-white px-2.5 py-2 text-xs ring-1 ring-slate-200 dark:bg-zinc-950 dark:ring-zinc-800">
+              <div class="flex items-start justify-between gap-2 rounded-lg px-2.5 py-2" style="background:rgb(var(--surface));border:1px solid rgb(var(--border))">
                 <div class="min-w-0 flex-1">
                   <div class="flex min-w-0 items-center gap-1.5">
                     <span class="h-1.5 w-1.5 shrink-0 rounded-full {{if .Healthy}}bg-emerald-500{{else}}bg-amber-400{{end}}"></span>
-                    <span class="min-w-0 truncate text-slate-700 dark:text-slate-200">{{.Name}}</span>
+                    <span class="min-w-0 truncate t-small">{{.Name}}</span>
                   </div>
-                  <div class="mt-0.5 flex flex-wrap gap-x-2 pl-3 text-[10px] text-slate-400 dark:text-slate-500">
-                    <span class="font-mono">{{.AssignedIP}}</span>
+                  <div class="mt-0.5 flex flex-wrap gap-x-2 pl-3 t-caption">
+                    <span class="font-mono tabular-nums">{{.AssignedIP}}</span>
                     {{if .LastHandshakeAt}}<span>{{.LastHandshakeAt}}</span>{{end}}
                     {{if .KeyAgeHuman}}<span>key {{.KeyAgeHuman}}</span>{{end}}
                   </div>
                 </div>
-                <span class="hpg-pill {{if eq .Status "active"}}hpg-pill-ok{{else if eq .Status "pending"}}hpg-pill-warn{{else}}hpg-pill-err{{end}} shrink-0">{{.Status}}</span>
+                <span class="r-pill {{if eq .Status "active"}}r-pill-success{{else if eq .Status "pending"}}r-pill-warning{{else}}r-pill-danger{{end}} shrink-0">{{.Status}}</span>
               </div>
               {{end}}
             </div>
             {{else if .TunnelEnabled}}
-            <div class="mt-3 rounded-md border border-dashed border-slate-200 px-3 py-4 text-center text-xs text-slate-500 dark:border-zinc-800 dark:text-slate-400">No visible WG peers on this node.</div>
+            <div class="mt-3 rounded-lg border border-dashed px-3 py-4 text-center t-caption" style="border-color:rgb(var(--border))">No visible WG peers on this node.</div>
             {{end}}
           </div>
           {{else}}
-          <div class="px-5 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
-            <p class="font-medium text-slate-600 dark:text-slate-300">No nodes are connected to the visible topology.</p>
-            <p class="mt-1 text-xs">Nodes appear once routes or tunnels in scope point at them.</p>
+          <div class="px-5 py-10 text-center">
+            <p class="t-small font-medium">No nodes are connected to the visible topology.</p>
+            <p class="mt-1 t-caption">Nodes appear once routes or tunnels in scope point at them.</p>
           </div>
           {{end}}
         </div>
       </section>
 
-      <section class="rounded-lg bg-slate-50 p-4 text-xs leading-5 text-slate-500 ring-1 ring-slate-200/70 dark:bg-zinc-900/60 dark:text-slate-400 dark:ring-zinc-800">
-        <p class="hpg-eyebrow mb-2">Display limits</p>
+      <section class="r-card t-caption">
+        <p class="t-eyebrow mb-2">Display limits</p>
         <p>Showing up to {{.Limits.Clients}} clients, {{.Limits.Services}} services, {{.Limits.Routes}} routes, {{.Limits.Nodes}} nodes, and {{.Limits.Tunnels}} tunnels.</p>
         <p class="mt-2">Summary counts use the full visible scope{{if .ScopeLimited}} after admin scoping{{end}}.</p>
       </section>
@@ -420,8 +417,7 @@
   </div>
   {{end}}
 </div>
-<style>
-/* Overflow menu for mobile host row actions. */
+<style nonce="{{.CSPNonce}}">
 .hpg-row-actions { position: relative; }
 .hpg-row-actions-menu {
   position: absolute;
@@ -430,12 +426,11 @@
   z-index: 20;
   min-width: 10rem;
   border-radius: 0.5rem;
-  background: white;
-  box-shadow: 0 4px 16px rgba(0,0,0,.1);
-  border: 1px solid #e2e8f0;
+  background: rgb(var(--surface));
+  box-shadow: 0 4px 16px rgba(0,0,0,.12);
+  border: 1px solid rgb(var(--border));
   overflow: hidden;
 }
-.dark .hpg-row-actions-menu { background: #18181b; }
 .hpg-row-actions-menu:not(.hidden) { display: block; }
 </style>
 <script nonce="{{.CSPNonce}}">
