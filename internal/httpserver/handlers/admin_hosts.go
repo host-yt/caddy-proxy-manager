@@ -88,6 +88,11 @@ type hostRow struct {
 	// MaintenanceMode shows the wrench badge in the list and drives the quick toggle.
 	MaintenanceMode bool
 
+	// mTLS fields for the list badge: cert enforcement + CA health.
+	RequireClientCert bool
+	MTLSCAActive      bool   // true only when CA status='active'
+	MTLSCAName        string // CA display name for tooltip
+
 	// Derived view-model fields for the at-a-glance table (filled below).
 	BackendDisplay string
 	CertStatus     string // "active" | "pending" | "off"
@@ -222,7 +227,10 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	             COALESCE(DATE_FORMAT(r.ssl_issued_at,'%Y-%m-%d %H:%i'),''),
 	             COALESCE(r.sso_provider_url,''), COALESCE(r.sso_strict_mode,0),
 	             COALESCE(DATEDIFF(mc.not_after, NOW()), -1),
-	             COALESCE(r.maintenance_mode,0)
+	             COALESCE(r.maintenance_mode,0),
+	             COALESCE(r.require_client_cert,0),
+	             CASE WHEN r.mtls_ca_id IS NOT NULL AND mca.status='active' THEN 1 ELSE 0 END,
+	             COALESCE(NULLIF(mca.name,''), mca.common_name, '')
 	      FROM routes r
 	      JOIN services s    ON s.id = r.service_id
 	      JOIN clients c     ON c.id = s.client_id
@@ -230,6 +238,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	      JOIN plans p       ON p.id = s.plan_id
 	      JOIN caddy_nodes n ON n.id = r.caddy_node_id
 	      LEFT JOIN manual_certs mc ON mc.route_id = r.id
+	      LEFT JOIN mtls_cas mca ON mca.id = r.mtls_ca_id
 	      WHERE ` + whereSQL + `
 	      ORDER BY r.updated_at DESC
 	      LIMIT ? OFFSET ?`
@@ -259,6 +268,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 			&hr.External, &extHostHeader, &hr.IssuedAt,
 			&hr.SSOProviderURL, &hr.SSOStrictMode,
 			&hr.CertDaysLeft, &hr.MaintenanceMode,
+			&hr.RequireClientCert, &hr.MTLSCAActive, &hr.MTLSCAName,
 		); err == nil {
 			hr.ExternalHost = extHostHeader
 			hr.BackendDisplay = hostBackendDisplay(hr)
@@ -1583,9 +1593,10 @@ type hostEditData struct {
 
 	// mTLS client-cert enforcement. RequireClientCert gates the Caddy TLS
 	// connection policy; MTLSCAID selects the trust-anchor CA. MTLSCAs feeds
-	// the dropdown (id + label).
+	// the dropdown (id + label). MTLSCAActive reflects saved CA health.
 	RequireClientCert bool
 	MTLSCAID          int64
+	MTLSCAActive      bool // true when the saved CA status='active'
 	MTLSCAs           []mtlsCAOption
 }
 
@@ -1721,6 +1732,12 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		car.Close()
+	}
+	// Check whether the saved CA is currently active (drives status pill).
+	if d.MTLSCAID > 0 {
+		var caStatus string
+		_ = db.QueryRowContext(ctx, `SELECT status FROM mtls_cas WHERE id=?`, d.MTLSCAID).Scan(&caStatus)
+		d.MTLSCAActive = caStatus == "active"
 	}
 	d.WeightedLBAvail = h.Routes.WeightedLBAvailable
 	d.RateLimitModuleAvailable = h.Routes.RateLimitModuleAvailable
