@@ -85,6 +85,9 @@ type hostRow struct {
 	SSOProviderURL string
 	SSOStrictMode  bool
 
+	// MaintenanceMode shows the wrench badge in the list and drives the quick toggle.
+	MaintenanceMode bool
+
 	// Derived view-model fields for the at-a-glance table (filled below).
 	BackendDisplay string
 	CertStatus     string // "active" | "pending" | "off"
@@ -218,7 +221,8 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	             COALESCE(r.upstream_external,0), COALESCE(r.upstream_host_header,''),
 	             COALESCE(DATE_FORMAT(r.ssl_issued_at,'%Y-%m-%d %H:%i'),''),
 	             COALESCE(r.sso_provider_url,''), COALESCE(r.sso_strict_mode,0),
-	             COALESCE(DATEDIFF(mc.not_after, NOW()), -1)
+	             COALESCE(DATEDIFF(mc.not_after, NOW()), -1),
+	             COALESCE(r.maintenance_mode,0)
 	      FROM routes r
 	      JOIN services s    ON s.id = r.service_id
 	      JOIN clients c     ON c.id = s.client_id
@@ -254,7 +258,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 			&hr.NodeID, &hr.NodeName, &hr.NodeHostname,
 			&hr.External, &extHostHeader, &hr.IssuedAt,
 			&hr.SSOProviderURL, &hr.SSOStrictMode,
-			&hr.CertDaysLeft,
+			&hr.CertDaysLeft, &hr.MaintenanceMode,
 		); err == nil {
 			hr.ExternalHost = extHostHeader
 			hr.BackendDisplay = hostBackendDisplay(hr)
@@ -679,6 +683,46 @@ func (h *AdminHandlers) HostsToggle(w http.ResponseWriter, r *http.Request) {
 }
 
 func chiURLParamHosts(r *http.Request, key string) string { return chi.URLParam(r, key) }
+
+// HostsToggleMaintenance flips maintenance_mode for a single route and resyncs Caddy.
+func (h *AdminHandlers) HostsToggleMaintenance(w http.ResponseWriter, r *http.Request) {
+	if h.Routes == nil || h.DB() == nil {
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	var current int
+	var nodeID int64
+	if err := h.DB().QueryRowContext(ctx,
+		"SELECT COALESCE(maintenance_mode,0), caddy_node_id FROM routes WHERE id = ?", id,
+	).Scan(&current, &nodeID); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "route not found")
+		return
+	}
+	newMode := 1 - current
+	if _, err := h.DB().ExecContext(ctx,
+		"UPDATE routes SET maintenance_mode = ?, updated_at = NOW() WHERE id = ?", newMode, id,
+	); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "update failed")
+		return
+	}
+	go func() {
+		defer recoverBg(h.Logger, "maint-resync")
+		h.Routes.SchedulePush(nodeID)
+	}()
+	onOff := "disabled"
+	if newMode == 1 {
+		onOff = "enabled"
+	}
+	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "admin.host.maintenance.toggle", Entity: "route",
+		EntityID: itoa64(id), Meta: map[string]any{"maintenance_mode": newMode},
+	})
+	redirectWithFlash(w, r, "/admin/hosts", "Maintenance mode "+onOff, "")
+}
 
 // HostsPurgeCache flushes the Souin origin cache on the node that
 // serves this route. Useful after the operator points the route at a

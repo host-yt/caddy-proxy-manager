@@ -133,6 +133,17 @@
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/15 cursor-pointer transition-colors duration-150">{{if eq .Status "disabled"}}enable{{else}}disable{{end}}</button>
               </form>
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle-maintenance" class="inline">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit"
+                  class="{{if .MaintenanceMode}}text-amber-600 dark:text-amber-400{{else}}text-slate-400 hover:text-amber-600{{end}} cursor-pointer transition-colors"
+                  title="{{if .MaintenanceMode}}Disable maintenance{{else}}Enable maintenance{{end}}">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                  </svg>
+                </button>
+              </form>
               <!-- htmx removes the row in place; no-JS falls back to a full POST.
                    hx-confirm is routed through hpgConfirm by the htmx:confirm hook. -->
               <form method="POST" action="/admin/hosts/{{.RouteID}}/delete" class="inline"
@@ -179,6 +190,13 @@
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/></svg>
                   Disable
                   {{end}}
+                </button>
+              </form>
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle-maintenance">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit" class="hpg-act-item" role="menuitem">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                  {{if .MaintenanceMode}}Disable maintenance{{else}}Enable maintenance{{end}}
                 </button>
               </form>
               <div style="height:1px;background:rgba(148,163,184,0.2);margin:0.25rem 0.4rem;border-radius:1px;"></div>
