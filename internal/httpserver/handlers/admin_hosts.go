@@ -1440,6 +1440,7 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	action := r.FormValue("action")
 	ids := r.Form["ids"]
+	destNodeID, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue("node_id")), 10, 64)
 	if action == "" || len(ids) == 0 {
 		redirectWithFlash(w, r, "/admin/hosts", "", "select rows and an action")
 		return
@@ -1498,6 +1499,21 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 				fail++
 				continue
 			}
+		case "move_node":
+			if destNodeID <= 0 {
+				fail++
+				continue
+			}
+			// capture old node for resync
+			var oldNodeID int64
+			_ = h.DB().QueryRowContext(ctx, "SELECT caddy_node_id FROM routes WHERE id=?", id).Scan(&oldNodeID)
+			if _, derr := h.DB().ExecContext(ctx,
+				"UPDATE routes SET caddy_node_id=?, updated_at=NOW() WHERE id=?", destNodeID, id); derr != nil {
+				fail++
+				continue
+			}
+			touchedNodes[oldNodeID] = struct{}{}
+			touchedNodes[destNodeID] = struct{}{}
 		default:
 			fail++
 			continue

@@ -74,9 +74,14 @@
         <option value="delete">Delete selected</option>
         <option value="set_tag">Set tag</option>
         <option value="clear_tag">Clear tag</option>
+        <option value="move_node">Move to node</option>
       </select>
       <input type="text" id="hosts-bulk-tag" placeholder="tag" maxlength="64"
              class="hidden px-3 py-1.5 rounded-full ring-1 ring-slate-200/70 dark:ring-zinc-700 bg-slate-50 dark:bg-zinc-800 text-xs w-32">
+      <select id="hosts-bulk-node" name="node_id" class="hidden px-2 py-1 rounded border border-slate-300 dark:border-zinc-600 text-sm dark:bg-zinc-700 dark:text-slate-200">
+        <option value="">Select node...</option>
+        {{range .NodeOptions}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+      </select>
       <button type="button" id="hosts-bulk-apply" class="px-3 py-1.5 rounded-full bg-slate-800 dark:bg-zinc-700 text-white text-xs hover:bg-slate-900">Apply</button>
     </div>
     {{end}}
@@ -294,10 +299,12 @@
     /* ── Bulk action ───────────────────────────────────────────────── */
     var sel = document.getElementById('hosts-bulk-select');
     var tagInput = document.getElementById('hosts-bulk-tag');
-    // Show tag input only when set_tag is selected.
-    if (sel && tagInput) {
+    var nodeSelect = document.getElementById('hosts-bulk-node');
+    // Show tag/node inputs based on selected action.
+    if (sel) {
       sel.addEventListener('change', function() {
-        tagInput.classList.toggle('hidden', sel.value !== 'set_tag');
+        if (tagInput) tagInput.classList.toggle('hidden', sel.value !== 'set_tag');
+        if (nodeSelect) nodeSelect.classList.toggle('hidden', sel.value !== 'move_node');
       });
     }
     var btn = document.getElementById('hosts-bulk-apply');
@@ -321,6 +328,12 @@
             var t = document.createElement('input');
             t.type = 'hidden'; t.name = 'tag'; t.value = tagInput.value;
             box.appendChild(t);
+          }
+          // Append node_id when action is move_node.
+          if (action === 'move_node' && nodeSelect) {
+            var n = document.createElement('input');
+            n.type = 'hidden'; n.name = 'node_id'; n.value = nodeSelect.value;
+            box.appendChild(n);
           }
           document.getElementById('hosts-bulk-form').submit();
         };
