@@ -21,6 +21,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/dns"
 )
@@ -2023,6 +2024,17 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			RequireClientCert: requireClientCert && sslEnabled && mtlsCACertPEM != "",
 			MTLSCACertPEM:     mtlsCACertPEM,
 		})
+		// Audit when require_client_cert=1 but enforcement is silently skipped
+		// (no active CA, SSL off, or mtls_ca_id NULL) - fail-open is a security gap.
+		if requireClientCert && !(sslEnabled && mtlsCACertPEM != "") {
+			audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
+				ActorType: audit.ActorSystem,
+				Action:    "route.mtls.pushed_without_tls",
+				Entity:    "route",
+				EntityID:  fmt.Sprintf("%d", id),
+				Meta:      map[string]any{"domain": domain},
+			})
+		}
 		ids = append(ids, id)
 	}
 	// Attach additional backends (route_upstreams) in one batched query to
