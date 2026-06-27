@@ -1954,9 +1954,11 @@ type planOpt struct {
 
 type servicesData struct {
 	baseAdminData
-	Services []serviceRow
-	Clients  []clientOpt
-	Plans    []planOpt
+	Services     []serviceRow
+	Clients      []clientOpt
+	Plans        []planOpt
+	Q            string // search query
+	StatusFilter string // "active","suspended","terminated","" = all
 }
 
 func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
@@ -1969,15 +1971,37 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3_000_000_000)
 	defer cancel()
 
-	rows, err := db.QueryContext(ctx,
-		`SELECT s.id, s.name, COALESCE(c.display_name, u.full_name, u.email), s.client_id,
+	q := strings.TrimSpace(r.URL.Query().Get("q"))
+	statusFilter := r.URL.Query().Get("status")
+	d.Q = q
+	d.StatusFilter = statusFilter
+
+	// build WHERE clause from active filters
+	var where []string
+	var args []any
+	if q != "" {
+		where = append(where, "(s.name LIKE ? OR s.backend_ip LIKE ? OR COALESCE(c.display_name, u.full_name, u.email) LIKE ?)")
+		like := "%" + q + "%"
+		args = append(args, like, like, like)
+	}
+	if statusFilter != "" {
+		where = append(where, "s.status = ?")
+		args = append(args, statusFilter)
+	}
+	whereSQL := ""
+	if len(where) > 0 {
+		whereSQL = "WHERE " + strings.Join(where, " AND ")
+	}
+
+	query := `SELECT s.id, s.name, COALESCE(c.display_name, u.full_name, u.email), s.client_id,
 		        s.backend_ip, s.allowed_port_start, s.allowed_port_end, p.name, s.plan_id,
 		        COALESCE(s.external_reference,''), s.status, COALESCE(s.notes,'')
 		 FROM services s
 		 JOIN clients c ON c.id = s.client_id
 		 JOIN users u   ON u.id = c.user_id
 		 JOIN plans p   ON p.id = s.plan_id
-		 ORDER BY s.id DESC`)
+		 ` + whereSQL + ` ORDER BY s.id DESC`
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
