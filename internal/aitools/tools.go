@@ -136,6 +136,12 @@ func (r *Registry) builtins() []Tool {
 			Exec:        r.nodeDetail,
 		},
 		{
+			Name:        "list_node_groups",
+			Description: "List node groups with mode (single/active_active/failover), node count, and plan count. Useful for understanding routing topology.",
+			Schema:      emptyObjectSchema,
+			Exec:        r.listNodeGroups,
+		},
+		{
 			Name:        "list_plans",
 			Description: "List service plans: name, max_domains, max_ports, ssl/websocket/path-routing flags, rate_limit_rpm, node_group. Useful for capacity planning or answering 'what plan allows X?'",
 			Schema:      limitSchema(50),
@@ -1082,6 +1088,40 @@ func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string,
 		return "", err
 	}
 	return toJSON(res)
+}
+
+func (r *Registry) listNodeGroups(ctx context.Context, _ json.RawMessage) (string, error) {
+	db := r.db
+	if db == nil {
+		return `{"error":"db unavailable"}`, nil
+	}
+	type group struct {
+		ID        int64  `json:"id"`
+		Name      string `json:"name"`
+		Mode      string `json:"mode"`
+		NodeCount int    `json:"node_count"`
+		PlanCount int    `json:"plan_count"`
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT ng.id, ng.name, ng.mode,
+		        COUNT(DISTINCT cn.id), COUNT(DISTINCT p.id)
+		 FROM node_groups ng
+		 LEFT JOIN caddy_nodes cn ON cn.node_group_id = ng.id
+		 LEFT JOIN plans p ON p.node_group_id = ng.id
+		 GROUP BY ng.id ORDER BY ng.name`)
+	if err != nil {
+		return `{"error":"query failed"}`, nil
+	}
+	defer rows.Close()
+	out := make([]group, 0, 8)
+	for rows.Next() {
+		var g group
+		if rows.Scan(&g.ID, &g.Name, &g.Mode, &g.NodeCount, &g.PlanCount) == nil {
+			out = append(out, g)
+		}
+	}
+	b, _ := json.Marshal(map[string]any{"node_groups": out, "total": len(out)})
+	return string(b), nil
 }
 
 func (r *Registry) listPlans(ctx context.Context, raw json.RawMessage) (string, error) {
