@@ -94,6 +94,9 @@ type hostRow struct {
 	MTLSCAActive      bool   // true only when CA status='active'
 	MTLSCAName        string // CA display name for tooltip
 
+	// GeoMode is the per-route geo filter setting (off/allow/deny).
+	GeoMode string
+
 	// Derived view-model fields for the at-a-glance table (filled below).
 	BackendDisplay string
 	CertStatus     string // "active" | "pending" | "off"
@@ -254,7 +257,8 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	             COALESCE(r.maintenance_mode,0),
 	             COALESCE(r.require_client_cert,0),
 	             CASE WHEN r.mtls_ca_id IS NOT NULL AND mca.status='active' THEN 1 ELSE 0 END,
-	             COALESCE(NULLIF(mca.name,''), mca.common_name, '')
+	             COALESCE(NULLIF(mca.name,''), mca.common_name, ''),
+	             COALESCE(r.geo_mode,'off')
 	      FROM routes r
 	      JOIN services s    ON s.id = r.service_id
 	      JOIN clients c     ON c.id = s.client_id
@@ -292,7 +296,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 			&hr.External, &extHostHeader, &hr.IssuedAt,
 			&hr.SSOProviderURL, &hr.SSOStrictMode,
 			&hr.CertDaysLeft, &hr.MaintenanceMode,
-			&hr.RequireClientCert, &hr.MTLSCAActive, &hr.MTLSCAName,
+			&hr.RequireClientCert, &hr.MTLSCAActive, &hr.MTLSCAName, &hr.GeoMode,
 		); err == nil {
 			hr.ExternalHost = extHostHeader
 			hr.BackendDisplay = hostBackendDisplay(hr)
