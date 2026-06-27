@@ -1537,6 +1537,9 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			touchedNodes[nodeID] = struct{}{}
+		case "resync":
+			// Queue node for immediate resync without changing route status.
+			touchedNodes[nodeID] = struct{}{}
 		default:
 			fail++
 			continue
