@@ -331,15 +331,16 @@ type AttentionItem struct {
 
 // dashCounts holds the cheap headline numbers shown as stat cards.
 type dashCounts struct {
-	TotalHosts        int
-	ActiveHosts       int
-	PendingHosts      int
-	FailedHosts       int
-	NodesTotal        int
-	NodesOnline       int
-	Clients           int
-	Plans             int
-	SuspendedServices int
+	TotalHosts           int
+	ActiveHosts          int
+	PendingHosts         int
+	FailedHosts          int
+	NodesTotal           int
+	NodesOnline          int
+	Clients              int
+	Plans                int
+	SuspendedServices    int
+	MTLSCAsExpiringSoon  int
 }
 
 // dashEvent is a single recent audit-log line (latest activity feed).
@@ -422,6 +423,10 @@ func (h *AdminHandlers) dashboardCounts(ctx context.Context, db *sql.DB) dashCou
 	var susp int
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM services WHERE status='suspended'").Scan(&susp)
 	c.SuspendedServices = susp
+	// Count CA certs expiring within 30 days (includes already expired).
+	var mtlsExpiring int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after < (NOW() + INTERVAL 30 DAY)").Scan(&mtlsExpiring)
+	c.MTLSCAsExpiringSoon = mtlsExpiring
 	return c
 }
 
@@ -522,6 +527,25 @@ func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB) ([]A
 			Severity: "warn",
 			Text:     fmt.Sprintf("%d manual certificate(s) expiring within 30 days", expiringSoon),
 			URL:      "/admin/manual-certs",
+		})
+	}
+
+	// mTLS CA certs: expired ones block all client-cert auth on affected routes.
+	var mtlsExpired, mtlsExpiringSoon int
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after < NOW()").Scan(&mtlsExpired)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after BETWEEN NOW() AND (NOW() + INTERVAL 30 DAY)").Scan(&mtlsExpiringSoon)
+	if mtlsExpired > 0 {
+		items = append(items, AttentionItem{
+			Severity: "error",
+			Text:     fmt.Sprintf("%d mTLS CA cert(s) EXPIRED - routes requiring client certs may reject all connections", mtlsExpired),
+			URL:      "/admin/mtls",
+		})
+	}
+	if mtlsExpiringSoon > 0 {
+		items = append(items, AttentionItem{
+			Severity: "warn",
+			Text:     fmt.Sprintf("%d mTLS CA cert(s) expiring within 30 days", mtlsExpiringSoon),
+			URL:      "/admin/mtls",
 		})
 	}
 

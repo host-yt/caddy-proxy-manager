@@ -93,6 +93,13 @@
     {{.Counts.PendingHosts}} provisioning
   </a>
   {{end}}
+  <!-- mTLS CA expiry pill: amber warning when any CA expires within 30 days. -->
+  {{if .Counts.MTLSCAsExpiringSoon}}
+  <a href="/admin/mtls" class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ring-1 bg-amber-50 text-amber-700 ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25 hover:bg-amber-100 dark:hover:bg-amber-500/15 transition-colors cursor-pointer">
+    <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>
+    {{.Counts.MTLSCAsExpiringSoon}} mTLS CA expiring
+  </a>
+  {{end}}
 </div>
 
 <!-- Needs attention: soft card, one row per signal, colored by severity. -->
