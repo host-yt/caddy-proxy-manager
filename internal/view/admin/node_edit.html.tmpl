@@ -28,6 +28,15 @@
       <fieldset class="space-y-3 border-t border-slate-100 dark:border-zinc-700 pt-4">
         <legend class="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-2">Module capabilities</legend>
         <p class="text-[11px] text-slate-500 dark:text-slate-400 -mt-1">Which custom Caddy modules are installed on this node</p>
+        <div class="flex items-center gap-2 mb-1">
+          <button type="button" id="btn-probe" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg ring-1 ring-indigo-300 dark:ring-indigo-700 text-indigo-700 dark:text-indigo-400 text-xs font-medium hover:bg-indigo-50 dark:hover:bg-indigo-500/10 cursor-pointer transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
+              <path fill-rule="evenodd" d="M2 10a8 8 0 1 1 16 0 8 8 0 0 1-16 0Zm6.39-2.908a.75.75 0 0 1 .766.027l3.5 2.25a.75.75 0 0 1 0 1.262l-3.5 2.25A.75.75 0 0 1 8 12.25v-4.5a.75.75 0 0 1 .39-.658Z" clip-rule="evenodd" />
+            </svg>
+            Auto-detect from Caddy
+          </button>
+          <span id="probe-status" class="text-xs text-slate-500"></span>
+        </div>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label class="flex items-center gap-2 cursor-pointer text-sm text-slate-700 dark:text-slate-300">
             <input type="checkbox" name="has_waf" value="1" {{if .HasWAF}}checked{{end}}
@@ -70,4 +79,39 @@
     </form>
   </section>
 </div>
+
+<script nonce="{{.CSPNonce}}">
+(function () {
+  document.addEventListener('click', function (e) {
+    if (e.target.closest('#btn-probe') === null) return;
+    var btn = document.getElementById('btn-probe');
+    var status = document.getElementById('probe-status');
+    btn.disabled = true;
+    status.textContent = 'Detecting...';
+    status.className = 'text-xs text-slate-500';
+    fetch('/admin/nodes/{{.NodeID}}/probe-capabilities', {method: 'POST'})
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        if (!data.ok) {
+          status.textContent = 'Error: ' + data.error;
+          status.className = 'text-xs text-rose-600';
+          return;
+        }
+        // Update checkboxes from detected capabilities.
+        var map = {has_waf: data.has_waf, has_l4: data.has_l4, has_dns_module: data.has_dns, has_rate_limit: data.has_rate_limit, has_geoip: data.has_geoip};
+        Object.keys(map).forEach(function (name) {
+          var el = document.querySelector('input[name="' + name + '"]');
+          if (el) el.checked = !!map[name];
+        });
+        status.textContent = 'Detected!';
+        status.className = 'text-xs text-emerald-600';
+      })
+      .catch(function (err) {
+        status.textContent = 'Request failed';
+        status.className = 'text-xs text-rose-600';
+      })
+      .finally(function () { btn.disabled = false; });
+  });
+})();
+</script>
 {{end}}
