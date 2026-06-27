@@ -174,6 +174,16 @@
       {{end}}
     </div>
     {{end}}
+    <div class="mt-3 flex items-center gap-3">
+      <button id="btn-reprobe" data-node-id="{{.Node.ID}}"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 transition-colors cursor-pointer">
+        <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor">
+          <path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/>
+        </svg>
+        Re-probe
+      </button>
+      <span id="reprobe-result" class="text-xs"></span>
+    </div>
   </section>
 
   {{if or .NodeBandwidth24h .NodeRequests24h}}
@@ -348,6 +358,45 @@
       document.getElementById('hpg-failover-modal').classList.add('hidden');
     }
   });
+
+  // Re-probe capabilities.
+  var btnReprobe = document.getElementById('btn-reprobe');
+  if (btnReprobe) {
+    btnReprobe.addEventListener('click', function () {
+      var nodeID = btnReprobe.dataset.nodeId;
+      var result = document.getElementById('reprobe-result');
+      btnReprobe.disabled = true;
+      btnReprobe.textContent = 'Probing…';
+      result.textContent = '';
+      result.className = 'text-xs';
+      fetch('/admin/nodes/' + nodeID + '/probe-capabilities', {method: 'POST', credentials: 'same-origin', headers: {Accept: 'application/json'}})
+        .then(function (r) { return r.json(); })
+        .then(function (d) {
+          if (!d.ok) {
+            result.textContent = d.error || 'Probe failed';
+            result.className = 'text-xs text-rose-600 dark:text-rose-400';
+            return;
+          }
+          var parts = [
+            'WAF ' + (d.has_waf ? '✓' : '✗'),
+            'L4 ' + (d.has_l4 ? '✓' : '✗'),
+            'DNS ' + (d.has_dns ? '✓' : '✗'),
+            'Rate limit ' + (d.has_rate_limit ? '✓' : '✗'),
+            'GeoIP ' + (d.has_geoip ? '✓' : '✗'),
+          ];
+          result.textContent = 'Updated: ' + parts.join(', ');
+          result.className = 'text-xs text-emerald-600 dark:text-emerald-400';
+        })
+        .catch(function () {
+          result.textContent = 'Request failed';
+          result.className = 'text-xs text-rose-600 dark:text-rose-400';
+        })
+        .finally(function () {
+          btnReprobe.disabled = false;
+          btnReprobe.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a1 1 0 011 1v2.101a7.002 7.002 0 0111.601 2.566 1 1 0 11-1.885.666A5.002 5.002 0 005.999 7H9a1 1 0 010 2H4a1 1 0 01-1-1V3a1 1 0 011-1zm.008 9.057a1 1 0 011.276.61A5.002 5.002 0 0014.001 13H11a1 1 0 110-2h5a1 1 0 011 1v5a1 1 0 11-2 0v-2.101a7.002 7.002 0 01-11.601-2.566 1 1 0 01.61-1.276z" clip-rule="evenodd"/></svg> Re-probe';
+        });
+    });
+  }
 })();
 </script>
 {{end}}
