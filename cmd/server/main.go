@@ -407,6 +407,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Secure:   cfg.Security.SessionCookieSecure,
 		SameSite: handlers.ParseSameSite(cfg.Security.SessionCookieSameSite),
 		TTL:      sessionTTL,
+		State:    state,
 	}
 
 	// Passkey/WebAuthn (nil-safe). Requires a valid App.URL to derive RPID.

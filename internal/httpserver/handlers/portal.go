@@ -21,6 +21,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/portal"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
@@ -38,7 +39,8 @@ type PortalHandlers struct {
 	Metrics  metricsLoginEmitter
 	Secure   bool          // cookie Secure flag, mirrors the panel auth cookie
 	SameSite http.SameSite // mirrors the panel auth cookie SameSite
-	TTL      time.Duration // portal session lifetime
+	TTL      time.Duration      // portal session lifetime
+	State    *installstate.Manager // for decrypting totp_secret_enc
 }
 
 // metricsLoginEmitter is the subset of obs.Metrics the portal touches; kept
@@ -216,14 +218,15 @@ func (h *PortalHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	routeID, protect, _ := h.Portal.RouteByHost(ctx, host)
 
 	var (
-		userID   int64
-		hash     string
-		isActive bool
-		fullName sql.NullString
+		userID      int64
+		hash        string
+		isActive    bool
+		fullName    sql.NullString
+		totpEnabled bool
 	)
 	err := db.QueryRowContext(ctx,
-		`SELECT id, password_hash, is_active, full_name FROM users WHERE email = ? LIMIT 1`, email).
-		Scan(&userID, &hash, &isActive, &fullName)
+		`SELECT id, password_hash, is_active, full_name, totp_enabled FROM users WHERE email = ? LIMIT 1`, email).
+		Scan(&userID, &hash, &isActive, &fullName, &totpEnabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Equalize timing against account enumeration (same trick as panel login).
 		_ = auth.VerifyPassword(decoyPasswordHash(), password)
@@ -256,6 +259,19 @@ func (h *PortalHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rememberMe := r.FormValue("remember_me") == "1"
+
+	// If 2FA enrolled, issue a short-lived challenge instead of a full session.
+	if totpEnabled {
+		if err := h.startPortal2FA(ctx, w, r, userID, email, fullName.String, back, host, rememberMe); err != nil {
+			h.renderLogin(w, r, http.StatusInternalServerError, portalViewData{Error: "Could not start 2FA challenge.", Back: back, Host: host})
+			return
+		}
+		// clearPortalFails because password was correct; 2FA failures have own tracking.
+		h.clearPortalFails(ctx, email, ip)
+		http.Redirect(w, r, "/hpg-portal/2fa", http.StatusSeeOther)
+		return
+	}
+
 	h.clearPortalFails(ctx, email, ip)
 	if err := h.createPortalSession(ctx, w, userID, email, fullName.String, rememberMe); err != nil {
 		h.renderLogin(w, r, http.StatusInternalServerError, portalViewData{Error: "Could not create session.", Back: back, Host: host})
@@ -267,6 +283,175 @@ func (h *PortalHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 	http.Redirect(w, r, back, http.StatusSeeOther)
 }
+
+// ---- TOTP 2FA challenge step --------------------------------------------
+
+const (
+	portal2FACookie   = "hpg_portal_2fa"
+	portal2FARedisPfx = "hpg:portal:2fa:"
+	portal2FATTR      = 5 * time.Minute
+)
+
+type portal2FAState struct {
+	UserID     int64  `json:"u"`
+	Email      string `json:"e"`
+	Username   string `json:"n"`
+	Back       string `json:"b"`
+	Host       string `json:"h"`
+	RememberMe bool   `json:"r"`
+}
+
+func (h *PortalHandlers) startPortal2FA(ctx context.Context, w http.ResponseWriter, r *http.Request,
+	userID int64, email, username, back, host string, rememberMe bool) error {
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return err
+	}
+	nonce := base64.RawURLEncoding.EncodeToString(raw)
+	st := portal2FAState{UserID: userID, Email: email, Username: username, Back: back, Host: host, RememberMe: rememberMe}
+	b, _ := json.Marshal(st)
+	if err := h.RDB.Set(ctx, portal2FARedisPfx+nonce, b, portal2FATTR).Err(); err != nil {
+		return err
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: portal2FACookie, Value: nonce, Path: "/hpg-portal",
+		HttpOnly: true, Secure: h.Secure, SameSite: h.SameSite,
+	})
+	return nil
+}
+
+type portal2FAViewData struct {
+	CSPNonce string
+	Host     string
+	Error    string
+}
+
+func (h *PortalHandlers) Portal2FAPage(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(portal2FACookie)
+	if err != nil || c.Value == "" {
+		http.Redirect(w, r, "/hpg-portal/login", http.StatusSeeOther)
+		return
+	}
+	host := portalRequestHost(r)
+	h.render2FA(w, r, http.StatusOK, portal2FAViewData{Host: host})
+}
+
+func (h *PortalHandlers) Portal2FASubmit(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	host := portalRequestHost(r)
+
+	c, err := r.Cookie(portal2FACookie)
+	if err != nil || c.Value == "" {
+		http.Redirect(w, r, "/hpg-portal/login", http.StatusSeeOther)
+		return
+	}
+	nonce := c.Value
+
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	raw, err := h.RDB.GetDel(ctx, portal2FARedisPfx+nonce).Bytes()
+	if err != nil {
+		h.clearPortal2FACookie(w)
+		http.Redirect(w, r, "/hpg-portal/login", http.StatusSeeOther)
+		return
+	}
+	var st portal2FAState
+	if err := json.Unmarshal(raw, &st); err != nil {
+		h.clearPortal2FACookie(w)
+		http.Redirect(w, r, "/hpg-portal/login", http.StatusSeeOther)
+		return
+	}
+
+	code := strings.TrimSpace(r.FormValue("code"))
+	db := h.DB()
+	if db == nil {
+		h.render2FA(w, r, http.StatusServiceUnavailable, portal2FAViewData{Host: host, Error: "Service unavailable."})
+		return
+	}
+	secret, ok, needsUpgrade := readTOTPSecret(ctx, db, h.State, st.UserID)
+	if !ok {
+		// TOTP disabled or secret missing; fall through to session (edge case: disabled between steps).
+		h.clearPortal2FACookie(w)
+		if err := h.createPortalSession(ctx, w, st.UserID, st.Email, st.Username, st.RememberMe); err != nil {
+			h.render2FA(w, r, http.StatusInternalServerError, portal2FAViewData{Host: host, Error: "Could not create session."})
+			return
+		}
+		http.Redirect(w, r, st.Back, http.StatusSeeOther)
+		return
+	}
+	if needsUpgrade {
+		upgradeTOTPSecret(ctx, db, h.State, st.UserID, secret)
+	}
+
+	if err := auth.ValidateTOTP(secret, code); err != nil {
+		// Re-mint the pending cookie (GetDel already consumed it).
+		_ = h.RDB.Set(ctx, portal2FARedisPfx+nonce, raw, portal2FATTR).Err()
+		http.SetCookie(w, &http.Cookie{
+			Name: portal2FACookie, Value: nonce, Path: "/hpg-portal",
+			HttpOnly: true, Secure: h.Secure, SameSite: h.SameSite,
+		})
+		h.render2FA(w, r, http.StatusUnauthorized, portal2FAViewData{Host: host, Error: "Invalid code. Try again."})
+		return
+	}
+
+	h.clearPortal2FACookie(w)
+	if err := h.createPortalSession(ctx, w, st.UserID, st.Email, st.Username, st.RememberMe); err != nil {
+		h.render2FA(w, r, http.StatusInternalServerError, portal2FAViewData{Host: host, Error: "Could not create session."})
+		return
+	}
+	if h.Metrics != nil {
+		h.Metrics.LoginEvent("success", "portal", "totp")
+	}
+	http.Redirect(w, r, st.Back, http.StatusSeeOther)
+}
+
+func (h *PortalHandlers) clearPortal2FACookie(w http.ResponseWriter) {
+	http.SetCookie(w, &http.Cookie{
+		Name: portal2FACookie, Value: "", Path: "/hpg-portal",
+		HttpOnly: true, Secure: h.Secure, SameSite: h.SameSite, MaxAge: -1,
+	})
+}
+
+func (h *PortalHandlers) render2FA(w http.ResponseWriter, r *http.Request, status int, d portal2FAViewData) {
+	d.CSPNonce = middleware.CSPNonce(r.Context())
+	var buf bytes.Buffer
+	if err := portal2FATmpl.Execute(&buf, d); err != nil {
+		http.Error(w, "render failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
+	_, _ = w.Write(buf.Bytes())
+}
+
+var portal2FATmpl = template.Must(template.New("portal_2fa").Parse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Two-factor authentication</title>
+<style nonce="{{.CSPNonce}}">
+ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f1f5f9;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .card{background:#fff;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:28px;width:340px}
+ h1{font-size:18px;margin:0 0 4px}
+ p.sub{color:#64748b;font-size:13px;margin:0 0 18px}
+ label{display:block;font-size:12px;color:#334155;margin:12px 0 4px}
+ input[type=text]{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font-size:18px;letter-spacing:.15em;text-align:center}
+ button{margin-top:16px;width:100%;padding:10px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-size:14px;cursor:pointer}
+ .err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:10px;padding:8px 10px;font-size:13px;margin-bottom:8px}
+ a{display:block;margin-top:14px;font-size:13px;color:#64748b;text-align:center;text-decoration:none}
+</style></head><body>
+<div class="card">
+ <h1>Two-factor authentication</h1>
+ <p class="sub">{{.Host}}</p>
+ {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+ <form method="POST" action="/hpg-portal/2fa">
+  <label for="code">Authenticator code</label>
+  <input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9 ]*" autocomplete="one-time-code" autofocus required maxlength="10" placeholder="000 000">
+  <button type="submit">Verify</button>
+ </form>
+ <a href="/hpg-portal/login">Back to sign in</a>
+</div>
+</body></html>`))
 
 // Logout destroys the portal session.
 func (h *PortalHandlers) Logout(w http.ResponseWriter, r *http.Request) {
