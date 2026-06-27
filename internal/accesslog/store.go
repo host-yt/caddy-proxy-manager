@@ -51,6 +51,7 @@ type RollupBucket struct {
 	Errors5xx    int64
 	LatencySumMs int64
 	LatencyMaxMs int64
+	BytesResp    int64
 }
 
 // Insert appends one entry and trims older rows beyond maxPerHost.
@@ -92,15 +93,16 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 	bucket := e.TS.UTC().Truncate(time.Hour)
 	_, _ = db.ExecContext(ctx,
 		`INSERT INTO log_rollups
-		     (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms)
-		 VALUES (?,?,1,?,?,?,?)
+		     (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp)
+		 VALUES (?,?,1,?,?,?,?,?)
 		 ON DUPLICATE KEY UPDATE
 		     requests=requests+1,
 		     errors_4xx=errors_4xx+VALUES(errors_4xx),
 		     errors_5xx=errors_5xx+VALUES(errors_5xx),
 		     latency_sum_ms=latency_sum_ms+VALUES(latency_sum_ms),
-		     latency_max_ms=GREATEST(latency_max_ms,VALUES(latency_max_ms))`,
-		e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS,
+		     latency_max_ms=GREATEST(latency_max_ms,VALUES(latency_max_ms)),
+		     bytes_resp=bytes_resp+VALUES(bytes_resp)`,
+		e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS, e.BytesResp,
 	)
 	return nil
 }
@@ -112,7 +114,7 @@ func (s *Store) RollupSeries(ctx context.Context, routeID int64, from, to time.T
 		return nil, nil
 	}
 	rows, err := db.QueryContext(ctx,
-		`SELECT bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms
+		`SELECT bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp
 		 FROM log_rollups
 		 WHERE route_id=? AND bucket_start>=? AND bucket_start<=?
 		 ORDER BY bucket_start ASC`,
@@ -125,7 +127,7 @@ func (s *Store) RollupSeries(ctx context.Context, routeID int64, from, to time.T
 	var out []RollupBucket
 	for rows.Next() {
 		var b RollupBucket
-		if err := rows.Scan(&b.BucketStart, &b.Requests, &b.Errors4xx, &b.Errors5xx, &b.LatencySumMs, &b.LatencyMaxMs); err == nil {
+		if err := rows.Scan(&b.BucketStart, &b.Requests, &b.Errors4xx, &b.Errors5xx, &b.LatencySumMs, &b.LatencyMaxMs, &b.BytesResp); err == nil {
 			out = append(out, b)
 		}
 	}
@@ -142,11 +144,11 @@ func (s *Store) RollupSummary(ctx context.Context, routeID int64, since time.Tim
 	var b RollupBucket
 	err := db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(requests),0),COALESCE(SUM(errors_4xx),0),COALESCE(SUM(errors_5xx),0),
-		        COALESCE(SUM(latency_sum_ms),0),COALESCE(MAX(latency_max_ms),0)
+		        COALESCE(SUM(latency_sum_ms),0),COALESCE(MAX(latency_max_ms),0),COALESCE(SUM(bytes_resp),0)
 		 FROM log_rollups
 		 WHERE route_id=? AND bucket_start>=?`,
 		routeID, since.UTC(),
-	).Scan(&b.Requests, &b.Errors4xx, &b.Errors5xx, &b.LatencySumMs, &b.LatencyMaxMs)
+	).Scan(&b.Requests, &b.Errors4xx, &b.Errors5xx, &b.LatencySumMs, &b.LatencyMaxMs, &b.BytesResp)
 	return b, err
 }
 

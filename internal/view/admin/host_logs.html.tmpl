@@ -135,6 +135,28 @@
       {{end}}
     </div>
 
+    <!-- Bandwidth 7d from rollups -->
+    <div class="hpg-card">
+      <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Bandwidth, 7d</p>
+      <div class="mt-2 flex items-baseline gap-2">
+        {{$bw := .TotalBandwidth7d}}
+        {{if ge $bw 1073741824}}
+        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{printf "%.1f" (divf $bw 1073741824)}}</span>
+        <span class="text-xs text-slate-500 dark:text-slate-400">GB</span>
+        {{else if ge $bw 1048576}}
+        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{printf "%.1f" (divf $bw 1048576)}}</span>
+        <span class="text-xs text-slate-500 dark:text-slate-400">MB</span>
+        {{else if ge $bw 1024}}
+        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{printf "%.1f" (divf $bw 1024)}}</span>
+        <span class="text-xs text-slate-500 dark:text-slate-400">KB</span>
+        {{else}}
+        <span class="text-2xl font-semibold tabular-nums text-slate-900 dark:text-slate-100">{{$bw}}</span>
+        <span class="text-xs text-slate-500 dark:text-slate-400">B</span>
+        {{end}}
+      </div>
+      <p class="mt-1 text-xs text-slate-500 dark:text-slate-400">from rollups</p>
+    </div>
+
     <!-- Protocol breakdown -->
     <div class="hpg-card">
       <p class="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Protocol, 24h</p>
