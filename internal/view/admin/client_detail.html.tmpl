@@ -153,6 +153,53 @@
     </form>
   </section>
 
+  {{if .ClientAudit}}
+  <!-- Recent activity audit section -->
+  <section class="hpg-card !p-0 overflow-hidden">
+    <div class="px-4 py-3 border-b border-slate-100 dark:border-zinc-800 flex items-center gap-2">
+      <svg class="w-4 h-4 text-slate-400 flex-shrink-0" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
+        <circle cx="10" cy="10" r="8"/><path stroke-linecap="round" d="M10 6v4l2.5 2.5"/>
+      </svg>
+      <h3 class="font-semibold text-sm text-slate-800 dark:text-slate-100">Recent activity</h3>
+    </div>
+    <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="text-left text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400 border-b border-slate-100 dark:border-zinc-800">
+        <tr>
+          <th class="px-4 py-2">Time</th>
+          <th class="px-4 py-2">Action</th>
+          <th class="px-4 py-2">Entity</th>
+          <th class="px-4 py-2">Actor</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+      {{range .ClientAudit}}
+      <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
+        <td class="px-4 py-2 font-mono text-[11px] text-slate-400 whitespace-nowrap">{{.FiredAt}}</td>
+        <td class="px-4 py-2">
+          {{$a := .Action}}
+          {{if hasPrefix $a "admin.host."}}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">{{$a}}</span>
+          {{else if hasPrefix $a "admin.service."}}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">{{$a}}</span>
+          {{else if hasPrefix $a "admin.client."}}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-violet-50 text-violet-700 dark:bg-violet-500/15 dark:text-violet-300">{{$a}}</span>
+          {{else if hasPrefix $a "client."}}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-50 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">{{$a}}</span>
+          {{else}}
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-medium bg-slate-100 text-slate-600 dark:bg-zinc-700 dark:text-slate-300">{{$a}}</span>
+          {{end}}
+        </td>
+        <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">{{.Entity}}</td>
+        <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">{{.Email}}</td>
+      </tr>
+      {{end}}
+      </tbody>
+    </table>
+    </div>
+  </section>
+  {{end}}
+
   <a href="/admin/clients" class="text-sm text-indigo-600 hover:underline">&larr; Back to clients</a>
 </div>
 {{end}}

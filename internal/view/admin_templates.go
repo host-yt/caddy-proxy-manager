@@ -70,6 +70,8 @@ func CommonFuncs() template.FuncMap {
 		},
 		// mulf multiplies two float64 values; used to format percentages.
 		"mulf": func(a, b float64) float64 { return a * b },
+		// hasPrefix reports whether s starts with prefix.
+		"hasPrefix": strings.HasPrefix,
 		// formatBytes converts a byte count to a human-readable string.
 		"formatBytes": func(n int64) string {
 			if n == 0 {

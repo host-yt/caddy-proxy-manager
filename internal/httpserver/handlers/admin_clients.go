@@ -164,12 +164,36 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// Load last 15 audit entries for this client's user.
+	arows, aerr := db.QueryContext(ctx,
+		`SELECT al.id, al.action, al.entity, COALESCE(u.email,''), DATE_FORMAT(al.created_at,'%Y-%m-%d %H:%i')
+		 FROM audit_log al LEFT JOIN users u ON u.id=al.user_id
+		 WHERE al.user_id = (SELECT user_id FROM clients WHERE id=?)
+		 ORDER BY al.id DESC LIMIT 15`, id)
+	if aerr == nil {
+		defer arows.Close()
+		for arows.Next() {
+			var row clientAuditRow
+			if scanErr := arows.Scan(&row.ID, &row.Action, &row.Entity, &row.Email, &row.FiredAt); scanErr == nil {
+				d.ClientAudit = append(d.ClientAudit, row)
+			}
+		}
+	}
+
 	// Load admin notes; ignore errors if column not yet migrated.
 	var notes sql.NullString
 	_ = db.QueryRowContext(ctx, "SELECT COALESCE(notes,'') FROM clients WHERE id=?", id).Scan(&notes)
 	d.Notes = notes.String
 
 	h.render(w, "client_detail", d)
+}
+
+type clientAuditRow struct {
+	ID      int64
+	Action  string
+	Entity  string
+	Email   string
+	FiredAt string
 }
 
 type clientDetailServiceRow struct {
@@ -205,8 +229,9 @@ type clientDetailData struct {
 	Routes           []clientDetailRouteRow
 	TotalRoutes      int
 	ActiveRoutes     int
-	BandwidthBytes7d int64  // last 7 days from host_access_log
-	Notes            string // admin-only internal notes
+	BandwidthBytes7d int64            // last 7 days from host_access_log
+	Notes            string           // admin-only internal notes
+	ClientAudit      []clientAuditRow // last 15 audit entries for this client
 }
 
 // ClientsExport streams the full client list as a CSV download.
