@@ -236,8 +236,14 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 	}
 	persistCancel()
 
-	// Build the model input: bounded prior history + this user turn.
+	// Build the model input: bounded prior history + this user turn. When tools
+	// are available we prepend a system prompt so the model knows it can query
+	// live HPG state via the read-only tools.
+	toolsAvailable := h.AITools != nil && providerSupportsTools(client.Provider())
 	msgs := buildChatMessages(history, content)
+	if toolsAvailable {
+		msgs = append([]aichat.Message{{Role: aichat.RoleSystem, Content: aiToolsSystemPrompt}}, msgs...)
+	}
 
 	// SSE setup. After this point we only emit SSE frames, never status codes.
 	w.Header().Set("Content-Type", "text/event-stream")
@@ -252,36 +258,45 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 
 	streamCtx, streamCancel := context.WithCancel(r.Context())
 	defer streamCancel()
-	ch, err := client.StreamChat(streamCtx, msgs, aichat.Options{Temperature: -1})
-	if err != nil {
-		sseError(w, rc, "AI request failed")
-		return
-	}
 
-	var b strings.Builder
-	for chunk := range ch {
-		if chunk.Err != nil {
-			h.Logger.Warn("ai chat stream", "err", chunk.Err)
+	var reply string
+	if toolsAvailable {
+		answer, err := h.runToolLoop(streamCtx, client, msgs)
+		if err != nil && !errors.Is(err, aichat.ErrToolsUnsupported) {
+			h.Logger.Warn("ai chat tool loop", "err", err)
 			sseError(w, rc, "stream error")
 			return
 		}
-		if chunk.Text != "" && b.Len() < chatAssistantCap {
-			b.WriteString(chunk.Text)
-			payload, _ := json.Marshal(map[string]string{"text": chunk.Text})
-			if _, werr := w.Write([]byte("data: " + string(payload) + "\n\n")); werr != nil {
-				return // client gone
+		if err == nil {
+			reply = answer
+			if len(reply) > chatAssistantCap {
+				reply = reply[:chatAssistantCap]
 			}
-			rc.Flush()
+			// Tool path is non-streaming; emit the final answer as one delta.
+			if reply != "" {
+				payload, _ := json.Marshal(map[string]string{"text": reply})
+				_, _ = w.Write([]byte("data: " + string(payload) + "\n\n"))
+				rc.Flush()
+			}
 		}
-		if chunk.Done {
-			break
+		// On ErrToolsUnsupported fall through to plain streaming below.
+		if err != nil {
+			toolsAvailable = false
 		}
+	}
+
+	if !toolsAvailable {
+		streamed, ok := h.streamReply(streamCtx, w, rc, client, buildChatMessages(history, content))
+		if !ok {
+			return // client gone or stream error already reported
+		}
+		reply = streamed
 	}
 
 	// Persist the full assistant reply. Use Background so a closed client
 	// connection does not abort the write of an already-generated answer.
 	saveCtx, saveCancel := context.WithTimeout(context.Background(), 5*time.Second)
-	assistantID, serr := h.ChatStore.AppendMessage(saveCtx, id, "assistant", b.String())
+	assistantID, serr := h.ChatStore.AppendMessage(saveCtx, id, "assistant", reply)
 	saveCancel()
 	if serr != nil {
 		h.Logger.Warn("ai chat send: append assistant", "err", serr)
@@ -291,6 +306,94 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 	donePayload, _ := json.Marshal(map[string]any{"id": assistantID})
 	_, _ = w.Write([]byte("event: done\ndata: " + string(donePayload) + "\n\n"))
 	rc.Flush()
+}
+
+// aiToolLoopCap bounds tool round-trips so a model cannot loop forever calling
+// tools (and burning provider cost) without ever returning a final answer.
+const aiToolLoopCap = 5
+
+// aiToolsSystemPrompt tells the model what the read-only tools are for. Kept
+// short; the tool schemas carry the per-tool detail.
+const aiToolsSystemPrompt = "You are the HPG (Hostyt Proxy Gateway) admin assistant. " +
+	"You can call read-only tools to inspect live state (nodes, routes, clients, services, traffic). " +
+	"Use them when the user asks about current state, then answer concisely. The tools never expose secrets."
+
+// providerSupportsTools reports whether the provider has a tool-calling adapter.
+// Gemini returns ErrToolsUnsupported, so it streams plainly.
+func providerSupportsTools(provider string) bool {
+	switch provider {
+	case "anthropic", "openai", "openrouter":
+		return true
+	default:
+		return false
+	}
+}
+
+// runToolLoop drives ChatWithTools: execute each requested tool, append the
+// results, and call again until the model returns a final text answer or the
+// iteration cap is hit. Returns ErrToolsUnsupported when the provider has no
+// tool path so the caller can fall back to plain streaming.
+func (h *AdminHandlers) runToolLoop(ctx context.Context, client aichat.Client, msgs []aichat.Message) (string, error) {
+	specs := h.AITools.Specs()
+	for i := 0; i < aiToolLoopCap; i++ {
+		turn, err := client.ChatWithTools(ctx, msgs, aichat.Options{Temperature: -1}, specs)
+		if err != nil {
+			return "", err
+		}
+		if len(turn.ToolCalls) == 0 {
+			return turn.Text, nil // final answer
+		}
+		// Record the assistant tool-call turn, then run each tool and feed the
+		// results back as RoleTool messages.
+		msgs = append(msgs, aichat.Message{Role: aichat.RoleAssistant, Content: turn.Text, ToolCalls: turn.ToolCalls})
+		for _, call := range turn.ToolCalls {
+			callCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
+			result, cerr := h.AITools.Call(callCtx, call.Name, call.Arguments)
+			cancel()
+			if cerr != nil {
+				h.Logger.Warn("ai tool call", "tool", call.Name, "err", cerr)
+				result = `{"error":"tool execution failed"}`
+			}
+			msgs = append(msgs, aichat.Message{Role: aichat.RoleTool, ToolCallID: call.ID, Content: result})
+		}
+	}
+	// Cap hit: make one last plain call so the user still gets an answer.
+	turn, err := client.ChatWithTools(ctx, msgs, aichat.Options{Temperature: -1}, nil)
+	if err != nil {
+		return "", err
+	}
+	return turn.Text, nil
+}
+
+// streamReply runs a plain StreamChat and pumps deltas to the client. It returns
+// the buffered reply and false when the client disconnected or an error frame
+// was already emitted.
+func (h *AdminHandlers) streamReply(ctx context.Context, w http.ResponseWriter, rc *http.ResponseController, client aichat.Client, msgs []aichat.Message) (string, bool) {
+	ch, err := client.StreamChat(ctx, msgs, aichat.Options{Temperature: -1})
+	if err != nil {
+		sseError(w, rc, "AI request failed")
+		return "", false
+	}
+	var b strings.Builder
+	for chunk := range ch {
+		if chunk.Err != nil {
+			h.Logger.Warn("ai chat stream", "err", chunk.Err)
+			sseError(w, rc, "stream error")
+			return "", false
+		}
+		if chunk.Text != "" && b.Len() < chatAssistantCap {
+			b.WriteString(chunk.Text)
+			payload, _ := json.Marshal(map[string]string{"text": chunk.Text})
+			if _, werr := w.Write([]byte("data: " + string(payload) + "\n\n")); werr != nil {
+				return "", false // client gone
+			}
+			rc.Flush()
+		}
+		if chunk.Done {
+			break
+		}
+	}
+	return b.String(), true
 }
 
 // buildChatMessages maps stored history (bounded to the last chatHistoryLimit

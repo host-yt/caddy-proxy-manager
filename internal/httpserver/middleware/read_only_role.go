@@ -24,7 +24,17 @@ func ReadOnlyRole(role string) func(http.Handler) http.Handler {
 
 // ReadOnlyRoleAllowList blocks state-changing requests for role and limits its
 // safe-method access to exact paths or path.Match-style glob patterns.
-func ReadOnlyRoleAllowList(role string, allowed []string) func(http.Handler) http.Handler {
+//
+// writeAllowed (optional) lists paths where the role may also use unsafe methods
+// (POST/PUT/...). This is for surfaces that are read-only in effect but need a
+// POST to function - e.g. the AI assistant, which only drives read-only tools
+// yet must persist its own conversation. Such paths must still match the safe
+// allow-list too (a write-allowed path is also readable).
+func ReadOnlyRoleAllowList(role string, allowed []string, writeAllowed ...[]string) func(http.Handler) http.Handler {
+	var writePatterns []string
+	if len(writeAllowed) > 0 {
+		writePatterns = writeAllowed[0]
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sess := SessionFromContext(r.Context())
@@ -33,7 +43,11 @@ func ReadOnlyRoleAllowList(role string, allowed []string) func(http.Handler) htt
 				return
 			}
 			if !isSafeMethod(r.Method) {
-				http.Error(w, "read-only role", http.StatusForbidden)
+				if !pathAllowed(r.URL.Path, writePatterns) {
+					http.Error(w, "read-only role", http.StatusForbidden)
+					return
+				}
+				next.ServeHTTP(w, r) // write explicitly permitted for this path
 				return
 			}
 			if !pathAllowed(r.URL.Path, allowed) {

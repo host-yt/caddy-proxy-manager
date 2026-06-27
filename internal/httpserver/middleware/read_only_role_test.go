@@ -85,6 +85,42 @@ func TestReadOnlyRoleAllowList(t *testing.T) {
 	}
 }
 
+func TestReadOnlyRoleAllowListWriteAllowed(t *testing.T) {
+	mw := ReadOnlyRoleAllowList("support",
+		[]string{"/admin/ai/chat", "/admin/ai/chat/sessions", "/admin/ai/chat/sessions/*/message"},
+		[]string{"/admin/ai/chat/sessions", "/admin/ai/chat/sessions/*/message"})
+
+	tests := []struct {
+		name       string
+		method     string
+		target     string
+		wantStatus int
+		wantCalled bool
+	}{
+		{"support POST allowed AI message", http.MethodPost, "/admin/ai/chat/sessions/5/message", http.StatusNoContent, true},
+		{"support POST allowed create session", http.MethodPost, "/admin/ai/chat/sessions", http.StatusNoContent, true},
+		{"support GET AI page", http.MethodGet, "/admin/ai/chat", http.StatusNoContent, true},
+		{"support POST not in write list blocked", http.MethodPost, "/admin/hosts/new", http.StatusForbidden, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			called := false
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				called = true
+				w.WriteHeader(http.StatusNoContent)
+			})
+			rr := httptest.NewRecorder()
+			mw(next).ServeHTTP(rr, requestWithRole(tt.method, tt.target, "support"))
+			if rr.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", rr.Code, tt.wantStatus)
+			}
+			if called != tt.wantCalled {
+				t.Fatalf("called = %v, want %v", called, tt.wantCalled)
+			}
+		})
+	}
+}
+
 func requestWithRole(method, target, role string) *http.Request {
 	r := httptest.NewRequest(method, target, nil)
 	ctx := context.WithValue(r.Context(), sessionCtxKey, &auth.Session{Role: role})

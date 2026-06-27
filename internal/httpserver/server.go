@@ -283,6 +283,17 @@ func (s *Server) routes() {
 			"/admin/waf",
 			"/admin/waf.json",
 			"/admin/waf/export",
+			// AI assistant is read-only (tools are SELECT-only); support may use it.
+			"/admin/ai/chat",
+			"/admin/ai/chat/sessions",
+			"/admin/ai/chat/sessions/*",
+			"/admin/ai/chat/sessions/*/message",
+		}, []string{
+			// Writes the assistant needs to persist its own conversation. Safe:
+			// the tools it can run are read-only and never mutate HPG state.
+			"/admin/ai/chat/sessions",
+			"/admin/ai/chat/sessions/*",
+			"/admin/ai/chat/sessions/*/message",
 		}))
 		// Enforce 2FA enrollment for admins when REQUIRE_ADMIN_2FA (env) or the
 		// security.require_admin_2fa settings row is on. Bypasses enrollment +

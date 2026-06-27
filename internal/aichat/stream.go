@@ -3,6 +3,7 @@ package aichat
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -108,6 +109,28 @@ func doVerify(req *http.Request) error {
 		return statusErr(resp)
 	}
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	return nil
+}
+
+// doJSON issues a non-streaming request and decodes a 2xx JSON body into out.
+// Used by the tool-calling path. The body is size-capped so a hostile/oversized
+// response cannot exhaust memory. Errors never echo the key or request headers.
+func doJSON(req *http.Request, out any) error {
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("aichat: request failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return statusErr(resp)
+	}
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	if err != nil {
+		return fmt.Errorf("aichat: read response: %w", err)
+	}
+	if err := json.Unmarshal(body, out); err != nil {
+		return fmt.Errorf("aichat: decode response: %w", err)
+	}
 	return nil
 }
 
