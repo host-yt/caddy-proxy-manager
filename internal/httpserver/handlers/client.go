@@ -182,14 +182,14 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		 JOIN services s ON s.id=r.service_id
 		 WHERE s.client_id=? AND lr.bucket_start >= NOW()-INTERVAL 7 DAY`, clientID).Scan(&bw7d)
 	d.TotalBandwidth7d = formatBytes(bw7d)
-	// 24h request + error counts.
+	// 24h request + error counts from rollups.
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*),
-		        SUM(CASE WHEN l.status >= 400 THEN 1 ELSE 0 END)
-		 FROM host_access_log l
-		 JOIN routes r ON r.id = l.route_id
+		`SELECT COALESCE(SUM(lr.requests),0),
+		        COALESCE(SUM(lr.errors_4xx + lr.errors_5xx),0)
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id = lr.route_id
 		 JOIN services s ON s.id = r.service_id
-		 WHERE s.client_id = ? AND l.ts >= NOW() - INTERVAL 24 HOUR`, clientID,
+		 WHERE s.client_id = ? AND lr.bucket_start >= NOW() - INTERVAL 24 HOUR`, clientID,
 	).Scan(&d.Requests24h, &d.Errors24h)
 	// 30-day per-day bandwidth from pre-aggregated rollups (hourly buckets).
 	// Avoids a full scan of raw host_access_log on large installations.
