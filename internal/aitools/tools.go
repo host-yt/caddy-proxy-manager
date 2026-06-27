@@ -136,6 +136,14 @@ func (r *Registry) builtins() []Tool {
 			Exec:        r.nodeDetail,
 		},
 		{
+			Name:           "get_service_detail",
+			Description:    "Look up a service by name or numeric ID. Returns status, plan name, route count, 30d bandwidth and created date. Admin sees backend IP; scoped callers see only their own services.",
+			Schema:         identifierSchema,
+			Exec:           r.serviceDetail,
+			clientRelevant: true,
+			scopedExec:     r.serviceDetailScoped,
+		},
+		{
 			Name:        "list_active_alerts",
 			Description: "List alerts fired in the last N hours (default 24, max 720). Filter by severity (info/warning/critical). Returns rule_id, severity, title, fired_at. Useful for system health checks.",
 			Schema:      listActiveAlertsSchema,
@@ -1068,6 +1076,56 @@ func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string,
 		return "", err
 	}
 	return toJSON(res)
+}
+
+func (r *Registry) serviceDetail(ctx context.Context, raw json.RawMessage) (string, error) {
+	var args struct {
+		Identifier string `json:"identifier"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	id := strings.TrimSpace(args.Identifier)
+	if id == "" {
+		return `{"error":"identifier required"}`, nil
+	}
+	db := r.db
+	if db == nil {
+		return `{"error":"db unavailable"}`, nil
+	}
+	numID, _ := strconv.ParseInt(id, 10, 64)
+	type res struct {
+		ID          int64  `json:"id"`
+		Name        string `json:"name"`
+		Status      string `json:"status"`
+		BackendIP   string `json:"backend_ip"`
+		Plan        string `json:"plan"`
+		NodeGroup   string `json:"node_group"`
+		RouteCount  int    `json:"route_count"`
+		Bandwidth30d int64 `json:"bandwidth_30d_bytes"`
+		CreatedAt   string `json:"created_at"`
+	}
+	var r2 res
+	err := db.QueryRowContext(ctx,
+		`SELECT s.id, s.name, s.status, s.backend_ip,
+		        p.name, ng.name,
+		        COUNT(DISTINCT ro.id),
+		        COALESCE(SUM(lr.bytes_resp+COALESCE(lr.bytes_req,0)),0),
+		        DATE_FORMAT(s.created_at,'%Y-%m-%dT%H:%i:%sZ')
+		 FROM services s
+		 JOIN plans p ON p.id = s.plan_id
+		 JOIN node_groups ng ON ng.id = s.node_group_id
+		 LEFT JOIN routes ro ON ro.service_id = s.id
+		 LEFT JOIN log_rollups lr ON lr.route_id = ro.id AND lr.ts >= NOW() - INTERVAL 30 DAY
+		 WHERE s.id = ? OR s.name = ?
+		 GROUP BY s.id`, numID, id,
+	).Scan(&r2.ID, &r2.Name, &r2.Status, &r2.BackendIP,
+		&r2.Plan, &r2.NodeGroup, &r2.RouteCount, &r2.Bandwidth30d, &r2.CreatedAt)
+	if err == sql.ErrNoRows {
+		return `{"error":"service not found"}`, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return toJSON(r2)
 }
 
 func (r *Registry) listActiveAlerts(ctx context.Context, raw json.RawMessage) (string, error) {

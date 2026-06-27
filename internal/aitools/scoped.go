@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -423,6 +424,58 @@ func (r *Registry) wafEventsScoped(ctx context.Context, scope Scope, raw json.Ra
 		return "", err
 	}
 	return toJSON(map[string]any{"window_hours": hours, "count": len(out), "events": out})
+}
+
+// serviceDetailScoped looks up one service by name or ID, enforcing client ownership.
+// backend_ip is not returned - admin-only column.
+func (r *Registry) serviceDetailScoped(ctx context.Context, scope Scope, raw json.RawMessage) (string, error) {
+	var args struct {
+		Identifier string `json:"identifier"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	id := strings.TrimSpace(args.Identifier)
+	if id == "" {
+		return `{"error":"identifier required"}`, nil
+	}
+	in, idArgs, ok := inPlaceholders(scope.ClientIDs)
+	if !ok {
+		return `{"error":"service not found"}`, nil
+	}
+	numID, _ := strconv.ParseInt(id, 10, 64)
+	type res struct {
+		ID           int64  `json:"id"`
+		Name         string `json:"name"`
+		Status       string `json:"status"`
+		Plan         string `json:"plan"`
+		NodeGroup    string `json:"node_group"`
+		RouteCount   int    `json:"route_count"`
+		Bandwidth30d int64  `json:"bandwidth_30d_bytes"`
+		CreatedAt    string `json:"created_at"`
+	}
+	var r2 res
+	q := `SELECT s.id, s.name, s.status,
+	             p.name, ng.name,
+	             COUNT(DISTINCT ro.id),
+	             COALESCE(SUM(lr.bytes_resp+COALESCE(lr.bytes_req,0)),0),
+	             DATE_FORMAT(s.created_at,'%Y-%m-%dT%H:%i:%sZ')
+	      FROM services s
+	      JOIN plans p ON p.id = s.plan_id
+	      JOIN node_groups ng ON ng.id = s.node_group_id
+	      LEFT JOIN routes ro ON ro.service_id = s.id
+	      LEFT JOIN log_rollups lr ON lr.route_id = ro.id AND lr.ts >= NOW() - INTERVAL 30 DAY
+	      WHERE (s.id = ? OR s.name = ?) AND s.client_id IN ` + in + `
+	      GROUP BY s.id`
+	args2 := append([]any{numID, id}, idArgs...)
+	err := r.db.QueryRowContext(ctx, q, args2...).Scan(
+		&r2.ID, &r2.Name, &r2.Status, &r2.Plan, &r2.NodeGroup,
+		&r2.RouteCount, &r2.Bandwidth30d, &r2.CreatedAt)
+	if err == sql.ErrNoRows {
+		return `{"error":"service not found"}`, nil
+	}
+	if err != nil {
+		return "", err
+	}
+	return toJSON(r2)
 }
 
 // auditLogScoped returns audit events for the caller's own user account.
