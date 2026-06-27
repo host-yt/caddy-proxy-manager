@@ -31,7 +31,7 @@
     </span>
     <div class="min-w-0 flex-1">
       <p class="t-eyebrow">Pending</p>
-      <p class="t-display {{if .Counts.PendingHosts}}" style="color:rgb(var(--warning)){{end}}">{{.Counts.PendingHosts}}</p>
+      <p class="t-display" {{if .Counts.PendingHosts}}style="color:rgb(var(--warning))"{{end}}>{{.Counts.PendingHosts}}</p>
       <p class="t-caption">awaiting DNS/SSL</p>
     </div>
   </div>
@@ -43,7 +43,7 @@
     <div class="min-w-0 flex-1">
       <p class="t-eyebrow">Nodes online</p>
       <p class="t-display">{{.Counts.NodesOnline}}<span class="t-body" style="color:rgb(var(--muted))">/{{.Counts.NodesTotal}}</span></p>
-      <p class="t-caption {{if lt .Counts.NodesOnline .Counts.NodesTotal}}" style="color:rgb(var(--warning)){{else}}" style="color:rgb(var(--success)){{end}}">{{if lt .Counts.NodesOnline .Counts.NodesTotal}}degraded{{else}}healthy{{end}}</p>
+      <p class="t-caption" {{if lt .Counts.NodesOnline .Counts.NodesTotal}}style="color:rgb(var(--warning))"{{else}}style="color:rgb(var(--success))"{{end}}>{{if lt .Counts.NodesOnline .Counts.NodesTotal}}degraded{{else}}healthy{{end}}</p>
     </div>
   </div>
 
