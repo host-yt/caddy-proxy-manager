@@ -3,12 +3,17 @@
 
   <div class="flex flex-wrap items-center justify-between gap-3 mb-2">
     <span></span>
-    <form method="POST" action="/admin/alerts/test-fire" class="inline">
-      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <button class="px-3 py-1.5 rounded-lg ring-1 ring-amber-300 dark:ring-amber-600 text-amber-700 dark:text-amber-300 text-sm hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors cursor-pointer">
-        Send test alert
-      </button>
-    </form>
+    <div class="flex items-center gap-2">
+      <a href="/admin/alerts/export.csv{{if .RuleFilter}}?rule_id={{.RuleFilter}}{{end}}" class="px-3 py-1.5 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 text-slate-600 dark:text-slate-300 text-sm hover:bg-slate-50 dark:hover:bg-zinc-700 transition-colors cursor-pointer" download>
+        Export CSV
+      </a>
+      <form method="POST" action="/admin/alerts/test-fire" class="inline">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="px-3 py-1.5 rounded-lg ring-1 ring-amber-300 dark:ring-amber-600 text-amber-700 dark:text-amber-300 text-sm hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors cursor-pointer">
+          Send test alert
+        </button>
+      </form>
+    </div>
   </div>
 
   <div class="flex flex-wrap items-center gap-2 text-sm">

@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"encoding/csv"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -133,6 +135,57 @@ func (h *AdminHandlers) AlertsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, "alerts", d)
+}
+
+// AlertsExport streams alert_log rows as CSV (last 5000, same filters as AlertsPage).
+func (h *AdminHandlers) AlertsExport(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	defer cancel()
+
+	ruleID := r.URL.Query().Get("rule_id")
+	since := r.URL.Query().Get("since")
+
+	where := []string{"1=1"}
+	args := []any{}
+	if ruleID != "" {
+		where = append(where, "rule_id = ?")
+		args = append(args, ruleID)
+	}
+	if since != "" {
+		where = append(where, "fired_at >= ?")
+		args = append(args, since)
+	}
+	args = append(args, 5000)
+
+	rows, err := db.QueryContext(ctx,
+		"SELECT id, rule_id, severity, title, COALESCE(detail,''), DATE_FORMAT(fired_at,'%Y-%m-%dT%H:%i:%sZ') FROM alert_log WHERE "+
+			strings.Join(where, " AND ")+" ORDER BY id DESC LIMIT ?",
+		args...)
+	if err != nil {
+		http.Error(w, "query failed", http.StatusInternalServerError)
+		return
+	}
+	defer rows.Close()
+
+	w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+	w.Header().Set("Content-Disposition", "attachment; filename=alerts.csv")
+
+	cw := csv.NewWriter(w)
+	_ = cw.Write([]string{"id", "rule_id", "severity", "title", "detail", "fired_at"})
+	for rows.Next() {
+		var id int64
+		var rule, sev, title, detail, firedAt string
+		if err := rows.Scan(&id, &rule, &sev, &title, &detail, &firedAt); err != nil {
+			continue
+		}
+		_ = cw.Write(csvSafeRow([]string{strconv.FormatInt(id, 10), rule, sev, title, detail, firedAt}))
+	}
+	cw.Flush()
 }
 
 // AlertsTestFire handles POST /admin/alerts/test-fire - dispatches a manual test alert.
