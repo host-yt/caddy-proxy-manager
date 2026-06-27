@@ -153,6 +153,34 @@ func (h *AdminHandlers) WebhooksDelete(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/webhooks", "deleted", "")
 }
 
+// WebhookDeliveryRetry POST /admin/webhooks/deliveries/{did}/retry — resets a failed delivery to pending.
+func (h *AdminHandlers) WebhookDeliveryRetry(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	did, _ := strconv.ParseInt(chi.URLParam(r, "did"), 10, 64)
+	if did == 0 {
+		redirectWithFlash(w, r, "/admin/webhooks", "", "invalid delivery id")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	res, err := db.ExecContext(ctx,
+		"UPDATE webhook_deliveries SET status=?, next_retry_at=NOW() WHERE id=? AND status IN (?, ?, ?)",
+		"pending", did, "failed", "dead", "error")
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/webhooks", "", "update failed: "+sanitizeErr(err))
+		return
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		redirectWithFlash(w, r, "/admin/webhooks", "", "delivery not found or already pending")
+		return
+	}
+	redirectWithFlash(w, r, "/admin/webhooks", "Delivery queued for retry", "")
+}
+
 // WebhooksTest POST /admin/webhooks/{id}/test — emits a synthetic event so
 // the operator can confirm signature + delivery before relying on it.
 func (h *AdminHandlers) WebhooksTest(w http.ResponseWriter, r *http.Request) {

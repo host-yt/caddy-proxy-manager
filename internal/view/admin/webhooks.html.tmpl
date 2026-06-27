@@ -94,6 +94,7 @@
           <th class="px-4 py-2 font-medium">Tries</th>
           <th class="px-4 py-2 font-medium">Created</th>
           <th class="px-4 py-2 font-medium">Error</th>
+          <th class="px-4 py-2 font-medium"></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
@@ -103,17 +104,26 @@
           <td class="px-4 py-3">{{.EndpointID}}</td>
           <td class="px-4 py-3 text-xs">{{.EventType}}</td>
           <td class="px-4 py-3">
-            {{if eq .Status "success"}}<span class="hpg-pill hpg-pill-ok">{{.Status}}</span>
-            {{else if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>
-            {{else}}<span class="hpg-pill hpg-pill-warn">{{.Status}}</span>{{end}}
+            {{if or (eq .Status "success") (eq .Status "delivered")}}<span class="hpg-pill hpg-pill-ok">{{.Status}}</span>
+            {{else if or (eq .Status "failed") (eq .Status "dead") (eq .Status "error")}}<span class="hpg-pill hpg-pill-err">{{.Status}}</span>
+            {{else if eq .Status "pending"}}<span class="hpg-pill hpg-pill-warn">{{.Status}}</span>
+            {{else}}<span class="hpg-pill hpg-pill-muted">{{.Status}}</span>{{end}}
           </td>
           <td class="px-4 py-3">{{if .HTTPCode}}{{.HTTPCode}}{{else}}-{{end}}</td>
           <td class="px-4 py-3">{{.Attempts}}</td>
           <td class="px-4 py-3 text-xs text-slate-500">{{.CreatedAt}}</td>
           <td class="px-4 py-3 text-xs text-rose-600">{{.LastError}}</td>
+          <td class="px-4 py-3">
+            {{if or (eq .Status "failed") (eq .Status "dead") (eq .Status "error")}}
+            <form method="POST" action="/admin/webhooks/deliveries/{{.ID}}/retry" class="inline">
+              <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+              <button type="submit" class="text-xs px-2 py-0.5 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition-colors cursor-pointer">retry</button>
+            </form>
+            {{end}}
+          </td>
         </tr>
         {{else}}
-        <tr><td colspan="8" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No deliveries yet.</td></tr>
+        <tr><td colspan="9" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No deliveries yet.</td></tr>
         {{end}}
       </tbody>
     </table></div>
