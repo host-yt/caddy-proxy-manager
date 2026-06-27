@@ -392,7 +392,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	adminH.AlertCfg = alertEval.Cfg
 	clientH := &handlers.ClientHandlers{
 		DB: wizard.DB, Sessions: sessions, Templates: appTpls, Routes: routesSvc, Logger: logger,
-		State: state, SMS: smsSvc, Mailer: mailer,
+		State: state, SMS: smsSvc, Mailer: mailer, AccessLogs: alStore,
 	}
 
 	// Built-in forward-auth portal: local access groups + per-route grants +

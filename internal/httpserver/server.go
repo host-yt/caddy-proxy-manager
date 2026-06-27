@@ -564,6 +564,7 @@ func (s *Server) routes() {
 			r.Post("/{id}/delete", s.deps.Client.RouteDelete)
 			r.Post("/{id}/verify-dns", s.deps.Client.RouteVerifyDNS)
 			r.Post("/{id}/retry-ssl", s.deps.Client.RouteRetrySSL)
+			r.Get("/{id}/logs", s.deps.Client.RouteLogs)
 		})
 		r.Route("/2fa", func(r chi.Router) {
 			r.Get("/", s.deps.Client.TwoFAPage)
