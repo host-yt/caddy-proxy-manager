@@ -58,6 +58,18 @@
     {{end}}
   </div>
   {{end}}
+  {{if and .RouteDomain (gt .Filter.RouteID 0)}}
+  <div class="flex items-center gap-2 text-xs">
+    <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30 font-mono">
+      <!-- Filter icon -->
+      <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+      </svg>
+      Filtered to: {{.RouteDomain}}
+    </span>
+    <a href="/admin/waf" class="text-slate-500 hover:text-rose-600 dark:hover:text-rose-400 transition-colors" title="Clear route filter">clear ×</a>
+  </div>
+  {{end}}
 
   <!-- Filter form -->
   <form method="GET" action="/admin/waf"
@@ -119,6 +131,13 @@
       <input type="date" name="to"
         value="{{if not .Filter.To.IsZero}}{{.Filter.To.Format "2006-01-02"}}{{end}}"
         class="px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 transition-colors">
+    </div>
+    <!-- Route ID -->
+    <div class="flex flex-col gap-1">
+      <label class="text-xs font-medium text-slate-500 dark:text-slate-400">Route ID</label>
+      <input type="number" name="route_id" placeholder="0" min="0"
+        value="{{if gt .Filter.RouteID 0}}{{.Filter.RouteID}}{{end}}"
+        class="w-24 px-2 py-1.5 rounded-lg text-xs ring-1 ring-slate-200 dark:ring-zinc-700 bg-white dark:bg-zinc-900 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-indigo-400 font-mono transition-colors">
     </div>
     <!-- Actions -->
     <div class="flex items-center gap-2 ml-auto">
