@@ -153,6 +153,29 @@ func (h *AdminHandlers) AdminSearch(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// plans - by name
+	rows7p, err := db.QueryContext(ctx,
+		`SELECT p.id, p.name, p.max_domains, ng.name FROM plans p
+		 JOIN node_groups ng ON ng.id = p.node_group_id
+		 WHERE p.name LIKE ? ORDER BY p.name LIMIT ?`,
+		like, limit)
+	if err == nil {
+		defer rows7p.Close()
+		for rows7p.Next() {
+			var id int64
+			var name, ng string
+			var maxDomains int
+			if rows7p.Scan(&id, &name, &maxDomains, &ng) == nil {
+				results = append(results, SearchResult{
+					Kind:  "plan",
+					Label: name,
+					Sub:   ng + " · " + strconv.Itoa(maxDomains) + " domains",
+					URL:   "/admin/plans",
+				})
+			}
+		}
+	}
+
 	// webhook endpoints - by name
 	rows7, err := db.QueryContext(ctx,
 		`SELECT id, name, is_enabled FROM webhook_endpoints WHERE name LIKE ? ORDER BY id DESC LIMIT ?`,
