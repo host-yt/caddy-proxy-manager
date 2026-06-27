@@ -6,6 +6,7 @@ package aichat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -18,12 +19,44 @@ const (
 	RoleSystem    Role = "system"
 	RoleUser      Role = "user"
 	RoleAssistant Role = "assistant"
+	// RoleTool carries a tool execution result back to the model. The matching
+	// ToolCallID ties it to the assistant turn that requested the call.
+	RoleTool Role = "tool"
 )
 
-// Message is one turn in a conversation.
+// Message is one turn in a conversation. For the tool round-trip an assistant
+// message may carry ToolCalls (the model asking to run tools) and a tool-result
+// message uses RoleTool with ToolCallID + Content.
 type Message struct {
 	Role    Role
 	Content string
+	// ToolCalls is set on an assistant message that requested tool execution.
+	ToolCalls []ToolCall
+	// ToolCallID links a RoleTool result back to the originating ToolCall.
+	ToolCallID string
+}
+
+// ToolSpec describes a tool the model may call. Schema is the JSON-schema for
+// the tool's parameters (a JSON object schema).
+type ToolSpec struct {
+	Name        string
+	Description string
+	Schema      json.RawMessage
+}
+
+// ToolCall is one tool invocation the model requested. Arguments is the raw JSON
+// object the model produced for the tool's parameters.
+type ToolCall struct {
+	ID        string
+	Name      string
+	Arguments json.RawMessage
+}
+
+// Turn is the result of one non-streaming ChatWithTools round. When len(ToolCalls)
+// > 0 the model wants tools run; otherwise Text holds the final answer.
+type Turn struct {
+	Text      string
+	ToolCalls []ToolCall
 }
 
 // Options tunes a single StreamChat call. Zero values fall back to per-adapter
@@ -53,6 +86,12 @@ type Client interface {
 	// error arrives as a final Chunk with Err set (then the channel closes).
 	// Cancel via ctx. Provider is the lowercase provider id (e.g. "anthropic").
 	StreamChat(ctx context.Context, msgs []Message, opts Options) (<-chan Chunk, error)
+	// ChatWithTools runs one non-streaming completion with tool-calling enabled.
+	// It returns a Turn: either ToolCalls the model wants executed, or final
+	// Text. The caller drives the tool loop (execute, append RoleTool results,
+	// call again). Providers without tool support return ErrToolsUnsupported so
+	// the caller can fall back to plain StreamChat.
+	ChatWithTools(ctx context.Context, msgs []Message, opts Options, tools []ToolSpec) (*Turn, error)
 	// Verify performs a minimal 1-token, non-streaming call to confirm the key
 	// works. Returns nil on success; never leaks the key in the error.
 	Verify(ctx context.Context) error
@@ -66,6 +105,9 @@ var (
 	ErrNotConfigured = errors.New("aichat: no AI provider configured")
 	// ErrUnknownProvider means the configured provider id is not supported.
 	ErrUnknownProvider = errors.New("aichat: unknown AI provider")
+	// ErrToolsUnsupported means this provider/adapter has no tool-calling path;
+	// the caller should fall back to plain StreamChat.
+	ErrToolsUnsupported = errors.New("aichat: tools unsupported for this provider")
 )
 
 // NotConfiguredError wraps ErrNotConfigured with the offending provider id so

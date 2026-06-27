@@ -95,6 +95,13 @@ func (c *geminiClient) StreamChat(ctx context.Context, msgs []Message, opts Opti
 	return doStream(ctx, req, parseGeminiLine)
 }
 
+// ChatWithTools is not implemented for Gemini: its function-calling wire shape
+// (functionCall/functionResponse parts, no stable call IDs) does not map cleanly
+// onto the shared ToolCall round-trip, so callers fall back to plain streaming.
+func (c *geminiClient) ChatWithTools(ctx context.Context, msgs []Message, opts Options, tools []ToolSpec) (*Turn, error) {
+	return nil, ErrToolsUnsupported
+}
+
 func (c *geminiClient) Verify(ctx context.Context) error {
 	model := defaultStr("", geminiDefaultModel)
 	body := c.buildBody([]Message{{Role: RoleUser, Content: "ping"}}, Options{MaxTokens: 1, Temperature: -1})
