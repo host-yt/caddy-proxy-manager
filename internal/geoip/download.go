@@ -48,6 +48,27 @@ func DownloadCountryMMDB(ctx context.Context, accountID, licenseKey string) ([]b
 	return ExtractMMDBFromTarGz(resp.Body)
 }
 
+// MaxMindASNDownloadURL is the MaxMind permalink for GeoLite2-ASN.
+const MaxMindASNDownloadURL = "https://download.maxmind.com/geoip/databases/GeoLite2-ASN/download?suffix=tar.gz"
+
+// DownloadASNMMDB fetches the GeoLite2-ASN tar.gz from MaxMind and returns the mmdb bytes.
+func DownloadASNMMDB(ctx context.Context, accountID, licenseKey string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, MaxMindASNDownloadURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.SetBasicAuth(accountID, licenseKey)
+	resp, err := downloadClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("maxmind ASN download: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("maxmind ASN download: status %d", resp.StatusCode)
+	}
+	return ExtractMMDBFromTarGz(resp.Body)
+}
+
 // ExtractMMDBFromTarGz gunzips+untars the stream and returns the single .mmdb
 // entry. Errors if there are zero or more than one .mmdb files (ambiguous).
 func ExtractMMDBFromTarGz(src io.Reader) ([]byte, error) {

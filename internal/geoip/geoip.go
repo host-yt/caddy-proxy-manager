@@ -16,6 +16,9 @@ import (
 // of band). Kept here so the builder and deploy path agree on one location.
 const DBPath = "/data/geoip/GeoLite2-Country.mmdb"
 
+// ASNDBPath is where the GeoLite2-ASN mmdb lives on each node.
+const ASNDBPath = "/data/geoip/GeoLite2-ASN.mmdb"
+
 // NormalizeCountries sanitizes a raw user list of country codes into a canonical
 // "PL,DE,US" form: uppercased, trimmed, de-duped, sorted, keeping only valid
 // ISO 3166-1 alpha-2 tokens (exactly two A-Z letters). Junk tokens are dropped.
