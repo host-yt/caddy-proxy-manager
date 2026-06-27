@@ -15,6 +15,7 @@
 <!-- htmx (self-hosted; XHR-based, covered by CSP connect-src 'self'). Used for
      progressive row-scoped swaps; every hx-* action degrades to a full POST. -->
 <script src="/static/js/htmx.min.js" nonce="{{.Data.CSPNonce}}" defer></script>
+<script src="/static/js/cmdk.js" nonce="{{.Data.CSPNonce}}" defer></script>
 <style>
   /* Global form-control dark-mode safety net (see install/_layout for context). */
   input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
@@ -403,7 +404,7 @@
 </div>
 
 <!-- Command palette overlay -->
-<div id="hpg-palette" class="fixed inset-0 z-[60] hidden items-start justify-center pt-20 bg-black/50 backdrop-blur-sm p-4" role="dialog" aria-modal="true" aria-label="Command palette">
+<div id="hpg-palette" class="fixed inset-0 z-[60] items-start justify-center pt-20 p-4" style="display:none;background:rgba(0,0,0,.5);backdrop-filter:blur(4px)" role="dialog" aria-modal="true" aria-label="Command palette">
   <div class="rounded-[var(--r-lg,16px)] border w-full max-w-xl overflow-hidden" style="background:rgb(var(--surface));border-color:rgb(var(--border));box-shadow:var(--shadow-soft)">
     <div class="flex items-center gap-2 px-4 py-3 border-b" style="border-color:rgb(var(--border))">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
