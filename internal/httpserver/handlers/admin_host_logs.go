@@ -312,7 +312,7 @@ func (h *AdminHandlers) HostsLogsExport(w http.ResponseWriter, r *http.Request) 
 		w.Header().Set("Content-Type", "text/csv; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="`+filename+`"`)
 		cw := csv.NewWriter(w)
-		_ = cw.Write([]string{"id", "ts", "method", "uri", "status", "latency_ms", "bytes_resp", "bytes_req", "proto", "country", "remote_ip", "user_agent"})
+		_ = cw.Write([]string{"id", "ts", "method", "uri", "status", "latency_ms", "bytes_resp", "bytes_req", "proto", "country", "asn_org", "remote_ip", "user_agent"})
 		for i, e := range entries {
 			_ = cw.Write(csvSafeRow([]string{
 				strconv.FormatInt(e.ID, 10),
@@ -325,6 +325,7 @@ func (h *AdminHandlers) HostsLogsExport(w http.ResponseWriter, r *http.Request) 
 				strconv.FormatInt(e.BytesReq, 10),
 				e.Proto,
 				e.Country,
+				e.ASNOrg,
 				e.RemoteIP,
 				e.UserAgent,
 			}))
