@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -50,6 +51,9 @@ func parseLogsFilter(r *http.Request) accesslog.Filter {
 	f.Method = q.Get("method")
 	f.RemoteIP = q.Get("remote_ip")
 	f.URIPattern = q.Get("uri")
+	if cc := strings.ToUpper(strings.TrimSpace(q.Get("country"))); len(cc) == 2 {
+		f.Country = cc
+	}
 	if s := q.Get("from"); s != "" {
 		f.From, _ = time.Parse("2006-01-02", s)
 	}
@@ -65,7 +69,7 @@ func parseLogsFilter(r *http.Request) accesslog.Filter {
 // hasFilter reports whether any filter field is set.
 func hasFilter(f accesslog.Filter) bool {
 	return f.StatusMin > 0 || f.StatusMax > 0 || f.Method != "" ||
-		f.RemoteIP != "" || f.URIPattern != "" || !f.From.IsZero() || !f.To.IsZero()
+		f.RemoteIP != "" || f.URIPattern != "" || f.Country != "" || !f.From.IsZero() || !f.To.IsZero()
 }
 
 // HostsLogs renders GET /admin/hosts/{id}/logs as an HTML page.

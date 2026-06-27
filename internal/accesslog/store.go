@@ -200,6 +200,7 @@ type Filter struct {
 	From       time.Time
 	To         time.Time
 	Limit      int
+	Country    string // ISO2 code filter, empty = no filter
 }
 
 // MaxExportRows is the hard cap for Filtered when Limit exceeds maxPerHost.
@@ -260,6 +261,10 @@ func (s *Store) Filtered(ctx context.Context, routeID int64, f Filter) ([]Entry,
 		}
 		conds = append(conds, `uri LIKE ? ESCAPE '\\'`)
 		args = append(args, pat)
+	}
+	if f.Country != "" {
+		conds = append(conds, "country = ?")
+		args = append(args, strings.ToUpper(f.Country))
 	}
 	if !f.From.IsZero() {
 		conds = append(conds, "ts >= ?")
