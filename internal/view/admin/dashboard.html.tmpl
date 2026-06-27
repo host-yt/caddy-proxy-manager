@@ -7,57 +7,89 @@
     </h1>
     <p class="text-sm text-slate-500 dark:text-slate-400 mt-1">Here is what needs your attention today.</p>
   </div>
-  <a href="/admin/hosts/new" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors">
+  <a href="/admin/hosts/new" class="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors cursor-pointer">
     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15"/></svg>
     Add a host
   </a>
 </div>
 
 <!-- Stat row: soft cards, pastel chips, big metric numbers. -->
-<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-6">
-  <div class="hpg-card flex items-center gap-4">
+<div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-5">
+  <!-- Hover ring gradient adds depth without color noise at rest. -->
+  <div class="hpg-card flex items-center gap-4 transition-all duration-200 hover:ring-2 hover:ring-indigo-500/30 dark:hover:ring-indigo-400/20">
     <span class="hpg-chip bg-indigo-50 text-indigo-600 dark:bg-indigo-500/15 dark:text-indigo-300">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
     </span>
-    <div class="min-w-0">
+    <div class="min-w-0 flex-1">
       <div class="hpg-eyebrow">Active hosts</div>
-      <div class="hpg-stat-num text-slate-900 dark:text-slate-100">{{.Counts.ActiveHosts}}</div>
-      <div class="text-xs text-slate-500 dark:text-slate-400">of {{.Counts.TotalHosts}} total</div>
+      <div class="hpg-stat-num font-extrabold text-slate-900 dark:text-slate-100">{{.Counts.ActiveHosts}}</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400 mb-2">of {{.Counts.TotalHosts}} total</div>
+      <!-- Decorative accent bar: visual weight without real data dependency. -->
+      <div class="w-full h-1 rounded-full bg-gradient-to-r from-indigo-500/40 to-transparent"></div>
     </div>
   </div>
 
-  <div class="hpg-card flex items-center gap-4">
+  <div class="hpg-card flex items-center gap-4 transition-all duration-200 hover:ring-2 hover:ring-indigo-500/30 dark:hover:ring-indigo-400/20">
     <span class="hpg-chip bg-amber-50 text-amber-600 dark:bg-amber-500/15 dark:text-amber-300">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
     </span>
-    <div class="min-w-0">
+    <div class="min-w-0 flex-1">
       <div class="hpg-eyebrow">Pending</div>
-      <div class="hpg-stat-num {{if .Counts.PendingHosts}}text-amber-600 dark:text-amber-400{{else}}text-slate-900 dark:text-slate-100{{end}}">{{.Counts.PendingHosts}}</div>
-      <div class="text-xs text-slate-500 dark:text-slate-400">awaiting DNS/SSL</div>
+      <div class="hpg-stat-num font-extrabold {{if .Counts.PendingHosts}}text-amber-600 dark:text-amber-400{{else}}text-slate-900 dark:text-slate-100{{end}}">{{.Counts.PendingHosts}}</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400 mb-2">awaiting DNS/SSL</div>
+      <div class="w-full h-1 rounded-full bg-gradient-to-r from-amber-500/40 to-transparent"></div>
     </div>
   </div>
 
-  <div class="hpg-card flex items-center gap-4">
+  <div class="hpg-card flex items-center gap-4 transition-all duration-200 hover:ring-2 hover:ring-indigo-500/30 dark:hover:ring-indigo-400/20">
     <span class="hpg-chip bg-sky-50 text-sky-600 dark:bg-sky-500/15 dark:text-sky-300">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3V6a3 3 0 013-3h13.5a3 3 0 013 3v5.25a3 3 0 01-3 3m-13.5 0H3m18.75 0H21m-1.5 0v5.25m-15-5.25v5.25m0 0H3m1.5 0h15m0 0H21M9 18h6"/></svg>
     </span>
-    <div class="min-w-0">
+    <div class="min-w-0 flex-1">
       <div class="hpg-eyebrow">Nodes online</div>
-      <div class="hpg-stat-num text-slate-900 dark:text-slate-100">{{.Counts.NodesOnline}}<span class="text-base font-medium text-slate-400 dark:text-slate-500">/{{.Counts.NodesTotal}}</span></div>
-      <div class="text-xs {{if lt .Counts.NodesOnline .Counts.NodesTotal}}text-amber-600 dark:text-amber-400{{else}}text-emerald-600 dark:text-emerald-400{{end}}">{{if lt .Counts.NodesOnline .Counts.NodesTotal}}degraded{{else}}healthy{{end}}</div>
+      <div class="hpg-stat-num font-extrabold text-slate-900 dark:text-slate-100">{{.Counts.NodesOnline}}<span class="text-base font-medium text-slate-400 dark:text-slate-500">/{{.Counts.NodesTotal}}</span></div>
+      <div class="text-xs {{if lt .Counts.NodesOnline .Counts.NodesTotal}}text-amber-600 dark:text-amber-400{{else}}text-emerald-600 dark:text-emerald-400{{end}} mb-2">{{if lt .Counts.NodesOnline .Counts.NodesTotal}}degraded{{else}}healthy{{end}}</div>
+      <div class="w-full h-1 rounded-full bg-gradient-to-r from-sky-500/40 to-transparent"></div>
     </div>
   </div>
 
-  <div class="hpg-card flex items-center gap-4">
+  <div class="hpg-card flex items-center gap-4 transition-all duration-200 hover:ring-2 hover:ring-indigo-500/30 dark:hover:ring-indigo-400/20">
     <span class="hpg-chip bg-emerald-50 text-emerald-600 dark:bg-emerald-500/15 dark:text-emerald-300">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z"/></svg>
     </span>
-    <div class="min-w-0">
+    <div class="min-w-0 flex-1">
       <div class="hpg-eyebrow">Clients</div>
-      <div class="hpg-stat-num text-slate-900 dark:text-slate-100">{{.Counts.Clients}}</div>
-      <div class="text-xs text-slate-500 dark:text-slate-400">{{.Counts.Plans}} plan{{if ne .Counts.Plans 1}}s{{end}}</div>
+      <div class="hpg-stat-num font-extrabold text-slate-900 dark:text-slate-100">{{.Counts.Clients}}</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400 mb-2">{{.Counts.Plans}} plan{{if ne .Counts.Plans 1}}s{{end}}</div>
+      <div class="w-full h-1 rounded-full bg-gradient-to-r from-emerald-500/40 to-transparent"></div>
     </div>
   </div>
+</div>
+
+<!-- System health at a glance: inline pills. Only render if at-least-one data field exists. -->
+<div class="flex flex-wrap items-center gap-2 mb-6">
+  <!-- Node health pill: derived from existing Counts fields, always shown. -->
+  <span class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ring-1
+    {{if lt .Counts.NodesOnline .Counts.NodesTotal}}bg-amber-50 text-amber-700 ring-amber-200/70 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/25
+    {{else}}bg-emerald-50 text-emerald-700 ring-emerald-200/70 dark:bg-emerald-500/10 dark:text-emerald-300 dark:ring-emerald-500/25{{end}}">
+    <!-- Status dot: green when all nodes healthy, amber when degraded. -->
+    <span class="h-1.5 w-1.5 rounded-full {{if lt .Counts.NodesOnline .Counts.NodesTotal}}bg-amber-500{{else}}bg-emerald-500{{end}}"></span>
+    {{if lt .Counts.NodesOnline .Counts.NodesTotal}}Fleet degraded{{else}}Fleet healthy{{end}}
+  </span>
+  <!-- Failed hosts pill: only shown when failures exist to avoid alarm fatigue. -->
+  {{if .Counts.FailedHosts}}
+  <a href="/admin/hosts?status=failed" class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ring-1 bg-rose-50 text-rose-700 ring-rose-200/70 dark:bg-rose-500/10 dark:text-rose-300 dark:ring-rose-500/25 hover:bg-rose-100 dark:hover:bg-rose-500/15 transition-colors cursor-pointer">
+    <span class="h-1.5 w-1.5 rounded-full bg-rose-500"></span>
+    {{.Counts.FailedHosts}} host{{if ne .Counts.FailedHosts 1}}s{{end}} failed
+  </a>
+  {{end}}
+  <!-- Pending pill: only shown when there is actual work in progress. -->
+  {{if .Counts.PendingHosts}}
+  <a href="/admin/hosts?status=pending_dns" class="inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ring-1 bg-sky-50 text-sky-700 ring-sky-200/70 dark:bg-sky-500/10 dark:text-sky-300 dark:ring-sky-500/25 hover:bg-sky-100 dark:hover:bg-sky-500/15 transition-colors cursor-pointer">
+    <span class="h-1.5 w-1.5 rounded-full bg-sky-500 animate-pulse"></span>
+    {{.Counts.PendingHosts}} provisioning
+  </a>
+  {{end}}
 </div>
 
 <!-- Needs attention: soft card, one row per signal, colored by severity. -->
@@ -75,16 +107,22 @@
   <ul class="space-y-2">
     {{range .Attention}}
     <li>
-      <a href="{{.URL}}" class="group flex items-center gap-3 rounded-xl px-3 py-2.5 ring-1 transition-colors
-        {{if eq .Severity "error"}}ring-rose-200/70 dark:ring-rose-500/25 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/15
-        {{else if eq .Severity "warn"}}ring-amber-200/70 dark:ring-amber-500/25 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/15
-        {{else}}ring-sky-200/70 dark:ring-sky-500/25 bg-sky-50 dark:bg-sky-500/10 hover:bg-sky-100 dark:hover:bg-sky-500/15{{end}}">
+      <!-- Left colored border conveys severity at a glance without extra icons. -->
+      <a href="{{.URL}}" class="group flex items-center gap-3 rounded-xl px-3 py-2.5 ring-1 border-l-4 transition-colors
+        {{if eq .Severity "error"}}border-rose-500 ring-rose-200/70 dark:ring-rose-500/25 bg-rose-50 dark:bg-rose-500/10 hover:bg-rose-100 dark:hover:bg-rose-500/15
+        {{else if eq .Severity "warn"}}border-amber-500 ring-amber-200/70 dark:ring-amber-500/25 bg-amber-50 dark:bg-amber-500/10 hover:bg-amber-100 dark:hover:bg-amber-500/15
+        {{else}}border-sky-500 ring-sky-200/70 dark:ring-sky-500/25 bg-sky-50 dark:bg-sky-500/10 hover:bg-sky-100 dark:hover:bg-sky-500/15{{end}} cursor-pointer">
         <span class="h-2.5 w-2.5 rounded-full flex-shrink-0
           {{if eq .Severity "error"}}bg-rose-500{{else if eq .Severity "warn"}}bg-amber-500{{else}}bg-sky-500{{end}}"></span>
         <span class="text-sm flex-1 min-w-0
           {{if eq .Severity "error"}}text-rose-800 dark:text-rose-300
           {{else if eq .Severity "warn"}}text-amber-800 dark:text-amber-300
           {{else}}text-sky-800 dark:text-sky-300{{end}}">{{.Text}}</span>
+        <!-- Severity badge next to the chevron for scannable status at right edge. -->
+        <span class="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded
+          {{if eq .Severity "error"}}bg-rose-200/60 text-rose-700 dark:bg-rose-500/20 dark:text-rose-300
+          {{else if eq .Severity "warn"}}bg-amber-200/60 text-amber-700 dark:bg-amber-500/20 dark:text-amber-300
+          {{else}}bg-sky-200/60 text-sky-700 dark:bg-sky-500/20 dark:text-sky-300{{end}}">{{.Severity}}</span>
         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 opacity-50 group-hover:opacity-90 transition-opacity" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
       </a>
     </li>
@@ -92,7 +130,7 @@
   </ul>
   {{if .Truncated}}
   <!-- Attention list was capped; point to the full views. -->
-  <a href="/admin/hosts" class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">
+  <a href="/admin/hosts" class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">
     View all hosts
     <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
   </a>
@@ -146,7 +184,7 @@
         </span>
         <h2 class="font-semibold text-slate-800 dark:text-slate-100">Recent activity</h2>
       </div>
-      <a href="/admin/audit" class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline">View all</a>
+      <a href="/admin/audit" class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer">View all</a>
     </div>
     {{if .RecentEvents}}
     <ul class="space-y-3">
