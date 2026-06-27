@@ -143,6 +143,8 @@
             <!-- Desktop: full inline button row (hidden on mobile via CSS). -->
             <div class="hpg-act-desktop inline-flex items-center gap-1.5 text-xs whitespace-nowrap">
               <a href="/admin/hosts/{{.RouteID}}/edit" class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-500/15 cursor-pointer transition-colors duration-150">edit</a>
+              <a href="/admin/waf?route_id={{.RouteID}}" title="WAF events for this route"
+                 class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-500/15 cursor-pointer transition-colors duration-150">WAF</a>
               <a href="https://{{.Domain}}" target="_blank" rel="noopener" title="Open site" class="px-2 py-1 rounded-md ring-1 ring-slate-200/70 dark:ring-zinc-700 text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors duration-150">open ↗</a>
               <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" class="inline" title="Re-run DNS check + re-push to Caddy (forces cert reissue if ACME has been failing)">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
@@ -198,6 +200,10 @@
               <a href="/admin/hosts/{{.RouteID}}/edit" class="hpg-act-item" role="menuitem">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
                 Edit
+              </a>
+              <a href="/admin/waf?route_id={{.RouteID}}" class="hpg-act-item" role="menuitem">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+                WAF events
               </a>
               <a href="https://{{.Domain}}" target="_blank" rel="noopener" class="hpg-act-item" role="menuitem">
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>

@@ -34,6 +34,8 @@ type wafEventsData struct {
 	Entries      []wafevents.Event
 	Filter       wafevents.Filter
 	Suppressions []wafevents.Suppression
+	// RouteDomain is non-empty when filtered to a specific route.
+	RouteDomain string
 }
 
 // parseWAFFilter reads WAF filter query params from r.
@@ -83,6 +85,13 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d.Filter = f
+
+	// Look up domain for display when filtering by a specific route.
+	if f.RouteID > 0 && h.DB != nil {
+		if db := h.DB(); db != nil {
+			_ = db.QueryRowContext(ctx, "SELECT domain FROM routes WHERE id = ?", f.RouteID).Scan(&d.RouteDomain)
+		}
+	}
 
 	var (
 		entries []wafevents.Event
