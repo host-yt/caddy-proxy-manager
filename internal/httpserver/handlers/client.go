@@ -150,15 +150,21 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 // ---- Services (read-only customer view) --------------------------------
 
 type clientServiceRow struct {
-	ID         int64
-	Name       string
-	BackendIP  string
-	PortStart  int
-	PortEnd    int
-	PlanName   string
-	PlanKind   string // 'restricted' | 'npm' - controls whether the client may edit BackendIP / port range
-	Status     string
-	RouteCount int
+	ID               int64
+	Name             string
+	BackendIP        string
+	PortStart        int
+	PortEnd          int
+	PlanName         string
+	PlanKind         string // 'restricted' | 'npm' - controls whether the client may edit BackendIP / port range
+	Status           string
+	RouteCount       int
+	MaxDomains       int
+	SSLEnabled       bool
+	WebsocketEnabled bool
+	RateLimitRPM     int // 0 = unlimited
+	PathRouting      bool
+	RouteCountPct    int // 0-100 for quota bar
 }
 
 type clientServicesData struct {
@@ -183,14 +189,27 @@ func (h *ClientHandlers) Services(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT s.id, s.name, s.backend_ip, s.allowed_port_start, s.allowed_port_end, p.name, p.kind, s.status,
-		        (SELECT COUNT(*) FROM routes r WHERE r.service_id = s.id)
+		        (SELECT COUNT(*) FROM routes r WHERE r.service_id = s.id),
+		        p.max_domains, p.ssl_enabled, p.websocket_enabled, COALESCE(p.rate_limit_rpm,0), p.path_routing_enabled
 		 FROM services s JOIN plans p ON p.id = s.plan_id
 		 WHERE s.client_id = ? ORDER BY s.id DESC`, clientID)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var s clientServiceRow
-			if err := rows.Scan(&s.ID, &s.Name, &s.BackendIP, &s.PortStart, &s.PortEnd, &s.PlanName, &s.PlanKind, &s.Status, &s.RouteCount); err == nil {
+			if err := rows.Scan(
+				&s.ID, &s.Name, &s.BackendIP, &s.PortStart, &s.PortEnd,
+				&s.PlanName, &s.PlanKind, &s.Status, &s.RouteCount,
+				&s.MaxDomains, &s.SSLEnabled, &s.WebsocketEnabled, &s.RateLimitRPM, &s.PathRouting,
+			); err == nil {
+				// compute route quota percentage for progress bar
+				if s.MaxDomains > 0 {
+					pct := s.RouteCount * 100 / s.MaxDomains
+					if pct > 100 {
+						pct = 100
+					}
+					s.RouteCountPct = pct
+				}
 				d.Services = append(d.Services, s)
 			}
 		}
