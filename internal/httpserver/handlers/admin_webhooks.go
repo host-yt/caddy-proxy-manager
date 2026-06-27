@@ -14,12 +14,16 @@ import (
 )
 
 type webhookRow struct {
-	ID      int64
-	Name    string
-	URL     string
-	Events  string
-	Enabled bool
-	Created string
+	ID              int64
+	Name            string
+	URL             string
+	Events          string
+	Enabled         bool
+	Created         string
+	LastDelivStatus string // "success"/"failed"/"pending"/"never"
+	LastDelivHTTP   int
+	LastDelivAge    string // e.g. "2m ago"
+	LastDelivErr    string // truncated to 60 chars
 }
 
 type webhookDeliveryRow struct {
@@ -50,13 +54,28 @@ func (h *AdminHandlers) WebhooksPage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, name, url, events, is_enabled, DATE_FORMAT(created_at,'%Y-%m-%d')
-		 FROM webhook_endpoints ORDER BY id DESC`)
+		`SELECT e.id, e.name, e.url, e.events, e.is_enabled,
+		        DATE_FORMAT(e.created_at,'%Y-%m-%d'),
+		        COALESCE(ld.status,'never'),
+		        COALESCE(ld.http_code,0),
+		        CASE
+		          WHEN ld.created_at IS NULL THEN ''
+		          WHEN TIMESTAMPDIFF(SECOND,ld.created_at,NOW()) < 120 THEN CONCAT(TIMESTAMPDIFF(SECOND,ld.created_at,NOW()),'s ago')
+		          WHEN TIMESTAMPDIFF(MINUTE,ld.created_at,NOW()) < 120 THEN CONCAT(TIMESTAMPDIFF(MINUTE,ld.created_at,NOW()),'m ago')
+		          ELSE CONCAT(TIMESTAMPDIFF(HOUR,ld.created_at,NOW()),'h ago')
+		        END,
+		        COALESCE(LEFT(ld.last_error,60),'')
+		 FROM webhook_endpoints e
+		 LEFT JOIN webhook_deliveries ld ON ld.id = (
+		   SELECT id FROM webhook_deliveries WHERE endpoint_id=e.id ORDER BY id DESC LIMIT 1
+		 )
+		 ORDER BY e.id DESC`)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var r webhookRow
-			if err := rows.Scan(&r.ID, &r.Name, &r.URL, &r.Events, &r.Enabled, &r.Created); err == nil {
+			if err := rows.Scan(&r.ID, &r.Name, &r.URL, &r.Events, &r.Enabled, &r.Created,
+				&r.LastDelivStatus, &r.LastDelivHTTP, &r.LastDelivAge, &r.LastDelivErr); err == nil {
 				d.Endpoints = append(d.Endpoints, r)
 			}
 		}

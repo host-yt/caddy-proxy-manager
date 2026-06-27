@@ -14,6 +14,7 @@
           <th class="px-4 py-2 font-medium">Events</th>
           <th class="px-4 py-2 font-medium">Enabled</th>
           <th class="px-4 py-2 font-medium">Created</th>
+          <th class="px-4 py-2 font-medium">Last delivery</th>
           <th class="px-4 py-2 text-right"></th>
         </tr>
       </thead>
@@ -25,6 +26,12 @@
           <td class="px-4 py-3 text-slate-500 text-xs">{{.Events}}</td>
           <td class="px-4 py-3">{{if .Enabled}}<span class="hpg-pill hpg-pill-ok">yes</span>{{else}}<span class="hpg-pill hpg-pill-muted">no</span>{{end}}</td>
           <td class="px-4 py-3 text-xs text-slate-500">{{.Created}}</td>
+          <td class="px-4 py-3 text-xs">
+            {{if eq .LastDelivStatus "never"}}<span class="text-slate-400 dark:text-slate-500">never</span>
+            {{else if eq .LastDelivStatus "success"}}<span class="hpg-pill hpg-pill-ok">&#10003; {{.LastDelivHTTP}}</span><span class="text-xs text-slate-400 ml-1">{{.LastDelivAge}}</span>
+            {{else if eq .LastDelivStatus "failed"}}<span class="hpg-pill hpg-pill-err" title="{{.LastDelivErr}}">&#10007; {{.LastDelivHTTP}}</span><span class="text-xs text-slate-400 ml-1">{{.LastDelivAge}}</span>
+            {{else}}<span class="hpg-pill hpg-pill-warn">pending</span>{{end}}
+          </td>
           <td class="px-4 py-3 text-right space-x-3">
             <form method="POST" action="/admin/webhooks/{{.ID}}/test" class="inline">
               <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
@@ -37,7 +44,7 @@
           </td>
         </tr>
         {{else}}
-        <tr><td colspan="6" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No endpoints configured.</td></tr>
+        <tr><td colspan="7" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No endpoints configured.</td></tr>
         {{end}}
       </tbody>
     </table></div>
