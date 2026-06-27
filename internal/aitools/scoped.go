@@ -190,14 +190,15 @@ func (r *Registry) trafficStatsScoped(ctx context.Context, scope Scope, raw json
 	routeFilter := `route_id IN (SELECT r.id FROM routes r JOIN services s ON s.id = r.service_id WHERE s.client_id IN ` + in + `)`
 
 	// Totals from rollups (pre-aggregated, avoids full access-log scan).
-	var total, errors4xxRaw, errors5xxRaw int64
+	var total, errors4xxRaw, errors5xxRaw, bytesResp int64
 	totArgs := append([]any{since}, idArgs...)
 	row := r.db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(requests),0),
 		        COALESCE(SUM(errors_4xx),0),
-		        COALESCE(SUM(errors_5xx),0)
+		        COALESCE(SUM(errors_5xx),0),
+		        COALESCE(SUM(bytes_resp),0)
 		 FROM log_rollups WHERE bucket_start >= ? AND `+routeFilter, totArgs...)
-	if err := row.Scan(&total, &errors4xxRaw, &errors5xxRaw); err != nil {
+	if err := row.Scan(&total, &errors4xxRaw, &errors5xxRaw, &bytesResp); err != nil {
 		return "", err
 	}
 	errors4xx := sql.NullInt64{Int64: errors4xxRaw, Valid: true}
@@ -220,21 +221,35 @@ func (r *Registry) trafficStatsScoped(ctx context.Context, scope Scope, raw json
 		"requests":       total,
 		"errors_4xx":     errors4xx.Int64,
 		"errors_5xx":     errors5xx.Int64,
+		"bytes_resp":     bytesResp,
 		"top_hosts":      topHosts,
 		"top_client_ips": topIPs,
 		"top_countries":  topCC,
 	})
 }
 
-func (r *Registry) scopedTopHosts(ctx context.Context, since time.Time, limit int, in string, idArgs []any) ([]countHit, error) {
-	q := `SELECT rt.domain, SUM(lr.requests) c
+func (r *Registry) scopedTopHosts(ctx context.Context, since time.Time, limit int, in string, idArgs []any) ([]hostHit, error) {
+	q := `SELECT rt.domain, SUM(lr.requests), COALESCE(SUM(lr.bytes_resp),0)
 	      FROM log_rollups lr
 	      JOIN routes rt ON rt.id = lr.route_id
 	      JOIN services s ON s.id = rt.service_id
 	      WHERE lr.bucket_start >= ? AND s.client_id IN ` + in + `
-	      GROUP BY rt.domain ORDER BY c DESC, rt.domain ASC LIMIT ?`
+	      GROUP BY rt.domain ORDER BY SUM(lr.requests) DESC, rt.domain ASC LIMIT ?`
 	args := append(append([]any{since}, idArgs...), limit)
-	return scanCountHitsArgs(ctx, r.db, q, args)
+	rows, err := r.db.QueryContext(ctx, q, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]hostHit, 0, limit)
+	for rows.Next() {
+		var h hostHit
+		if err := rows.Scan(&h.Domain, &h.Requests, &h.BytesResp); err != nil {
+			return nil, err
+		}
+		out = append(out, h)
+	}
+	return out, rows.Err()
 }
 
 func (r *Registry) scopedTopIPs(ctx context.Context, since time.Time, limit int, routeFilter string, idArgs []any) ([]countHit, error) {
