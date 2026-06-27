@@ -2110,10 +2110,3 @@ func (h *AuthHandlers) renderEmailOTP(w http.ResponseWriter, status int, d email
 	_, _ = w.Write(buf.Bytes())
 }
 
-// ---- legacy stubs (kept for any straggling references) ----------------
-
-func TOTPPage(w http.ResponseWriter, _ *http.Request)     { notImplemented(w, "TOTPPage") }
-func TOTPSubmit(w http.ResponseWriter, _ *http.Request)   { notImplemented(w, "TOTPSubmit") }
-func OIDCStart(w http.ResponseWriter, _ *http.Request)    { notImplemented(w, "OIDCStart") }
-func OIDCCallback(w http.ResponseWriter, _ *http.Request) { notImplemented(w, "OIDCCallback") }
-func SSOJump(w http.ResponseWriter, _ *http.Request)      { notImplemented(w, "SSOJump") }
