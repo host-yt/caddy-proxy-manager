@@ -68,7 +68,7 @@
         {{range .Services}}
         <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
           <td class="pl-5 pr-2 py-3.5"><input type="checkbox" name="ids[]" value="{{.ID}}" class="rounded svc-row-chk"></td>
-          <td class="px-5 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}</td>
+          <td class="px-5 py-3.5 font-medium text-slate-800 dark:text-slate-100 whitespace-nowrap">{{.Name}}{{if .Notes}}<span title="{{if gt (len .Notes) 80}}{{slice .Notes 0 80}}...{{else}}{{.Notes}}{{end}}" class="ml-1 text-slate-400 dark:text-slate-500 cursor-help text-xs" aria-label="has notes"><svg class="inline w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg></span>{{end}}</td>
           <td class="px-5 py-3.5 text-slate-600 dark:text-slate-300 whitespace-nowrap">{{.ClientName}}</td>
           <td class="px-5 py-3.5"><code class="font-mono text-xs text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-zinc-800 rounded px-1.5 py-0.5">{{.BackendIP}}</code></td>
           <td class="px-5 py-3.5 whitespace-nowrap"><span class="font-mono text-xs text-slate-500 dark:text-slate-400">{{.PortStart}}-{{.PortEnd}}</span></td>
