@@ -1,205 +1,231 @@
 {{define "settings"}}
 <div class="space-y-4">
 
-  <section class="space-y-3">
-    <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
-      <div>
-        <p class="hpg-eyebrow">System configuration</p>
-        <h2 class="text-lg font-semibold text-slate-950 dark:text-white">Operational settings</h2>
+  <!-- Page header -->
+  <div class="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
+    <div>
+      <p class="t-eyebrow">System configuration</p>
+      <h2 class="t-h2">Settings</h2>
+    </div>
+    <span class="t-caption" style="color:rgb(var(--muted))">Changes save per section.</span>
+  </div>
+
+  <!-- Nav sidebar grid -->
+  <div class="grid gap-3 lg:grid-cols-5">
+
+    <!-- Identity group -->
+    <div class="r-card" style="padding:.75rem">
+      <p class="t-eyebrow mb-2">Identity</p>
+      <div class="grid gap-0.5">
+        <button type="button" data-settings-tab="general" class="hpg-settings-tab hpg-settings-tab-active r-segment-item is-active text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">General</button>
+        <button type="button" data-settings-tab="branding" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Branding</button>
+        <button type="button" data-settings-tab="customer" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Customer fields</button>
       </div>
-      <span class="text-xs text-slate-500 dark:text-slate-400">Changes save per section.</span>
     </div>
 
-    <div class="grid gap-3 lg:grid-cols-5">
-      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
-        <p class="hpg-eyebrow mb-2">Identity</p>
-        <div class="grid gap-1">
-          <button type="button" data-settings-tab="general" class="hpg-settings-tab hpg-settings-tab-active text-left px-3 py-2 rounded-lg text-sm bg-slate-200 dark:bg-zinc-800 text-slate-900 dark:text-slate-100 font-medium">General</button>
-          <button type="button" data-settings-tab="branding" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Branding</button>
-          <button type="button" data-settings-tab="customer" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Customer fields</button>
-        </div>
-      </div>
-
-      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
-        <p class="hpg-eyebrow mb-2">Auth &amp; access</p>
-        <div class="grid gap-1">
-          <button type="button" data-settings-tab="auth" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SSO / OIDC</button>
-          <button type="button" data-settings-tab="security" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Admin 2FA</button>
-          <button type="button" data-settings-tab="captcha" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">CAPTCHA</button>
-        </div>
-      </div>
-
-      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
-        <p class="hpg-eyebrow mb-2">Delivery</p>
-        <div class="grid gap-1">
-          <button type="button" data-settings-tab="email" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Email (SMTP)</button>
-          <button type="button" data-settings-tab="sms" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SMS</button>
-          <button type="button" data-settings-tab="sso-jump" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">SSO Jump</button>
-        </div>
-      </div>
-
-      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
-        <p class="hpg-eyebrow mb-2">Infrastructure</p>
-        <div class="grid gap-1">
-          <button type="button" data-settings-tab="wireguard" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">WireGuard</button>
-          <button type="button" data-settings-tab="cloudflare" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">Cloudflare</button>
-          <button type="button" data-settings-tab="acme" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">ACME / TLS</button>
-          <button type="button" data-settings-tab="mtls" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">mTLS</button>
-          <button type="button" data-settings-tab="analytics" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Analytics</button>
-          <button type="button" data-settings-tab="failover" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Failover</button>
-          <button type="button" data-settings-tab="alerts" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Alerts</button>
-          <button type="button" data-settings-tab="geoip" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">GeoIP database</button>
-        </div>
-      </div>
-
-      <div class="rounded-lg bg-white p-3 ring-1 ring-slate-200 dark:bg-zinc-900 dark:ring-zinc-800">
-        <p class="hpg-eyebrow mb-2">Developer</p>
-        <div class="grid gap-1">
-          <button type="button" data-settings-tab="apidocs" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">API docs</button>
-          <button type="button" data-settings-tab="ai" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800">AI assistant</button>
-          <button type="button" data-settings-tab="banner" class="hpg-settings-tab text-left px-3 py-2 rounded-lg text-sm text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Announcement</button>
-        </div>
+    <!-- Auth group -->
+    <div class="r-card" style="padding:.75rem">
+      <p class="t-eyebrow mb-2">Auth &amp; access</p>
+      <div class="grid gap-0.5">
+        <button type="button" data-settings-tab="auth" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">SSO / OIDC</button>
+        <button type="button" data-settings-tab="security" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Admin 2FA</button>
+        <button type="button" data-settings-tab="captcha" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">CAPTCHA</button>
       </div>
     </div>
-  </section>
 
-  <section data-settings-pane="security" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">Admin 2FA enforcement</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">When on, every <strong>admin</strong> / <strong>super_admin</strong> without an enrolled 2FA method is redirected to setup before reaching the panel. Existing admins get a short grace window so flipping it on never instantly locks anyone out.{{if .Require2FAEnvForced}} <strong class="text-amber-600 dark:text-amber-400">Locked on by the REQUIRE_ADMIN_2FA env var.</strong>{{end}}</p>
-    <form method="POST" action="/admin/settings/require-2fa" class="space-y-3 text-sm">
+    <!-- Delivery group -->
+    <div class="r-card" style="padding:.75rem">
+      <p class="t-eyebrow mb-2">Delivery</p>
+      <div class="grid gap-0.5">
+        <button type="button" data-settings-tab="email" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Email (SMTP)</button>
+        <button type="button" data-settings-tab="sms" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">SMS</button>
+        <button type="button" data-settings-tab="sso-jump" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">SSO Jump</button>
+      </div>
+    </div>
+
+    <!-- Infrastructure group -->
+    <div class="r-card" style="padding:.75rem">
+      <p class="t-eyebrow mb-2">Infrastructure</p>
+      <div class="grid gap-0.5">
+        <button type="button" data-settings-tab="wireguard" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">WireGuard</button>
+        <button type="button" data-settings-tab="cloudflare" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Cloudflare</button>
+        <button type="button" data-settings-tab="acme" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">ACME / TLS</button>
+        <button type="button" data-settings-tab="mtls" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">mTLS</button>
+        <button type="button" data-settings-tab="analytics" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Analytics</button>
+        <button type="button" data-settings-tab="failover" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Failover</button>
+        <button type="button" data-settings-tab="alerts" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Alerts</button>
+        <button type="button" data-settings-tab="geoip" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">GeoIP database</button>
+      </div>
+    </div>
+
+    <!-- Developer group -->
+    <div class="r-card" style="padding:.75rem">
+      <p class="t-eyebrow mb-2">Developer</p>
+      <div class="grid gap-0.5">
+        <button type="button" data-settings-tab="apidocs" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">API docs</button>
+        <button type="button" data-settings-tab="ai" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">AI assistant</button>
+        <button type="button" data-settings-tab="banner" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Announcement</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Admin 2FA ───────────────────────────────────────────── -->
+  <section data-settings-pane="security" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Admin 2FA enforcement</p>
+    <h2 class="t-h3 mb-2">Require two-factor authentication</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">When on, every <strong>admin</strong> / <strong>super_admin</strong> without an enrolled 2FA method is redirected to setup before reaching the panel. Existing admins get a short grace window so flipping it on never instantly locks anyone out.{{if .Require2FAEnvForced}} <strong style="color:rgb(var(--warning))">Locked on by the REQUIRE_ADMIN_2FA env var.</strong>{{end}}</p>
+    <form method="POST" action="/admin/settings/require-2fa" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+      <label class="r-toggle">
         <input type="checkbox" name="require_admin_2fa" value="1" {{if .Require2FA}}checked{{end}}{{if .Require2FAEnvForced}} disabled{{end}}>
+        <span></span>
         Require 2FA for all admin accounts
       </label>
       {{if not .Require2FAEnvForced}}
       <div class="flex justify-end">
-        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save</button>
+        <button class="r-btn-primary">Save</button>
       </div>
       {{end}}
     </form>
   </section>
 
-  <section data-settings-pane="apidocs" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">API documentation visibility</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4"><code class="text-xs">/api-docs</code> renders the Scalar API Reference. SSO jump and other internal endpoints are NOT in the spec. Off = anonymous visitors get 404, admins still see it when logged in.</p>
-    <form method="POST" action="/admin/settings/apidocs" class="space-y-3 text-sm">
+  <!-- ── API docs ───────────────────────────────────────────── -->
+  <section data-settings-pane="apidocs" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">API documentation</p>
+    <h2 class="t-h3 mb-2">API documentation visibility</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))"><code class="text-xs">/api-docs</code> renders the Scalar API Reference. SSO jump and other internal endpoints are NOT in the spec. Off = anonymous visitors get 404, admins still see it when logged in.</p>
+    <form method="POST" action="/admin/settings/apidocs" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+      <label class="r-toggle">
         <input type="checkbox" name="public_enabled" value="1" {{if .APIDocsPublic}}checked{{end}}>
+        <span></span>
         Publicly reachable (no login required)
       </label>
       <div class="flex justify-end">
-        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save</button>
+        <button class="r-btn-primary">Save</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="customer" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Customer fields</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Controls which optional profile fields the customer can fill in <code class="text-xs">/app/account</code>. Disabled = field hidden from the customer UI and refused at the server layer even if posted directly.</p>
-    <form method="POST" action="/admin/settings/customer-fields" class="space-y-3 text-sm">
+  <!-- ── Customer fields ───────────────────────────────────── -->
+  <section data-settings-pane="customer" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Customer fields</p>
+    <h2 class="t-h3 mb-2">Optional profile fields</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Controls which optional profile fields the customer can fill in <code class="text-xs">/app/account</code>. Disabled = field hidden from the customer UI and refused at the server layer even if posted directly.</p>
+    <form method="POST" action="/admin/settings/customer-fields" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+      <label class="r-toggle">
         <input type="checkbox" name="phone_enabled" value="1" {{if .CustomerFields.PhoneEnabled}}checked{{end}}>
+        <span></span>
         Show <strong>phone</strong> field to customers (E.164) - required for SMS outage alerts and 2FA SMS fallback
       </label>
-      <div class="flex justify-end pt-2">
-        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save</button>
+      <div class="flex justify-end">
+        <button class="r-btn-primary">Save</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="general" class="hpg-settings-pane hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Panel</h2>
+  <!-- ── General ───────────────────────────────────────────── -->
+  <section data-settings-pane="general" class="hpg-settings-pane r-card">
+    <p class="t-eyebrow mb-1">Panel</p>
+    <h2 class="t-h3 mb-3">General information</h2>
     <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-      <div><dt class="hpg-eyebrow">Public URL</dt><dd class="font-mono text-slate-800 dark:text-slate-100 break-all mt-0.5">{{.AppURL}}</dd></div>
-      <div><dt class="hpg-eyebrow">Installed</dt><dd class="mt-0.5"><span class="hpg-pill hpg-pill-ok">yes</span></dd></div>
+      <div>
+        <dt class="t-eyebrow">Public URL</dt>
+        <dd class="font-mono break-all mt-0.5" style="color:rgb(var(--text))">{{.AppURL}}</dd>
+      </div>
+      <div>
+        <dt class="t-eyebrow">Installed</dt>
+        <dd class="mt-0.5"><span class="r-pill r-pill-success">yes</span></dd>
+      </div>
     </dl>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mt-2">To change the panel URL, edit APP_URL in .env and restart.</p>
+    <p class="t-caption mt-3" style="color:rgb(var(--muted))">To change the panel URL, edit APP_URL in .env and restart.</p>
   </section>
 
+  <!-- ── Branding ──────────────────────────────────────────── -->
   <section data-settings-pane="branding" class="hpg-settings-pane hidden space-y-4">
 
-    <!-- Branding form (posts to /admin/branding); fields are nested under .Branding on the Settings page. -->
-    <div class="hpg-card space-y-4 text-sm">
+    <div class="r-card space-y-4">
       <div>
-        <div class="hpg-eyebrow">Branding</div>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Customise the panel + login page brand. URLs must be <code class="text-xs">http://</code> or <code class="text-xs">https://</code> (they render as <code class="text-xs">&lt;img src&gt;</code>/<code class="text-xs">&lt;link href&gt;</code> so other schemes are refused).</p>
+        <p class="t-eyebrow mb-1">Branding</p>
+        <p class="t-small" style="color:rgb(var(--muted))">Customise the panel + login page brand. URLs must be <code class="text-xs">http://</code> or <code class="text-xs">https://</code> (they render as <code class="text-xs">&lt;img src&gt;</code>/<code class="text-xs">&lt;link href&gt;</code> so other schemes are refused).</p>
       </div>
 
       <form method="POST" action="/admin/branding" class="space-y-4">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Brand name</label>
-          <input name="brand_name" value="{{.Branding.BrandName}}" maxlength="64" placeholder="Hostyt Proxy" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
-          <p class="text-[11px] text-slate-500 mt-1">Shown in the sidebar + login header. Empty = default "Hostyt Proxy".</p>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Brand name</label>
+          <input name="brand_name" value="{{.Branding.BrandName}}" maxlength="64" placeholder="Hostyt Proxy" class="r-input">
+          <p class="t-caption mt-1" style="color:rgb(var(--muted))">Shown in the sidebar + login header. Empty = default "Hostyt Proxy".</p>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Tagline (optional)</label>
-          <input name="tagline" value="{{.Branding.Tagline}}" maxlength="128" placeholder="Self-hosted reverse-proxy panel" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Tagline (optional)</label>
+          <input name="tagline" value="{{.Branding.Tagline}}" maxlength="128" placeholder="Self-hosted reverse-proxy panel" class="r-input">
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Logo URL (light mode)</label>
-            <input name="logo_url_light" value="{{.Branding.LogoURLLight}}" placeholder="https://cdn.example.com/logo-dark.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
-            {{if .Branding.LogoURLLight}}<div class="mt-2 inline-block p-2 rounded-lg bg-white ring-1 ring-slate-200 dark:ring-zinc-700"><img src="{{.Branding.LogoURLLight}}" alt="light preview" class="h-8"></div>{{end}}
-            <p class="text-[11px] text-slate-500 mt-1">Used on white backgrounds. Pick a logo with dark ink.</p>
+            <label class="block t-caption mb-1" style="color:rgb(var(--text))">Logo URL (light mode)</label>
+            <input name="logo_url_light" value="{{.Branding.LogoURLLight}}" placeholder="https://cdn.example.com/logo-dark.svg" class="r-input">
+            {{if .Branding.LogoURLLight}}<div class="mt-2 inline-block p-2 rounded-lg r-card"><img src="{{.Branding.LogoURLLight}}" alt="light preview" class="h-8"></div>{{end}}
+            <p class="t-caption mt-1" style="color:rgb(var(--muted))">Used on white backgrounds. Pick a logo with dark ink.</p>
           </div>
           <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Logo URL (dark mode)</label>
-            <input name="logo_url_dark" value="{{.Branding.LogoURLDark}}" placeholder="https://cdn.example.com/logo-light.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
-            {{if .Branding.LogoURLDark}}<div class="mt-2 inline-block p-2 rounded-lg bg-zinc-900 ring-1 ring-zinc-700"><img src="{{.Branding.LogoURLDark}}" alt="dark preview" class="h-8"></div>{{end}}
-            <p class="text-[11px] text-slate-500 mt-1">Falls back to the light logo if empty. Pick a logo with light ink for dark backgrounds.</p>
+            <label class="block t-caption mb-1" style="color:rgb(var(--text))">Logo URL (dark mode)</label>
+            <input name="logo_url_dark" value="{{.Branding.LogoURLDark}}" placeholder="https://cdn.example.com/logo-light.svg" class="r-input">
+            {{if .Branding.LogoURLDark}}<div class="mt-2 inline-block p-2 rounded-lg r-card"><img src="{{.Branding.LogoURLDark}}" alt="dark preview" class="h-8"></div>{{end}}
+            <p class="t-caption mt-1" style="color:rgb(var(--muted))">Falls back to the light logo if empty. Pick a logo with light ink for dark backgrounds.</p>
           </div>
         </div>
 
         <div>
-          <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Favicon URL</label>
-          <input name="favicon_url" value="{{.Branding.FaviconURL}}" placeholder="https://cdn.example.com/favicon.ico" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
-          <p class="text-[11px] text-slate-500 mt-1">16x16 ICO or PNG. Browsers cache aggressively - change the URL or path to bust.</p>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Favicon URL</label>
+          <input name="favicon_url" value="{{.Branding.FaviconURL}}" placeholder="https://cdn.example.com/favicon.ico" class="r-input">
+          <p class="t-caption mt-1" style="color:rgb(var(--muted))">16x16 ICO or PNG. Browsers cache aggressively - change the URL or path to bust.</p>
         </div>
 
-        <div class="rounded-xl ring-1 ring-slate-200 dark:ring-zinc-800 bg-slate-50 dark:bg-zinc-900/50 p-4 space-y-3">
-          <div class="hpg-eyebrow">Error / maintenance page skin</div>
-          <p class="text-[11px] text-slate-500">Branding for the pages Caddy serves directly (404, 403, 502, 503, 504, maintenance). Empty fields fall back to a neutral deep-gray skin.</p>
-          <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Error page logo URL</label>
-            <input name="error_logo_url" value="{{.Branding.ErrorLogoURL}}" placeholder="https://cdn.example.com/logo-error.svg" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
-            {{if .Branding.ErrorLogoURL}}<div class="mt-2 inline-block p-2 rounded-lg" style="background: {{if .Branding.ErrorBgColor}}{{.Branding.ErrorBgColor}}{{else}}#1f2937{{end}};"><img src="{{.Branding.ErrorLogoURL}}" alt="error logo preview" class="h-8"></div>{{end}}
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Error page logo link</label>
-            <input name="error_logo_link" value="{{.Branding.ErrorLogoLink}}" placeholder="https://www.your-brand.com/" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none">
-            <p class="text-[11px] text-slate-500 mt-1">Where the logo links on error pages. Leave empty for a non-clickable logo.</p>
-          </div>
-          <div>
-            <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Background color</label>
-            <div class="flex gap-2 items-center">
-              <input name="error_bg_color" value="{{.Branding.ErrorBgColor}}" placeholder="#1f2937" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 outline-none font-mono">
-              <span class="inline-block w-8 h-8 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700" style="background: {{if .Branding.ErrorBgColor}}{{.Branding.ErrorBgColor}}{{else}}#1f2937{{end}};"></span>
+        <!-- Error page skin sub-card -->
+        <div class="r-card" style="background:rgb(var(--surface-2)/.5)">
+          <p class="t-eyebrow mb-2">Error / maintenance page skin</p>
+          <p class="t-caption mb-3" style="color:rgb(var(--muted))">Branding for the pages Caddy serves directly (404, 403, 502, 503, 504, maintenance). Empty fields fall back to a neutral deep-gray skin.</p>
+          <div class="space-y-3">
+            <div>
+              <label class="block t-caption mb-1" style="color:rgb(var(--text))">Error page logo URL</label>
+              <input name="error_logo_url" value="{{.Branding.ErrorLogoURL}}" placeholder="https://cdn.example.com/logo-error.svg" class="r-input">
+              {{if .Branding.ErrorLogoURL}}<div class="mt-2 inline-block p-2 rounded-lg" style="background: {{if .Branding.ErrorBgColor}}{{.Branding.ErrorBgColor}}{{else}}#1f2937{{end}};"><img src="{{.Branding.ErrorLogoURL}}" alt="error logo preview" class="h-8"></div>{{end}}
             </div>
-            <p class="text-[11px] text-slate-500 mt-1">Hex (#RGB / #RRGGBB / #RRGGBBAA) or rgb()/rgba(). Default is deep slate (#1f2937).</p>
+            <div>
+              <label class="block t-caption mb-1" style="color:rgb(var(--text))">Error page logo link</label>
+              <input name="error_logo_link" value="{{.Branding.ErrorLogoLink}}" placeholder="https://www.your-brand.com/" class="r-input">
+              <p class="t-caption mt-1" style="color:rgb(var(--muted))">Where the logo links on error pages. Leave empty for a non-clickable logo.</p>
+            </div>
+            <div>
+              <label class="block t-caption mb-1" style="color:rgb(var(--text))">Background color</label>
+              <div class="flex gap-2 items-center">
+                <input name="error_bg_color" value="{{.Branding.ErrorBgColor}}" placeholder="#1f2937" class="r-input font-mono flex-1">
+                <span class="inline-block w-8 h-8 rounded-lg shrink-0" style="background: {{if .Branding.ErrorBgColor}}{{.Branding.ErrorBgColor}}{{else}}#1f2937{{end}}; border:1px solid rgb(var(--border))"></span>
+              </div>
+              <p class="t-caption mt-1" style="color:rgb(var(--muted))">Hex (#RGB / #RRGGBB / #RRGGBBAA) or rgb()/rgba(). Default is deep slate (#1f2937).</p>
+            </div>
           </div>
         </div>
 
-        <div class="flex justify-end pt-2">
-          <button class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 cursor-pointer transition-colors">Save branding</button>
+        <div class="flex justify-end">
+          <button class="r-btn-primary cursor-pointer">Save branding</button>
         </div>
       </form>
     </div>
 
-    <!-- Appearance sub-section: per-browser palette picker (server cookie set via /theme/{slug} link). -->
-    <div class="hpg-card">
-      <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Appearance</h2>
-      <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Pick a color palette. Themes are per-browser and switch instantly - they do not change settings for other users. This is separate from the light/dark toggle in the top bar.</p>
+    <!-- Appearance / theme picker -->
+    <div class="r-card">
+      <p class="t-eyebrow mb-1">Appearance</p>
+      <h2 class="t-h3 mb-1">Color palette</h2>
+      <p class="t-small mb-4" style="color:rgb(var(--muted))">Pick a color palette. Themes are per-browser and switch instantly - they do not change settings for other users. This is separate from the light/dark toggle in the top bar.</p>
     {{$cur := .Theme}}
     <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-      <a href="/theme/default" data-palette-pick="default" data-palette-card="default" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "default" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
-        <!-- Live preview: [data-theme] scopes the real palette vars, so these utility-class dots always match themes.css. -->
+      <a href="/theme/default" data-palette-pick="default" data-palette-card="default" class="group block rounded-2xl p-3 transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer {{if eq "default" $cur}}ring-2 ring-offset-1{{else}}ring-1{{end}}" style="{{if eq "default" $cur}}border:1px solid rgb(var(--accent)); ring-color:rgb(var(--accent));{{else}}border:1px solid rgb(var(--border));{{end}}">
         <div data-theme="default" class="flex gap-1.5 mb-2">
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
@@ -207,11 +233,11 @@
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
         </div>
         <div class="flex items-center justify-between gap-1">
-          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Slate (default)</span>
-          {{if eq "default" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+          <span class="t-small font-medium" style="color:rgb(var(--text))">Slate (default)</span>
+          {{if eq "default" $cur}}<span data-palette-active-pill class="r-pill r-pill-info" style="font-size:.6rem;padding:.15rem .4rem">Active</span>{{end}}
         </div>
       </a>
-      <a href="/theme/midnight" data-palette-pick="midnight" data-palette-card="midnight" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "midnight" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+      <a href="/theme/midnight" data-palette-pick="midnight" data-palette-card="midnight" class="group block rounded-2xl p-3 transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer {{if eq "midnight" $cur}}ring-2 ring-offset-1{{else}}ring-1{{end}}" style="{{if eq "midnight" $cur}}border:1px solid rgb(var(--accent));{{else}}border:1px solid rgb(var(--border));{{end}}">
         <div data-theme="midnight" class="flex gap-1.5 mb-2">
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
@@ -219,11 +245,11 @@
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
         </div>
         <div class="flex items-center justify-between gap-1">
-          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Midnight</span>
-          {{if eq "midnight" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+          <span class="t-small font-medium" style="color:rgb(var(--text))">Midnight</span>
+          {{if eq "midnight" $cur}}<span data-palette-active-pill class="r-pill r-pill-info" style="font-size:.6rem;padding:.15rem .4rem">Active</span>{{end}}
         </div>
       </a>
-      <a href="/theme/ocean" data-palette-pick="ocean" data-palette-card="ocean" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "ocean" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+      <a href="/theme/ocean" data-palette-pick="ocean" data-palette-card="ocean" class="group block rounded-2xl p-3 transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer {{if eq "ocean" $cur}}ring-2 ring-offset-1{{else}}ring-1{{end}}" style="{{if eq "ocean" $cur}}border:1px solid rgb(var(--accent));{{else}}border:1px solid rgb(var(--border));{{end}}">
         <div data-theme="ocean" class="flex gap-1.5 mb-2">
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
@@ -231,11 +257,11 @@
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
         </div>
         <div class="flex items-center justify-between gap-1">
-          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Ocean</span>
-          {{if eq "ocean" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+          <span class="t-small font-medium" style="color:rgb(var(--text))">Ocean</span>
+          {{if eq "ocean" $cur}}<span data-palette-active-pill class="r-pill r-pill-info" style="font-size:.6rem;padding:.15rem .4rem">Active</span>{{end}}
         </div>
       </a>
-      <a href="/theme/forest" data-palette-pick="forest" data-palette-card="forest" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "forest" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+      <a href="/theme/forest" data-palette-pick="forest" data-palette-card="forest" class="group block rounded-2xl p-3 transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer {{if eq "forest" $cur}}ring-2 ring-offset-1{{else}}ring-1{{end}}" style="{{if eq "forest" $cur}}border:1px solid rgb(var(--accent));{{else}}border:1px solid rgb(var(--border));{{end}}">
         <div data-theme="forest" class="flex gap-1.5 mb-2">
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
@@ -243,11 +269,11 @@
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
         </div>
         <div class="flex items-center justify-between gap-1">
-          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Forest</span>
-          {{if eq "forest" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+          <span class="t-small font-medium" style="color:rgb(var(--text))">Forest</span>
+          {{if eq "forest" $cur}}<span data-palette-active-pill class="r-pill r-pill-info" style="font-size:.6rem;padding:.15rem .4rem">Active</span>{{end}}
         </div>
       </a>
-      <a href="/theme/violet" data-palette-pick="violet" data-palette-card="violet" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "violet" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+      <a href="/theme/violet" data-palette-pick="violet" data-palette-card="violet" class="group block rounded-2xl p-3 transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer {{if eq "violet" $cur}}ring-2 ring-offset-1{{else}}ring-1{{end}}" style="{{if eq "violet" $cur}}border:1px solid rgb(var(--accent));{{else}}border:1px solid rgb(var(--border));{{end}}">
         <div data-theme="violet" class="flex gap-1.5 mb-2">
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
@@ -255,11 +281,11 @@
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
         </div>
         <div class="flex items-center justify-between gap-1">
-          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Violet</span>
-          {{if eq "violet" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+          <span class="t-small font-medium" style="color:rgb(var(--text))">Violet</span>
+          {{if eq "violet" $cur}}<span data-palette-active-pill class="r-pill r-pill-info" style="font-size:.6rem;padding:.15rem .4rem">Active</span>{{end}}
         </div>
       </a>
-      <a href="/theme/sunset" data-palette-pick="sunset" data-palette-card="sunset" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "sunset" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+      <a href="/theme/sunset" data-palette-pick="sunset" data-palette-card="sunset" class="group block rounded-2xl p-3 transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer {{if eq "sunset" $cur}}ring-2 ring-offset-1{{else}}ring-1{{end}}" style="{{if eq "sunset" $cur}}border:1px solid rgb(var(--accent));{{else}}border:1px solid rgb(var(--border));{{end}}">
         <div data-theme="sunset" class="flex gap-1.5 mb-2">
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
@@ -267,11 +293,11 @@
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
         </div>
         <div class="flex items-center justify-between gap-1">
-          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Sunset</span>
-          {{if eq "sunset" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+          <span class="t-small font-medium" style="color:rgb(var(--text))">Sunset</span>
+          {{if eq "sunset" $cur}}<span data-palette-active-pill class="r-pill r-pill-info" style="font-size:.6rem;padding:.15rem .4rem">Active</span>{{end}}
         </div>
       </a>
-      <a href="/theme/nord" data-palette-pick="nord" data-palette-card="nord" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "nord" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+      <a href="/theme/nord" data-palette-pick="nord" data-palette-card="nord" class="group block rounded-2xl p-3 transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer {{if eq "nord" $cur}}ring-2 ring-offset-1{{else}}ring-1{{end}}" style="{{if eq "nord" $cur}}border:1px solid rgb(var(--accent));{{else}}border:1px solid rgb(var(--border));{{end}}">
         <div data-theme="nord" class="flex gap-1.5 mb-2">
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
@@ -279,11 +305,11 @@
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
         </div>
         <div class="flex items-center justify-between gap-1">
-          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Nord</span>
-          {{if eq "nord" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+          <span class="t-small font-medium" style="color:rgb(var(--text))">Nord</span>
+          {{if eq "nord" $cur}}<span data-palette-active-pill class="r-pill r-pill-info" style="font-size:.6rem;padding:.15rem .4rem">Active</span>{{end}}
         </div>
       </a>
-      <a href="/theme/mono" data-palette-pick="mono" data-palette-card="mono" class="group block rounded-2xl border p-3 transition-all hover:-translate-y-0.5 hover:shadow-md {{if eq "mono" $cur}}border-indigo-500 ring-2 ring-indigo-500{{else}}ring-1 ring-slate-200/70 dark:ring-zinc-800{{end}}">
+      <a href="/theme/mono" data-palette-pick="mono" data-palette-card="mono" class="group block rounded-2xl p-3 transition-all hover:-translate-y-0.5 hover:shadow-md cursor-pointer {{if eq "mono" $cur}}ring-2 ring-offset-1{{else}}ring-1{{end}}" style="{{if eq "mono" $cur}}border:1px solid rgb(var(--accent));{{else}}border:1px solid rgb(var(--border));{{end}}">
         <div data-theme="mono" class="flex gap-1.5 mb-2">
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-slate-50"></span>
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-zinc-900"></span>
@@ -291,525 +317,582 @@
           <span class="w-5 h-5 rounded-full ring-1 ring-black/10 bg-emerald-500"></span>
         </div>
         <div class="flex items-center justify-between gap-1">
-          <span class="text-sm font-medium text-slate-800 dark:text-slate-100">Mono</span>
-          {{if eq "mono" $cur}}<span data-palette-active-pill class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300">Active</span>{{end}}
+          <span class="t-small font-medium" style="color:rgb(var(--text))">Mono</span>
+          {{if eq "mono" $cur}}<span data-palette-active-pill class="r-pill r-pill-info" style="font-size:.6rem;padding:.15rem .4rem">Active</span>{{end}}
         </div>
       </a>
     </div>
     </div>
   </section>
 
-  <section data-settings-pane="email" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">SMTP</h2>
-    <form method="POST" action="/admin/settings/smtp" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+  <!-- ── SMTP ──────────────────────────────────────────────── -->
+  <section data-settings-pane="email" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Delivery</p>
+    <h2 class="t-h3 mb-4">SMTP</h2>
+    <form method="POST" action="/admin/settings/smtp" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Host</label>
-        <input name="host" value="{{.SMTP.Host}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Host</label>
+        <input name="host" value="{{.SMTP.Host}}" class="r-input">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Port</label>
-        <input name="port" type="number" min="1" max="65535" value="{{.SMTP.Port}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Port</label>
+        <input name="port" type="number" min="1" max="65535" value="{{.SMTP.Port}}" class="r-input tabular-nums">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Encryption</label>
-        <select name="encryption" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Encryption</label>
+        <select name="encryption" class="r-select">
           <option value="tls" {{if eq .SMTP.Encryption "tls"}}selected{{end}}>STARTTLS</option>
           <option value="ssl" {{if eq .SMTP.Encryption "ssl"}}selected{{end}}>SSL/TLS</option>
           <option value="none" {{if eq .SMTP.Encryption "none"}}selected{{end}}>None</option>
         </select>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Username</label>
-        <input name="username" value="{{.SMTP.Username}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Username</label>
+        <input name="username" value="{{.SMTP.Username}}" class="r-input">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Password {{if .SMTP.HasPassword}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}</label>
-        <input name="password" type="password" placeholder="{{if .SMTP.HasPassword}}leave blank to keep{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Password {{if .SMTP.HasPassword}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+        <input name="password" type="password" placeholder="{{if .SMTP.HasPassword}}leave blank to keep{{end}}" class="r-input">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">From email</label>
-        <input name="from_email" type="email" value="{{.SMTP.FromEmail}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">From email</label>
+        <input name="from_email" type="email" value="{{.SMTP.FromEmail}}" class="r-input">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">From name</label>
-        <input name="from_name" value="{{.SMTP.FromName}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">From name</label>
+        <input name="from_name" value="{{.SMTP.FromName}}" class="r-input">
       </div>
-      <div class="sm:col-span-2 flex flex-wrap justify-end gap-2 pt-2">
-        <button name="action" value="test" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm">Send test email</button>
-        <button name="action" value="save" class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save SMTP</button>
+      <div class="sm:col-span-2 flex flex-wrap justify-end gap-2">
+        <button name="action" value="test" class="r-btn-secondary">Send test email</button>
+        <button name="action" value="save" class="r-btn-primary">Save SMTP</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="auth" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">OIDC / Single sign-on</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Works with Authentik, Microsoft Entra ID, and any standards-compliant OIDC provider.</p>
-    <form id="oidc-form" method="POST" action="/admin/settings/oidc" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+  <!-- ── OIDC / SSO ─────────────────────────────────────────── -->
+  <section data-settings-pane="auth" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Auth &amp; access</p>
+    <h2 class="t-h3 mb-2">OIDC / Single sign-on</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Works with Authentik, Microsoft Entra ID, and any standards-compliant OIDC provider.</p>
+    <form id="oidc-form" method="POST" action="/admin/settings/oidc" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="enabled" value="1" {{if .OIDC.Enabled}}checked{{end}}> Enable OIDC sign-in button on the login page</label>
+        <label class="r-toggle">
+          <input type="checkbox" name="enabled" value="1" {{if .OIDC.Enabled}}checked{{end}}>
+          <span></span>
+          Enable OIDC sign-in button on the login page
+        </label>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Provider display name</label>
-        <input name="provider_name" value="{{.OIDC.ProviderName}}" placeholder="Authentik" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Label for the login button, e.g. "Sign in with Authentik".</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Provider display name</label>
+        <input name="provider_name" value="{{.OIDC.ProviderName}}" placeholder="Authentik" class="r-input">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Label for the login button, e.g. "Sign in with Authentik".</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Default role for new users</label>
-        <select name="default_role" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Default role for new users</label>
+        <select name="default_role" class="r-select">
           <option value="support" {{if eq .OIDC.DefaultRole "support"}}selected{{end}}>support</option>
           <option value="admin" {{if eq .OIDC.DefaultRole "admin"}}selected{{end}}>admin</option>
           <option value="client" {{if eq .OIDC.DefaultRole "client"}}selected{{end}}>client</option>
         </select>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">"admin" + auto-provision is refused for safety.</p>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">"admin" + auto-provision is refused for safety.</p>
       </div>
       <div class="sm:col-span-2">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Issuer URL</label>
-        <input id="oidc-issuer" name="issuer" value="{{.OIDC.Issuer}}" placeholder="https://authentik.example.com/application/o/hostyt/" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">In Authentik: Application → Provider → "OpenID Configuration Issuer". Paste the base URL, not <code class="text-xs">/.well-known/openid-configuration</code>.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Issuer URL</label>
+        <input id="oidc-issuer" name="issuer" value="{{.OIDC.Issuer}}" placeholder="https://authentik.example.com/application/o/hostyt/" class="r-input font-mono">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">In Authentik: Application → Provider → "OpenID Configuration Issuer". Paste the base URL, not <code class="text-xs">/.well-known/openid-configuration</code>.</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Client ID</label>
-        <input name="client_id" value="{{.OIDC.ClientID}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Client ID</label>
+        <input name="client_id" value="{{.OIDC.ClientID}}" class="r-input font-mono">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Client secret {{if .OIDC.HasSecret}}<span class="text-emerald-700 dark:text-emerald-400">(saved, encrypted)</span>{{end}}</label>
-        <input name="client_secret" type="password" autocomplete="new-password" placeholder="{{if .OIDC.HasSecret}}leave blank to keep{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-        {{if .OIDC.HasSecret}}<label class="flex items-center gap-2 mt-1 text-xs text-rose-700 dark:text-rose-400"><input type="checkbox" name="clear_secret" value="1"> Clear stored secret on save</label>{{end}}
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Client secret {{if .OIDC.HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved, encrypted</span>{{end}}</label>
+        <input name="client_secret" type="password" autocomplete="new-password" placeholder="{{if .OIDC.HasSecret}}leave blank to keep{{end}}" class="r-input">
+        {{if .OIDC.HasSecret}}<label class="r-toggle mt-1" style="font-size:.75rem;color:rgb(var(--danger))"><input type="checkbox" name="clear_secret" value="1"><span></span>Clear stored secret on save</label>{{end}}
       </div>
       <div class="sm:col-span-2">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Redirect URL <span class="text-slate-400">(configure this exact URL on the IdP side)</span></label>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Redirect URL <span style="color:rgb(var(--muted))">(configure this exact URL on the IdP side)</span></label>
         <div class="flex gap-2">
-          <input id="oidc-redirect" name="redirect_url" value="{{.OIDC.RedirectURL}}" placeholder="{{.OIDC.DefaultRedirect}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
-          <button type="button" data-oidc-fill-redirect data-redirect="{{.OIDC.DefaultRedirect}}" class="shrink-0 px-3 py-2 rounded-lg border border-slate-300 dark:border-zinc-700 text-xs hover:bg-slate-50 dark:hover:bg-zinc-800">Use default</button>
+          <input id="oidc-redirect" name="redirect_url" value="{{.OIDC.RedirectURL}}" placeholder="{{.OIDC.DefaultRedirect}}" class="r-input font-mono flex-1">
+          <button type="button" data-oidc-fill-redirect data-redirect="{{.OIDC.DefaultRedirect}}" class="r-btn-secondary shrink-0">Use default</button>
         </div>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Leave blank to auto-fill from APP_URL on save.</p>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Leave blank to auto-fill from APP_URL on save.</p>
       </div>
       <div class="sm:col-span-2">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Scopes (space-separated; <code class="text-xs">openid</code> always included)</label>
-        <input name="scopes" value="{{.OIDC.Scopes}}" placeholder="openid email profile" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Add <code class="text-xs">groups</code> only when your IdP exposes a groups claim you actually map.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Scopes (space-separated; <code class="text-xs">openid</code> always included)</label>
+        <input name="scopes" value="{{.OIDC.Scopes}}" placeholder="openid email profile" class="r-input font-mono">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Add <code class="text-xs">groups</code> only when your IdP exposes a groups claim you actually map.</p>
       </div>
       <div class="sm:col-span-2">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="auto_provision" value="1" {{if .OIDC.AutoProvision}}checked{{end}}> Auto-create local account on first OIDC login</label>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Off = admin must pre-create matching email accounts. Existing local users with the same email are linked automatically on first SSO sign-in either way.</p>
+        <label class="r-toggle">
+          <input type="checkbox" name="auto_provision" value="1" {{if .OIDC.AutoProvision}}checked{{end}}>
+          <span></span>
+          Auto-create local account on first OIDC login
+        </label>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Off = admin must pre-create matching email accounts. Existing local users with the same email are linked automatically on first SSO sign-in either way.</p>
       </div>
-      <div class="sm:col-span-2 border-t border-slate-200 dark:border-zinc-800 pt-3">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+      <div class="sm:col-span-2" style="border-top:1px solid rgb(var(--border));padding-top:1rem">
+        <label class="r-toggle">
           <input type="checkbox" name="password_login_disabled" value="1" {{if .OIDC.PasswordLoginDisabled}}checked{{end}}>
+          <span></span>
           <strong>SSO-only mode</strong> - disable password login for all non-admin users (superadmins can always sign in with password as failsafe)
         </label>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">When enabled, the login form is hidden and only the SSO button is shown. Enable only after verifying OIDC works.</p>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">When enabled, the login form is hidden and only the SSO button is shown. Enable only after verifying OIDC works.</p>
       </div>
       <div class="sm:col-span-2">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+        <label class="r-toggle">
           <input type="checkbox" name="allow_unverified_email" value="1" {{if .OIDC.AllowUnverifiedEmail}}checked{{end}}>
+          <span></span>
           Allow unverified email from IdP
         </label>
-        <p class="text-[11px] text-amber-700 dark:text-amber-400 mt-1">By default panel refuses login when the ID token says <code>email_verified: false</code>. Enable ONLY when your IdP (e.g. Authentik tied to corporate AD/LDAP) guarantees email ownership in some other way. Public-signup IdPs without this gate let anyone register <code>victim@yourdomain</code> and take over the matching local account.</p>
+        <p class="t-caption mt-1" style="color:rgb(var(--warning))">By default panel refuses login when the ID token says <code>email_verified: false</code>. Enable ONLY when your IdP (e.g. Authentik tied to corporate AD/LDAP) guarantees email ownership in some other way. Public-signup IdPs without this gate let anyone register <code>victim@yourdomain</code> and take over the matching local account.</p>
       </div>
-      <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-2 pt-2">
-        <button type="button" id="oidc-test-btn" class="px-3 py-2 rounded-lg border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm">Test discovery</button>
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save OIDC</button>
+      <div class="sm:col-span-2 flex flex-wrap items-center justify-between gap-2">
+        <button type="button" id="oidc-test-btn" class="r-btn-secondary">Test discovery</button>
+        <button class="r-btn-primary">Save OIDC</button>
       </div>
-      <div id="oidc-test-result" class="sm:col-span-2 hidden text-xs"></div>
+      <div id="oidc-test-result" class="sm:col-span-2 hidden t-caption"></div>
     </form>
   </section>
 
-  <section data-settings-pane="auth" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">Social login (GitHub, Google)</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Plain OAuth2 sign-in that runs alongside OIDC. Create an OAuth app on each provider, then paste its client id + secret. The secret is stored encrypted at rest.</p>
+  <!-- ── Social login ──────────────────────────────────────── -->
+  <section data-settings-pane="auth" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Auth &amp; access</p>
+    <h2 class="t-h3 mb-2">Social login (GitHub, Google)</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Plain OAuth2 sign-in that runs alongside OIDC. Create an OAuth app on each provider, then paste its client id + secret. The secret is stored encrypted at rest.</p>
     <div class="space-y-6">
       {{range .OAuthProviders}}
-      <form method="POST" action="/admin/settings/oauth-provider/{{.Provider}}" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm border-t border-slate-200 dark:border-zinc-800 pt-4 first:border-0 first:pt-0">
+      <form method="POST" action="/admin/settings/oauth-provider/{{.Provider}}" class="grid grid-cols-1 sm:grid-cols-2 gap-4" style="border-top:1px solid rgb(var(--border));padding-top:1.5rem">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
         <div class="sm:col-span-2 flex items-center gap-2">
           {{if eq .Provider "github"}}
-          <svg class="w-5 h-5 text-slate-700 dark:text-slate-300" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
+          <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" style="color:rgb(var(--text))"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z"/></svg>
           {{else if eq .Provider "google"}}
           <svg class="w-5 h-5" viewBox="0 0 24 24" aria-hidden="true"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
           {{end}}
-          <h3 class="font-medium text-slate-800 dark:text-slate-100">{{.Label}}</h3>
+          <h3 class="t-body font-medium" style="color:rgb(var(--text))">{{.Label}}</h3>
         </div>
         <div class="sm:col-span-2">
-          <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="enabled" value="1" {{if .Enabled}}checked{{end}}> Show "Sign in with {{.Label}}" on the login page</label>
+          <label class="r-toggle">
+            <input type="checkbox" name="enabled" value="1" {{if .Enabled}}checked{{end}}>
+            <span></span>
+            Show "Sign in with {{.Label}}" on the login page
+          </label>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Client ID</label>
-          <input name="client_id" value="{{.ClientID}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Client ID</label>
+          <input name="client_id" value="{{.ClientID}}" class="r-input font-mono">
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Client secret {{if .HasSecret}}<span class="text-emerald-700 dark:text-emerald-400">(saved, encrypted)</span>{{end}}</label>
-          <input name="client_secret" type="password" autocomplete="new-password" placeholder="{{if .HasSecret}}leave blank to keep{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-          {{if .HasSecret}}<label class="flex items-center gap-2 mt-1 text-xs text-rose-700 dark:text-rose-400"><input type="checkbox" name="clear_secret" value="1"> Clear stored secret on save</label>{{end}}
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Client secret {{if .HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved, encrypted</span>{{end}}</label>
+          <input name="client_secret" type="password" autocomplete="new-password" placeholder="{{if .HasSecret}}leave blank to keep{{end}}" class="r-input">
+          {{if .HasSecret}}<label class="r-toggle mt-1" style="font-size:.75rem;color:rgb(var(--danger))"><input type="checkbox" name="clear_secret" value="1"><span></span>Clear stored secret on save</label>{{end}}
         </div>
         <div class="sm:col-span-2">
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Authorization callback URL <span class="text-slate-400">(set this exact URL on the provider)</span></label>
-          <input value="{{.DefaultRedirect}}" readonly class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-100 dark:bg-zinc-800 text-slate-500 font-mono">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Authorization callback URL <span style="color:rgb(var(--muted))">(set this exact URL on the provider)</span></label>
+          <input value="{{.DefaultRedirect}}" readonly class="r-input font-mono" style="opacity:.7;cursor:default">
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Extra scopes (space-separated)</label>
-          <input name="scopes" value="{{.Scopes}}" placeholder="optional" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
-          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Email + profile scopes are always requested.</p>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Extra scopes (space-separated)</label>
+          <input name="scopes" value="{{.Scopes}}" placeholder="optional" class="r-input font-mono">
+          <p class="t-caption mt-1" style="color:rgb(var(--muted))">Email + profile scopes are always requested.</p>
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Default role for new users</label>
-          <select name="default_role" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Default role for new users</label>
+          <select name="default_role" class="r-select">
             <option value="support" {{if eq .DefaultRole "support"}}selected{{end}}>support</option>
             <option value="client" {{if eq .DefaultRole "client"}}selected{{end}}>client</option>
           </select>
-          <p class="text-[11px] text-slate-500 dark:text-slate-400 mt-1">admin role is never auto-provisioned via social login.</p>
+          <p class="t-caption mt-1" style="color:rgb(var(--muted))">admin role is never auto-provisioned via social login.</p>
         </div>
         <div class="sm:col-span-2">
-          <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="auto_provision" value="1" {{if .AutoProvision}}checked{{end}}> Auto-create a local account on first {{.Label}} login (verified email only)</label>
+          <label class="r-toggle">
+            <input type="checkbox" name="auto_provision" value="1" {{if .AutoProvision}}checked{{end}}>
+            <span></span>
+            Auto-create a local account on first {{.Label}} login (verified email only)
+          </label>
         </div>
-        <div class="sm:col-span-2 flex justify-end pt-1">
-          <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm cursor-pointer transition-colors">Save {{.Label}}</button>
+        <div class="sm:col-span-2 flex justify-end">
+          <button class="r-btn-primary cursor-pointer">Save {{.Label}}</button>
         </div>
       </form>
       {{end}}
     </div>
   </section>
 
-  <section data-settings-pane="captcha" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Cloudflare Turnstile (CAPTCHA)</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Free, privacy-respecting CAPTCHA. Get keys from Cloudflare dashboard → Turnstile.</p>
-    <form method="POST" action="/admin/settings/turnstile" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+  <!-- ── CAPTCHA ───────────────────────────────────────────── -->
+  <section data-settings-pane="captcha" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Auth &amp; access</p>
+    <h2 class="t-h3 mb-2">Cloudflare Turnstile (CAPTCHA)</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Free, privacy-respecting CAPTCHA. Get keys from Cloudflare dashboard → Turnstile.</p>
+    <form method="POST" action="/admin/settings/turnstile" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="enabled" value="1" {{if .Turnstile.Enabled}}checked{{end}}> Require Turnstile on login</label>
+        <label class="r-toggle">
+          <input type="checkbox" name="enabled" value="1" {{if .Turnstile.Enabled}}checked{{end}}>
+          <span></span>
+          Require Turnstile on login
+        </label>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Site key (public)</label>
-        <input name="site_key" value="{{.Turnstile.SiteKey}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Site key (public)</label>
+        <input name="site_key" value="{{.Turnstile.SiteKey}}" class="r-input font-mono">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Secret key {{if .Turnstile.HasSecret}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}</label>
-        <input name="secret" type="password" placeholder="{{if .Turnstile.HasSecret}}leave blank to keep{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Secret key {{if .Turnstile.HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+        <input name="secret" type="password" placeholder="{{if .Turnstile.HasSecret}}leave blank to keep{{end}}" class="r-input">
       </div>
-      <div class="sm:col-span-2 flex justify-end pt-2">
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save Turnstile</button>
+      <div class="sm:col-span-2 flex justify-end">
+        <button class="r-btn-primary">Save Turnstile</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="cloudflare" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Cloudflare account</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">API token + account ID. Token is verified against Cloudflare on save.</p>
-    <form method="POST" action="/admin/settings/cloudflare" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+  <!-- ── Cloudflare ─────────────────────────────────────────── -->
+  <section data-settings-pane="cloudflare" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Infrastructure</p>
+    <h2 class="t-h3 mb-2">Cloudflare account</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">API token + account ID. Token is verified against Cloudflare on save.</p>
+    <form method="POST" action="/admin/settings/cloudflare" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="enabled" value="1" {{if .Cloudflare.Enabled}}checked{{end}}> Cloudflare integration enabled</label>
+        <label class="r-toggle">
+          <input type="checkbox" name="enabled" value="1" {{if .Cloudflare.Enabled}}checked{{end}}>
+          <span></span>
+          Cloudflare integration enabled
+        </label>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Account ID</label>
-        <input name="account_id" value="{{.Cloudflare.AccountID}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Account ID</label>
+        <input name="account_id" value="{{.Cloudflare.AccountID}}" class="r-input font-mono">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">API token {{if .Cloudflare.HasToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}</label>
-        <input name="api_token" type="password" placeholder="{{if .Cloudflare.HasToken}}leave blank to keep{{end}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">API token {{if .Cloudflare.HasToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+        <input name="api_token" type="password" placeholder="{{if .Cloudflare.HasToken}}leave blank to keep{{end}}" class="r-input">
       </div>
       <div class="sm:col-span-2">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="trust_connecting_ip" value="1" {{if .Cloudflare.TrustConnectingIP}}checked{{end}}> Trust <code class="text-xs bg-slate-100 dark:bg-zinc-800 px-1 rounded">CF-Connecting-IP</code> header (only when this app sits behind Cloudflare)</label>
+        <label class="r-toggle">
+          <input type="checkbox" name="trust_connecting_ip" value="1" {{if .Cloudflare.TrustConnectingIP}}checked{{end}}>
+          <span></span>
+          Trust <code class="text-xs" style="background:rgb(var(--surface-2));padding:.1rem .3rem;border-radius:.25rem">CF-Connecting-IP</code> header (only when this app sits behind Cloudflare)
+        </label>
       </div>
-      <div class="sm:col-span-2 flex justify-end pt-2">
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Verify token &amp; save</button>
+      <div class="sm:col-span-2 flex justify-end">
+        <button class="r-btn-primary">Verify token &amp; save</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="ai" class="hpg-settings-pane hidden hpg-card">
+  <!-- ── AI assistant ───────────────────────────────────────── -->
+  <section data-settings-pane="ai" class="hpg-settings-pane hidden r-card">
     <div class="flex items-center gap-2 mb-1">
-      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 dark:bg-indigo-950 dark:text-indigo-300">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
+      <span class="icon-chip" style="background:rgb(var(--accent-weak))">
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="h-4 w-4" style="color:rgb(var(--accent))"><path d="M12 8V4H8"/><rect width="16" height="12" x="4" y="8" rx="2"/><path d="M2 14h2"/><path d="M20 14h2"/><path d="M15 13v2"/><path d="M9 13v2"/></svg>
       </span>
-      <h2 class="font-semibold text-slate-800 dark:text-slate-100">AI assistant</h2>
+      <p class="t-eyebrow">Developer</p>
     </div>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Configure an LLM provider for the in-app assistant. API keys are stored AES-256-GCM encrypted at rest and never shown again - leave a field blank to keep the existing key. Use <strong>Test</strong> to verify a saved key with a minimal request.</p>
-    <form method="POST" action="/admin/settings/ai" class="space-y-4 text-sm">
+    <h2 class="t-h3 mb-2">AI assistant</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Configure an LLM provider for the in-app assistant. API keys are stored AES-256-GCM encrypted at rest and never shown again - leave a field blank to keep the existing key. Use <strong>Test</strong> to verify a saved key with a minimal request.</p>
+    <form method="POST" action="/admin/settings/ai" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Default provider</label>
-        <select name="default_provider" class="w-full sm:w-72 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Default provider</label>
+        <select name="default_provider" class="r-select" style="max-width:18rem">
           <option value="" {{if eq .AI.DefaultProvider ""}}selected{{end}}>- none -</option>
           {{range .AI.Providers}}
           <option value="{{.ID}}" {{if eq $.AI.DefaultProvider .ID}}selected{{end}}>{{.Label}}</option>
           {{end}}
         </select>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">The assistant uses this provider's key unless overridden.</p>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">The assistant uses this provider's key unless overridden.</p>
       </div>
 
       <div class="grid grid-cols-1 gap-3">
         {{range .AI.Providers}}
-        <div class="rounded-lg ring-1 ring-slate-200/70 dark:ring-zinc-800 p-3">
-          <div class="flex items-center justify-between mb-2">
-            <span class="font-medium text-slate-700 dark:text-slate-200">{{.Label}}</span>
+        <div class="r-card" style="background:rgb(var(--surface-2)/.5)">
+          <div class="flex items-center justify-between mb-3">
+            <span class="t-body font-medium" style="color:rgb(var(--text))">{{.Label}}</span>
             {{if .Configured}}
-            <span class="text-[11px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300">Key configured</span>
+            <span class="r-pill r-pill-success">Key configured</span>
             {{else}}
-            <span class="text-[11px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-slate-400">Not set</span>
+            <span class="r-pill r-pill-neutral">Not set</span>
             {{end}}
           </div>
           <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-            <input name="key_{{.ID}}" type="password" autocomplete="new-password" placeholder="{{if .Configured}}leave blank to keep{{else}}paste API key{{end}}" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
-            <button type="button" data-ai-test="{{.ID}}" class="px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-600 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors whitespace-nowrap">Test key</button>
+            <input name="key_{{.ID}}" type="password" autocomplete="new-password" placeholder="{{if .Configured}}leave blank to keep{{else}}paste API key{{end}}" class="r-input font-mono flex-1">
+            <button type="button" data-ai-test="{{.ID}}" class="r-btn-secondary cursor-pointer whitespace-nowrap">Test key</button>
           </div>
           <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
-            <label class="block text-xs text-slate-600 dark:text-slate-300 sm:w-16 shrink-0">Model</label>
-            <select name="model_{{.ID}}" data-ai-model="{{.ID}}" data-ai-model-saved="{{.Model}}" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-xs">
+            <label class="t-caption shrink-0" style="min-width:4rem;color:rgb(var(--muted))">Model</label>
+            <select name="model_{{.ID}}" data-ai-model="{{.ID}}" data-ai-model-saved="{{.Model}}" class="r-select flex-1" style="font-size:.75rem">
               <option value="" {{if eq .Model ""}}selected{{end}}>Default ({{if eq .ID "anthropic"}}claude-3-5-haiku-latest{{else if eq .ID "openai"}}gpt-4o-mini{{else if eq .ID "gemini"}}gemini-1.5-flash{{else}}openai/gpt-4o-mini{{end}})</option>
               {{if .Model}}<option value="{{.Model}}" selected>{{.Model}}</option>{{end}}
             </select>
-            <button type="button" data-ai-models-refresh="{{.ID}}" class="px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-600 text-xs hover:bg-slate-100 dark:hover:bg-zinc-800 cursor-pointer transition-colors whitespace-nowrap">Refresh models</button>
+            <button type="button" data-ai-models-refresh="{{.ID}}" class="r-btn-secondary cursor-pointer whitespace-nowrap">Refresh models</button>
           </div>
-          {{if .Configured}}<label class="flex items-center gap-2 mt-2 text-xs text-rose-700 dark:text-rose-400"><input type="checkbox" name="clear_{{.ID}}" value="1"> Remove stored key on save</label>{{end}}
-          <p data-ai-models-status="{{.ID}}" class="hidden mt-2 text-xs"></p>
-          <p data-ai-test-result="{{.ID}}" class="hidden mt-2 text-xs"></p>
+          {{if .Configured}}<label class="r-toggle mt-2" style="font-size:.75rem;color:rgb(var(--danger))"><input type="checkbox" name="clear_{{.ID}}" value="1"><span></span>Remove stored key on save</label>{{end}}
+          <p data-ai-models-status="{{.ID}}" class="hidden mt-2 t-caption"></p>
+          <p data-ai-test-result="{{.ID}}" class="hidden mt-2 t-caption"></p>
         </div>
         {{end}}
       </div>
 
-      <div class="flex justify-end pt-1">
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm cursor-pointer transition-colors">Save AI settings</button>
+      <div class="flex justify-end">
+        <button class="r-btn-primary cursor-pointer">Save AI settings</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="wireguard" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">WireGuard (multi-node mesh)</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-3">Required for one-command node join. Auto-generates a keypair on first save.</p>
-    <form method="POST" action="/admin/settings/wireguard" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+  <!-- ── WireGuard ─────────────────────────────────────────── -->
+  <section data-settings-pane="wireguard" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Infrastructure</p>
+    <h2 class="t-h3 mb-2">WireGuard (multi-node mesh)</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Required for one-command node join. Auto-generates a keypair on first save.</p>
+    <form method="POST" action="/admin/settings/wireguard" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="enabled" value="1" {{if .WireGuard.Enabled}}checked{{end}}> Multi-node mode enabled</label>
+        <label class="r-toggle">
+          <input type="checkbox" name="enabled" value="1" {{if .WireGuard.Enabled}}checked{{end}}>
+          <span></span>
+          Multi-node mode enabled
+        </label>
       </div>
       <div class="sm:col-span-2">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Public endpoint (host:port - what new nodes will dial)</label>
-        <input name="endpoint" value="{{.WireGuard.Endpoint}}" placeholder="manager.example.com:51820" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Public endpoint (host:port - what new nodes will dial)</label>
+        <input name="endpoint" value="{{.WireGuard.Endpoint}}" placeholder="manager.example.com:51820" class="r-input font-mono">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Listen port (UDP)</label>
-        <input name="listen_port" type="number" value="{{.WireGuard.ListenPort}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Listen port (UDP)</label>
+        <input name="listen_port" type="number" value="{{.WireGuard.ListenPort}}" class="r-input tabular-nums">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Overlay subnet</label>
-        <input name="subnet" value="{{.WireGuard.Subnet}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Overlay subnet</label>
+        <input name="subnet" value="{{.WireGuard.Subnet}}" class="r-input font-mono">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Control plane IP</label>
-        <input name="control_ip" value="{{.WireGuard.ControlIP}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Control plane IP</label>
+        <input name="control_ip" value="{{.WireGuard.ControlIP}}" class="r-input font-mono">
       </div>
       {{if .WireGuard.PublicKey}}
       <div class="sm:col-span-2">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Control plane public key (given to joining nodes automatically)</label>
-        <code class="block bg-slate-50 dark:bg-zinc-800 p-2 rounded-lg text-xs break-all font-mono text-slate-800 dark:text-slate-100 dark:text-slate-200">{{.WireGuard.PublicKey}}</code>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Private key {{if .WireGuard.HasPrivate}}<span class="text-emerald-700 dark:text-emerald-400">stored AES-256-GCM encrypted</span>{{else}}<span class="text-rose-700 dark:text-rose-400">not generated yet</span>{{end}}.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Control plane public key (given to joining nodes automatically)</label>
+        <div class="r-card" style="background:rgb(var(--surface-2));padding:.5rem .75rem">
+          <code class="block text-xs break-all font-mono tabular-nums" style="color:rgb(var(--text))">{{.WireGuard.PublicKey}}</code>
+        </div>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Private key {{if .WireGuard.HasPrivate}}<span style="color:rgb(var(--success))">stored AES-256-GCM encrypted</span>{{else}}<span style="color:rgb(var(--danger))">not generated yet</span>{{end}}.</p>
       </div>
       {{end}}
-      <div class="sm:col-span-2 flex justify-end pt-2">
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save WireGuard (generates keypair)</button>
+      <div class="sm:col-span-2 flex justify-end">
+        <button class="r-btn-primary">Save WireGuard (generates keypair)</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="acme" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-3">ACME / Let's Encrypt</h2>
-    <form method="POST" action="/admin/settings/acme" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+  <!-- ── ACME / TLS ─────────────────────────────────────────── -->
+  <section data-settings-pane="acme" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Infrastructure</p>
+    <h2 class="t-h3 mb-4">ACME / Let's Encrypt</h2>
+    <form method="POST" action="/admin/settings/acme" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">ACME contact email</label>
-        <input name="email" type="email" required value="{{.ACME.Email}}" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Used as the registration contact for Let's Encrypt.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">ACME contact email</label>
+        <input name="email" type="email" required value="{{.ACME.Email}}" class="r-input">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Used as the registration contact for Let's Encrypt.</p>
       </div>
       <div class="sm:col-span-2">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200"><input type="checkbox" name="staging" value="1" {{if .ACME.Staging}}checked{{end}}> Use Let's Encrypt staging directory</label>
-        <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Enable while testing to avoid burning production rate limits. Issued certs will not be trusted by browsers.</p>
+        <label class="r-toggle">
+          <input type="checkbox" name="staging" value="1" {{if .ACME.Staging}}checked{{end}}>
+          <span></span>
+          Use Let's Encrypt staging directory
+        </label>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Enable while testing to avoid burning production rate limits. Issued certs will not be trusted by browsers.</p>
       </div>
-      <div class="sm:col-span-2 flex justify-end pt-2">
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save ACME</button>
+      <div class="sm:col-span-2 flex justify-end">
+        <button class="r-btn-primary">Save ACME</button>
       </div>
     </form>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mt-3">Changes take effect on the next Caddy push (next route create/delete or node resync).</p>
+    <p class="t-caption mt-3" style="color:rgb(var(--muted))">Changes take effect on the next Caddy push (next route create/delete or node resync).</p>
   </section>
 
-  <section data-settings-pane="mtls" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Mutual TLS (mTLS) enforcement</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Controls how Caddy behaves when a client-cert is required on a route but no valid certificate is presented. Changes take effect on the next Caddy push.</p>
-    <form method="POST" action="/admin/settings/mtls" class="space-y-4 text-sm">
+  <!-- ── mTLS ──────────────────────────────────────────────── -->
+  <section data-settings-pane="mtls" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Infrastructure</p>
+    <h2 class="t-h3 mb-2">Mutual TLS (mTLS) enforcement</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Controls how Caddy behaves when a client-cert is required on a route but no valid certificate is presented. Changes take effect on the next Caddy push.</p>
+    <form method="POST" action="/admin/settings/mtls" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200 cursor-pointer">
+      <label class="r-toggle">
         <input type="checkbox" name="mtls_fail_open" value="1" {{if .MTLSFailOpen}}checked{{end}}>
+        <span></span>
         Fail open - allow traffic even when no client certificate is presented
       </label>
-      <p class="text-xs text-slate-500 dark:text-slate-400">When unchecked (default): Caddy uses <code>require_and_verify</code> - the TLS handshake is rejected if no valid client cert is presented. When checked: Caddy uses <code>request</code> - the cert is optional and traffic proceeds regardless.</p>
+      <p class="t-caption" style="color:rgb(var(--muted))">When unchecked (default): Caddy uses <code>require_and_verify</code> - the TLS handshake is rejected if no valid client cert is presented. When checked: Caddy uses <code>request</code> - the cert is optional and traffic proceeds regardless.</p>
       <div class="flex justify-end">
-        <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 cursor-pointer transition-colors">Save</button>
+        <button class="r-btn-primary cursor-pointer">Save</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="analytics" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Analytics retention</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Controls automatic pruning of aggregated traffic rollup data.</p>
-    <form method="POST" action="/admin/settings/analytics" id="form-analytics">
+  <!-- ── Analytics ─────────────────────────────────────────── -->
+  <section data-settings-pane="analytics" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Infrastructure</p>
+    <h2 class="t-h3 mb-2">Analytics retention</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Controls automatic pruning of aggregated traffic rollup data.</p>
+    <form method="POST" action="/admin/settings/analytics" id="form-analytics" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <div class="space-y-4">
-        <div>
-          <label class="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1">Rollup retention (days)</label>
-          <input type="number" name="rollup_retention_days" value="{{.RollupRetentionDays}}"
-                 min="0" max="3650"
-                 placeholder="0 (keep forever)"
-                 class="w-full max-w-xs px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 text-sm">
-          <p class="mt-1 text-xs text-slate-500">log_rollups rows older than N days are deleted hourly. 0 = keep forever.</p>
-        </div>
+      <div>
+        <label class="block t-body font-medium mb-1" style="color:rgb(var(--text))">Rollup retention (days)</label>
+        <input type="number" name="rollup_retention_days" value="{{.RollupRetentionDays}}"
+               min="0" max="3650"
+               placeholder="0 (keep forever)"
+               class="r-input tabular-nums" style="max-width:16rem">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">log_rollups rows older than N days are deleted hourly. 0 = keep forever.</p>
       </div>
-      <div class="flex justify-end pt-4">
-        <button type="submit" form="form-analytics"
-                class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">Save</button>
+      <div class="flex justify-end">
+        <button type="submit" form="form-analytics" class="r-btn-primary cursor-pointer">Save</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="failover" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Auto failover</h2>
-    <form method="POST" action="/admin/settings/failover" id="form-failover">
+  <!-- ── Failover ───────────────────────────────────────────── -->
+  <section data-settings-pane="failover" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Infrastructure</p>
+    <h2 class="t-h3 mb-4">Auto failover</h2>
+    <form method="POST" action="/admin/settings/failover" id="form-failover" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <label class="flex items-center gap-3 cursor-pointer">
+      <label class="r-toggle">
         <input type="checkbox" name="auto_failover_enabled" value="1"
-               {{if .AutoFailoverEnabled}}checked{{end}}
-               class="w-4 h-4 rounded text-indigo-600">
-        <span class="text-sm font-medium">Enable automatic route failover</span>
+               {{if .AutoFailoverEnabled}}checked{{end}}>
+        <span></span>
+        Enable automatic route failover
       </label>
-      <p class="text-xs text-slate-500 mt-2">When enabled, routes on a dead node move to a healthy sibling in the same failover node group. Requires node groups with mode=failover.</p>
-      <div class="flex justify-end pt-4">
-        <button type="submit" class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">Save</button>
+      <p class="t-small" style="color:rgb(var(--muted))">When enabled, routes on a dead node move to a healthy sibling in the same failover node group. Requires node groups with mode=failover.</p>
+      <div class="flex justify-end">
+        <button type="submit" class="r-btn-primary cursor-pointer">Save</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="alerts" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">Alert thresholds</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Override the default alert thresholds at runtime without restart. Leave a field as-is to keep its current value.</p>
-    <form method="POST" action="/admin/settings/alert" id="form-alerts" class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+  <!-- ── Alert thresholds ───────────────────────────────────── -->
+  <section data-settings-pane="alerts" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Infrastructure</p>
+    <h2 class="t-h3 mb-2">Alert thresholds</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Override the default alert thresholds at runtime without restart. Leave a field as-is to keep its current value.</p>
+    <form method="POST" action="/admin/settings/alert" id="form-alerts" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Node offline threshold (minutes)</label>
-        <input name="node_offline_min" type="number" min="1" value="{{.AlertNodeOfflineMin}}"
-               class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-        <p class="mt-1 text-[11px] text-slate-400">Node must be unhealthy for at least this many minutes before alerting.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Node offline threshold (minutes)</label>
+        <input name="node_offline_min" type="number" min="1" value="{{.AlertNodeOfflineMin}}" class="r-input tabular-nums">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Node must be unhealthy for at least this many minutes before alerting.</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Cert stuck threshold (minutes)</label>
-        <input name="cert_stuck_min" type="number" min="1" value="{{.AlertCertStuckMin}}"
-               class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-        <p class="mt-1 text-[11px] text-slate-400">Minutes a cert may stay in pending_ssl before firing a "cert failing" alert.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Cert stuck threshold (minutes)</label>
+        <input name="cert_stuck_min" type="number" min="1" value="{{.AlertCertStuckMin}}" class="r-input tabular-nums">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Minutes a cert may stay in pending_ssl before firing a "cert failing" alert.</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Alert cooldown (seconds)</label>
-        <input name="cooldown_sec" type="number" min="60" value="{{.AlertCooldownSec}}"
-               class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-        <p class="mt-1 text-[11px] text-slate-400">Minimum seconds between repeated fires of the same rule and label combination.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Alert cooldown (seconds)</label>
+        <input name="cooldown_sec" type="number" min="60" value="{{.AlertCooldownSec}}" class="r-input tabular-nums">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Minimum seconds between repeated fires of the same rule and label combination.</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Manual cert expiry warn (days)</label>
-        <input name="manual_cert_days_warn" type="number" min="1" value="{{.AlertManualCertDaysWarn}}"
-               class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-        <p class="mt-1 text-[11px] text-slate-400">Days before expiry to alert for manually imported certificates.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Manual cert expiry warn (days)</label>
+        <input name="manual_cert_days_warn" type="number" min="1" value="{{.AlertManualCertDaysWarn}}" class="r-input tabular-nums">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Days before expiry to alert for manually imported certificates.</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Error rate threshold (0.01 - 1)</label>
-        <input name="error_rate_pct" type="number" step="0.01" min="0.01" max="1" value="{{.AlertErrorRatePct}}"
-               class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-        <p class="mt-1 text-[11px] text-slate-400">5xx ratio (fraction of 1) within the window that triggers a high-error-rate alert.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Error rate threshold (0.01 - 1)</label>
+        <input name="error_rate_pct" type="number" step="0.01" min="0.01" max="1" value="{{.AlertErrorRatePct}}" class="r-input tabular-nums">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">5xx ratio (fraction of 1) within the window that triggers a high-error-rate alert.</p>
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Error rate window (minutes)</label>
-        <input name="error_rate_window_min" type="number" min="1" value="{{.AlertErrorRateWindowMin}}"
-               class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
-        <p class="mt-1 text-[11px] text-slate-400">Rolling window size used by the high-error-rate calculation.</p>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Error rate window (minutes)</label>
+        <input name="error_rate_window_min" type="number" min="1" value="{{.AlertErrorRateWindowMin}}" class="r-input tabular-nums">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Rolling window size used by the high-error-rate calculation.</p>
       </div>
-      <div class="sm:col-span-2 flex justify-end pt-2">
-        <button type="submit" form="form-alerts"
-                class="px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">Save thresholds</button>
+      <div class="sm:col-span-2 flex justify-end">
+        <button type="submit" form="form-alerts" class="r-btn-primary cursor-pointer">Save thresholds</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="geoip" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">GeoIP database (MaxMind GeoLite2)</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Enter your free MaxMind account ID + license key. The panel downloads GeoLite2-Country daily and distributes it to every Caddy node over the tunnel, so per-route country blocking works without manual file placement.</p>
+  <!-- ── GeoIP ─────────────────────────────────────────────── -->
+  <section data-settings-pane="geoip" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Infrastructure</p>
+    <h2 class="t-h3 mb-2">GeoIP database (MaxMind GeoLite2)</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Enter your free MaxMind account ID + license key. The panel downloads GeoLite2-Country daily and distributes it to every Caddy node over the tunnel, so per-route country blocking works without manual file placement.</p>
 
-    <form method="POST" action="/admin/settings/geoip" class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+    <form method="POST" action="/admin/settings/geoip" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">MaxMind account ID</label>
-        <input name="account_id" type="text" value="{{.GeoIP.AccountID}}" autocomplete="off" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">MaxMind account ID</label>
+        <input name="account_id" type="text" value="{{.GeoIP.AccountID}}" autocomplete="off" class="r-input tabular-nums">
       </div>
       <div>
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">License key {{if .GeoIP.Configured}}<span class="text-emerald-600">(configured)</span>{{end}}</label>
-        <input name="license_key" type="password" placeholder="{{if .GeoIP.Configured}}leave blank to keep current{{else}}paste license key{{end}}" autocomplete="new-password" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">License key {{if .GeoIP.Configured}}<span class="r-pill r-pill-success" style="font-size:.6rem">configured</span>{{end}}</label>
+        <input name="license_key" type="password" placeholder="{{if .GeoIP.Configured}}leave blank to keep current{{else}}paste license key{{end}}" autocomplete="new-password" class="r-input">
       </div>
-      <div class="sm:col-span-2 flex justify-end pt-2">
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save GeoIP credentials</button>
+      <div class="sm:col-span-2 flex justify-end">
+        <button class="r-btn-primary">Save GeoIP credentials</button>
       </div>
     </form>
 
-    <div class="mt-4 pt-4 border-t border-slate-200 dark:border-zinc-700 text-xs text-slate-600 dark:text-slate-300">
-      <div class="flex items-center gap-2 mb-3">
-        <p class="font-medium text-slate-700 dark:text-slate-200">Current database</p>
+    <div class="mt-4 pt-4 space-y-3" style="border-top:1px solid rgb(var(--border))">
+      <div class="flex items-center gap-2">
+        <p class="t-body font-medium" style="color:rgb(var(--text))">Current database</p>
         {{if .GeoIP.Available}}
-          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+          <span class="r-pill r-pill-success">
+            <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3 inline" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
             Active
           </span>
         {{else}}
-          <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300">
-            Not loaded
-          </span>
+          <span class="r-pill r-pill-warning">Not loaded</span>
         {{end}}
       </div>
       {{if .GeoIP.FetchedAt}}
-        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1">
-          <dt class="text-slate-500 dark:text-slate-400">Fetched</dt>
+        <dl class="grid gap-x-4 gap-y-1 t-small" style="grid-template-columns:auto 1fr;color:rgb(var(--text))">
+          <dt style="color:rgb(var(--muted))">Fetched</dt>
           <dd>{{.GeoIP.FetchedAt}}</dd>
-          <dt class="text-slate-500 dark:text-slate-400">Size</dt>
-          <dd>{{.GeoIP.SizeHuman}}</dd>
-          <dt class="text-slate-500 dark:text-slate-400">SHA-256</dt>
-          <dd class="font-mono break-all">{{.GeoIP.SHA256Short}}…</dd>
+          <dt style="color:rgb(var(--muted))">Size</dt>
+          <dd class="tabular-nums">{{.GeoIP.SizeHuman}}</dd>
+          <dt style="color:rgb(var(--muted))">SHA-256</dt>
+          <dd class="font-mono break-all tabular-nums">{{.GeoIP.SHA256Short}}…</dd>
         </dl>
         {{if not .GeoIP.Available}}
-          <p class="mt-2 text-amber-600 dark:text-amber-400">File downloaded but not yet loaded - restart the panel or trigger a refresh.</p>
+          <p class="t-caption" style="color:rgb(var(--warning))">File downloaded but not yet loaded - restart the panel or trigger a refresh.</p>
         {{end}}
       {{else}}
-        <p class="text-slate-500 dark:text-slate-400">No database downloaded yet. Save credentials and click "Refresh database now".</p>
+        <p class="t-caption" style="color:rgb(var(--muted))">No database downloaded yet. Save credentials and click "Refresh database now".</p>
       {{end}}
       {{if .GeoIP.LastError}}
-      <div class="mt-2 rounded-lg bg-rose-50 dark:bg-rose-900/20 px-3 py-2">
-        <p class="text-[10px] uppercase tracking-wide text-rose-600 dark:text-rose-400 mb-1">Last refresh failed{{if .GeoIP.LastAttempt}} ({{.GeoIP.LastAttempt}}){{end}}</p>
-        <p class="font-mono text-rose-700 dark:text-rose-300 break-all">{{.GeoIP.LastError}}</p>
+      <div class="r-card" style="background:rgb(var(--danger)/.08);border:1px solid rgb(var(--danger)/.2)">
+        <p class="t-caption font-semibold mb-1" style="color:rgb(var(--danger))">Last refresh failed{{if .GeoIP.LastAttempt}} ({{.GeoIP.LastAttempt}}){{end}}</p>
+        <p class="font-mono t-small break-all" style="color:rgb(var(--danger))">{{.GeoIP.LastError}}</p>
       </div>
       {{end}}
-      <form method="POST" action="/admin/settings/geoip/refresh" class="mt-3">
+      <form method="POST" action="/admin/settings/geoip/refresh">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-        <button {{if not .GeoIP.Configured}}disabled{{end}} class="px-3 py-2 rounded-lg ring-1 ring-slate-300 dark:ring-zinc-600 text-sm hover:bg-slate-100 dark:hover:bg-zinc-800 disabled:opacity-50 disabled:cursor-not-allowed">Refresh database now</button>
+        <button {{if not .GeoIP.Configured}}disabled{{end}} class="r-btn-secondary disabled:opacity-50 disabled:cursor-not-allowed">Refresh database now</button>
       </form>
     </div>
   </section>
 
-  <section data-settings-pane="sms" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">SMS provider</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Used for security alerts and (optionally) 2FA SMS fallback. Pick a gateway below - only its fields will be shown.</p>
+  <!-- ── SMS ───────────────────────────────────────────────── -->
+  <section data-settings-pane="sms" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Delivery</p>
+    <h2 class="t-h3 mb-2">SMS provider</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Used for security alerts and (optionally) 2FA SMS fallback. Pick a gateway below - only its fields will be shown.</p>
 
-    <form method="POST" action="/admin/settings/sms" class="text-sm">
+    <form method="POST" action="/admin/settings/sms">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <!-- sms_provider value is kept in sync by the card-picker JS below -->
       <input type="hidden" id="sms_provider_input" name="sms_provider" value="{{if .SMS.Provider}}{{.SMS.Provider}}{{else}}bulkgate{{end}}">
 
-      <!-- Enable toggle -->
       <div class="mb-4">
-        <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+        <label class="r-toggle">
           <input type="checkbox" name="enabled" value="1" {{if .SMS.Enabled}}checked{{end}}>
+          <span></span>
           Enable SMS sending
         </label>
       </div>
@@ -817,208 +900,188 @@
       <!-- Provider cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-5" id="sms-provider-cards">
         <button type="button" data-sms-card="bulkgate"
-          class="sms-provider-card text-left rounded-lg border-2 p-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-          <div class="font-semibold text-slate-800 dark:text-slate-100 mb-0.5">BulkGate</div>
-          <div class="text-xs text-slate-500 dark:text-slate-400">Simple Transactional API. App ID + token, no server setup.</div>
+          class="sms-provider-card r-card text-left transition-colors cursor-pointer focus:outline-none" style="padding:.75rem">
+          <div class="t-body font-semibold mb-0.5" style="color:rgb(var(--text))">BulkGate</div>
+          <div class="t-caption" style="color:rgb(var(--muted))">Simple Transactional API. App ID + token, no server setup.</div>
         </button>
         <button type="button" data-sms-card="twilio"
-          class="sms-provider-card text-left rounded-lg border-2 p-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-          <div class="font-semibold text-slate-800 dark:text-slate-100 mb-0.5">Twilio</div>
-          <div class="text-xs text-slate-500 dark:text-slate-400">Account SID + Auth Token. Verified sender phone or alphanumeric ID.</div>
+          class="sms-provider-card r-card text-left transition-colors cursor-pointer focus:outline-none" style="padding:.75rem">
+          <div class="t-body font-semibold mb-0.5" style="color:rgb(var(--text))">Twilio</div>
+          <div class="t-caption" style="color:rgb(var(--muted))">Account SID + Auth Token. Verified sender phone or alphanumeric ID.</div>
         </button>
         <button type="button" data-sms-card="smsapi"
-          class="sms-provider-card text-left rounded-lg border-2 p-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-          <div class="font-semibold text-slate-800 dark:text-slate-100 mb-0.5">SMSAPI.pl</div>
-          <div class="text-xs text-slate-500 dark:text-slate-400">OAuth Bearer token. EU-based gateway, Polish-market oriented.</div>
+          class="sms-provider-card r-card text-left transition-colors cursor-pointer focus:outline-none" style="padding:.75rem">
+          <div class="t-body font-semibold mb-0.5" style="color:rgb(var(--text))">SMSAPI.pl</div>
+          <div class="t-caption" style="color:rgb(var(--muted))">OAuth Bearer token. EU-based gateway, Polish-market oriented.</div>
         </button>
         <button type="button" data-sms-card="webhook"
-          class="sms-provider-card text-left rounded-lg border-2 p-3 transition-colors cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500">
-          <div class="font-semibold text-slate-800 dark:text-slate-100 mb-0.5">Generic webhook</div>
-          <div class="text-xs text-slate-500 dark:text-slate-400">HTTP POST to any gateway. Payload: to, from, message fields.</div>
+          class="sms-provider-card r-card text-left transition-colors cursor-pointer focus:outline-none" style="padding:.75rem">
+          <div class="t-body font-semibold mb-0.5" style="color:rgb(var(--text))">Generic webhook</div>
+          <div class="t-caption" style="color:rgb(var(--muted))">HTTP POST to any gateway. Payload: to, from, message fields.</div>
         </button>
       </div>
 
       <!-- Shared: sender -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Sender (phone or alphanumeric)</label>
-          <input name="from" value="{{.SMS.From}}" placeholder="+48555111222 or HostytPxy"
-            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Sender (phone or alphanumeric)</label>
+          <input name="from" value="{{.SMS.From}}" placeholder="+48555111222 or HostytPxy" class="r-input font-mono">
         </div>
       </div>
 
       <!-- BulkGate fields -->
       <div id="sms-fields-bulkgate" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">BulkGate Application ID</label>
-          <input name="bulkgate_app_id" value="{{.SMS.BulkGateAppID}}" placeholder="123"
-            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono"
-            data-sms-required="bulkgate">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">BulkGate Application ID</label>
+          <input name="bulkgate_app_id" value="{{.SMS.BulkGateAppID}}" placeholder="123" class="r-input font-mono" data-sms-required="bulkgate">
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
-            BulkGate Application Token
-            {{if .SMS.HasBulkGateToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}
-          </label>
-          <input name="bulkgate_app_token" type="password"
-            placeholder="{{if .SMS.HasBulkGateToken}}leave blank to keep{{end}}"
-            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">BulkGate Application Token {{if .SMS.HasBulkGateToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input name="bulkgate_app_token" type="password" placeholder="{{if .SMS.HasBulkGateToken}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
       <!-- Twilio fields -->
       <div id="sms-fields-twilio" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Twilio Account SID</label>
-          <input name="twilio_account_sid" value="{{.SMS.TwilioAccountSID}}" placeholder="AC..."
-            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono"
-            data-sms-required="twilio">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Twilio Account SID</label>
+          <input name="twilio_account_sid" value="{{.SMS.TwilioAccountSID}}" placeholder="AC..." class="r-input font-mono" data-sms-required="twilio">
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
-            Twilio Auth Token
-            {{if .SMS.HasTwilioToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}
-          </label>
-          <input name="twilio_auth_token" type="password"
-            placeholder="{{if .SMS.HasTwilioToken}}leave blank to keep{{end}}"
-            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Twilio Auth Token {{if .SMS.HasTwilioToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input name="twilio_auth_token" type="password" placeholder="{{if .SMS.HasTwilioToken}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
       <!-- SMSAPI fields -->
       <div id="sms-fields-smsapi" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">SMSAPI base URL</label>
-          <input name="smsapi_base_url" value="{{.SMS.SMSAPIBaseURL}}" placeholder="https://api.smsapi.pl"
-            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">SMSAPI base URL</label>
+          <input name="smsapi_base_url" value="{{.SMS.SMSAPIBaseURL}}" placeholder="https://api.smsapi.pl" class="r-input font-mono">
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
-            SMSAPI OAuth token
-            {{if .SMS.HasSMSAPIToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}
-          </label>
-          <input name="smsapi_token" type="password"
-            placeholder="{{if .SMS.HasSMSAPIToken}}leave blank to keep{{end}}"
-            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500"
-            data-sms-required="smsapi">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">SMSAPI OAuth token {{if .SMS.HasSMSAPIToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input name="smsapi_token" type="password" placeholder="{{if .SMS.HasSMSAPIToken}}leave blank to keep{{end}}" class="r-input" data-sms-required="smsapi">
         </div>
       </div>
 
       <!-- Webhook fields -->
       <div id="sms-fields-webhook" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Webhook URL (any HTTP gateway)</label>
-          <input name="webhook_url" value="{{.SMS.WebhookURL}}" placeholder="https://sms-gw.example.com/send"
-            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono"
-            data-sms-required="webhook">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Webhook URL (any HTTP gateway)</label>
+          <input name="webhook_url" value="{{.SMS.WebhookURL}}" placeholder="https://sms-gw.example.com/send" class="r-input font-mono" data-sms-required="webhook">
         </div>
         <div>
-          <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">
-            Webhook Bearer token
-            {{if .SMS.HasWebhookToken}}<span class="text-emerald-700 dark:text-emerald-400">(saved)</span>{{end}}
-          </label>
-          <input name="webhook_token" type="password"
-            placeholder="{{if .SMS.HasWebhookToken}}leave blank to keep{{end}}"
-            class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Webhook Bearer token {{if .SMS.HasWebhookToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input name="webhook_token" type="password" placeholder="{{if .SMS.HasWebhookToken}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
-      <div class="flex flex-wrap justify-end gap-2 pt-2">
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save SMS</button>
+      <div class="flex justify-end">
+        <button class="r-btn-primary">Save SMS</button>
       </div>
     </form>
 
-    <form method="POST" action="/admin/settings/sms/test" class="mt-3 flex flex-wrap items-end gap-2 text-sm">
+    <!-- Test SMS -->
+    <form method="POST" action="/admin/settings/sms/test" class="mt-4 flex flex-wrap items-end gap-2" style="border-top:1px solid rgb(var(--border));padding-top:1rem">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <div class="flex-1 min-w-[14rem]">
-        <label class="block text-xs text-slate-600 dark:text-slate-300 mb-1">Send a test SMS to (E.164)</label>
-        <input name="test_phone" placeholder="+48555111222" class="w-full px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 font-mono">
+      <div class="flex-1" style="min-width:14rem">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Send a test SMS to (E.164)</label>
+        <input name="test_phone" placeholder="+48555111222" class="r-input font-mono">
       </div>
-      <button class="px-3 py-2 rounded-lg border border-slate-300 dark:border-zinc-700 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm">Send test SMS</button>
+      <button class="r-btn-secondary">Send test SMS</button>
     </form>
 
-    <form method="POST" action="/admin/settings/sms-otp" class="mt-4 border-t border-slate-200 dark:border-zinc-800 pt-4 text-sm">
+    <!-- SMS 2FA -->
+    <form method="POST" action="/admin/settings/sms-otp" class="mt-4 space-y-3" style="border-top:1px solid rgb(var(--border));padding-top:1rem">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+      <label class="r-toggle">
         <input type="checkbox" name="sms_otp_available" value="1" {{if .SMSOTPAvailable}}checked{{end}}>
+        <span></span>
         Allow customers to use SMS as a second factor (2FA). Requires SMS configured above and phone set on the account.
       </label>
-      <div class="flex justify-end pt-2">
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save SMS 2FA setting</button>
+      <div class="flex justify-end">
+        <button class="r-btn-primary">Save SMS 2FA setting</button>
       </div>
     </form>
   </section>
 
-  <section data-settings-pane="sso-jump" class="hpg-settings-pane hidden hpg-card">
-    <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-1">SSO Jump - FOSSBilling integration</h2>
-    <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Allows FOSSBilling (or any trusted system) to sign a URL that logs a customer directly into the panel. Signature: <code class="text-xs">HMAC-SHA256(secret, "email=&lt;email&gt;&amp;exp=&lt;unix&gt;")</code>. <a href="/docs/sso-jump" class="text-indigo-600 dark:text-indigo-400 hover:underline">View integration docs →</a></p>
+  <!-- ── SSO Jump ───────────────────────────────────────────── -->
+  <section data-settings-pane="sso-jump" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Delivery</p>
+    <h2 class="t-h3 mb-2">SSO Jump - FOSSBilling integration</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Allows FOSSBilling (or any trusted system) to sign a URL that logs a customer directly into the panel. Signature: <code class="text-xs">HMAC-SHA256(secret, "email=&lt;email&gt;&amp;exp=&lt;unix&gt;")</code>. <a href="/docs/sso-jump" style="color:rgb(var(--accent))" class="hover:underline">View integration docs →</a></p>
 
     {{if .SSOJump.NewSecret}}
-    <div id="hpg-sso-secret-modal" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
-      <div class="hpg-card ring-emerald-200 dark:ring-emerald-600/40 shadow-2xl max-w-xl w-full space-y-4 text-sm">
+    <div id="hpg-sso-secret-modal" class="fixed inset-0 z-[60] flex items-center justify-center p-4" style="background:rgba(0,0,0,.5);backdrop-filter:blur(4px)">
+      <div class="r-card shadow-2xl max-w-xl w-full space-y-4" style="border:1px solid rgb(var(--success)/.4)">
         <div class="flex items-start justify-between gap-3">
           <div>
-            <h3 class="font-semibold text-emerald-900 dark:text-emerald-300 text-lg">SSO Jump secret - shown once</h3>
-            <p class="text-xs text-slate-600 dark:text-slate-400 mt-1">Copy this secret into your FOSSBilling <code class="text-xs">HOSTYT_SSO_SECRET</code> env variable. This value will <strong>not</strong> be shown again.</p>
+            <h3 class="t-h3" style="color:rgb(var(--success))">SSO Jump secret - shown once</h3>
+            <p class="t-caption mt-1" style="color:rgb(var(--muted))">Copy this secret into your FOSSBilling <code class="text-xs">HOSTYT_SSO_SECRET</code> env variable. This value will <strong>not</strong> be shown again.</p>
           </div>
-          <button type="button" data-sso-secret-close class="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 text-xl leading-none">×</button>
+          <button type="button" data-sso-secret-close class="cursor-pointer" style="color:rgb(var(--muted));font-size:1.25rem;line-height:1">×</button>
         </div>
         <div>
-          <label class="block text-[11px] font-medium text-slate-600 dark:text-slate-300 mb-1">HOSTYT_SSO_SECRET</label>
+          <label class="block t-caption mb-1" style="color:rgb(var(--muted))">HOSTYT_SSO_SECRET</label>
           <div class="flex gap-2">
-            <input id="hpg-sso-secret-val" readonly value="{{.SSOJump.NewSecret}}" class="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-200 dark:ring-zinc-700 border-0 bg-slate-50 dark:bg-zinc-800/50 focus:ring-2 focus:ring-indigo-500 dark:text-slate-100 font-mono text-xs">
-            <button type="button" data-copy-target="hpg-sso-secret-val" class="px-3 py-2 rounded-lg bg-emerald-600 text-white text-xs hover:bg-emerald-700">Copy</button>
+            <input id="hpg-sso-secret-val" readonly value="{{.SSOJump.NewSecret}}" class="r-input font-mono flex-1 text-xs">
+            <button type="button" data-copy-target="hpg-sso-secret-val" class="r-btn-primary text-xs">Copy</button>
           </div>
         </div>
-        <div class="flex justify-end pt-2 border-t border-slate-200 dark:border-zinc-800">
-          <button type="button" data-sso-secret-close class="px-3 py-2 rounded-lg bg-indigo-600 text-white text-sm hover:bg-indigo-700">I've copied - close</button>
+        <div class="flex justify-end pt-2" style="border-top:1px solid rgb(var(--border))">
+          <button type="button" data-sso-secret-close class="r-btn-primary">I've copied - close</button>
         </div>
       </div>
     </div>
     {{end}}
 
     {{if not .SSOJump.HasSecret}}
-    <div class="mb-4 p-3 bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30 rounded-lg text-xs text-amber-900 dark:text-amber-200">
+    <div class="r-card mb-4 t-small" style="background:rgb(var(--warning)/.1);border:1px solid rgb(var(--warning)/.3);color:rgb(var(--warning))">
       No secret set - generate one below to enable this feature.
     </div>
     {{else}}
-    <div class="mb-4 flex items-center gap-2 p-3 bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 rounded-lg text-xs text-emerald-900 dark:text-emerald-200">
+    <div class="r-card mb-4 flex items-center gap-2 t-small" style="background:rgb(var(--success)/.08);border:1px solid rgb(var(--success)/.25);color:rgb(var(--success))">
       <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
       Secret configured (encrypted at rest). Use the Rotate button to issue a new one.
     </div>
     {{end}}
 
-    <form method="POST" action="/admin/settings/sso-jump" class="space-y-3 text-sm mb-4">
+    <form method="POST" action="/admin/settings/sso-jump" class="space-y-4 mb-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <label class="flex items-center gap-2 text-slate-700 dark:text-slate-200">
+      <label class="r-toggle">
         <input type="checkbox" name="sso_jump_enabled" value="1" {{if .SSOJump.Enabled}}checked{{end}}>
+        <span></span>
         Enable SSO jump-login
       </label>
       <div>
-        <label class="flex items-start gap-2 text-slate-700 dark:text-slate-200">
-          <input type="checkbox" name="sso_jump_allow_admin" value="1" {{if .SSOJump.AllowAdmin}}checked{{end}} class="mt-0.5 shrink-0">
-          <span>Allow admin role login via jump</span>
+        <label class="r-toggle">
+          <input type="checkbox" name="sso_jump_allow_admin" value="1" {{if .SSOJump.AllowAdmin}}checked{{end}}>
+          <span></span>
+          Allow admin role login via jump
         </label>
-        <p class="text-xs text-amber-700 dark:text-amber-400 mt-1 ml-5">Disables failsafe - admin accounts will be loggable without password if their email is signed.</p>
+        <p class="t-caption mt-1 ml-9" style="color:rgb(var(--warning))">Disables failsafe - admin accounts will be loggable without password if their email is signed.</p>
       </div>
-      <div class="flex justify-end pt-2">
-        <button class="px-3 py-2 rounded-lg bg-indigo-600 text-white hover:bg-indigo-700 text-sm">Save settings</button>
+      <div class="flex justify-end">
+        <button class="r-btn-primary">Save settings</button>
       </div>
     </form>
 
-    <div class="border-t border-slate-200 dark:border-zinc-800 pt-4 space-y-3 text-sm">
+    <div class="space-y-3 pt-4" style="border-top:1px solid rgb(var(--border))">
       <div class="flex flex-wrap items-center justify-between gap-2">
-        <span class="text-slate-700 dark:text-slate-200 font-medium">Shared secret</span>
+        <span class="t-body font-medium" style="color:rgb(var(--text))">Shared secret</span>
         <form method="POST" action="/admin/settings/sso-jump/rotate" class="inline" data-confirm="{{if .SSOJump.HasSecret}}Rotate secret? This invalidates your current FOSSBilling configuration - you must update HOSTYT_SSO_SECRET there.{{end}}">
           <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-          <button class="px-3 py-2 rounded-lg {{if .SSOJump.HasSecret}}bg-amber-600 hover:bg-amber-700{{else}}bg-emerald-600 hover:bg-emerald-700{{end}} text-white text-xs">
+          <button class="{{if .SSOJump.HasSecret}}r-btn-danger{{else}}r-btn-primary{{end}} text-xs">
             {{if .SSOJump.HasSecret}}Rotate secret{{else}}Generate secret{{end}}
           </button>
         </form>
       </div>
       <div>
-        <p class="text-[11px] text-slate-500 dark:text-slate-400 mb-1">Example callback URL (computed from APP_URL)</p>
-        <code class="block bg-slate-50 dark:bg-zinc-800 p-2 rounded-lg text-xs break-all font-mono text-slate-800 dark:text-slate-200">{{.SSOJump.CallbackURLEx}}</code>
+        <p class="t-caption mb-1" style="color:rgb(var(--muted))">Example callback URL (computed from APP_URL)</p>
+        <div class="r-card" style="background:rgb(var(--surface-2));padding:.5rem .75rem">
+          <code class="block text-xs break-all font-mono tabular-nums" style="color:rgb(var(--text))">{{.SSOJump.CallbackURLEx}}</code>
+        </div>
       </div>
     </div>
   </section>
@@ -1031,22 +1094,14 @@
   function activate(name){
     tabs.forEach(function(b){
       var on = b.dataset.settingsTab === name;
-      b.classList.toggle('bg-slate-200', on);
-      b.classList.toggle('dark:bg-zinc-800', on);
-      b.classList.toggle('text-slate-900', on);
-      b.classList.toggle('dark:text-slate-100', on);
-      b.classList.toggle('font-medium', on);
-      b.classList.toggle('text-slate-600', !on);
-      b.classList.toggle('dark:text-slate-300', !on);
+      b.classList.toggle('is-active', on);
     });
     panes.forEach(function(p){ p.classList.toggle('hidden', p.dataset.settingsPane !== name); });
     try { history.replaceState(null, '', '#'+name); } catch(e){}
-    // Persist so a full-page reload (e.g. /theme redirect) restores the tab.
     try { localStorage.setItem('settings_tab', name); } catch(e){}
   }
   function knownTab(name){ for (var i=0;i<tabs.length;i++){ if (tabs[i].dataset.settingsTab === name) return true; } return false; }
   tabs.forEach(function(b){ b.addEventListener('click', function(){ activate(b.dataset.settingsTab); }); });
-  // Restore: hash wins (sharable), else ?tab= query param, else last-saved tab, else leave default.
   var hash = (location.hash || '').replace('#','');
   var qtab = new URLSearchParams(location.search).get('tab') || '';
   var saved = '';
@@ -1055,25 +1110,19 @@
   else if (qtab && knownTab(qtab)) activate(qtab);
   else if (saved && knownTab(saved)) activate(saved);
 
-  // Appearance picker: persist pick to localStorage + apply instantly (server cookie set via link nav).
+  // Appearance picker
   var paletteCards = document.querySelectorAll('[data-palette-card]');
   function activePill(){
     var s = document.createElement('span');
-    s.className = 'text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300';
+    s.className = 'r-pill r-pill-info';
+    s.style.cssText = 'font-size:.6rem;padding:.15rem .4rem';
     s.textContent = 'Active';
     return s;
   }
   function markPaletteActive(slug){
     paletteCards.forEach(function(card){
       var on = card.dataset.paletteCard === slug;
-      card.classList.toggle('border-indigo-500', on);
-      card.classList.toggle('ring-2', on);
-      card.classList.toggle('ring-indigo-500', on);
-      // Resting: soft ring matching the static template branch.
-      card.classList.toggle('ring-1', !on);
-      card.classList.toggle('ring-slate-200/70', !on);
-      card.classList.toggle('dark:ring-zinc-800', !on);
-      // Move the Active pill (sits next to the theme name in the card footer).
+      card.style.border = on ? '1px solid rgb(var(--accent))' : '1px solid rgb(var(--border))';
       var row = card.querySelector('.items-center.justify-between');
       if (!row) return;
       var pill = row.querySelector('[data-palette-active-pill]');
@@ -1085,42 +1134,30 @@
     a.addEventListener('click', function(){
       var slug = a.dataset.palettePick;
       try { localStorage.setItem('ui_theme', slug); } catch(e){}
-      // /theme/{slug} 303-redirects back without a fragment; keep Branding tab after reload.
       try { localStorage.setItem('settings_tab', 'branding'); } catch(e){}
       document.documentElement.dataset.theme = slug;
       markPaletteActive(slug);
     });
   });
 
-  // SMS provider card picker - shows only the selected provider's fields.
+  // SMS provider card picker
   var providerInput = document.getElementById('sms_provider_input');
   var cards = document.querySelectorAll('[data-sms-card]');
 
   function applyCardStyles(card, active) {
-    card.classList.toggle('border-indigo-500', active);
-    card.classList.toggle('bg-indigo-50', active);
-    card.classList.toggle('dark:bg-indigo-950', active);
-    card.classList.toggle('dark:border-indigo-500', active);
-    // Resting: soft ring instead of a hard border color.
-    card.classList.toggle('border-transparent', !active);
-    card.classList.toggle('ring-1', !active);
-    card.classList.toggle('ring-slate-200/70', !active);
-    card.classList.toggle('dark:ring-zinc-800', !active);
+    card.style.outline = active ? '2px solid rgb(var(--accent))' : '';
+    card.style.background = active ? 'rgb(var(--accent-weak))' : '';
   }
 
   function selectProvider(id) {
     if (providerInput) providerInput.value = id;
-
-    // Show matching fields, hide others; toggle required accordingly.
     document.querySelectorAll('.sms-provider-fields').forEach(function(div) {
       var match = div.id === 'sms-fields-' + id;
       div.classList.toggle('hidden', !match);
       div.querySelectorAll('[data-sms-required]').forEach(function(inp) {
-        // Only require when pre-existing value is absent (password blanks are optional keeps).
         if (inp.type !== 'password') inp.required = match;
       });
     });
-
     cards.forEach(function(c) { applyCardStyles(c, c.dataset.smsCard === id); });
   }
 
@@ -1128,7 +1165,6 @@
     cards.forEach(function(c) {
       c.addEventListener('click', function() { selectProvider(c.dataset.smsCard); });
     });
-    // Init from saved value (falls back to bulkgate via hidden input default).
     selectProvider(providerInput.value || 'bulkgate');
   }
 
@@ -1139,8 +1175,7 @@
     if (el) el.value = fillBtn.dataset.redirect || '';
   });
 
-  // OIDC: "Test discovery" button - XHRs to /admin/settings/oidc/test with the
-  // current form's issuer value so the operator can validate without saving.
+  // OIDC: "Test discovery" button
   var testBtn = document.getElementById('oidc-test-btn');
   var testResult = document.getElementById('oidc-test-result');
   var oidcForm = document.getElementById('oidc-form');
@@ -1151,7 +1186,7 @@
       testBtn.disabled = true;
       testBtn.textContent = 'Probing…';
       testResult.classList.remove('hidden');
-      testResult.className = 'sm:col-span-2 text-xs text-slate-500 dark:text-slate-400';
+      testResult.removeAttribute('style');
       testResult.textContent = 'Contacting issuer…';
       var body = new URLSearchParams();
       body.set('issuer', issuer.trim());
@@ -1166,26 +1201,24 @@
           testBtn.disabled = false;
           testBtn.textContent = 'Test discovery';
           if (j && j.ok && j.probe) {
-            testResult.className = 'sm:col-span-2 text-xs p-3 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200';
+            testResult.style.cssText = 'padding:.5rem .75rem;border-radius:.5rem;background:rgb(var(--success)/.1);border:1px solid rgb(var(--success)/.3);color:rgb(var(--success))';
             var p = j.probe;
             testResult.textContent = 'OK. issuer=' + (p.issuer||'') + '  auth=' + (p.authorization_endpoint||'') + '  token=' + (p.token_endpoint||'') + '  jwks=' + (p.jwks_uri||'');
           } else {
-            testResult.className = 'sm:col-span-2 text-xs p-3 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
+            testResult.style.cssText = 'padding:.5rem .75rem;border-radius:.5rem;background:rgb(var(--danger)/.1);border:1px solid rgb(var(--danger)/.3);color:rgb(var(--danger))';
             testResult.textContent = 'Failed: ' + ((j && j.error) || 'unknown error');
           }
         })
         .catch(function(err){
           testBtn.disabled = false;
           testBtn.textContent = 'Test discovery';
-          testResult.className = 'sm:col-span-2 text-xs p-3 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
+          testResult.style.cssText = 'padding:.5rem .75rem;border-radius:.5rem;background:rgb(var(--danger)/.1);border:1px solid rgb(var(--danger)/.3);color:rgb(var(--danger))';
           testResult.textContent = 'Network error: ' + (err && err.message || err);
         });
     });
   }
 
-  // AI assistant: per-provider "Test key" buttons. POSTs the provider id to
-  // /admin/settings/ai/test; the server verifies the SAVED key (save first to
-  // test a freshly pasted key). Response is JSON {ok,error}; never the key.
+  // AI assistant: per-provider "Test key" buttons
   (function(){
     var aiForm = document.querySelector('form[action="/admin/settings/ai"]');
     document.querySelectorAll('[data-ai-test]').forEach(function(btn){
@@ -1196,7 +1229,7 @@
         btn.disabled = true;
         var prev = btn.textContent;
         btn.textContent = 'Testing…';
-        if (result){ result.classList.remove('hidden'); result.className = 'mt-2 text-xs text-slate-500 dark:text-slate-400'; result.textContent = 'Contacting provider…'; }
+        if (result){ result.classList.remove('hidden'); result.removeAttribute('style'); result.textContent = 'Contacting provider…'; }
         var body = new URLSearchParams();
         body.set('provider', provider);
         if (csrf) body.set('csrf_token', csrf.value);
@@ -1210,26 +1243,24 @@
             btn.disabled = false; btn.textContent = prev;
             if (!result) return;
             if (j && j.ok){
-              result.className = 'mt-2 text-xs p-2 rounded-lg border border-emerald-300 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-950 text-emerald-800 dark:text-emerald-200';
+              result.style.cssText = 'padding:.35rem .6rem;border-radius:.5rem;background:rgb(var(--success)/.1);border:1px solid rgb(var(--success)/.3);color:rgb(var(--success))';
               result.textContent = 'OK - key works' + (j.model ? ' (model: ' + j.model + ').' : '.');
             } else {
-              result.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
+              result.style.cssText = 'padding:.35rem .6rem;border-radius:.5rem;background:rgb(var(--danger)/.1);border:1px solid rgb(var(--danger)/.3);color:rgb(var(--danger))';
               result.textContent = 'Failed: ' + ((j && j.error) || 'unknown error');
             }
           })
           .catch(function(err){
             btn.disabled = false; btn.textContent = prev;
             if (!result) return;
-            result.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200';
+            result.style.cssText = 'padding:.35rem .6rem;border-radius:.5rem;background:rgb(var(--danger)/.1);border:1px solid rgb(var(--danger)/.3);color:rgb(var(--danger))';
             result.textContent = 'Network error: ' + (err && err.message || err);
           });
       });
     });
   })();
 
-  // AI assistant: per-provider "Refresh models" buttons. GETs the live model
-  // list from the provider via /admin/settings/ai/models and fills the dropdown,
-  // preserving the currently-saved selection. Response is JSON {models|error}.
+  // AI assistant: per-provider "Refresh models" buttons
   (function(){
     document.querySelectorAll('[data-ai-models-refresh]').forEach(function(btn){
       btn.addEventListener('click', function(){
@@ -1240,19 +1271,18 @@
         btn.disabled = true;
         var prev = btn.textContent;
         btn.textContent = 'Loading…';
-        if (status){ status.classList.remove('hidden'); status.className = 'mt-2 text-xs text-slate-500 dark:text-slate-400'; status.textContent = 'Fetching available models…'; }
+        if (status){ status.classList.remove('hidden'); status.removeAttribute('style'); status.textContent = 'Fetching available models…'; }
         fetch('/admin/settings/ai/models?provider=' + encodeURIComponent(provider), {
           method: 'GET', credentials: 'same-origin', headers: {'Accept': 'application/json'}
         }).then(function(r){ return r.json().catch(function(){ return {error:'invalid JSON response'}; }); })
           .then(function(j){
             btn.disabled = false; btn.textContent = prev;
             if (j && j.error){
-              if (status){ status.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200'; status.textContent = 'Failed: ' + j.error; }
+              if (status){ status.style.cssText = 'padding:.35rem .6rem;border-radius:.5rem;background:rgb(var(--danger)/.1);border:1px solid rgb(var(--danger)/.3);color:rgb(var(--danger))'; status.textContent = 'Failed: ' + j.error; }
               return;
             }
             var models = (j && j.models) || [];
             if (sel){
-              // Keep the first "Default (...)" option; rebuild the rest.
               var def = sel.options[0];
               sel.innerHTML = '';
               if (def) sel.appendChild(def);
@@ -1263,24 +1293,23 @@
                 if (m === saved){ o.selected = true; hasSaved = true; }
                 sel.appendChild(o);
               });
-              // Saved model missing from the live list: re-add it so it sticks.
               if (saved && !hasSaved){
                 var o2 = document.createElement('option');
                 o2.value = saved; o2.textContent = saved + ' (saved, not listed)'; o2.selected = true;
                 sel.appendChild(o2);
               }
             }
-            if (status){ status.className = 'mt-2 text-xs text-emerald-700 dark:text-emerald-400'; status.textContent = models.length + ' models loaded.'; }
+            if (status){ status.style.color = 'rgb(var(--success))'; status.textContent = models.length + ' models loaded.'; }
           })
           .catch(function(err){
             btn.disabled = false; btn.textContent = prev;
-            if (status){ status.className = 'mt-2 text-xs p-2 rounded-lg border border-rose-300 dark:border-rose-700 bg-rose-50 dark:bg-rose-950 text-rose-800 dark:text-rose-200'; status.textContent = 'Network error: ' + (err && err.message || err); }
+            if (status){ status.style.cssText = 'padding:.35rem .6rem;border-radius:.5rem;background:rgb(var(--danger)/.1);border:1px solid rgb(var(--danger)/.3);color:rgb(var(--danger))'; status.textContent = 'Network error: ' + (err && err.message || err); }
           });
       });
     });
   })();
 
-  // SSO Jump: copy button + close modal for one-shot secret display.
+  // SSO Jump: copy button + close modal
   (function(){
     function copy(id){
       var el = document.getElementById(id);
@@ -1297,7 +1326,6 @@
       b.addEventListener('click', function(){
         var m = document.getElementById('hpg-sso-secret-modal');
         if (m) m.remove();
-        // Strip nonce from URL so refresh doesn't try to re-fetch stale nonce.
         var u = new URL(window.location.href);
         u.searchParams.delete('show_sso_secret');
         window.history.replaceState({}, '', u.toString());
@@ -1307,35 +1335,35 @@
 })();
 </script>
 
-<section data-settings-pane="banner" class="hpg-settings-pane hidden hpg-card">
-  <h2 class="font-semibold text-slate-800 dark:text-slate-100 mb-2">System announcement</h2>
-  <p class="text-xs text-slate-500 dark:text-slate-400 mb-4">Displays a banner on every page for all users (admin and client portal). Leave blank to clear the announcement.</p>
-  <form method="POST" action="/admin/settings/banner" class="space-y-4 text-sm">
+<section data-settings-pane="banner" class="hpg-settings-pane hidden r-card">
+  <p class="t-eyebrow mb-1">Developer</p>
+  <h2 class="t-h3 mb-2">System announcement</h2>
+  <p class="t-small mb-4" style="color:rgb(var(--muted))">Displays a banner on every page for all users (admin and client portal). Leave blank to clear the announcement.</p>
+  <form method="POST" action="/admin/settings/banner" class="space-y-4">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <div>
-      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Message</label>
-      <textarea name="banner_text" rows="3" placeholder="Leave blank to clear the announcement"
-        class="w-full rounded-lg border border-slate-300 dark:border-zinc-700 px-3 py-2 text-sm bg-white dark:bg-zinc-900 text-slate-900 dark:text-zinc-100 focus:outline-none focus:ring-2 focus:ring-indigo-500">{{.SystemBannerText}}</textarea>
+      <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Message</label>
+      <textarea name="banner_text" rows="3" placeholder="Leave blank to clear the announcement" class="r-input">{{.SystemBannerText}}</textarea>
     </div>
     <div>
-      <label class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-2">Type</label>
+      <label class="block t-caption font-medium mb-2" style="color:rgb(var(--text))">Type</label>
       <div class="flex gap-4">
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="radio" name="banner_type" value="info" {{if or (eq .SystemBannerType "info") (eq .SystemBannerType "")}}checked{{end}}>
-          <span class="px-2 py-0.5 rounded text-xs bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-200">Info</span>
+          <span class="r-pill r-pill-info">Info</span>
         </label>
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="radio" name="banner_type" value="warning" {{if eq .SystemBannerType "warning"}}checked{{end}}>
-          <span class="px-2 py-0.5 rounded text-xs bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">Warning</span>
+          <span class="r-pill r-pill-warning">Warning</span>
         </label>
         <label class="flex items-center gap-2 cursor-pointer">
           <input type="radio" name="banner_type" value="error" {{if eq .SystemBannerType "error"}}checked{{end}}>
-          <span class="px-2 py-0.5 rounded text-xs bg-rose-100 text-rose-800 dark:bg-rose-900/40 dark:text-rose-200">Error</span>
+          <span class="r-pill r-pill-danger">Error</span>
         </label>
       </div>
     </div>
     <div class="flex justify-end">
-      <button class="px-3 py-1.5 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Save</button>
+      <button class="r-btn-primary">Save</button>
     </div>
   </form>
 </section>
