@@ -1125,6 +1125,7 @@ type clientRouteLogsData struct {
 	ProtoBreakdown []accesslog.ProtoHit
 	BytesSummary   accesslog.BytesSummary
 	TopPaths       []accesslog.PathHit
+	TopCountries   []accesslog.CountryHit
 }
 
 // RouteLogs renders GET /app/routes/{id}/logs for the owning client.
@@ -1185,6 +1186,9 @@ func (h *ClientHandlers) RouteLogs(w http.ResponseWriter, r *http.Request) {
 		}
 		if paths, err := h.AccessLogs.TopPaths(ctx, f, 5); err == nil {
 			d.TopPaths = paths
+		}
+		if countries, err := h.AccessLogs.TopCountries(ctx, f, 10); err == nil {
+			d.TopCountries = countries
 		}
 	}
 	h.render(w, "client_route_logs", d)
