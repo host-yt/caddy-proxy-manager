@@ -714,6 +714,9 @@ type nodeRow struct {
 	HasRateLimit bool
 	CaddyVersion string
 
+	// Bandwidth24h is the 24h outbound bytes across all routes on this node.
+	Bandwidth24h int64
+
 	// WG tunnel health - reported by node-agent via POST /api/node/wg/stats.
 	// All nullable: NULL = agent hasn't reported yet (older agent or no tunnel).
 	TunnelEnabled      bool
@@ -5037,7 +5040,12 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),''),
 		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0),
 		        COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0),
-		        COALESCE(n.caddy_version,'')
+		        COALESCE(n.caddy_version,''),
+		        COALESCE((SELECT SUM(lr.bytes_resp)
+		                  FROM log_rollups lr
+		                  JOIN routes rr ON rr.id = lr.route_id
+		                  WHERE rr.caddy_node_id = n.id
+		                    AND lr.bucket_start >= DATE_SUB(NOW(), INTERVAL 1 DAY)), 0)
 		 FROM caddy_nodes n JOIN node_groups g ON g.id = n.node_group_id
 		 ORDER BY n.priority DESC, n.id ASC`)
 	if err == nil {
@@ -5052,7 +5060,8 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 				&n.FwdIPForward, &n.FwdPolicyDrop,
 				&n.FwdFirewallBackend, &n.FwdLastSetupError,
 				&n.FwdReportedAt,
-				&n.HasWAF, &n.HasL4, &n.HasGeoIP, &n.HasRateLimit, &n.CaddyVersion); err == nil {
+				&n.HasWAF, &n.HasL4, &n.HasGeoIP, &n.HasRateLimit, &n.CaddyVersion,
+				&n.Bandwidth24h); err == nil {
 				n.WGKeepalive = 25
 				d.Nodes = append(d.Nodes, n)
 			}
