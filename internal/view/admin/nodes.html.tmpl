@@ -154,6 +154,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
           <th class="px-4 py-2">Routes</th>
           <th class="px-4 py-2">Health</th>
           <th class="px-4 py-2">Fingerprint</th>
+          <th class="px-4 py-2">Capabilities</th>
           <th class="px-4 py-2"></th>
         </tr>
       </thead>
@@ -177,6 +178,16 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
           </td>
           <td class="px-4 py-2 text-xs text-slate-500 dark:text-slate-400">
             {{if .Fingerprint}}<code class="font-mono">{{.Fingerprint}}</code>{{else}}-{{end}}
+          </td>
+          <td class="px-4 py-2">
+            <div class="flex flex-wrap gap-1">
+              {{if .HasWAF}}<span class="hpg-pill bg-rose-50 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300 text-xs">WAF</span>{{end}}
+              {{if .HasGeoIP}}<span class="hpg-pill bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300 text-xs">GeoIP</span>{{end}}
+              {{if .HasRateLimit}}<span class="hpg-pill bg-amber-50 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300 text-xs">RL</span>{{end}}
+              {{if .HasL4}}<span class="hpg-pill bg-purple-50 text-purple-700 dark:bg-purple-500/15 dark:text-purple-300 text-xs">L4</span>{{end}}
+              {{if .CaddyVersion}}<span class="text-xs text-slate-400">{{.CaddyVersion}}</span>{{end}}
+              {{if and (not .HasWAF) (not .HasGeoIP) (not .HasRateLimit) (not .HasL4) (not .CaddyVersion)}}-{{end}}
+            </div>
           </td>
           <td class="px-4 py-2 text-right space-x-2 whitespace-nowrap">
             {{if not .Approved}}
@@ -213,7 +224,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
         </tr>
         {{if .TunnelEnabled}}
         <tr class="bg-slate-50/60 dark:bg-zinc-800/30 border-t-0">
-          <td colspan="9" class="px-4 pb-2 pt-1">
+          <td colspan="10" class="px-4 pb-2 pt-1">
             <div class="flex flex-wrap items-center gap-2 text-xs">
               <span class="font-medium text-slate-500 dark:text-slate-400">WG tunnel:</span>
               {{if .TunnelMTU.Valid}}
@@ -264,7 +275,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
         </tr>
         {{end}}
         {{else}}
-        <tr><td colspan="9" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No nodes yet.</td></tr>
+        <tr><td colspan="10" class="px-4 py-6 text-center text-slate-500 dark:text-slate-400">No nodes yet.</td></tr>
         {{end}}
       </tbody>
     </table></div>
