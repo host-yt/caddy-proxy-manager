@@ -15,7 +15,7 @@ import (
 type clientWorldmapData struct {
 	baseAppData
 	Countries      []*trafficCountryEntry
-	CountryJSON    string
+	CountryJSON    template.JS
 	MaxCount       int64
 	TotalRequests  int64
 	UnknownCount   int64
@@ -79,7 +79,7 @@ func (h *ClientHandlers) ClientWorldMap(w http.ResponseWriter, r *http.Request) 
 		d.UnknownPercent = float64(agg.unknown) / float64(agg.total) * 100
 	}
 	d.MaxCount, d.Countries = rankTrafficCountries(agg)
-	d.CountryJSON = buildTrafficJSON(agg.byCountry)
+	d.CountryJSON = template.JS(buildTrafficJSON(agg.byCountry))
 
 	h.render(w, "worldmap", d)
 }

@@ -174,8 +174,9 @@
     svgEl.style.display = 'block';
     svgEl.style.width = '100%';
     svgEl.style.height = 'auto';
-    svgEl.style.maxHeight = '480px';
+    svgEl.style.maxHeight = '600px';
 
+    // Color + wire EVERY country so hovering any one highlights it + shows data.
     svgEl.querySelectorAll('path[id]').forEach(function(path){
       var code = path.getAttribute('id');
       if (!code || code.length !== 2) return;
@@ -183,12 +184,22 @@
       path.setAttribute('fill', bucketColor(v));
       path.setAttribute('stroke', '#ffffff');
       path.setAttribute('stroke-width', '0.4');
-      if (v > 0) {
-        path.style.cursor = 'pointer';
-        path.addEventListener('mouseenter', function(e){ onEnter(e, code, v); });
-        path.addEventListener('mousemove',  onMove);
-        path.addEventListener('mouseleave', onLeave);
-      }
+      path.style.cursor = 'pointer';
+      path.style.transition = 'stroke .12s, filter .12s';
+      path.addEventListener('mouseenter', function(e){
+        path.setAttribute('stroke', '#4338ca');
+        path.setAttribute('stroke-width', '1.2');
+        path.style.filter = 'brightness(1.08)';
+        path.parentNode.appendChild(path);
+        onEnter(e, code, v);
+      });
+      path.addEventListener('mousemove', onMove);
+      path.addEventListener('mouseleave', function(){
+        path.setAttribute('stroke', '#ffffff');
+        path.setAttribute('stroke-width', '0.4');
+        path.style.filter = '';
+        onLeave();
+      });
     });
   }
 
