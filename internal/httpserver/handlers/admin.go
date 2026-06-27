@@ -3326,6 +3326,13 @@ type settingsData struct {
 	RollupRetentionDays int
 	// AutoFailoverEnabled mirrors the failover.auto_enabled DB setting.
 	AutoFailoverEnabled bool
+	// Alert threshold overrides (DB-backed, shown in the Alerts settings tab).
+	AlertNodeOfflineMin     int
+	AlertCertStuckMin       int
+	AlertCooldownSec        int
+	AlertManualCertDaysWarn int
+	AlertErrorRatePct       float64
+	AlertErrorRateWindowMin int
 }
 
 func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -3436,6 +3443,26 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		if v := kv["failover.auto_enabled"]; v != "" {
 			d.AutoFailoverEnabled = v == "1"
 		}
+		// Load alert threshold overrides; fall back to env-loaded defaults when absent.
+		alertCfg := h.AlertCfg
+		alertKV := h.loadSettings(ctx, db, []string{
+			"alert.node_offline_minutes", "alert.cert_stuck_minutes",
+			"alert.cooldown_seconds", "alert.manual_cert_days_warn",
+			"alert.error_rate_pct", "alert.error_rate_window_minutes",
+		})
+		d.AlertNodeOfflineMin = atoiOr(alertKV["alert.node_offline_minutes"], alertCfg.NodeOfflineMinutes)
+		d.AlertCertStuckMin = atoiOr(alertKV["alert.cert_stuck_minutes"], alertCfg.CertStuckMinutes)
+		d.AlertCooldownSec = atoiOr(alertKV["alert.cooldown_seconds"], alertCfg.CooldownSeconds)
+		d.AlertManualCertDaysWarn = atoiOr(alertKV["alert.manual_cert_days_warn"], alertCfg.ManualCertDaysWarn)
+		if v := alertKV["alert.error_rate_pct"]; v != "" {
+			if f, err := strconv.ParseFloat(strings.TrimSpace(v), 64); err == nil && f > 0 {
+				d.AlertErrorRatePct = f
+			}
+		}
+		if d.AlertErrorRatePct == 0 {
+			d.AlertErrorRatePct = alertCfg.ErrorRatePct
+		}
+		d.AlertErrorRateWindowMin = atoiOr(alertKV["alert.error_rate_window_minutes"], alertCfg.ErrorRateWindowMinutes)
 	}
 	d.SSOJump = h.loadSSOJumpSettingsView(r, d.AppURL)
 	// Branding tab: pre-fill from the shared cached loader (same source as
@@ -3649,6 +3676,50 @@ func (h *AdminHandlers) SettingsFailover(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	redirectWithFlash(w, r, "/admin/settings", "Failover settings saved", "")
+}
+
+// SettingsAlert handles POST /admin/settings/alert — upserts alert threshold overrides.
+func (h *AdminHandlers) SettingsAlert(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "database not connected")
+		return
+	}
+	_ = r.ParseForm()
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	upsert := func(key, val string) {
+		_, _ = db.ExecContext(ctx,
+			"INSERT INTO settings (`key`,value) VALUES (?,?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
+			key, val)
+	}
+
+	nodeOfflineMin, err1 := strconv.Atoi(strings.TrimSpace(r.FormValue("node_offline_min")))
+	certStuckMin, err2 := strconv.Atoi(strings.TrimSpace(r.FormValue("cert_stuck_min")))
+	cooldownSec, err3 := strconv.Atoi(strings.TrimSpace(r.FormValue("cooldown_sec")))
+	manualCertDaysWarn, err4 := strconv.Atoi(strings.TrimSpace(r.FormValue("manual_cert_days_warn")))
+	errorRatePct, err5 := strconv.ParseFloat(strings.TrimSpace(r.FormValue("error_rate_pct")), 64)
+	errorRateWindowMin, err6 := strconv.Atoi(strings.TrimSpace(r.FormValue("error_rate_window_min")))
+
+	if err1 != nil || nodeOfflineMin <= 0 ||
+		err2 != nil || certStuckMin <= 0 ||
+		err3 != nil || cooldownSec <= 0 ||
+		err4 != nil || manualCertDaysWarn <= 0 ||
+		err5 != nil || errorRatePct <= 0 ||
+		err6 != nil || errorRateWindowMin <= 0 {
+		redirectWithFlash(w, r, "/admin/settings", "", "all alert thresholds must be positive numbers")
+		return
+	}
+
+	upsert("alert.node_offline_minutes", strconv.Itoa(nodeOfflineMin))
+	upsert("alert.cert_stuck_minutes", strconv.Itoa(certStuckMin))
+	upsert("alert.cooldown_seconds", strconv.Itoa(cooldownSec))
+	upsert("alert.manual_cert_days_warn", strconv.Itoa(manualCertDaysWarn))
+	upsert("alert.error_rate_pct", strconv.FormatFloat(errorRatePct, 'f', -1, 64))
+	upsert("alert.error_rate_window_minutes", strconv.Itoa(errorRateWindowMin))
+
+	redirectWithFlash(w, r, "/admin/settings", "Alert thresholds saved", "")
 }
 
 // geoipRefresher is the minimal interface the handler needs from GeoIPUpdateJob.
