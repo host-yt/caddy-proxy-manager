@@ -60,7 +60,10 @@
     <div class="min-w-0 flex-1">
       <div class="hpg-eyebrow">Clients</div>
       <div class="hpg-stat-num font-extrabold text-slate-900 dark:text-slate-100">{{.Counts.Clients}}</div>
-      <div class="text-xs text-slate-500 dark:text-slate-400 mb-2">{{.Counts.Plans}} plan{{if ne .Counts.Plans 1}}s{{end}}</div>
+      <div class="text-xs text-slate-500 dark:text-slate-400 mb-1">{{.Counts.Plans}} plan{{if ne .Counts.Plans 1}}s{{end}}</div>
+      {{if .Counts.SuspendedServices}}
+      <a href="/admin/services?status=suspended" class="text-xs text-amber-600 dark:text-amber-400 hover:underline cursor-pointer">{{.Counts.SuspendedServices}} suspended</a>
+      {{end}}
       <div class="w-full h-1 rounded-full bg-gradient-to-r from-emerald-500/40 to-transparent"></div>
     </div>
   </div>
