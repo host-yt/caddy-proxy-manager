@@ -402,9 +402,9 @@ func TestBuildRoutePortalForwardAuth(t *testing.T) {
 			t.Errorf("portal emission missing %q\nfull: %s", want, s)
 		}
 	}
-	// Gate is GET/HEAD document loads only (skip XHR + static), mirroring SSO.
-	if !strings.Contains(s, `"method":["GET","HEAD"]`) {
-		t.Errorf("portal gate must restrict to GET/HEAD\nfull: %s", s)
+	// All methods verified - no GET/HEAD restriction (POST/XHR must not bypass portal).
+	if strings.Contains(s, `"method":["GET","HEAD"]`) {
+		t.Errorf("portal gate must NOT restrict to GET/HEAD (auth bypass for POST/XHR)\nfull: %s", s)
 	}
 }
 

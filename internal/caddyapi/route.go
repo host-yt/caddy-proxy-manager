@@ -1543,9 +1543,8 @@ func buildPortalForwardAuth(r Route) []any {
 		},
 		"handle_response": []any{hr},
 	})
-	// Gate GET/HEAD document loads only; skip static assets + XHR subresources.
+	// All methods verified; skip only static file extensions (no auth bypass for POST/XHR).
 	portalMatch := map[string]any{
-		"method": []string{"GET", "HEAD"},
 		"not": []any{
 			map[string]any{"path": []string{
 				"*.js", "*.css", "*.map",
@@ -1553,14 +1552,6 @@ func buildPortalForwardAuth(r Route) []any {
 				"*.woff", "*.woff2", "*.ttf", "*.eot", "*.otf",
 				"*.mp4", "*.webm", "*.mp3", "*.wav",
 				"/static/*", "/assets/*", "/_next/static/*",
-			}},
-			map[string]any{"header": map[string]any{
-				"Sec-Fetch-Dest": []string{
-					"empty", "image", "font", "audio", "video",
-					"manifest", "object", "embed", "track",
-					"script", "style", "report",
-					"worker", "serviceworker", "sharedworker",
-				},
 			}},
 		},
 	}
