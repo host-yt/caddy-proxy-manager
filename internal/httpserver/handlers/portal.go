@@ -61,6 +61,7 @@ const (
 type portalSession struct {
 	UserID    int64     `json:"u"`
 	Email     string    `json:"e"`
+	Username  string    `json:"n"` // full_name, used for X-Forwarded-User
 	CreatedAt time.Time `json:"c"`
 	ExpiresAt time.Time `json:"x"`
 }
@@ -150,9 +151,12 @@ func (h *PortalHandlers) Verify(w http.ResponseWriter, r *http.Request) {
 		h.denyVerify(w, r, host, routeID, sess.UserID, "not_member")
 		return
 	}
-	// Allowed: surface identity to the upstream via response headers Caddy can
-	// copy if the route opts in (X-Forwarded-User / -Email).
-	w.Header().Set("X-Forwarded-User", sess.Email)
+	// Allowed: surface identity headers so Caddy can forward them upstream.
+	user := sess.Username
+	if user == "" {
+		user = sess.Email
+	}
+	w.Header().Set("X-Forwarded-User", user)
 	w.Header().Set("X-Forwarded-Email", sess.Email)
 	w.WriteHeader(http.StatusOK)
 }
@@ -215,10 +219,11 @@ func (h *PortalHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		userID   int64
 		hash     string
 		isActive bool
+		fullName sql.NullString
 	)
 	err := db.QueryRowContext(ctx,
-		`SELECT id, password_hash, is_active FROM users WHERE email = ? LIMIT 1`, email).
-		Scan(&userID, &hash, &isActive)
+		`SELECT id, password_hash, is_active, full_name FROM users WHERE email = ? LIMIT 1`, email).
+		Scan(&userID, &hash, &isActive, &fullName)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Equalize timing against account enumeration (same trick as panel login).
 		_ = auth.VerifyPassword(decoyPasswordHash(), password)
@@ -250,8 +255,9 @@ func (h *PortalHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	rememberMe := r.FormValue("remember_me") == "1"
 	h.clearPortalFails(ctx, email, ip)
-	if err := h.createPortalSession(ctx, w, userID, email); err != nil {
+	if err := h.createPortalSession(ctx, w, userID, email, fullName.String, rememberMe); err != nil {
 		h.renderLogin(w, r, http.StatusInternalServerError, portalViewData{Error: "Could not create session.", Back: back, Host: host})
 		return
 	}
@@ -275,23 +281,32 @@ func (h *PortalHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, portalLoginURL(host, "/", h.Secure), http.StatusSeeOther)
 }
 
-func (h *PortalHandlers) createPortalSession(ctx context.Context, w http.ResponseWriter, userID int64, email string) error {
+func (h *PortalHandlers) createPortalSession(ctx context.Context, w http.ResponseWriter, userID int64, email, username string, rememberMe bool) error {
 	idb := make([]byte, 32)
 	if _, err := rand.Read(idb); err != nil {
 		return err
 	}
 	id := base64.RawURLEncoding.EncodeToString(idb)
 	now := time.Now().UTC()
-	s := portalSession{UserID: userID, Email: email, CreatedAt: now, ExpiresAt: now.Add(h.ttl())}
+	ttl := h.ttl()
+	if rememberMe {
+		ttl = 30 * 24 * time.Hour
+	}
+	s := portalSession{UserID: userID, Email: email, Username: username, CreatedAt: now, ExpiresAt: now.Add(ttl)}
 	b, _ := json.Marshal(s)
-	if err := h.RDB.Set(ctx, portalSessPrefix+id, b, h.ttl()).Err(); err != nil {
+	if err := h.RDB.Set(ctx, portalSessPrefix+id, b, ttl).Err(); err != nil {
 		return err
 	}
-	// Same flags as the panel auth cookie: HttpOnly + Secure + SameSite.
-	http.SetCookie(w, &http.Cookie{
+	cookie := &http.Cookie{
 		Name: portalCookie, Value: id, Path: "/", HttpOnly: true,
-		Secure: h.Secure, SameSite: h.SameSite, Expires: s.ExpiresAt,
-	})
+		Secure: h.Secure, SameSite: h.SameSite,
+	}
+	if rememberMe {
+		// Persist cookie for 30 days; session-only (no MaxAge) otherwise.
+		cookie.MaxAge = int(ttl.Seconds())
+		cookie.Expires = s.ExpiresAt
+	}
+	http.SetCookie(w, cookie)
 	return nil
 }
 
@@ -438,8 +453,11 @@ var portalLoginTmpl = template.Must(template.New("portal_login").Parse(`<!doctyp
  h1{font-size:18px;margin:0 0 4px}
  p.sub{color:#64748b;font-size:13px;margin:0 0 18px}
  label{display:block;font-size:12px;color:#334155;margin:12px 0 4px}
- input{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px}
- button{margin-top:18px;width:100%;padding:10px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-size:14px;cursor:pointer}
+ input[type=email],input[type=password]{width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #cbd5e1;border-radius:10px;font-size:14px}
+ .remember{display:flex;align-items:center;gap:8px;margin-top:14px}
+ .remember input{width:auto}
+ .remember span{font-size:13px;color:#334155}
+ button{margin-top:16px;width:100%;padding:10px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-size:14px;cursor:pointer}
  .err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:10px;padding:8px 10px;font-size:13px;margin-bottom:8px}
 </style></head><body>
 <div class="card">
@@ -452,6 +470,10 @@ var portalLoginTmpl = template.Must(template.New("portal_login").Parse(`<!doctyp
   <input id="email" name="email" type="email" autocomplete="username" autofocus required>
   <label for="password">Password</label>
   <input id="password" name="password" type="password" autocomplete="current-password" required>
+  <div class="remember">
+   <input type="checkbox" id="remember_me" name="remember_me" value="1">
+   <span>Remember me for 30 days</span>
+  </div>
   <button type="submit">Sign in</button>
  </form>
 </div>
