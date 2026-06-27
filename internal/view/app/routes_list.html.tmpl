@@ -2,46 +2,47 @@
 <div class="space-y-4">
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
     <div>
-      <p class="hpg-eyebrow">Domain mappings</p>
-      <h2 class="text-lg font-semibold text-slate-950 dark:text-white">Public routes</h2>
-      <p class="mt-1 text-sm text-slate-500 dark:text-slate-400">Track domain, path, service target, and DNS/SSL state in one place.</p>
+      <p class="t-eyebrow">Domain mappings</p>
+      <h2 class="text-lg font-semibold" style="color:rgb(var(--text))">Public routes</h2>
+      <p class="mt-1 text-sm" style="color:rgb(var(--muted))">Track domain, path, service target, and DNS/SSL state in one place.</p>
     </div>
     <div class="flex items-center gap-3">
       <a href="/app/routes/export.csv"
-         class="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
+         class="inline-flex items-center gap-1 text-xs transition-colors"
+         style="color:rgb(var(--muted))"
          download>
         <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 3v10m0 0-3-3m3 3 3-3M4 16h12"/></svg>
         Export CSV
       </a>
-      <a href="/app/routes/new" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">New route</a>
+      <a href="/app/routes/new" class="r-btn-primary">New route</a>
     </div>
   </div>
 
   <form method="GET" action="/app/routes" class="mb-4">
     <div class="flex items-center gap-2">
       <input type="search" name="q" value="{{.Q}}" placeholder="Search domains or services…"
-             class="flex-1 px-3.5 py-2 rounded-full bg-slate-50 dark:bg-zinc-800 ring-1 ring-slate-200 dark:ring-zinc-700 focus:ring-2 focus:ring-indigo-400 outline-none text-sm">
-      <button type="submit" class="px-4 py-2 rounded-full bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 transition-colors cursor-pointer">Search</button>
-      {{if .Q}}<a href="/app/routes" class="px-3 py-2 text-sm text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors">Clear</a>{{end}}
+             class="r-input flex-1 rounded-full">
+      <button type="submit" class="r-btn-primary rounded-full">Search</button>
+      {{if .Q}}<a href="/app/routes" class="r-btn-ghost">Clear</a>{{end}}
     </div>
   </form>
   {{if .Q}}
-  <p class="text-sm text-slate-500 dark:text-slate-400 mb-3">Showing results for <span class="font-medium text-slate-700 dark:text-slate-200">"{{.Q}}"</span></p>
+  <p class="text-sm mb-3" style="color:rgb(var(--muted))">Showing results for <span class="font-medium" style="color:rgb(var(--text))">"{{.Q}}"</span></p>
   {{end}}
 
   {{if .HasSuspendedService}}
-  <div class="flex items-start gap-2 p-3 rounded-lg bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/30">
-    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-600 dark:text-amber-400 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+  <div class="flex items-start gap-2 p-3 rounded-lg border" style="background:rgb(var(--accent-weak)/.15);border-color:rgb(var(--border))">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
       <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
     </svg>
-    <p class="text-xs font-semibold text-amber-800 dark:text-amber-300">Some services are suspended - routes may be offline. Contact support to restore access.</p>
+    <p class="text-xs font-semibold text-amber-700 dark:text-amber-300">Some services are suspended - routes may be offline. Contact support to restore access.</p>
   </div>
   {{end}}
 
-  <section class="hpg-card !p-0 overflow-hidden">
+  <section class="r-card !p-0 overflow-hidden">
     <div class="overflow-x-auto">
-      <table class="w-full text-sm">
-        <thead class="bg-slate-50 dark:bg-zinc-800/60 text-left hpg-eyebrow">
+      <table class="r-table w-full text-sm">
+        <thead class="t-eyebrow text-left" style="background:rgb(var(--surface-raised,var(--surface)))">
           <tr>
             <th class="px-4 py-3">Route</th>
             <th class="px-4 py-3">Target</th>
@@ -50,47 +51,47 @@
             <th class="px-4 py-3 text-right">Actions</th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-slate-100 dark:divide-zinc-800">
+        <tbody class="divide-y" style="border-color:rgb(var(--border))">
         {{range .Routes}}
           <tr class="hover:bg-slate-50/70 dark:hover:bg-zinc-800/40 transition-colors">
             <td class="px-4 py-3">
-              <div class="font-medium text-slate-900 dark:text-white break-all"><code>{{.Domain}}</code></div>
-              <div class="mt-1 text-xs text-slate-500 dark:text-slate-400 break-all">path {{if .PathPrefix}}{{.PathPrefix}}{{else}}/{{end}}</div>
+              <div class="font-medium break-all" style="color:rgb(var(--text))"><code>{{.Domain}}</code></div>
+              <div class="mt-1 text-xs break-all" style="color:rgb(var(--muted))">path {{if .PathPrefix}}{{.PathPrefix}}{{else}}/{{end}}</div>
             </td>
             <td class="px-4 py-3">
-              <span class="hpg-pill hpg-pill-muted font-mono">:{{.UpstreamPort}}</span>
+              <span class="r-pill r-pill-neutral font-mono">:{{.UpstreamPort}}</span>
             </td>
-            <td class="px-4 py-3 text-slate-600 dark:text-slate-300"><span class="block max-w-[12rem] truncate" title="{{.ServiceName}}">{{.ServiceName}}</span></td>
+            <td class="px-4 py-3" style="color:rgb(var(--muted))"><span class="block max-w-[12rem] truncate" title="{{.ServiceName}}">{{.ServiceName}}</span></td>
             <td class="px-4 py-3">
-              {{if eq .Status "active"}}<span class="hpg-pill hpg-pill-ok">active</span>
-              {{else if eq .Status "failed"}}<span class="hpg-pill hpg-pill-err">failed</span>
-              {{else if eq .Status "dns_ok"}}<span class="hpg-pill bg-sky-50 text-sky-700 dark:bg-sky-500/15 dark:text-sky-300">DNS ok</span>
-              {{else}}<span class="hpg-pill hpg-pill-warn">{{.Status}}</span>{{end}}
+              {{if eq .Status "active"}}<span class="r-pill r-pill-success">active</span>
+              {{else if eq .Status "failed"}}<span class="r-pill r-pill-danger">failed</span>
+              {{else if eq .Status "dns_ok"}}<span class="r-pill r-pill-info">DNS ok</span>
+              {{else}}<span class="r-pill r-pill-warning">{{.Status}}</span>{{end}}
               {{if ge .CertDaysLeft 0}}{{if le .CertDaysLeft 30}}
               {{if le .CertDaysLeft 7}}
-              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300" title="Manual cert expires in {{.CertDaysLeft}} days">cert {{.CertDaysLeft}}d</span>
+              <span class="r-pill r-pill-danger text-[10px] font-bold" title="Manual cert expires in {{.CertDaysLeft}} days">cert {{.CertDaysLeft}}d</span>
               {{else}}
-              <span class="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-300" title="Manual cert expires in {{.CertDaysLeft}} days">cert {{.CertDaysLeft}}d</span>
+              <span class="r-pill r-pill-warning text-[10px] font-bold" title="Manual cert expires in {{.CertDaysLeft}} days">cert {{.CertDaysLeft}}d</span>
               {{end}}
               {{end}}{{end}}
               {{if .LastError}}<div class="text-xs text-rose-600 dark:text-rose-400 mt-1 max-w-sm truncate" title="{{.LastError}}">{{.LastError}}</div>{{end}}
             </td>
             <td class="px-4 py-3 text-right">
               <div class="flex justify-end gap-2 whitespace-nowrap">
-                <a href="/app/routes/{{.ID}}/edit" title="Edit" class="text-slate-400 hover:text-indigo-600 transition-colors cursor-pointer">
+                <a href="/app/routes/{{.ID}}/edit" title="Edit" class="r-btn-ghost p-1" style="color:rgb(var(--muted))">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                           d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                   </svg>
                 </a>
-                <a href="/app/routes/{{.ID}}/logs" class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800 cursor-pointer transition-colors">Logs</a>
+                <a href="/app/routes/{{.ID}}/logs" class="r-btn-secondary px-2.5 py-1.5 text-xs cursor-pointer">Logs</a>
                 <form method="POST" action="/app/routes/{{.ID}}/verify-dns">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-indigo-700 dark:text-indigo-300 ring-1 ring-indigo-200 dark:ring-indigo-500/30 hover:bg-indigo-50 dark:hover:bg-indigo-500/10 cursor-pointer transition-colors">Re-check</button>
+                  <button class="r-btn-secondary px-2.5 py-1.5 text-xs font-medium cursor-pointer">Re-check</button>
                 </form>
                 <form method="POST" action="/app/routes/{{.ID}}/toggle-maintenance">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button type="submit" title="{{if .MaintenanceMode}}Disable maintenance mode{{else}}Enable maintenance mode{{end}}" class="px-2.5 py-1.5 rounded-lg text-xs font-medium {{if .MaintenanceMode}}text-amber-700 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-500/40 bg-amber-50 dark:bg-amber-500/10{{else}}text-slate-500 dark:text-slate-400 ring-1 ring-slate-200 dark:ring-zinc-700 hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10{{end}} cursor-pointer transition-colors">
+                  <button type="submit" title="{{if .MaintenanceMode}}Disable maintenance mode{{else}}Enable maintenance mode{{end}}" class="px-2.5 py-1.5 rounded-lg text-xs font-medium cursor-pointer transition-colors {{if .MaintenanceMode}}text-amber-700 dark:text-amber-300 ring-1 ring-amber-300 dark:ring-amber-500/40 bg-amber-50 dark:bg-amber-500/10{{else}}r-btn-ghost hover:text-amber-600 dark:hover:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10{{end}}">
                     <svg class="inline-block h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
                   </button>
                 </form>
@@ -104,12 +105,12 @@
         {{else}}
           <tr>
             <td colspan="5" class="px-4 py-14 text-center">
-              <div class="mx-auto h-12 w-12 rounded-2xl bg-slate-100 dark:bg-zinc-800 grid place-items-center text-slate-400">
+              <div class="mx-auto h-12 w-12 rounded-2xl grid place-items-center" style="background:rgb(var(--surface-raised,var(--surface)));color:rgb(var(--muted))">
                 <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20"/></svg>
               </div>
-              <h3 class="mt-4 font-semibold text-slate-900 dark:text-white">No routes mapped</h3>
-              <p class="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-500 dark:text-slate-400">Create a route when you know the service and backend port. DNS can be verified from this table after the record is changed.</p>
-              <a href="/app/routes/new" class="mt-4 inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm">Create route</a>
+              <h3 class="mt-4 font-semibold" style="color:rgb(var(--text))">No routes mapped</h3>
+              <p class="mx-auto mt-1 max-w-md text-sm leading-6" style="color:rgb(var(--muted))">Create a route when you know the service and backend port. DNS can be verified from this table after the record is changed.</p>
+              <a href="/app/routes/new" class="r-btn-primary mt-4 inline-flex items-center justify-center">Create route</a>
             </td>
           </tr>
         {{end}}
