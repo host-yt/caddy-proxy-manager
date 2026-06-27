@@ -30,7 +30,7 @@ func TestSpecsForClientScopeExcludesInfraTools(t *testing.T) {
 	// Client-relevant tools must still be offered.
 	for _, want := range []string{
 		"list_services", "list_routes", "get_traffic_stats", "list_clients",
-		"get_audit_log", "list_wg_peers", "get_service_detail",
+		"get_audit_log", "list_wg_peers", "get_service_detail", "get_route_detail",
 	} {
 		if !names[want] {
 			t.Fatalf("client scope must expose %q", want)

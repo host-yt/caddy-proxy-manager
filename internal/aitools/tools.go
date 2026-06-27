@@ -185,6 +185,7 @@ func (r *Registry) builtins() []Tool {
 			Description:    "Look up full details for a single route by domain or route_id: metadata (status, node, plan, waf, rate_limit) plus 24h traffic and 7d bandwidth from log_rollups.",
 			Schema:         identifierSchema,
 			Exec:           r.routeDetail,
+			clientRelevant: true,
 			scopedExec:     r.routeDetailScoped,
 		},
 	}
