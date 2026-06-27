@@ -654,6 +654,30 @@ X-Authentik-Meta-Version</pre>
         <strong>No certificate authorities yet.</strong> Create one under <a href="/admin/mtls" class="underline">mTLS authorities</a> before requiring client certificates.
       </div>
       {{end}}
+      <!-- mTLS status pill: reflects current saved state before any unsaved changes -->
+      <div class="flex items-center gap-2">
+        {{if and .RequireClientCert (gt .MTLSCAID 0)}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-emerald-100 text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+          mTLS enforced
+        </span>
+        {{else if .RequireClientCert}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-rose-100 text-rose-700 dark:bg-rose-500/15 dark:text-rose-300">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/></svg>
+          mTLS configured - CA missing
+        </span>
+        {{else}}
+        <span class="text-xs font-medium px-2 py-0.5 rounded-full inline-flex items-center gap-1 bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" viewBox="0 0 20 20" fill="currentColor"><path d="M10 2a5 5 0 00-5 5v2a2 2 0 00-2 2v5a2 2 0 002 2h10a2 2 0 002-2v-5a2 2 0 00-2-2H7V7a3 3 0 016 0v2h2V7a5 5 0 00-5-5z"/></svg>
+          mTLS off
+        </span>
+        {{end}}
+      </div>
+      {{if and .RequireClientCert (not .MTLSCAID)}}
+      <div class="rounded-lg ring-1 ring-amber-200 dark:ring-amber-800/60 bg-amber-50/60 dark:bg-amber-900/10 px-3 py-2 text-xs text-amber-800 dark:text-amber-300">
+        No CA selected - client certificates will not be verified.
+      </div>
+      {{end}}
       <label class="flex items-center gap-2 text-sm"><input type="checkbox" name="require_client_cert" value="1" {{if .RequireClientCert}}checked{{end}} id="hpg-mtls-toggle"> Require a client certificate (mutual TLS)</label>
       <div id="hpg-mtls-fields" class="{{if not .RequireClientCert}}hidden{{end}} space-y-3">
         <label class="block text-sm"><span class="block text-xs font-medium text-slate-700 dark:text-slate-300 mb-1">Trust anchor (CA)</span>
