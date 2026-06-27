@@ -232,7 +232,7 @@ func (r *Registry) systemSummary(ctx context.Context, _ json.RawMessage) (string
 		RoutesTotal     int64 `json:"routes_total"`
 		RoutesActive    int64 `json:"routes_active"`
 		ClientsTotal    int64 `json:"clients_total"`
-		OpenAlerts      int64 `json:"open_alerts"`
+		OpenAlerts      int64 `json:"alerts_24h"`
 		WAFBlocks24h    int64 `json:"waf_blocks_24h"`
 		BackupBytes     int64 `json:"backup_storage_bytes"`
 	}
@@ -242,12 +242,12 @@ func (r *Registry) systemSummary(ctx context.Context, _ json.RawMessage) (string
 		dest *int64
 	}
 	pairs := []scanPair{
-		{`SELECT COUNT(*) FROM caddy_nodes WHERE deleted_at IS NULL`, &s.NodesTotal},
-		{`SELECT COUNT(*) FROM caddy_nodes WHERE deleted_at IS NULL AND status='healthy'`, &s.NodesHealthy},
-		{`SELECT COUNT(*) FROM routes WHERE deleted_at IS NULL`, &s.RoutesTotal},
-		{`SELECT COUNT(*) FROM routes WHERE deleted_at IS NULL AND status='active'`, &s.RoutesActive},
-		{`SELECT COUNT(*) FROM clients WHERE deleted_at IS NULL`, &s.ClientsTotal},
-		{`SELECT COUNT(*) FROM alert_log WHERE resolved_at IS NULL`, &s.OpenAlerts},
+		{`SELECT COUNT(*) FROM caddy_nodes`, &s.NodesTotal},
+		{`SELECT COUNT(*) FROM caddy_nodes WHERE health_status='healthy'`, &s.NodesHealthy},
+		{`SELECT COUNT(*) FROM routes`, &s.RoutesTotal},
+		{`SELECT COUNT(*) FROM routes WHERE status='active'`, &s.RoutesActive},
+		{`SELECT COUNT(*) FROM clients`, &s.ClientsTotal},
+		{`SELECT COUNT(*) FROM alert_log WHERE fired_at >= NOW() - INTERVAL 24 HOUR`, &s.OpenAlerts},
 		{`SELECT COUNT(*) FROM waf_events WHERE action='blocked' AND ts >= NOW() - INTERVAL 24 HOUR`, &s.WAFBlocks24h},
 		{`SELECT COALESCE(SUM(size_bytes),0) FROM backup_jobs WHERE status='success'`, &s.BackupBytes},
 	}
