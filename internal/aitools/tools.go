@@ -1290,13 +1290,14 @@ func (r *Registry) listActiveAlerts(ctx context.Context, raw json.RawMessage) (s
 		return `{"error":"db unavailable"}`, nil
 	}
 	type row struct {
-		RuleID   string `json:"rule_id"`
-		Severity string `json:"severity"`
-		Title    string `json:"title"`
-		FiredAt  string `json:"fired_at"`
+		RuleID   string          `json:"rule_id"`
+		Severity string          `json:"severity"`
+		Title    string          `json:"title"`
+		Labels   json.RawMessage `json:"labels,omitempty"`
+		FiredAt  string          `json:"fired_at"`
 	}
 	var qargs []any
-	q := `SELECT rule_id, severity, title, DATE_FORMAT(fired_at,'%Y-%m-%dT%H:%i:%sZ') FROM alert_log WHERE fired_at >= NOW() - INTERVAL ? HOUR`
+	q := `SELECT rule_id, severity, title, COALESCE(labels_json,'{}'), DATE_FORMAT(fired_at,'%Y-%m-%dT%H:%i:%sZ') FROM alert_log WHERE fired_at >= NOW() - INTERVAL ? HOUR`
 	qargs = append(qargs, args.Hours)
 	if args.Severity != "" {
 		q += " AND severity = ?"
@@ -1312,7 +1313,11 @@ func (r *Registry) listActiveAlerts(ctx context.Context, raw json.RawMessage) (s
 	var out []row
 	for rows.Next() {
 		var ro row
-		if rows.Scan(&ro.RuleID, &ro.Severity, &ro.Title, &ro.FiredAt) == nil {
+		var labelsRaw string
+		if rows.Scan(&ro.RuleID, &ro.Severity, &ro.Title, &labelsRaw, &ro.FiredAt) == nil {
+			if labelsRaw != "{}" && labelsRaw != "" {
+				ro.Labels = json.RawMessage(labelsRaw)
+			}
 			out = append(out, ro)
 		}
 	}
