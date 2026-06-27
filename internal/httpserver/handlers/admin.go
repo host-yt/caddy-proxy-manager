@@ -4028,6 +4028,7 @@ type apiKeyRow struct {
 	Scopes     string
 	LastUsedAt string
 	LastUsedIP string
+	UseCount   int64
 	CreatedAt  string
 	ExpiresAt  string
 	Revoked    bool
@@ -4119,6 +4120,7 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 		selectSQL = `SELECT k.id, k.name, k.key_prefix, k.scopes,
 			        COALESCE(DATE_FORMAT(k.last_used_at,'%Y-%m-%d %H:%i'),''),
 			        k.last_used_ip,
+			        k.use_count,
 			        DATE_FORMAT(k.created_at,'%Y-%m-%d'),
 			        COALESCE(DATE_FORMAT(k.expires_at,'%Y-%m-%d'),''),
 			        k.revoked_at IS NOT NULL,
@@ -4128,6 +4130,7 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 		selectSQL = `SELECT k.id, k.name, k.key_prefix, k.scopes,
 			        COALESCE(DATE_FORMAT(k.last_used_at,'%Y-%m-%d %H:%i'),''),
 			        k.last_used_ip,
+			        k.use_count,
 			        DATE_FORMAT(k.created_at,'%Y-%m-%d'),
 			        COALESCE(DATE_FORMAT(k.expires_at,'%Y-%m-%d'),''),
 			        k.revoked_at IS NOT NULL
@@ -4143,9 +4146,9 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 			k.ViewAll = viewAll
 			var scanErr error
 			if viewAll {
-				scanErr = rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked, &k.OwnerEmail)
+				scanErr = rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.UseCount, &k.CreatedAt, &k.ExpiresAt, &k.Revoked, &k.OwnerEmail)
 			} else {
-				scanErr = rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked)
+				scanErr = rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.UseCount, &k.CreatedAt, &k.ExpiresAt, &k.Revoked)
 			}
 			if scanErr == nil {
 				d.Keys = append(d.Keys, k)
@@ -4254,6 +4257,7 @@ func (h *AdminHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
 		`SELECT id, name, key_prefix, scopes,
 		        COALESCE(DATE_FORMAT(last_used_at,'%Y-%m-%d %H:%i'),''),
 		        last_used_ip,
+		        use_count,
 		        DATE_FORMAT(created_at,'%Y-%m-%d'),
 		        COALESCE(DATE_FORMAT(expires_at,'%Y-%m-%d'),''),
 		        revoked_at IS NOT NULL
@@ -4262,7 +4266,7 @@ func (h *AdminHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var k apiKeyRow
-			if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
+			if err := rows.Scan(&k.ID, &k.Name, &k.Prefix, &k.Scopes, &k.LastUsedAt, &k.LastUsedIP, &k.UseCount, &k.CreatedAt, &k.ExpiresAt, &k.Revoked); err == nil {
 				d.Keys = append(d.Keys, k)
 			}
 		}

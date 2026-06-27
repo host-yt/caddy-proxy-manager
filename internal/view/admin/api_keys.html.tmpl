@@ -71,6 +71,7 @@
             </a>
           </th>
           <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Last IP</th>
+          <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">Requests</th>
           <th class="px-4 py-3 text-[11px] font-bold uppercase tracking-widest text-slate-500 dark:text-slate-400">
             <a href="/admin/api-keys?q={{.Q}}&sort=created_at&dir={{if and (eq .Sort "created_at") (eq .Dir "asc")}}desc{{else}}asc{{end}}{{if .ViewAll}}&all=1{{end}}" class="flex items-center gap-1 cursor-pointer hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors">
               Created
@@ -90,6 +91,7 @@
           <td class="px-4 py-3.5 text-xs text-slate-600 dark:text-slate-300 font-mono">{{.Scopes}}</td>
           <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .LastUsedAt}}{{.LastUsedAt}}{{else}}<span class="text-slate-300 dark:text-zinc-600">-</span>{{end}}</td>
           <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 font-mono">{{if .LastUsedIP}}{{.LastUsedIP}}{{else}}<span class="text-slate-300 dark:text-zinc-600">-</span>{{end}}</td>
+          <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.UseCount}}</td>
           <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{.CreatedAt}}</td>
           <td class="px-4 py-3.5 text-xs text-slate-500 dark:text-slate-400 whitespace-nowrap">{{if .ExpiresAt}}{{.ExpiresAt}}{{else}}<span class="text-slate-300 dark:text-zinc-600">never</span>{{end}}</td>
           <td class="px-4 py-3.5 text-right whitespace-nowrap">
@@ -103,7 +105,7 @@
         </tr>
         {{else}}
         <!-- empty state with centered icon -->
-        <tr><td colspan="{{if $.ViewAll}}9{{else}}8{{end}}" class="px-4 py-16 text-center">
+        <tr><td colspan="{{if $.ViewAll}}10{{else}}9{{end}}" class="px-4 py-16 text-center">
           <div class="flex flex-col items-center gap-3">
             <svg class="w-10 h-10 text-slate-300 dark:text-zinc-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <p class="text-sm font-medium text-slate-600 dark:text-slate-300">{{if .Q}}No keys match your search{{else}}No API keys yet{{end}}</p>
