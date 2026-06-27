@@ -172,6 +172,12 @@
       {{else}}
         <span class="text-slate-400">not downloaded yet</span>
       {{end}}
+      {{if .GeoIPMeta.LastError}}
+        <span class="text-rose-600 dark:text-rose-400" title="Last refresh error">⚠ {{.GeoIPMeta.LastError}}</span>
+      {{end}}
+      {{if .GeoIPMeta.LastAttempt}}
+        <span class="text-slate-400">last attempt {{.GeoIPMeta.LastAttempt}}</span>
+      {{end}}
     </div>
     {{end}}
     <div class="mt-3 flex items-center gap-3">
