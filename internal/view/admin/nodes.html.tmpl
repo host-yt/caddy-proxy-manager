@@ -152,6 +152,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
           <th class="px-4 py-2">Public</th>
           <th class="px-4 py-2">Group</th>
           <th class="px-4 py-2">Routes</th>
+          <th class="px-4 py-2">BW 24h</th>
           <th class="px-4 py-2">Health</th>
           <th class="px-4 py-2">Fingerprint</th>
           <th class="px-4 py-2">Capabilities</th>
@@ -169,6 +170,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
           </td>
           <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{.GroupName}}</td>
           <td class="px-4 py-2 text-slate-600 dark:text-slate-300">{{.CurrentRoutes}} / {{.MaxRoutes}}</td>
+          <td class="px-4 py-2 text-xs font-mono text-slate-500 dark:text-slate-400">{{if .Bandwidth24h}}{{formatBytes .Bandwidth24h}}{{else}}-{{end}}</td>
           <td class="px-4 py-2">
             <span class="hpg-pill {{if eq .Health "healthy"}}hpg-pill-ok{{else if eq .Health "down"}}hpg-pill-err{{else}}hpg-pill-muted{{end}}">
               <span class="w-1.5 h-1.5 rounded-full {{if eq .Health "healthy"}}bg-emerald-500{{else if eq .Health "down"}}bg-rose-500{{else}}bg-slate-400{{end}}"></span>
