@@ -1,6 +1,6 @@
 // Package accesslog stores and retrieves per-host Caddy access log entries.
 // Entries are kept in the host_access_log table; the table is pruned to the
-// most recent maxPerHost rows per route on each insert.
+// most recent MaxPerRoute rows per route on each insert.
 package accesslog
 
 import (
@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const maxPerHost = 500
+const defaultMaxPerRoute = 500
 
 // Entry is one access-log record.
 type Entry struct {
@@ -30,11 +30,18 @@ type Entry struct {
 
 // Store persists and reads access log entries.
 type Store struct {
-	db func() *sql.DB
+	db          func() *sql.DB
+	MaxPerRoute int // rows retained per route; defaults to 500 when 0
 }
 
-// New returns a Store backed by db.
-func New(db func() *sql.DB) *Store { return &Store{db: db} }
+// New returns a Store backed by db with configurable per-route retention limit.
+// maxPerRoute <= 0 defaults to 500.
+func New(db func() *sql.DB, maxPerRoute int) *Store {
+	if maxPerRoute <= 0 {
+		maxPerRoute = defaultMaxPerRoute
+	}
+	return &Store{db: db, MaxPerRoute: maxPerRoute}
+}
 
 // RollupBucket is one hourly aggregate row from log_rollups.
 type RollupBucket struct {
@@ -61,7 +68,7 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 	); err != nil {
 		return err
 	}
-	// Best-effort prune: keep only maxPerHost most recent rows per route.
+	// Best-effort prune: keep only MaxPerRoute most recent rows per route.
 	_, _ = db.ExecContext(ctx,
 		`DELETE FROM host_access_log
 		 WHERE route_id = ?
@@ -73,7 +80,7 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 		           LIMIT ?
 		       ) sub
 		   )`,
-		e.RouteID, e.RouteID, maxPerHost,
+		e.RouteID, e.RouteID, s.MaxPerRoute,
 	)
 	// Best-effort rollup upsert into the hourly bucket; survives the prune above.
 	var e4xx, e5xx int
@@ -151,8 +158,8 @@ func (s *Store) Recent(ctx context.Context, routeID int64, n int) ([]Entry, erro
 	}
 	if n <= 0 {
 		n = 100
-	} else if n > maxPerHost {
-		n = maxPerHost
+	} else if n > s.MaxPerRoute {
+		n = s.MaxPerRoute
 	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT id,route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,proto,country
