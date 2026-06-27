@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 )
 
 // maxIngestBody caps the request body. Caddy nodes batch NDJSON; 8 MiB is far
@@ -25,11 +27,15 @@ type caddyLogLine struct {
 	Status  int         `json:"status"`
 	// duration is in fractional seconds; Caddy uses "duration" not "latency".
 	Duration float64 `json:"duration"`
+	// Size is response bytes as logged by Caddy's access log handler.
+	Size int64 `json:"size"`
 }
 
 type caddyLogReq struct {
 	Method string `json:"method"`
 	URI    string `json:"uri"`
+	// Proto is the HTTP protocol version, e.g. "HTTP/1.1", "HTTP/2.0".
+	Proto string `json:"proto"`
 	// Caddy logs the request host and client IP as top-level fields on
 	// "request", NOT inside headers. client_ip is the real client (after
 	// trusted-proxy resolution); remote_ip is the raw socket peer.
@@ -141,12 +147,45 @@ func (h *IngestHandler) ingest(ctx context.Context, line caddyLogLine) {
 		LatencyMS: latencyMS,
 		RemoteIP:  remote,
 		UserAgent: ua,
+		BytesResp: line.Size,
+		Proto:     normalizeProto(line.Request.Proto),
+		Country:   resolveCountry(line.Request.ClientIP, line.Request.RemoteIP),
 	}
 	if err := h.Store.Insert(ctx, e); err != nil {
 		h.Logger.Warn("accesslog insert", "err", err)
 		return
 	}
 	h.Broker.Publish(e)
+}
+
+// normalizeProto maps verbose Caddy proto strings to short tokens for storage.
+func normalizeProto(p string) string {
+	switch p {
+	case "HTTP/1.1":
+		return "h1"
+	case "HTTP/2.0", "HTTP/2":
+		return "h2"
+	case "HTTP/3.0", "HTTP/3":
+		return "h3"
+	default:
+		if len(p) > 8 {
+			return p[:8]
+		}
+		return p
+	}
+}
+
+// resolveCountry returns the ISO-2 country code for the request client IP.
+// Falls back to remoteIP when clientIP is empty; returns "" if geoip is unavailable.
+func resolveCountry(clientIP, remoteIP string) string {
+	ip := clientIP
+	if ip == "" {
+		ip = remoteIP
+	}
+	if ip == "" {
+		return ""
+	}
+	return geoip.Global().LookupISO2(ip)
 }
 
 // stripPort removes the :port suffix from host:port strings.
