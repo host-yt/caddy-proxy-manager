@@ -19,7 +19,6 @@
       <div class="grid gap-0.5">
         <button type="button" data-settings-tab="general" class="hpg-settings-tab hpg-settings-tab-active r-segment-item is-active text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">General</button>
         <button type="button" data-settings-tab="branding" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Branding</button>
-        <button type="button" data-settings-tab="customer" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Customer fields</button>
         <button type="button" data-settings-tab="customfields" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Custom fields</button>
       </div>
     </div>
@@ -937,10 +936,14 @@
         </div>
         <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
           <label class="t-caption shrink-0" style="min-width:4rem;color:rgb(var(--muted))">Model</label>
-          <select name="model_{{.ID}}" data-ai-model="{{.ID}}" data-ai-model-saved="{{.Model}}" class="r-select flex-1" style="font-size:.75rem">
-            <option value="" {{if eq .Model ""}}selected{{end}}>Default ({{if eq .ID "anthropic"}}claude-3-5-haiku-latest{{else if eq .ID "openai"}}gpt-4o-mini{{else if eq .ID "gemini"}}gemini-1.5-flash{{else}}openai/gpt-4o-mini{{end}})</option>
-            {{if .Model}}<option value="{{.Model}}" selected>{{.Model}}</option>{{end}}
-          </select>
+          <input type="text" name="model_{{.ID}}" data-ai-model="{{.ID}}" data-ai-model-saved="{{.Model}}"
+            value="{{.Model}}" list="ai-mdl-{{.ID}}"
+            placeholder="Default ({{if eq .ID "anthropic"}}claude-3-5-haiku-latest{{else if eq .ID "openai"}}gpt-4o-mini{{else if eq .ID "gemini"}}gemini-1.5-flash{{else}}openai/gpt-4o-mini{{end}})"
+            class="r-input flex-1" style="font-size:.75rem" autocomplete="off">
+          <datalist id="ai-mdl-{{.ID}}">
+            <option value=""></option>
+            {{if .Model}}<option value="{{.Model}}"></option>{{end}}
+          </datalist>
           <button type="button" data-ai-models-refresh="{{.ID}}" class="r-btn-secondary cursor-pointer whitespace-nowrap">Refresh models</button>
         </div>
         {{if .Configured}}<label class="r-toggle mt-2" style="font-size:.75rem;color:rgb(var(--danger))"><input type="checkbox" name="clear_{{.ID}}" value="1"><span></span>Remove stored key on save</label>{{end}}
@@ -1315,6 +1318,21 @@
         <button class="r-btn-primary">Save SMS 2FA setting</button>
       </div>
     </form>
+
+    <div style="border-top:1px solid rgb(var(--border));margin-top:1.25rem;padding-top:1.25rem;">
+      <p class="t-eyebrow mb-2" style="color:rgb(var(--muted))">Customer portal</p>
+      <form method="POST" action="/admin/settings/customer-fields" class="space-y-3">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <label class="r-toggle">
+          <input type="checkbox" name="phone_enabled" value="1" {{if .CustomerFields.PhoneEnabled}}checked{{end}}>
+          <span></span>
+          Show <strong>phone</strong> field to customers (E.164) - required for SMS outage alerts and 2FA SMS fallback
+        </label>
+        <div class="flex justify-end">
+          <button class="r-btn-secondary text-sm">Save</button>
+        </div>
+      </form>
+    </div>
   </section>
 
   <!-- ── SSO Jump ───────────────────────────────────────────── -->
@@ -1653,21 +1671,20 @@
               return;
             }
             var models = (j && j.models) || [];
-            if (sel){
-              var def = sel.options[0];
-              sel.innerHTML = '';
-              if (def) sel.appendChild(def);
+            var dl = document.getElementById('ai-mdl-' + provider);
+            if (dl) {
+              dl.innerHTML = '<option value=""></option>';
               var hasSaved = false;
               models.forEach(function(m){
                 var o = document.createElement('option');
-                o.value = m; o.textContent = m;
-                if (m === saved){ o.selected = true; hasSaved = true; }
-                sel.appendChild(o);
+                o.value = m;
+                if (m === saved) hasSaved = true;
+                dl.appendChild(o);
               });
-              if (saved && !hasSaved){
+              if (saved && !hasSaved) {
                 var o2 = document.createElement('option');
-                o2.value = saved; o2.textContent = saved + ' (saved, not listed)'; o2.selected = true;
-                sel.appendChild(o2);
+                o2.value = saved;
+                dl.appendChild(o2);
               }
             }
             if (status){ status.style.color = 'rgb(var(--success))'; status.textContent = models.length + ' models loaded.'; }

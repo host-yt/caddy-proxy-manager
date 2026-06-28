@@ -265,10 +265,9 @@
                   {{if .MaintenanceMode}}Disable maintenance{{else}}Enable maintenance{{end}}
                 </button>
               </form>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/clone" class="contents">
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/clone" class="contents" data-confirm="Clone this route? It will be created as inactive.">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button type="submit" class="hpg-act-item" role="menuitem"
-                        onclick="return confirm('Clone this route? It will be created as inactive.')">
+                <button type="submit" class="hpg-act-item" role="menuitem">
                   <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5" width="14" height="14" aria-hidden="true">
                     <rect x="7" y="7" width="10" height="10" rx="1.5"/>
                     <path d="M4 13V4a1.5 1.5 0 0 1 1.5-1.5H13"/>
@@ -354,7 +353,7 @@
           <span class="flex-1 t-body">{{.Name}}</span>
           <a href="/admin/hosts?group_id={{.ID}}" class="text-xs hover:underline cursor-pointer" style="color:rgb(var(--accent))">filter</a>
           <button type="button" class="hg-edit-btn text-xs cursor-pointer" style="color:rgb(var(--muted))" data-id="{{.ID}}" data-name="{{.Name}}" data-color="{{.Color}}">edit</button>
-          <form method="POST" action="/admin/hosts/groups/{{.ID}}/delete" class="inline" onsubmit="return confirm('Delete group {{.Name}}? Routes will be ungrouped.')">
+          <form method="POST" action="/admin/hosts/groups/{{.ID}}/delete" class="inline" data-confirm="Delete group {{.Name}}? Routes will be ungrouped.">
             <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
             <button type="submit" class="text-xs cursor-pointer" style="color:rgb(var(--danger,220 38 38))">delete</button>
           </form>

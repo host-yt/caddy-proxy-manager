@@ -227,7 +227,13 @@ func (c *openrouterClient) StreamChat(ctx context.Context, msgs []Message, opts 
 }
 
 func (c *openrouterClient) ChatWithTools(ctx context.Context, msgs []Message, opts Options, tools []ToolSpec) (*Turn, error) {
-	return chatWithToolsOAI(ctx, openrouterURL, c.apiKey, c.Model(), msgs, opts, tools, openrouterHeaders)
+	turn, err := chatWithToolsOAI(ctx, openrouterURL, c.apiKey, c.Model(), msgs, opts, tools, openrouterHeaders)
+	if err != nil {
+		// OpenRouter routes across many models; not all support tool calling.
+		// Treat any tool-path error as unsupported so the caller falls back to streaming.
+		return nil, fmt.Errorf("%w: %v", ErrToolsUnsupported, err)
+	}
+	return turn, nil
 }
 
 func (c *openrouterClient) Verify(ctx context.Context) error {

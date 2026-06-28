@@ -275,7 +275,7 @@
       Preview failover
     </button>
     <form method="POST" action="/admin/nodes/{{.Node.ID}}/drain"
-      onsubmit="return confirm('Drain node? All active routes will be moved to a healthy peer in the same group. This disables the node.');">
+      data-confirm="Drain node? All active routes will be moved to a healthy peer in the same group. This disables the node.">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <button class="r-btn-ghost inline-flex items-center gap-1.5 text-xs cursor-pointer" style="color:rgb(var(--danger))">
         <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">

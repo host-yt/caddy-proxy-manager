@@ -7,8 +7,7 @@
 <!-- AI chat bubble: fixed bottom-right toggle button -->
 <button id="hpg-ai-btn" type="button" aria-label="AI assistant" title="AI assistant"
   style="background:rgb(var(--accent));color:rgb(var(--accent-text-on));"
-  class="fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full shadow-lg flex items-center justify-center cursor-pointer transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
-  onmouseover="this.style.background='rgb(var(--accent-strong))'" onmouseout="this.style.background='rgb(var(--accent))'">
+  class="fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full shadow-lg flex items-center justify-center cursor-pointer transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2">
   <svg id="hpg-ai-icon-chat" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
     <path d="M18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/>
@@ -28,8 +27,7 @@
     <div class="flex items-center gap-2 min-w-0">
       <!-- Back to conversation list: only shown inside an open conversation -->
       <button id="hpg-ai-back" type="button" title="All conversations"
-        class="hidden p-1.5 -ml-1.5 rounded-md transition-colors cursor-pointer shrink-0" style="color:rgb(var(--muted));"
-        onmouseover="this.style.color='rgb(var(--text))';this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.color='rgb(var(--muted))';this.style.background=''">
+        class="hidden p-1.5 -ml-1.5 rounded-md transition-colors cursor-pointer shrink-0" style="color:rgb(var(--muted));">
         <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
       </button>
       <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style="background:rgb(var(--accent)/.12);">
@@ -78,8 +76,7 @@
         class="r-input flex-1 resize-none"></textarea>
       <button id="hpg-ai-send" type="button"
         style="background:rgb(var(--accent));color:rgb(var(--accent-text-on));"
-        class="shrink-0 flex items-center justify-center w-9 h-9 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
-        onmouseover="if(!this.disabled)this.style.background='rgb(var(--accent-strong))'" onmouseout="this.style.background='rgb(var(--accent))'">
+        class="shrink-0 flex items-center justify-center w-9 h-9 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer">
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M6 12 3.269 3.125A59.769 59.769 0 0 1 21.485 12 59.768 59.768 0 0 1 3.27 20.875L5.999 12Zm0 0h7.5"/>
         </svg>
@@ -103,6 +100,16 @@
 .md-body a{color:rgb(var(--accent));text-decoration:underline;}
 .md-body strong{font-weight:600;}
 .md-body em{font-style:italic;}
+/* Hover states (replaces CSP-violating inline onmouseover handlers) */
+#hpg-ai-btn:hover{background:rgb(var(--accent-strong)) !important;}
+#hpg-ai-back:hover{color:rgb(var(--text)) !important;background:rgb(var(--surface-2)) !important;}
+#hpg-ai-send:not(:disabled):hover{background:rgb(var(--accent-strong)) !important;}
+/* AI thinking indicator */
+.hpg-ai-typing{display:inline-flex;gap:3px;align-items:center;padding:2px 0;}
+.hpg-ai-typing span{width:5px;height:5px;border-radius:50%;background:currentColor;opacity:.4;animation:hpg-bounce .9s ease-in-out infinite;}
+.hpg-ai-typing span:nth-child(2){animation-delay:.2s;}
+.hpg-ai-typing span:nth-child(3){animation-delay:.4s;}
+@keyframes hpg-bounce{0%,80%,100%{transform:translateY(0);opacity:.35;}40%{transform:translateY(-4px);opacity:.9;}}
 </style>
 
 <script nonce="{{.Data.CSPNonce}}">
@@ -218,15 +225,37 @@
       label.textContent = s.title || 'Untitled';
       item.appendChild(label);
 
+      var trashSVG = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>';
       var del = document.createElement('button');
       del.type = 'button';
       del.title = 'Delete';
-      del.className = 'shrink-0 opacity-0 group-hover:opacity-100 transition-opacity p-0.5 rounded cursor-pointer';
+      del.className = 'shrink-0 opacity-0 group-hover:opacity-100 transition-all p-0.5 rounded cursor-pointer text-xs';
       del.style.color = 'rgb(var(--muted))';
-      del.onmouseover = function(){ this.style.color = 'rgb(var(--danger))'; };
-      del.onmouseout  = function(){ this.style.color = 'rgb(var(--muted))'; };
-      del.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>';
-      del.addEventListener('click', function(e){ e.stopPropagation(); deleteSession(s.id); });
+      del.innerHTML = trashSVG;
+      del.addEventListener('mouseover', function(){ if (!del.dataset.confirming) this.style.color = 'rgb(var(--danger))'; });
+      del.addEventListener('mouseout',  function(){ if (!del.dataset.confirming) this.style.color = 'rgb(var(--muted))'; });
+      del.addEventListener('click', function(e){
+        e.stopPropagation();
+        if (del.dataset.confirming) {
+          deleteSession(s.id);
+        } else {
+          del.dataset.confirming = '1';
+          del.innerHTML = 'OK';
+          del.style.color = 'rgb(var(--danger))';
+          del.style.fontWeight = '600';
+          del.title = 'Confirm delete';
+          del.style.opacity = '1';
+          setTimeout(function(){
+            if (!del.dataset.confirming) return;
+            delete del.dataset.confirming;
+            del.innerHTML = trashSVG;
+            del.style.color = 'rgb(var(--muted))';
+            del.style.fontWeight = '';
+            del.style.opacity = '';
+            del.title = 'Delete';
+          }, 3000);
+        }
+      });
       item.appendChild(del);
 
       item.addEventListener('click', function(){ openSession(s.id, s.title); });
@@ -299,14 +328,17 @@
     if (role === 'user') {
       bubble.className = 'max-w-[80%] rounded-2xl rounded-br-sm px-3 py-2 text-xs leading-relaxed break-words';
       bubble.style.cssText = 'background:rgb(var(--accent)/.15);color:rgb(var(--text));';
-      // USER: textContent only - no markdown rendering
       bubble.textContent = content;
     } else {
       bubble.className = 'md-body max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-xs leading-relaxed break-words';
       bubble.style.cssText = 'background:rgb(var(--surface-2));color:rgb(var(--text));border:1px solid rgb(var(--border));';
-      // ASSISTANT: render via mdlite (XSS-safe: escapes first)
-      if (window.mdlite) { bubble.innerHTML = window.mdlite(content); }
-      else { bubble.textContent = content; }
+      if (live && !content) {
+        bubble.innerHTML = '<span class="hpg-ai-typing"><span></span><span></span><span></span></span>';
+      } else if (window.mdlite) {
+        bubble.innerHTML = window.mdlite(content);
+      } else {
+        bubble.textContent = content;
+      }
     }
     if (live) bubble.setAttribute('data-live', '1');
     wrap.appendChild(bubble);

@@ -2656,15 +2656,15 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id WHERE r.id = ?`, id,
 		).Scan(&hasWAF, &hasGeoIP, &hasRateLimit)
 		if wafEnabled && !hasWAF {
-			redirectWithFlash(w, r, editPath, "", "WAF: node Caddy build lacks WAF module")
+			redirectWithFlash(w, r, editPath, "", "WAF requires coraza-caddy/v2 module. This node's Caddy binary was not built with it. Disable WAF or redeploy Caddy with coraza-caddy/v2 included.")
 			return
 		}
 		if geoMode != "off" && !hasGeoIP {
-			redirectWithFlash(w, r, editPath, "", "GeoIP: node Caddy build lacks GeoIP module")
+			redirectWithFlash(w, r, editPath, "", "GeoIP filtering requires the caddy-geoip module. This node's Caddy binary was not built with it. Disable GeoIP or redeploy Caddy with the geoip module.")
 			return
 		}
 		if rateEnabled && !hasRateLimit {
-			redirectWithFlash(w, r, editPath, "", "rate limit: node Caddy build lacks rate_limit module")
+			redirectWithFlash(w, r, editPath, "", "Rate limiting requires the caddy-ratelimit module. This node's Caddy binary was not built with it. Disable rate limit or redeploy Caddy with the ratelimit module.")
 			return
 		}
 	}
