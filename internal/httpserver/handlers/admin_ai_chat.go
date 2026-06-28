@@ -355,8 +355,13 @@ const aiToolLoopCap = 5
 // aiToolsSystemPrompt tells the model what the read-only tools are for. Kept
 // short; the tool schemas carry the per-tool detail.
 const aiToolsSystemPrompt = "You are the HPG (Hostyt Proxy Gateway) admin assistant. " +
-	"You can call read-only tools to inspect live state (nodes, routes, clients, services, traffic). " +
-	"Use them when the user asks about current state, then answer concisely. The tools never expose secrets."
+	"You have read-only tools to inspect live system state (nodes, routes, clients, services, WAF events, traffic). " +
+	"CRITICAL RULES: " +
+	"(1) NEVER invent, guess, or assume any system state. " +
+	"(2) Every factual claim MUST come from a tool call result. " +
+	"(3) If no tool covers the question, say you don't have access to that data. " +
+	"(4) Do not fabricate alerts, tunnels, backups, or any status not returned by a tool. " +
+	"Call tools first, then answer based only on what they returned."
 
 // roleCanUseAITools gates the data-access tools by role. super_admin/admin get
 // the full or scoped tool set; client gets a strictly scoped tool set (own

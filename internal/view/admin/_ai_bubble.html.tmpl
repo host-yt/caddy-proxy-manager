@@ -303,17 +303,14 @@
 
   // ---- Delete a session ----
   function deleteSession(id){
-    window.hpgConfirm('Delete this conversation?').then(function(ok){
-      if (!ok) return;
-      fetch(BASE + '/sessions/' + id, {method:'DELETE', credentials:'same-origin', headers:{'X-CSRF-Token':csrf()}})
-      .then(function(r){
-        if (r.ok || r.status === 204){
-          if (activeID === id) goHome();
-          else loadSessions();
-        }
-      })
-      .catch(function(){});
-    });
+    fetch(BASE + '/sessions/' + id, {method:'DELETE', credentials:'same-origin', headers:{'X-CSRF-Token':csrf()}})
+    .then(function(r){
+      if (r.ok || r.status === 204){
+        if (activeID === id) goHome();
+        else loadSessions();
+      }
+    })
+    .catch(function(){});
   }
 
   // ---- Thread rendering ----
