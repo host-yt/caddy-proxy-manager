@@ -9,8 +9,9 @@
   style="background:rgb(var(--accent));color:rgb(var(--accent-text-on));"
   class="fixed bottom-6 right-6 z-[70] w-14 h-14 rounded-full shadow-lg flex items-center justify-center cursor-pointer transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2"
   onmouseover="this.style.background='rgb(var(--accent-strong))'" onmouseout="this.style.background='rgb(var(--accent))'">
-  <svg id="hpg-ai-icon-chat" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+  <svg id="hpg-ai-icon-chat" xmlns="http://www.w3.org/2000/svg" width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
     <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+    <path d="M18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/>
   </svg>
   <svg id="hpg-ai-icon-close" width="20" height="20" style="display:none;" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
     <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
@@ -24,40 +25,29 @@
 
   <!-- Panel header -->
   <div class="flex items-center justify-between px-4 py-3 shrink-0" style="border-bottom:1px solid rgb(var(--border));">
-    <div class="flex items-center gap-2">
+    <div class="flex items-center gap-2 min-w-0">
+      <!-- Back to conversation list: only shown inside an open conversation -->
+      <button id="hpg-ai-back" type="button" title="All conversations"
+        class="hidden p-1.5 -ml-1.5 rounded-md transition-colors cursor-pointer shrink-0" style="color:rgb(var(--muted));"
+        onmouseover="this.style.color='rgb(var(--text))';this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.color='rgb(var(--muted))';this.style.background=''">
+        <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </button>
       <div class="w-7 h-7 rounded-lg flex items-center justify-center shrink-0" style="background:rgb(var(--accent)/.12);">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color:rgb(var(--accent));">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="color:rgb(var(--accent));">
           <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+          <path d="M18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/>
         </svg>
       </div>
-      <span class="text-sm font-medium" style="color:rgb(var(--text));">AI assistant</span>
-    </div>
-    <div class="flex items-center gap-1">
-      <button id="hpg-ai-new" type="button" title="New conversation"
-        class="p-1.5 rounded-md transition-colors cursor-pointer" style="color:rgb(var(--muted));"
-        onmouseover="this.style.color='rgb(var(--accent))';this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.color='rgb(var(--muted))';this.style.background=''">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v16m8-8H4"/></svg>
-      </button>
-      <button id="hpg-ai-sessions-toggle" type="button" title="Switch conversation"
-        class="p-1.5 rounded-md transition-colors cursor-pointer" style="color:rgb(var(--muted));"
-        onmouseover="this.style.color='rgb(var(--text))';this.style.background='rgb(var(--surface-2))'" onmouseout="this.style.color='rgb(var(--muted))';this.style.background=''">
-        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
-      </button>
-    </div>
-  </div>
-
-  <!-- Session list drawer (hidden by default, shown via toggle) -->
-  <div id="hpg-ai-sessions-drawer" class="hidden max-h-40 overflow-y-auto shrink-0" style="border-bottom:1px solid rgb(var(--border));">
-    <div id="hpg-ai-session-list" class="divide-y" style="border-color:rgb(var(--border));">
-      <p id="hpg-ai-sessions-empty" class="px-4 py-3 text-xs text-center" style="color:rgb(var(--muted));">No conversations yet.</p>
+      <span id="hpg-ai-title" class="text-sm font-medium truncate" style="color:rgb(var(--text));">AI assistant</span>
     </div>
   </div>
 
   <!-- Not configured state -->
   <div id="hpg-ai-unconfigured" class="hidden flex-col items-center justify-center gap-3 px-6 py-8 text-center flex-1">
     <div class="w-10 h-10 rounded-xl flex items-center justify-center" style="background:rgb(var(--accent)/.12);">
-      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" style="color:rgb(var(--accent));">
+      <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="color:rgb(var(--accent));">
         <path d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 0 0-3.09 3.09Z"/>
+        <path d="M18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456Z"/>
       </svg>
     </div>
     <div>
@@ -66,10 +56,14 @@
     </div>
   </div>
 
-  <!-- Thread -->
+  <!-- Thread: holds either the home view (conversation list) or the message bubbles -->
   <div id="hpg-ai-thread" class="flex-1 overflow-y-auto px-4 py-3 space-y-3 min-h-0">
-    <div id="hpg-ai-thread-empty" class="flex flex-col items-center justify-center h-full gap-2 py-6 text-center">
-      <p class="text-xs" style="color:rgb(var(--muted));">Start a new conversation or pick one above.</p>
+    <!-- Home view: recent conversations + start hint. Shown when no conversation is open. -->
+    <div id="hpg-ai-home" class="flex flex-col h-full">
+      <p class="t-eyebrow px-1 pt-0.5 pb-2" style="color:rgb(var(--muted));">Recent conversations</p>
+      <div id="hpg-ai-session-list" class="space-y-1">
+        <p id="hpg-ai-sessions-empty" class="px-1 py-2 text-xs" style="color:rgb(var(--muted));">No conversations yet. Just type below to start one.</p>
+      </div>
     </div>
   </div>
 
@@ -79,10 +73,9 @@
   <!-- Composer -->
   <div class="px-3 py-3 shrink-0" style="border-top:1px solid rgb(var(--border));">
     <div class="flex gap-2 items-end">
-      <textarea id="hpg-ai-composer" rows="2" placeholder="Send a message..."
-        class="r-input flex-1 resize-none"
-        disabled></textarea>
-      <button id="hpg-ai-send" type="button" disabled
+      <textarea id="hpg-ai-composer" rows="2" placeholder="Type a message to start a new chat..."
+        class="r-input flex-1 resize-none"></textarea>
+      <button id="hpg-ai-send" type="button"
         style="background:rgb(var(--accent));color:rgb(var(--accent-text-on));"
         class="shrink-0 flex items-center justify-center w-9 h-9 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
         onmouseover="if(!this.disabled)this.style.background='rgb(var(--accent-strong))'" onmouseout="this.style.background='rgb(var(--accent))'">
@@ -116,20 +109,21 @@
   'use strict';
 
   var BASE = window.HPG_AI_BASE || '/app/ai/chat';
-  var IS_ADMIN = false; // client portal: no settings link shown
+  // true when we know the current page is in the admin panel (not client portal)
+  var IS_ADMIN = BASE.indexOf('/admin/') === 0;
 
   var panelEl   = document.getElementById('hpg-ai-panel');
   var btnEl     = document.getElementById('hpg-ai-btn');
   var iconChat  = document.getElementById('hpg-ai-icon-chat');
   var iconClose = document.getElementById('hpg-ai-icon-close');
-  var newBtn    = document.getElementById('hpg-ai-new');
-  var sessToggle= document.getElementById('hpg-ai-sessions-toggle');
-  var drawer    = document.getElementById('hpg-ai-sessions-drawer');
+  var backBtn   = document.getElementById('hpg-ai-back');
+  var titleEl   = document.getElementById('hpg-ai-title');
+  var homeEl    = document.getElementById('hpg-ai-home');
   var sessList  = document.getElementById('hpg-ai-session-list');
   var sessEmpty = document.getElementById('hpg-ai-sessions-empty');
   var unconfigEl= document.getElementById('hpg-ai-unconfigured');
+  var settingsLink = document.getElementById('hpg-ai-settings-link');
   var threadEl  = document.getElementById('hpg-ai-thread');
-  var threadEmp = document.getElementById('hpg-ai-thread-empty');
   var errEl     = document.getElementById('hpg-ai-err');
   var composer  = document.getElementById('hpg-ai-composer');
   var sendBtn   = document.getElementById('hpg-ai-send');
@@ -145,15 +139,10 @@
     panelEl.classList.toggle('flex', open);
     iconChat.style.display = open ? 'none' : '';
     iconClose.style.display = open ? '' : 'none';
-    if (open) loadSessions();
+    if (open) { goHome(); composer.focus(); }
   }
 
   btnEl.addEventListener('click', function(){ setPanel(!panelOpen); });
-
-  // ---- Session drawer toggle ----
-  sessToggle.addEventListener('click', function(){
-    drawer.classList.toggle('hidden');
-  });
 
   // ---- CSRF token ----
   function csrf(){
@@ -168,19 +157,36 @@
   }
 
   // ---- Error banner ----
-  function showErr(msg){
-    errEl.textContent = msg;
-    errEl.classList.remove('hidden');
-  }
-  function clearErr(){
-    errEl.classList.add('hidden');
-    errEl.textContent = '';
-  }
+  function showErr(msg){ errEl.textContent = msg; errEl.classList.remove('hidden'); }
+  function clearErr(){ errEl.classList.add('hidden'); errEl.textContent = ''; }
 
   // ---- Scroll to bottom ----
   function scrollThread(){ threadEl.scrollTop = threadEl.scrollHeight; }
 
-  // ---- Load sessions ----
+  // ---- Home view: show the conversation list, no active conversation ----
+  function goHome(){
+    if (streaming) return;
+    activeID = null;
+    clearErr();
+    hideUnconfigured();
+    // Remove rendered messages, reveal the home list.
+    Array.from(threadEl.querySelectorAll('[data-msg]')).forEach(function(el){ el.remove(); });
+    if (homeEl) homeEl.classList.remove('hidden');
+    backBtn.classList.add('hidden');
+    if (titleEl) titleEl.textContent = 'AI assistant';
+    setComposer(true);
+    loadSessions();
+  }
+
+  backBtn.addEventListener('click', goHome);
+
+  // ---- Show the open-conversation chrome ----
+  function showConversation(){
+    if (homeEl) homeEl.classList.add('hidden');
+    backBtn.classList.remove('hidden');
+  }
+
+  // ---- Load + render sessions into the home list ----
   function loadSessions(){
     fetch(BASE + '/sessions', {credentials:'same-origin', headers:{Accept:'application/json'}})
       .then(function(r){ return r.ok ? r.json() : {sessions:[]}; })
@@ -200,10 +206,10 @@
     list.forEach(function(s){
       var item = document.createElement('div');
       item.setAttribute('data-sid', s.id);
-      item.className = 'group flex items-center justify-between gap-2 px-3 py-2 cursor-pointer transition-colors text-sm';
-      item.style.cssText = s.id === activeID ? 'background:rgb(var(--accent)/.10);' : '';
-      item.onmouseover = function(){ if (s.id !== activeID) this.style.background = 'rgb(var(--surface-2))'; };
-      item.onmouseout  = function(){ if (s.id !== activeID) this.style.background = ''; };
+      item.className = 'group flex items-center justify-between gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors';
+      item.style.cssText = 'background:rgb(var(--surface-2)/.5);';
+      item.onmouseover = function(){ this.style.background = 'rgb(var(--surface-2))'; };
+      item.onmouseout  = function(){ this.style.background = 'rgb(var(--surface-2)/.5)'; };
 
       var label = document.createElement('span');
       label.className = 'flex-1 min-w-0 truncate text-xs';
@@ -219,86 +225,57 @@
       del.onmouseover = function(){ this.style.color = 'rgb(var(--danger))'; };
       del.onmouseout  = function(){ this.style.color = 'rgb(var(--muted))'; };
       del.innerHTML = '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>';
-      del.addEventListener('click', function(e){
-        e.stopPropagation();
-        deleteSession(s.id);
-      });
+      del.addEventListener('click', function(e){ e.stopPropagation(); deleteSession(s.id); });
       item.appendChild(del);
 
-      item.addEventListener('click', function(){ openSession(s.id); });
+      item.addEventListener('click', function(){ openSession(s.id, s.title); });
       sessList.appendChild(item);
     });
   }
 
-  function highlightSession(id){
-    sessList.querySelectorAll('[data-sid]').forEach(function(el){
-      var sid = parseInt(el.getAttribute('data-sid'), 10);
-      el.style.background = sid === id ? 'rgb(var(--accent)/.10)' : '';
-    });
-  }
-
-  // ---- Create session ----
-  function newSession(){
-    if (streaming) return;
-    fetch(BASE + '/sessions', {
+  // ---- Create a session (returns a promise of the new id, or null) ----
+  function createSession(){
+    return fetch(BASE + '/sessions', {
       method:'POST', credentials:'same-origin',
       headers:{'Content-Type':'application/json', Accept:'application/json', 'X-CSRF-Token':csrf()},
       body: JSON.stringify({title:'', provider:''})
     })
     .then(function(r){ return r.ok ? r.json() : null; })
-    .then(function(data){
-      if (!data || !data.id) return;
-      loadSessions();
-      openSession(data.id);
-      drawer.classList.add('hidden');
-    })
-    .catch(function(){});
+    .then(function(data){ return (data && data.id) ? data.id : null; })
+    .catch(function(){ return null; });
   }
 
-  newBtn.addEventListener('click', newSession);
-
-  // ---- Open session ----
-  function openSession(id){
+  // ---- Open an existing session ----
+  function openSession(id, title){
     if (streaming) return;
     activeID = id;
-    highlightSession(id);
-    setComposer(false);
     clearErr();
     hideUnconfigured();
+    showConversation();
+    if (titleEl) titleEl.textContent = title || 'AI assistant';
 
     Array.from(threadEl.querySelectorAll('[data-msg]')).forEach(function(el){ el.remove(); });
-    if (threadEmp) threadEmp.classList.remove('hidden');
+    setComposer(false);
 
     fetch(BASE + '/sessions/' + id, {credentials:'same-origin', headers:{Accept:'application/json'}})
-      .then(function(r){
-        if (!r.ok) throw new Error('status ' + r.status);
-        return r.json();
-      })
+      .then(function(r){ if (!r.ok) throw new Error('status ' + r.status); return r.json(); })
       .then(function(data){
         renderThread(data.messages || []);
         setComposer(true);
         composer.focus();
       })
-      .catch(function(e){ showErr('Could not load session: ' + e.message); });
+      .catch(function(e){ showErr('Could not load conversation: ' + e.message); setComposer(true); });
   }
 
-  // ---- Delete session ----
+  // ---- Delete a session ----
   function deleteSession(id){
     window.hpgConfirm('Delete this conversation?').then(function(ok){
       if (!ok) return;
-      fetch(BASE + '/sessions/' + id, {
-        method:'DELETE', credentials:'same-origin',
-        headers:{'X-CSRF-Token':csrf()}
-      })
+      fetch(BASE + '/sessions/' + id, {method:'DELETE', credentials:'same-origin', headers:{'X-CSRF-Token':csrf()}})
       .then(function(r){
         if (r.ok || r.status === 204){
-          if (activeID === id){
-            activeID = null;
-            Array.from(threadEl.querySelectorAll('[data-msg]')).forEach(function(el){ el.remove(); });
-            if (threadEmp) threadEmp.classList.remove('hidden');
-            setComposer(false);
-          }
-          loadSessions();
+          if (activeID === id) goHome();
+          else loadSessions();
         }
       })
       .catch(function(){});
@@ -309,17 +286,11 @@
   function renderThread(messages){
     Array.from(threadEl.querySelectorAll('[data-msg]')).forEach(function(el){ el.remove(); });
     clearErr();
-    if (!messages.length){
-      if (threadEmp) threadEmp.classList.remove('hidden');
-      return;
-    }
-    if (threadEmp) threadEmp.classList.add('hidden');
     messages.forEach(function(m){ appendBubble(m.role, m.content, false); });
     scrollThread();
   }
 
   function appendBubble(role, content, live){
-    if (threadEmp) threadEmp.classList.add('hidden');
     var wrap = document.createElement('div');
     wrap.setAttribute('data-msg', '1');
     wrap.className = role === 'user' ? 'flex justify-end' : 'flex justify-start';
@@ -333,11 +304,8 @@
       bubble.className = 'md-body max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-xs leading-relaxed break-words';
       bubble.style.cssText = 'background:rgb(var(--surface-2));color:rgb(var(--text));border:1px solid rgb(var(--border));';
       // ASSISTANT: render via mdlite (XSS-safe: escapes first)
-      if (window.mdlite) {
-        bubble.innerHTML = window.mdlite(content);
-      } else {
-        bubble.textContent = content;
-      }
+      if (window.mdlite) { bubble.innerHTML = window.mdlite(content); }
+      else { bubble.textContent = content; }
     }
     if (live) bubble.setAttribute('data-live', '1');
     wrap.appendChild(bubble);
@@ -352,6 +320,16 @@
     threadEl.classList.add('hidden');
     errEl.classList.add('hidden');
     composer.closest('.px-3').classList.add('hidden');
+    backBtn.classList.add('hidden');
+    if (IS_ADMIN && settingsLink){
+      settingsLink.innerHTML = '';
+      var a = document.createElement('a');
+      a.href = '/admin/settings#ai';
+      a.className = 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors';
+      a.style.cssText = 'background:rgb(var(--accent));color:rgb(var(--accent-text-on));';
+      a.textContent = 'Open Settings - AI tab';
+      settingsLink.appendChild(a);
+    }
   }
 
   function hideUnconfigured(){
@@ -363,10 +341,25 @@
 
   // ---- Send + SSE ----
   function sendMessage(){
-    if (streaming || !activeID) return;
+    if (streaming) return;
     var content = composer.value.trim();
     if (!content) return;
+    // No active conversation yet -> create one, then send. (type-to-start)
+    if (!activeID){
+      setComposer(false);
+      createSession().then(function(id){
+        if (!id){ setComposer(true); showErr('Could not start a conversation.'); return; }
+        activeID = id;
+        showConversation();
+        if (titleEl) titleEl.textContent = 'New conversation';
+        doSend(content);
+      });
+      return;
+    }
+    doSend(content);
+  }
 
+  function doSend(content){
     clearErr();
     composer.value = '';
     setComposer(false);
@@ -386,9 +379,7 @@
     })
     .then(function(r){
       if (r.status === 409){
-        return r.json().then(function(body){
-          throw {type:'not_configured', msg: body.error || 'AI provider not configured.'};
-        });
+        return r.json().then(function(body){ throw {type:'not_configured', msg: body.error || 'AI provider not configured.'}; });
       }
       if (!r.ok) throw {type:'http', msg:'HTTP ' + r.status};
       return readSSE(r.body, aiBubble, function(chunk){ accText += chunk; });
@@ -402,9 +393,7 @@
     .catch(function(e){
       streaming = false;
       if (e && e.type === 'not_configured'){
-        if (aiBubble && !accText){
-          var p = aiBubble.parentElement; if (p) p.remove();
-        }
+        if (aiBubble && !accText){ var p = aiBubble.parentElement; if (p) p.remove(); }
         var msgs = threadEl.querySelectorAll('[data-msg]');
         if (msgs.length){ msgs[msgs.length-1].remove(); }
         showUnconfigured();
@@ -412,9 +401,7 @@
       }
       var msg = (e && e.msg) ? e.msg : (e && e.message) ? e.message : 'Streaming error.';
       showErr(msg);
-      if (aiBubble && !accText){
-        var pa = aiBubble.parentElement; if (pa) pa.remove();
-      }
+      if (aiBubble && !accText){ var pa = aiBubble.parentElement; if (pa) pa.remove(); }
       setComposer(true);
     });
   }
@@ -446,11 +433,8 @@
                   acc += obj.text;
                   if (onChunk) onChunk(obj.text);
                   // Re-render entire bubble from accumulated text (never += innerHTML)
-                  if (window.mdlite) {
-                    bubble.innerHTML = window.mdlite(acc);
-                  } else {
-                    bubble.textContent = acc;
-                  }
+                  if (window.mdlite) { bubble.innerHTML = window.mdlite(acc); }
+                  else { bubble.textContent = acc; }
                   scrollThread();
                 }
               } catch(ex){}
