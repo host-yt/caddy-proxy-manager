@@ -1490,8 +1490,9 @@
 <script nonce="{{.CSPNonce}}">
 (function(){
   var tabs = document.querySelectorAll('[data-settings-tab]');
-  var panes = document.querySelectorAll('[data-settings-pane]');
   function activate(name){
+    // Re-query panes each time: banner/instances sections appear after this script in the DOM.
+    var panes = document.querySelectorAll('[data-settings-pane]');
     tabs.forEach(function(b){
       var on = b.dataset.settingsTab === name;
       b.classList.toggle('is-active', on);
@@ -1506,9 +1507,12 @@
   var qtab = new URLSearchParams(location.search).get('tab') || '';
   var saved = '';
   try { saved = localStorage.getItem('settings_tab') || ''; } catch(e){}
-  if (hash && knownTab(hash)) activate(hash);
-  else if (qtab && knownTab(qtab)) activate(qtab);
-  else if (saved && knownTab(saved)) activate(saved);
+  // Defer initial activation so all panes (banner/instances are below this script) are in DOM.
+  document.addEventListener('DOMContentLoaded', function(){
+    if (hash && knownTab(hash)) activate(hash);
+    else if (qtab && knownTab(qtab)) activate(qtab);
+    else if (saved && knownTab(saved)) activate(saved);
+  });
 
   // Appearance picker
   var paletteCards = document.querySelectorAll('[data-palette-card]');
