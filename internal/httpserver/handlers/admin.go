@@ -854,11 +854,23 @@ func (h *AdminHandlers) NodesEdit(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	var outboundIPsJSON sql.NullString
+	// Prefill capability checkboxes with the EFFECTIVE value (per-node flag when
+	// the node was declared, else the fleet-wide env flag) so a routine save does
+	// not silently flip env-backed protections off. Mirrors probedOr in
+	// routes.Service.buildNodePush.
 	if err := db.QueryRowContext(ctx,
 		`SELECT name, api_url, COALESCE(public_hostname,''), COALESCE(public_ip,''), outbound_ips,
-		        COALESCE(has_waf,0), COALESCE(has_l4,0), COALESCE(has_dns_module,0),
-		        COALESCE(has_rate_limit,0), COALESCE(has_geoip,0), COALESCE(caddy_version,'')
-		   FROM caddy_nodes WHERE id = ?`, id,
+		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_waf        END, ?),
+		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_l4         END, ?),
+		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_dns_module END, ?),
+		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit END, ?),
+		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip      END, ?), COALESCE(caddy_version,'')
+		   FROM caddy_nodes WHERE id = ?`,
+		b2i(h.Routes != nil && h.Routes.WAFModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.Layer4ModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.DNS01ModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.RateLimitModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.GeoModuleAvailable), id,
 	).Scan(&d.Name, &d.APIURL, &d.PublicHostname, &d.PublicIP, &outboundIPsJSON,
 		&d.HasWAF, &d.HasL4, &d.HasDNSModule, &d.HasRateLimit, &d.HasGeoIP, &d.CaddyVersion); err != nil {
 		d.Error = "node not found"
