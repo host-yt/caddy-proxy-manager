@@ -797,19 +797,14 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		ProxySecretPlain:   proxySecret,
 		WildcardEnabled:    form.WildcardEnabled,
 		WildcardZone:       form.WildcardZone,
+		// Persisted in the same INSERT so host metadata is atomic with the route.
+		GroupID:      groupID,
+		CustomFields: cfJSON,
 	})
 	if err != nil {
 		h.Logger.Warn("admin hosts: route create", "err", err)
 		h.renderHostsNewErr(w, r, form, "create failed: "+sanitizeErr(err))
 		return
-	}
-	// Persist custom_fields and optional group together after create.
-	if groupID > 0 || cfJSON != "" {
-		_, _ = db.ExecContext(ctx,
-			"UPDATE routes SET group_id = NULLIF(?, 0), custom_fields = NULLIF(?, '') WHERE id = ?",
-			groupID, cfJSON, routeID)
-	} else {
-		_, _ = db.ExecContext(ctx, "UPDATE routes SET group_id = NULLIF(?, 0) WHERE id = ?", groupID, routeID)
 	}
 
 	// Never log the secret in the audit meta.

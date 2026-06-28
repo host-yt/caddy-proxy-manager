@@ -294,6 +294,11 @@ type CreateInput struct {
 	// the zone and the domain to be the zone or a subdomain of it. Admin-only.
 	WildcardEnabled bool
 	WildcardZone    string
+
+	// GroupID (host_groups FK, UI grouping) and CustomFields (JSON) are written
+	// in the same INSERT so host metadata persists atomically with the route.
+	GroupID      int64
+	CustomFields string
 }
 
 // Validation errors exposed to handlers.
@@ -617,13 +622,13 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		   ssl_enabled, websocket, force_https, http2_enabled, http3_enabled, status,
 		   kind, redirect_url, redirect_code, tag,
 		   backend_ip_override, upstream_external, upstream_host_header, proxy_secret_enc,
-		   wildcard_enabled, wildcard_zone)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		   wildcard_enabled, wildcard_zone, group_id, custom_fields)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''))`,
 		in.ServiceID, nodeID, domain, pathPrefix, in.UpstreamPort, scheme,
 		in.SSL, in.WebSocket, in.ForceHTTPS,
 		kind, redirURL, redirCode, tagVal,
 		backendOverride, extFlag, hostHeader, secretEnc,
-		wildFlag, wildZone)
+		wildFlag, wildZone, in.GroupID, in.CustomFields)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			return 0, ErrDomainTaken

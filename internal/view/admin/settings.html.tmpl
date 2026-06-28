@@ -219,33 +219,82 @@
         .catch(function(){ listEl.innerHTML = '<p class="t-caption" style="color:rgb(var(--danger))">Failed to load fields.</p>'; });
     }
 
+    // Build the list with DOM nodes + textContent only. Field labels are
+    // admin-supplied; never interpolate them into HTML or inline handlers
+    // (entity decoding in attributes would re-open an XSS hole).
     function renderDefs(defs) {
+      listEl.textContent = '';
       if (!defs.length) {
-        listEl.innerHTML = '<p class="t-caption" style="color:rgb(var(--muted))">No custom fields defined yet.</p>';
+        var empty = document.createElement('p');
+        empty.className = 't-caption';
+        empty.style.color = 'rgb(var(--muted))';
+        empty.textContent = 'No custom fields defined yet.';
+        listEl.appendChild(empty);
         return;
       }
-      var html = '';
       defs.forEach(function(d) {
-        var opts = (d.options && d.options.length) ? d.options.join(', ') : '';
-        html += '<div class="r-card flex items-center justify-between gap-3" style="background:rgb(var(--surface-2)/.4)">' +
-          '<div class="flex-1 min-w-0">' +
-          '<span class="t-body font-medium" style="color:rgb(var(--text))">' + esc(d.label) + '</span>' +
-          ' <code class="text-xs font-mono" style="color:rgb(var(--muted))">' + esc(d.key) + '</code>' +
-          ' <span class="r-pill r-pill-neutral" style="font-size:.6rem">' + esc(d.type) + '</span>' +
-          (d.required ? ' <span class="r-pill r-pill-warning" style="font-size:.6rem">required</span>' : '') +
-          (opts ? '<p class="t-caption mt-0.5" style="color:rgb(var(--muted))">Options: ' + esc(opts) + '</p>' : '') +
-          '</div>' +
-          '<form method="POST" action="/admin/settings/custom-fields/' + d.id + '/delete" onsubmit="return confirm(\'Delete field \\\'' + esc(d.label) + '\\\'?\')">' +
-          '<input type="hidden" name="csrf_token" value="' + esc(csrfVal) + '">' +
-          '<button type="submit" class="r-btn-danger" style="font-size:.75rem;padding:.25rem .6rem">Delete</button>' +
-          '</form>' +
-          '</div>';
-      });
-      listEl.innerHTML = html;
-    }
+        var card = document.createElement('div');
+        card.className = 'r-card flex items-center justify-between gap-3';
+        card.style.background = 'rgb(var(--surface-2)/.4)';
 
-    function esc(s) {
-      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+        var info = document.createElement('div');
+        info.className = 'flex-1 min-w-0';
+
+        var label = document.createElement('span');
+        label.className = 't-body font-medium';
+        label.style.color = 'rgb(var(--text))';
+        label.textContent = d.label;
+        info.appendChild(label);
+
+        info.appendChild(document.createTextNode(' '));
+        var key = document.createElement('code');
+        key.className = 'text-xs font-mono';
+        key.style.color = 'rgb(var(--muted))';
+        key.textContent = d.key;
+        info.appendChild(key);
+
+        info.appendChild(document.createTextNode(' '));
+        var type = document.createElement('span');
+        type.className = 'r-pill r-pill-neutral';
+        type.style.fontSize = '.6rem';
+        type.textContent = d.type;
+        info.appendChild(type);
+
+        if (d.required) {
+          info.appendChild(document.createTextNode(' '));
+          var req = document.createElement('span');
+          req.className = 'r-pill r-pill-warning';
+          req.style.fontSize = '.6rem';
+          req.textContent = 'required';
+          info.appendChild(req);
+        }
+        if (d.options && d.options.length) {
+          var optsP = document.createElement('p');
+          optsP.className = 't-caption mt-0.5';
+          optsP.style.color = 'rgb(var(--muted))';
+          optsP.textContent = 'Options: ' + d.options.join(', ');
+          info.appendChild(optsP);
+        }
+
+        var form = document.createElement('form');
+        form.method = 'POST';
+        form.action = '/admin/settings/custom-fields/' + encodeURIComponent(d.id) + '/delete';
+        form.addEventListener('submit', function(e) {
+          if (!confirm('Delete field "' + d.label + '"?')) e.preventDefault();
+        });
+        var csrf = document.createElement('input');
+        csrf.type = 'hidden'; csrf.name = 'csrf_token'; csrf.value = csrfVal;
+        form.appendChild(csrf);
+        var btn = document.createElement('button');
+        btn.type = 'submit'; btn.className = 'r-btn-danger';
+        btn.style.fontSize = '.75rem'; btn.style.padding = '.25rem .6rem';
+        btn.textContent = 'Delete';
+        form.appendChild(btn);
+
+        card.appendChild(info);
+        card.appendChild(form);
+        listEl.appendChild(card);
+      });
     }
 
     if (btnClient) btnClient.addEventListener('click', function(){ setEntity('client'); });
