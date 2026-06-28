@@ -3433,6 +3433,34 @@ func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "audit", d)
 }
 
+// AuditClear handles POST /admin/audit/clear. Purges the entire audit log.
+// Restricted to super_admin; CSRF enforced by middleware.
+func (h *AdminHandlers) AuditClear(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/audit", "", "database unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	n, err := audit.ClearAll(ctx, db, r, audit.Entry{
+		UserID: actorUserID(sess),
+		Action: "audit.cleared", Entity: "audit_log",
+	})
+	if err != nil {
+		h.Logger.Error("audit clear", "err", err)
+		redirectWithFlash(w, r, "/admin/audit", "", "clear failed")
+		return
+	}
+	redirectWithFlash(w, r, "/admin/audit", fmt.Sprintf("Cleared %d audit entries", n), "")
+}
+
 // auditSortCol maps a friendly sort key to a safe SQL expression.
 func auditSortCol(s string) string {
 	switch s {

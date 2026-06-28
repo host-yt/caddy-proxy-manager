@@ -153,6 +153,7 @@
 }
 .hpg-topology-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
@@ -179,7 +180,12 @@
 .hpg-topology-tools {
   display: grid;
   gap: 0.55rem;
-  min-width: min(26rem, 100%);
+  /* Grow to fill the row, shrink/wrap cleanly under the heading on narrow
+     widths. min-width:0 lets the search + filter pills compress instead of
+     overflowing the card. */
+  flex: 1 1 22rem;
+  min-width: 0;
+  max-width: 100%;
 }
 .hpg-topology-search {
   display: flex;

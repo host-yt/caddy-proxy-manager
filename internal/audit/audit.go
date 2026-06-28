@@ -126,6 +126,61 @@ func Write(ctx context.Context, db *sql.DB, logger *slog.Logger, r *http.Request
 	}
 }
 
+// ClearAll deletes every audit_log row and records the purge action atomically.
+// Both the DELETE and the replacement audit row share a transaction; if the insert
+// fails the delete is rolled back so the action is never invisible.
+func ClearAll(ctx context.Context, db *sql.DB, r *http.Request, e Entry) (int64, error) {
+	if db == nil {
+		return 0, nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	res, err := tx.ExecContext(ctx, `DELETE FROM audit_log`)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+
+	// Stamp the row count into meta before inserting the replacement record.
+	if e.Meta == nil {
+		e.Meta = make(map[string]any, 1)
+	}
+	e.Meta["rows"] = n
+	ip, ua := "", ""
+	if r != nil {
+		ip = security.ClientIP(r)
+		ua = r.UserAgent()
+		if len(ua) > 255 {
+			ua = ua[:255]
+		}
+	}
+	if e.ActorType == "" {
+		e.ActorType = ActorUser
+	}
+	var userID sql.NullInt64
+	if e.UserID != nil {
+		userID = sql.NullInt64{Int64: *e.UserID, Valid: true}
+	}
+	var metaJSON sql.NullString
+	if b, merr := json.Marshal(e.Meta); merr == nil {
+		metaJSON = sql.NullString{String: string(b), Valid: true}
+	}
+	_, err = tx.ExecContext(ctx,
+		`INSERT INTO audit_log (user_id, actor_type, action, entity, entity_id, ip, user_agent, meta)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		userID, e.ActorType, e.Action, e.Entity, nullableStr(e.EntityID),
+		nullableStr(ip), nullableStr(ua), metaJSON,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return n, tx.Commit()
+}
+
 func nullableStr(s string) sql.NullString {
 	if s == "" {
 		return sql.NullString{}

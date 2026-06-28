@@ -129,24 +129,15 @@ type Filter struct {
 	From     time.Time
 	To       time.Time
 	Limit    int
+	Offset   int // pagination offset; 0 = first page
 }
 
 // MaxExportRows is the hard cap for Filtered when Limit exceeds maxPerRoute.
 const MaxExportRows = 50_000
 
-// Filtered returns events matching f, newest first.
-func (s *Store) Filtered(ctx context.Context, f Filter) ([]Event, error) {
-	db := s.db()
-	if db == nil {
-		return nil, nil
-	}
-	limit := f.Limit
-	if limit <= 0 {
-		limit = 200
-	} else if limit > MaxExportRows {
-		limit = MaxExportRows
-	}
-
+// wafFilterWhere builds the shared WHERE clause (" WHERE ..." or "") and its
+// args from f, so Filtered and CountFiltered stay in sync.
+func wafFilterWhere(f Filter) (string, []any) {
 	var conds []string
 	var args []any
 
@@ -208,15 +199,34 @@ func (s *Store) Filtered(ctx context.Context, f Filter) ([]Event, error) {
 		conds = append(conds, "ts <= ?")
 		args = append(args, f.To)
 	}
-
-	var where string
-	if len(conds) > 0 {
-		where = " WHERE " + strings.Join(conds, " AND ")
+	if len(conds) == 0 {
+		return "", nil
 	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+// Filtered returns events matching f, newest first, honoring Limit and Offset.
+func (s *Store) Filtered(ctx context.Context, f Filter) ([]Event, error) {
+	db := s.db()
+	if db == nil {
+		return nil, nil
+	}
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 200
+	} else if limit > MaxExportRows {
+		limit = MaxExportRows
+	}
+	offset := f.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	where, args := wafFilterWhere(f)
 	q := `SELECT id,route_id,ts,severity,rule_id,action,remote_ip,host,uri,message,created_at,
 	             acknowledged_at,acknowledged_by
-	      FROM waf_events` + where + ` ORDER BY ts DESC, id DESC LIMIT ?`
-	args = append(args, limit)
+	      FROM waf_events` + where + ` ORDER BY ts DESC, id DESC LIMIT ? OFFSET ?`
+	args = append(args, limit, offset)
 
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -224,6 +234,41 @@ func (s *Store) Filtered(ctx context.Context, f Filter) ([]Event, error) {
 	}
 	defer rows.Close()
 	return scanEvents(rows)
+}
+
+// CountFiltered returns the total number of events matching f (ignoring
+// Limit/Offset), used to drive pagination.
+func (s *Store) CountFiltered(ctx context.Context, f Filter) (int, error) {
+	db := s.db()
+	if db == nil {
+		return 0, nil
+	}
+	where, args := wafFilterWhere(f)
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM waf_events`+where, args...).Scan(&n)
+	return n, err
+}
+
+// DeleteAll purges WAF events. routeID > 0 constrains the delete to one route
+// (scoped-admin safety); routeID <= 0 clears every event. Returns rows removed.
+func (s *Store) DeleteAll(ctx context.Context, routeID int64) (int64, error) {
+	db := s.db()
+	if db == nil {
+		return 0, nil
+	}
+	var (
+		res sql.Result
+		err error
+	)
+	if routeID > 0 {
+		res, err = db.ExecContext(ctx, `DELETE FROM waf_events WHERE route_id = ?`, routeID)
+	} else {
+		res, err = db.ExecContext(ctx, `DELETE FROM waf_events`)
+	}
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 func scanEvents(rows *sql.Rows) ([]Event, error) {

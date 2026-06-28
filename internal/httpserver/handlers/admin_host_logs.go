@@ -131,9 +131,19 @@ func (h *AdminHandlers) loadHostLogAnalytics(ctx context.Context, routeID int64,
 		h.Logger.Warn("host logs status analytics", "id", routeID, "err", err)
 	} else {
 		d.StatusBuckets = buckets
+	}
+
+	// host_access_log is pruned to the last ~500 rows per route, so summing the
+	// status buckets caps the 24h total at 500. The hourly log_rollups table
+	// survives the prune and holds the true count - use it for the headline
+	// total, falling back to the (capped) bucket sum only if rollups error.
+	if sum, rerr := h.AccessLogs.RollupSummary(ctx, routeID, now.Add(-24*time.Hour)); rerr != nil {
+		h.Logger.Warn("host logs rollup summary", "id", routeID, "err", rerr)
 		for _, b := range buckets {
 			d.AnalyticsTotal += b.Count
 		}
+	} else {
+		d.AnalyticsTotal = sum.Requests
 	}
 
 	topPaths, err := h.AccessLogs.TopPaths(ctx, f, 5)

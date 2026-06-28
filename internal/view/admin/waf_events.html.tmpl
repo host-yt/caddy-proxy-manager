@@ -12,6 +12,18 @@
       <p class="t-caption mt-0.5">Firewall rule matches and blocked requests across all hosts</p>
     </div>
     <div class="flex items-center gap-2">
+      {{if and .CanClear (gt .Total 0)}}
+      <form method="POST" action="/admin/waf/events/clear" class="inline" data-confirm="Permanently delete {{if gt .Filter.RouteID 0}}this route's{{else}}ALL{{end}} WAF events? This cannot be undone.">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        {{if gt .Filter.RouteID 0}}<input type="hidden" name="route_id" value="{{.Filter.RouteID}}">{{end}}
+        <button type="submit" class="r-btn-danger text-xs inline-flex items-center gap-1 cursor-pointer">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+          </svg>
+          Clear events
+        </button>
+      </form>
+      {{end}}
       <a href="/admin/waf.json" target="_blank" class="r-btn-secondary text-xs">JSON</a>
       <div class="relative" id="waf-export-wrap">
         <button type="button" id="waf-btn-export" class="r-btn-secondary text-xs inline-flex items-center gap-1 cursor-pointer">
@@ -40,7 +52,7 @@
 
   {{if .Entries}}
   <div class="flex flex-wrap gap-2">
-    <span id="waf-chip-total" class="r-pill r-pill-neutral">{{len .Entries}} shown</span>
+    <span id="waf-chip-total" class="r-pill r-pill-neutral">{{.Total}} total{{if gt .TotalPgs 1}} · {{len .Entries}} shown{{end}}</span>
     {{if .Suppressions}}
     <span class="r-pill r-pill-neutral">{{len .Suppressions}} active suppression{{if gt (len .Suppressions) 1}}s{{end}}</span>
     {{end}}
@@ -102,6 +114,14 @@
     <div class="flex flex-col gap-1">
       <label class="t-caption">Route ID</label>
       <input type="number" name="route_id" placeholder="0" min="0" value="{{if gt .Filter.RouteID 0}}{{.Filter.RouteID}}{{end}}" class="r-input w-24 text-xs font-mono">
+    </div>
+    <div class="flex flex-col gap-1">
+      <label class="t-caption">Per page</label>
+      <select name="limit" class="r-select text-xs cursor-pointer">
+        {{range $n := (slice 25 50 100 200 500)}}
+        <option value="{{$n}}" {{if eq $.Filter.Limit $n}}selected{{end}}>{{$n}}</option>
+        {{end}}
+      </select>
     </div>
     <div class="flex items-center gap-2 ml-auto">
       <button type="submit" class="r-btn-primary text-xs cursor-pointer">Filter</button>
@@ -194,9 +214,8 @@
       </table>
     </div>
     {{if .Entries}}
-    <div class="px-4 py-2 border-t t-caption" style="border-color:rgb(var(--border))">
-      Showing {{len .Entries}} events.
-      <a href="?" class="hover:underline" style="color:rgb(var(--accent))">Refresh</a>
+    <div class="px-4 py-2 border-t" style="border-color:rgb(var(--border))">
+      {{template "pagination" (dict "Total" .Total "TotalPgs" .TotalPgs "Page" .Page "PrevURL" .PrevURL "NextURL" .NextURL "Size" .Size)}}
     </div>
     {{end}}
   </section>

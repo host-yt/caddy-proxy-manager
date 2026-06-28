@@ -41,6 +41,16 @@ type wafEventsData struct {
 	RouteDomain string
 	// ASNS maps remote_ip -> "AS12345 OrgName"; empty when ASN DB absent.
 	ASNS map[string]string
+	// Pagination metadata.
+	Total    int
+	TotalPgs int
+	Page     int
+	Size     int
+	PrevURL  string
+	NextURL  string
+	// CanClear is true when the session may purge events (super_admin, or a
+	// scoped admin viewing a single route they own).
+	CanClear bool
 }
 
 // parseWAFFilter reads WAF filter query params from r.
@@ -62,22 +72,15 @@ func parseWAFFilter(r *http.Request) wafevents.Filter {
 			f.To = t.Add(24*time.Hour - time.Second) // inclusive end of day
 		}
 	}
-	// How many rows to show. Default 200; ?limit=N raises it (capped) so the page
-	// is not silently stuck at a low number when there are more events.
+	// Page size (rows per page). Default 50; ?limit=N changes it (capped). The
+	// page view paginates; export overrides Limit to MaxExportRows separately.
 	f.Limit, _ = strconv.Atoi(q.Get("limit"))
 	if f.Limit <= 0 {
-		f.Limit = 200
+		f.Limit = 50
 	} else if f.Limit > 1000 {
 		f.Limit = 1000
 	}
 	return f
-}
-
-// hasWAFFilter reports whether any filter field is set.
-func hasWAFFilter(f wafevents.Filter) bool {
-	return f.RouteID > 0 || f.Severity != "" || f.Action != "" ||
-		f.RuleID != "" || f.Host != "" || f.RemoteIP != "" ||
-		!f.From.IsZero() || !f.To.IsZero()
 }
 
 // WafEvents renders GET /admin/waf.
@@ -97,7 +100,26 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+
+	// Pagination: page is 1-based; offset derives from the current page size.
+	q := r.URL.Query()
+	page, _ := strconv.Atoi(q.Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	f.Offset = (page - 1) * f.Limit
 	d.Filter = f
+	d.Page = page
+	d.Size = f.Limit
+
+	// Global clear requires super_admin; route-scoped clear requires a positive routeID.
+	if sess != nil {
+		if sess.Role == "super_admin" {
+			d.CanClear = true
+		} else if f.RouteID > 0 {
+			d.CanClear = true
+		}
+	}
 
 	// Look up domain for display when filtering by a specific route.
 	if f.RouteID > 0 && h.DB != nil {
@@ -106,22 +128,24 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	var (
-		entries []wafevents.Event
-		err     error
-	)
-	if hasWAFFilter(f) {
-		entries, _, err = h.WAFEvents.FilteredWithSuppressions(ctx, f)
-	} else {
-		entries, err = h.WAFEvents.Recent(ctx, 0, f.Limit)
-		if err == nil {
-			// Annotate recent results with suppression state too.
-			keys, kerr := h.WAFEvents.ActiveSuppressedKeys(ctx)
-			if kerr == nil {
-				wafevents.MarkSuppressed(entries, keys)
-			}
+	// Total count for pagination (ignores limit/offset).
+	if total, cerr := h.WAFEvents.CountFiltered(ctx, f); cerr == nil {
+		d.Total = total
+		d.TotalPgs = (total + f.Limit - 1) / f.Limit
+		if d.TotalPgs < 1 {
+			d.TotalPgs = 1
 		}
+		if page > 1 {
+			d.PrevURL = buildPageURL(q, page-1)
+		}
+		if page < d.TotalPgs {
+			d.NextURL = buildPageURL(q, page+1)
+		}
+	} else {
+		h.Logger.Warn("waf events count", "err", cerr)
 	}
+
+	entries, _, err := h.WAFEvents.FilteredWithSuppressions(ctx, f)
 	if err != nil {
 		h.Logger.Warn("waf events query", "err", err)
 	}
@@ -329,6 +353,56 @@ func (h *AdminHandlers) WAFAckEvent(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	redirectWithFlash(w, r, "/admin/waf", "Event acknowledged", "")
+}
+
+// WAFClearEvents handles POST /admin/waf/events/clear. Super_admins purge all
+// events (or one route when route_id is set); scoped admins may only purge a
+// route they own. CSRF is enforced by middleware.
+func (h *AdminHandlers) WAFClearEvents(w http.ResponseWriter, r *http.Request) {
+	if h.WAFEvents == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+	sess := middleware.SessionFromContext(ctx)
+	if sess == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	_ = r.ParseForm()
+	routeID, _ := strconv.ParseInt(r.FormValue("route_id"), 10, 64)
+
+	// Global purge (routeID==0) requires super_admin regardless of AdminScope.
+	// Route-scoped purge requires a valid route the caller can access.
+	if routeID == 0 {
+		if sess.Role != "super_admin" {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+	} else if !h.scopeCheckRoute(ctx, sess, routeID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	n, err := h.WAFEvents.DeleteAll(ctx, routeID)
+	if err != nil {
+		h.Logger.Error("waf clear events", "err", err)
+		redirectWithFlash(w, r, "/admin/waf", "", "clear failed")
+		return
+	}
+	if h.DB != nil {
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess),
+			Action: "waf.events_cleared", Entity: "waf_events",
+			Meta: map[string]any{"route_id": routeID, "rows": n},
+		})
+	}
+	dest := "/admin/waf"
+	if routeID > 0 {
+		dest = "/admin/waf?route_id=" + strconv.FormatInt(routeID, 10)
+	}
+	redirectWithFlash(w, r, dest, fmt.Sprintf("Cleared %d events", n), "")
 }
 
 // wafEventScopeOK checks whether sess may act on the given event ID.
