@@ -6,7 +6,7 @@ fixed range of public ports; they map their own domains to those ports
 through the panel. The control plane configures every Caddy node over
 WireGuard, drives Let's Encrypt issuance, and surfaces traffic stats.
 
-**Status:** working MVP. Stack: Go 1.26, chi, MariaDB, Redis, Caddy 2.8.
+**Status:** v1.0.0. Stack: Go 1.26.3, chi, MariaDB, Redis, Caddy 2.8.
 Single binary ~21 MB image, ~28 MB idle RAM.
 
 ---
@@ -47,23 +47,42 @@ Single binary ~21 MB image, ~28 MB idle RAM.
 - **On-Demand TLS** with an `/internal/ask` allowlist gate; ACME
   certificates issued automatically when a domain points at the right
   node.
-- **2FA TOTP** with recovery codes, **OIDC** (Authentik / Microsoft /
-  generic), **CSRF**, **Argon2id** passwords, **Redis-backed brute-
-  force lockout**, **Cloudflare Turnstile** CAPTCHA, **AES-256-GCM**
-  encryption for secrets at rest.
+- **2FA**: TOTP (QR enrollment + recovery codes), Email OTP, SMS OTP,
+  WebAuthn/passkeys (discoverable login). **OIDC** (Authentik / Microsoft /
+  generic), OAuth2 social login (GitHub, Google). **Argon2id** passwords,
+  **Redis-backed brute-force lockout** (10 / 15 min), **multi-provider
+  CAPTCHA** (Turnstile / hCaptcha / reCAPTCHA v3), **AES-256-GCM**
+  encryption for all secrets at rest.
 - **REST API v1** with bearer-token auth for FOSSBilling / Hostyt-style
   provisioning integrations.
 - **Live admin stats**: KPI cards, doughnut/line/bar charts, per-node
   traffic (Prometheus-scraped from Caddy).
 - **Dark / light mode** UI with Inter font and a consistent design
   system.
+- **Dark-ops console UI**: command palette (Cmd+K), collapsible nav groups, right-sheet drawer, teal design system.
+- **AI assistant**: floating bubble, multi-provider (Anthropic / OpenAI / Gemini / OpenRouter), streaming SSE, scoped read-only tool-calling, per-user rate limit.
+- **WAF (Coraza)**: per-route toggle, rule suppression, event acknowledgement, real-time events from node-agent.
+- **GeoIP blocking**: country allow/deny, continent blocking, CIDR always-block/allow, configurable response code, fail-closed mode, world traffic map.
+- **mTLS per route**: per-tenant CA, client cert issue/revoke, path-based RBAC, enforcement audit log.
+- **L4 TCP/UDP streams**: SNI routing, configurable log retention.
+- **Installation profiles**: homelab / smallteam / advanced / provider modes with guided wizard.
+- **Instance sync**: master/slave HPG config replication for HA setups.
+- **Multi-provider CAPTCHA**: Turnstile, hCaptcha, reCAPTCHA v3 per-settings toggle.
+- **Custom fields**: operator-defined fields for clients and hosts (JSON-backed).
+- **Advanced load balancing**: uri_hash, header, cookie (with HMAC secret) in addition to round-robin/least-conn.
+- **Server-side search/pagination/sort** with saved filter presets across all list pages.
+- **Host groups** with filter and badge support.
+- **Hourly log rollups** (14-day retention) + analytics charts on host logs page.
+- **Alert rules**: high-error-rate detection and custom threshold alerts.
+- **Client self-registration** behind settings toggle.
+- **Backup/restore**: S3/SFTP/FTP targets, restore drill CLI.
 
 ---
 
 ## Quick start (single host)
 
 ```bash
-git clone <repo> hostyt-proxy-gateway && cd hostyt-proxy-gateway
+git clone https://github.com/host-yt/caddy-proxy-manager.git hostyt-proxy-gateway && cd hostyt-proxy-gateway
 cp .env.example .env
 $EDITOR .env       # at minimum: APP_URL, APP_SECRET (openssl rand -hex 32), DB_PASSWORD
 
@@ -99,29 +118,49 @@ Full guide: [docs/MULTI_NODE.md](docs/MULTI_NODE.md).
 ```
 cmd/server/         entrypoint (thin)
 internal/
-  audit/            audit-log writer
-  auth/             Argon2id, sessions, TOTP, recovery codes, API keys, password reset
+  accesslog/        access log ingest, rollups, country/ASN enrichment
+  adminscope/       non-super-admin client scope enforcement
+  ai/               multi-provider AI client (Anthropic, OpenAI, Gemini, OpenRouter)
+  aichat/           chat session storage and SSE streaming handler
+  aitools/          scoped read-only DB tool-calling for AI assistant
+  alert/            alert rule evaluation and notification dispatch
+  audit/            audit-log writer (actor, IP, impersonator, timestamp)
+  auth/             Argon2id, sessions, TOTP, Email/SMS OTP, WebAuthn, API keys, password reset
+  backup/           S3/SFTP/FTP backup targets and restore drill
   caddyapi/         Caddy Admin API client + JSON config builder
-  captcha/          Cloudflare Turnstile verifier (DB-backed live config)
+  captcha/          multi-provider CAPTCHA verifier (Turnstile / hCaptcha / reCAPTCHA v3)
+  chatstore/        AI conversation persistence
   cloudflare/       Cloudflare API token + CF-Connecting-IP trust toggle
   config/           env loader + validation
-  dns/              pre-flight DNS resolver
-  domain/           business logic per aggregate (routes, plans, services, …)
-  httpserver/       chi router, handlers, middleware (CSRF, security headers, etc.)
+  customfields/     operator-defined metadata fields for clients and hosts
+  deployment/       installation profiles (homelab / smallteam / advanced / provider)
+  dns/              pre-flight DNS resolver + per-route resolver controls
+  domain/           business logic per aggregate (routes, plans, services, nodes, …)
+  geoip/            MaxMind GeoLite2-Country DB download and distribution to nodes
+  httpserver/       chi router, handlers, middleware (CSRF, CSP, security headers, etc.)
   installstate/     wizard state file + AES-256-GCM crypto helpers
+  instasync/        master/slave HPG config replication
+  jobs/             background scheduler (key rotation, rollup, geoip update, …)
   mail/             SMTP send + email templates
-  metrics/          Caddy /metrics scraper + delta aggregator
+  metrics/          Caddy /metrics Prometheus scraper + delta aggregator
+  mtls/             per-tenant CA management, cert issue/revoke, RBAC verifier
   nodejoin/         one-time join-token mint + redeem
+  oauth2x/          OAuth2 social login (GitHub, Google)
   oidc/             coreos/go-oidc wrapper, DB-backed config
+  security/         scoped security checks shared across handlers
   store/            DB pool + goose migration runner
+  systemevents/     operational event history storage
   view/             html/template sets per audience (install, auth, admin, app)
+  wafevents/        WAF audit log ingest and event storage
+  webhook/          outbound webhook delivery and retry
   wireguard/        Curve25519 keypair gen, config writer, IP allocator
+node-agent/         Go agent on each Caddy node (WG sync, log forward, WAF events, GeoIP)
 deploy/
-  docker-compose.yml    manager stack (app + mariadb + redis + caddy + optional wg)
-  caddy/                Caddy node image (Caddyfile bootstrap)
+  docker-compose.yml    manager stack (app + mariadb + redis + caddy + node-agent + optional wg)
+  caddy/                Caddy node image (xcaddy with cache-handler + L4 modules)
   remote-node/          drop-in compose for an external Caddy node
   wireguard/            WG sidecar image (alpine + wg-tools + watch loop)
-migrations/             goose .sql files
+migrations/             117 goose .sql files (auto-applied on boot)
 scripts/                node-join.sh - bash bootstrap for remote nodes
 docs/                   all the docs you'll find linked below
 ```

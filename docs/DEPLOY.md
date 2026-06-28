@@ -67,7 +67,7 @@ After adding ports, restart the Caddy container (`docker compose up -d caddy`) a
 
 ```bash
 # Clone (or pull latest)
-git clone <repo-url> hostyt-proxy-gateway
+git clone https://github.com/host-yt/caddy-proxy-manager.git hostyt-proxy-gateway
 cd hostyt-proxy-gateway
 
 # Configure

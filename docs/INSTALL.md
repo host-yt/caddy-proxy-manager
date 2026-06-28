@@ -31,7 +31,7 @@ Port 2019 (Caddy Admin API) must **not** be exposed - it is internal-only.
 ### 2.1 Clone and configure
 
 ```bash
-git clone <repo-url> hostyt-proxy-gateway
+git clone https://github.com/host-yt/caddy-proxy-manager.git hostyt-proxy-gateway
 cd hostyt-proxy-gateway
 cp .env.example .env
 ```
