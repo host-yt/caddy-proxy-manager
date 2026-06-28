@@ -106,6 +106,10 @@ func (v *Verifier) Refresh(ctx context.Context) {
 	}
 	defer rows.Close()
 	var provider, siteKey, secret string
+	// Track which rows exist so an admin who blanks a value (e.g. disables
+	// CAPTCHA -> provider="") actually clears the in-memory verifier, while a
+	// missing row keeps any env-seeded value.
+	var haveProvider, haveSite, haveSecret bool
 	for rows.Next() {
 		var k, val string
 		var enc bool
@@ -121,21 +125,21 @@ func (v *Verifier) Refresh(ctx context.Context) {
 		}
 		switch k {
 		case "captcha.provider":
-			provider = val
+			provider, haveProvider = val, true
 		case "captcha.site_key":
-			siteKey = val
+			siteKey, haveSite = val, true
 		case "captcha.secret":
-			secret = val
+			secret, haveSecret = val, true
 		}
 	}
 	v.mu.Lock()
-	if provider != "" {
+	if haveProvider {
 		v.provider = provider
 	}
-	if siteKey != "" {
+	if haveSite {
 		v.siteKey = siteKey
 	}
-	if secret != "" {
+	if haveSecret {
 		v.secret = secret
 	}
 	v.lastReload = time.Now()

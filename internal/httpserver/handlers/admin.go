@@ -4814,13 +4814,29 @@ func (h *AdminHandlers) SettingsTurnstile(w http.ResponseWriter, r *http.Request
 	siteKey := strings.TrimSpace(r.FormValue("site_key"))
 	secret := r.FormValue("secret")
 
-	if enabled && (siteKey == "" || (secret == "" && !h.captchaSecretPresent(r.Context()))) {
-		redirectWithFlash(w, r, "/admin/settings", "", "CAPTCHA: site key and secret are required when a provider is selected")
-		return
-	}
-
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+
+	// A secret is provider-specific: a Turnstile secret will not verify hCaptcha
+	// tokens. Reusing the saved secret is only safe when the provider is unchanged
+	// - otherwise switching provider would lock out every password login.
+	curProvider, hasSecret := h.captchaCurrent(ctx)
+	if enabled {
+		if siteKey == "" {
+			redirectWithFlash(w, r, "/admin/settings", "", "CAPTCHA: site key is required when a provider is selected")
+			return
+		}
+		if captchaSecretRequired(provider, curProvider, hasSecret, secret != "") {
+			redirectWithFlash(w, r, "/admin/settings", "", "CAPTCHA: enter the secret key for the selected provider")
+			return
+		}
+	}
+
+	// When disabling, wipe the stored keys so nothing stale survives and the
+	// in-memory verifier clears on the next refresh.
+	if !enabled {
+		siteKey = ""
+	}
 	if err := h.saveSettings(ctx, db, map[string]string{
 		"captcha.provider": provider,
 		"captcha.site_key": siteKey,
@@ -4828,7 +4844,8 @@ func (h *AdminHandlers) SettingsTurnstile(w http.ResponseWriter, r *http.Request
 		redirectWithFlash(w, r, "/admin/settings", "", "save failed")
 		return
 	}
-	if secret != "" {
+	switch {
+	case secret != "":
 		ct, err := h.encryptSetting(secret)
 		if err != nil {
 			redirectWithFlash(w, r, "/admin/settings", "", "encrypt secret failed")
@@ -4836,6 +4853,12 @@ func (h *AdminHandlers) SettingsTurnstile(w http.ResponseWriter, r *http.Request
 		}
 		if err := h.saveSettings(ctx, db, map[string]string{"captcha.secret": ct}, true); err != nil {
 			redirectWithFlash(w, r, "/admin/settings", "", "secret save failed")
+			return
+		}
+	case !enabled:
+		// Clear the secret when CAPTCHA is turned off.
+		if err := h.saveSettings(ctx, db, map[string]string{"captcha.secret": ""}, false); err != nil {
+			redirectWithFlash(w, r, "/admin/settings", "", "secret clear failed")
 			return
 		}
 	}
@@ -4851,15 +4874,27 @@ func (h *AdminHandlers) SettingsTurnstile(w http.ResponseWriter, r *http.Request
 	redirectWithFlash(w, r, "/admin/settings", "CAPTCHA saved", "")
 }
 
-func (h *AdminHandlers) captchaSecretPresent(ctx context.Context) bool {
+// captchaSecretRequired reports whether the admin must supply a fresh secret.
+// A CAPTCHA secret is provider-specific, so the saved one may only be reused
+// when the provider is unchanged and a secret already exists; switching provider
+// with no new secret would lock out every password login.
+func captchaSecretRequired(newProvider, curProvider string, hasSecret, secretProvided bool) bool {
+	if secretProvided {
+		return false
+	}
+	return newProvider != curProvider || !hasSecret
+}
+
+// captchaCurrent returns the saved provider and whether a secret is stored.
+func (h *AdminHandlers) captchaCurrent(ctx context.Context) (provider string, hasSecret bool) {
 	db := h.DB()
 	if db == nil {
-		return false
+		return "", false
 	}
 	cctx, cancel := context.WithTimeout(ctx, 2_000_000_000)
 	defer cancel()
-	kv := h.loadSettings(cctx, db, []string{"captcha.secret"})
-	return kv["captcha.secret"] != ""
+	kv := h.loadSettings(cctx, db, []string{"captcha.provider", "captcha.secret"})
+	return kv["captcha.provider"], kv["captcha.secret"] != ""
 }
 
 // ---- Settings: Cloudflare ----------------------------------------------

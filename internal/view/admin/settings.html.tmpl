@@ -577,6 +577,9 @@
     var keys   = document.getElementById('captcha-keys');
     var help   = document.getElementById('captcha-help');
     var cards  = form.querySelectorAll('.captcha-card');
+    var secret = form.querySelector('input[name="secret"]');
+    var saved  = hidden.value || '';        // provider stored on the server
+    var secretPH = secret ? secret.getAttribute('placeholder') : '';
     var HELP = {
       turnstile: 'Get keys from the Cloudflare dashboard → Turnstile.',
       hcaptcha:  'Get keys from the hCaptcha dashboard → Sites.',
@@ -593,6 +596,8 @@
       var none = (prov === '');
       keys.style.display = none ? 'none' : '';
       if (!none && help) help.textContent = HELP[prov] || '';
+      // Secrets are provider-specific: switching providers needs a fresh secret.
+      if (secret) secret.setAttribute('placeholder', (!none && prov !== saved) ? 'Required - enter this provider’s secret' : secretPH);
     }
     cards.forEach(function(c){
       c.addEventListener('click', function(){ paint(c.getAttribute('data-provider')); });
