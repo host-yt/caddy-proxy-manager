@@ -925,6 +925,52 @@ X-Authentik-Meta-Version</pre>
           <span class="t-caption text-muted mt-1 block">Caddy will require + verify a client cert chaining to this CA on the TLS handshake. Requires SSL enabled on this host; clients without a valid cert are rejected at connect time.</span>
         </label>
       </div>
+
+      {{if and .MTLSCAID (gt .MTLSCAID 0)}}
+      <!-- Path-based RBAC rules (only available when a CA is selected) -->
+      <div class="border-t border-[rgb(var(--border))] pt-4 space-y-3">
+        <p class="t-eyebrow">Path access rules (RBAC)</p>
+        <p class="t-caption text-muted">Each rule maps a path pattern to a required role. A client cert must carry that role to reach the path. Exact match or trailing <code>/*</code> prefix match.</p>
+
+        {{if .MTLSPathRules}}
+        <table class="r-table w-full text-sm">
+          <thead><tr><th>Path pattern</th><th>Required role</th><th></th></tr></thead>
+          <tbody>
+          {{range .MTLSPathRules}}
+            <tr>
+              <td class="font-mono text-xs">{{.PathPattern}}</td>
+              <td><span class="r-pill r-pill-neutral">{{.RequiredRole}}</span></td>
+              <td class="text-right">
+                <button type="submit" form="del-mpr-{{.ID}}" class="text-[rgb(var(--danger))] hover:underline t-caption cursor-pointer" onclick="return confirm('Remove this path rule?')">remove</button>
+              </td>
+            </tr>
+          {{end}}
+          </tbody>
+        </table>
+        {{else}}
+        <p class="t-caption text-muted">No path rules yet - all paths are accessible to any valid client cert.</p>
+        {{end}}
+
+        {{if .MTLSCARoles}}
+        <div class="flex items-end gap-2 flex-wrap">
+          <div class="flex-1 min-w-0">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Path pattern</label>
+            <input name="path_pattern" form="add-mpr" placeholder="/admin/*" class="r-input w-full font-mono text-xs">
+          </div>
+          <div class="w-40">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Required role</label>
+            <select name="role_id" form="add-mpr" class="r-select w-full cursor-pointer">
+              <option value="">- role -</option>
+              {{range .MTLSCARoles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+            </select>
+          </div>
+          <button type="submit" form="add-mpr" class="r-btn r-btn-primary cursor-pointer shrink-0">Add rule</button>
+        </div>
+        {{else}}
+        <p class="t-caption text-[rgb(var(--warning))]">No roles defined for this CA yet. Add roles under <a href="/admin/mtls" class="underline">mTLS authorities</a>.</p>
+        {{end}}
+      </div>
+      {{end}}
     </section>
 
     <!-- Custom JSON -->
@@ -1079,6 +1125,16 @@ X-Authentik-Meta-Version</pre>
   </form>
   {{range .BasicAuthUsers}}
   <form id="del-ba-{{.Username}}" method="POST" action="/admin/hosts/{{$.RouteID}}/basic-auth/{{.Username}}/delete">
+    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+  </form>
+  {{end}}
+
+  <!-- mTLS path rule add/delete forms (outside main edit form - nested forms invalid) -->
+  <form id="add-mpr" method="POST" action="/admin/hosts/{{.RouteID}}/mtls-path-rules">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+  </form>
+  {{range .MTLSPathRules}}
+  <form id="del-mpr-{{.ID}}" method="POST" action="/admin/hosts/{{$.RouteID}}/mtls-path-rules/{{.ID}}/delete">
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
   </form>
   {{end}}

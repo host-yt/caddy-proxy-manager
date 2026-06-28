@@ -2174,6 +2174,10 @@ type hostEditData struct {
 	MTLSCAID          int64
 	MTLSCAActive      bool // true when the saved CA status='active'
 	MTLSCAs           []mtlsCAOption
+	// MTLSPathRules lists RBAC path rules for this route.
+	MTLSPathRules []mtlsPathRuleRow
+	// MTLSCARoles lists available roles for the selected CA (feeds rule add dropdown).
+	MTLSCARoles []mtlsRoleRow
 
 	Groups  []hostGroupOption
 	GroupID sql.NullInt64
@@ -2337,6 +2341,34 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		var caStatus string
 		_ = db.QueryRowContext(ctx, `SELECT status FROM mtls_cas WHERE id=?`, d.MTLSCAID).Scan(&caStatus)
 		d.MTLSCAActive = caStatus == "active"
+
+		// Load available roles for the selected CA (feeds path-rule add dropdown).
+		if rr, rerr := db.QueryContext(ctx,
+			`SELECT id, name FROM mtls_roles WHERE ca_id=? ORDER BY name ASC`, d.MTLSCAID); rerr == nil {
+			for rr.Next() {
+				var ro mtlsRoleRow
+				if rr.Scan(&ro.ID, &ro.Name) == nil {
+					d.MTLSCARoles = append(d.MTLSCARoles, ro)
+				}
+			}
+			rr.Close()
+		}
+
+		// Load path rules for this route.
+		if pr, prerr := db.QueryContext(ctx, `
+			SELECT pr.id, pr.path_pattern, ro.name
+			  FROM mtls_path_rules pr
+			  JOIN mtls_roles ro ON ro.id = pr.required_role_id
+			 WHERE pr.route_id = ?
+			 ORDER BY pr.id ASC`, id); prerr == nil {
+			for pr.Next() {
+				var rule mtlsPathRuleRow
+				if pr.Scan(&rule.ID, &rule.PathPattern, &rule.RequiredRole) == nil {
+					d.MTLSPathRules = append(d.MTLSPathRules, rule)
+				}
+			}
+			pr.Close()
+		}
 	}
 	d.Groups = loadHostGroups(ctx, db)
 	d.WeightedLBAvail = h.Routes.WeightedLBAvailable

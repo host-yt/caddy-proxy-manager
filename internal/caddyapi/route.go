@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -263,6 +265,19 @@ type Route struct {
 	// and we never want a missing trust anchor to brick the whole node /load).
 	RequireClientCert bool
 	MTLSCACertPEM     string // PEM bundle of the trust-anchor CA cert
+
+	// MTLSPathRules drives per-path RBAC when RequireClientCert is true.
+	// Non-empty triggers a forward_auth check subroute before the backend.
+	MTLSPathRules []MTLSPathRule
+	// PanelBaseURL is the panel base URL reachable from Caddy (e.g. http://app:8080).
+	// Used to build the internal mTLS RBAC check URL.
+	PanelBaseURL string
+}
+
+// MTLSPathRule defines one path pattern + required role name for mTLS RBAC.
+type MTLSPathRule struct {
+	PathPattern  string
+	RequiredRole string
 }
 
 // Upstream is one backend dial target plus its weighted-LB weight.
@@ -721,6 +736,13 @@ func BuildRoute(r Route) map[string]any {
 				},
 			},
 		})
+	}
+
+	// mTLS RBAC: path-based role check via panel internal endpoint.
+	// Fires after geo/WAF/CIDR, before SSO/basic-auth so role access
+	// is enforced even when those auth layers are not configured.
+	if rbacH := buildMTLSRBAC(r); rbacH != nil {
+		handlers = append(handlers, rbacH)
 	}
 
 	// SSO forward-auth gate: Authentik / Authelia / any provider that
@@ -1737,4 +1759,98 @@ func itoa(n int) string {
 		n /= 10
 	}
 	return string(buf[i:])
+}
+
+// buildMTLSRBAC returns a subroute handler that calls the panel's internal
+// RBAC endpoint for path-based role checks on mTLS routes. Nil when disabled.
+func buildMTLSRBAC(r Route) map[string]any {
+	if len(r.MTLSPathRules) == 0 || r.PanelBaseURL == "" {
+		return nil
+	}
+	routeID := strconv.FormatInt(0, 10)
+	if id, err := strconv.ParseInt(r.ID, 10, 64); err == nil {
+		routeID = strconv.FormatInt(id, 10)
+	}
+	checkPath := "/internal/mtls-rbac/" + routeID
+
+	// Caddy placeholder for client cert subject DN (available when TLS policy requires client cert).
+	const certSubjectPlaceholder = "{http.request.tls.client.subject}"
+
+	return map[string]any{
+		"handler": "subroute",
+		"routes": []any{
+			map[string]any{
+				"handle": []any{
+					// Inject cert subject header before the auth subrequest.
+					map[string]any{
+						"handler": "headers",
+						"request": map[string]any{
+							"set": map[string]any{
+								"X-Mtls-Subject": []string{certSubjectPlaceholder},
+							},
+						},
+					},
+					// forward_auth pattern: reverse_proxy rewritten to the check endpoint.
+					// Non-2xx from panel blocks the request with 403.
+					map[string]any{
+						"handler":   "reverse_proxy",
+						"upstreams": []any{map[string]any{"dial": panelDial(r.PanelBaseURL)}},
+						"headers": map[string]any{
+							"request": map[string]any{
+								"set": map[string]any{
+									"X-Mtls-Subject":     []string{certSubjectPlaceholder},
+									"X-Forwarded-Uri":    []string{"{http.request.orig_uri}"},
+									"X-Forwarded-Method": []string{"{http.request.method}"},
+								},
+								"delete": []string{"Content-Length"},
+							},
+						},
+						"rewrite": map[string]any{
+							"method": "GET",
+							"uri":    checkPath,
+						},
+						"handle_response": []any{
+							// 2xx: auth passed - continue to next handler.
+							map[string]any{
+								"match": map[string]any{"status_code": []int{2}},
+							},
+							// non-2xx: block with 403.
+							map[string]any{
+								"routes": []any{
+									map[string]any{
+										"handle": []any{
+											map[string]any{
+												"handler":     "static_response",
+												"status_code": 403,
+												"body":        "Forbidden\n",
+											},
+										},
+										"terminal": true,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// panelDial extracts the host:port dial target from a panel base URL.
+func panelDial(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return "127.0.0.1:8080"
+	}
+	host := u.Hostname()
+	port := u.Port()
+	if port == "" {
+		if u.Scheme == "https" {
+			port = "443"
+		} else {
+			port = "80"
+		}
+	}
+	return net.JoinHostPort(host, port)
 }

@@ -180,6 +180,7 @@ func (s *Server) routes() {
 	r.Get("/install/node.sh", s.deps.NodeJoin.Script)
 
 	r.Get("/internal/ask", s.deps.Ask.ServeHTTP)
+	r.Get("/internal/mtls-rbac/{route_id}", s.deps.Admin.MTLSRBACCheck)
 	if s.deps.AccessLogIngest != nil {
 		r.Post("/internal/access-log", s.deps.AccessLogIngest.ServeHTTP)
 	}
@@ -357,6 +358,11 @@ func (s *Server) routes() {
 			r.Get("/ca/{id}/bundle.pem", s.deps.Admin.MTLSCABundle)
 			r.Get("/ca/{id}/crl", s.deps.Admin.MTLSCRL)
 			r.Post("/cert/{id}/revoke", s.deps.Admin.MTLSRevoke)
+			// Role management (RBAC).
+			r.Post("/ca/{ca_id}/roles", s.deps.Admin.MTLSRoleCreate)
+			r.Post("/ca/{ca_id}/roles/{role_id}/delete", s.deps.Admin.MTLSRoleDelete)
+			r.Post("/ca/{ca_id}/certs/{cert_id}/roles", s.deps.Admin.MTLSCertRoleAssign)
+			r.Post("/ca/{ca_id}/certs/{cert_id}/roles/{role_id}/delete", s.deps.Admin.MTLSCertRoleRevoke)
 		})
 		r.Get("/branding", s.deps.Admin.BrandingPage)
 		r.Post("/branding", s.deps.Admin.BrandingSave)
@@ -390,6 +396,9 @@ func (s *Server) routes() {
 			r.Post("/groups/{id}/delete", s.deps.Admin.HostGroupDelete)
 			r.Post("/{id}/basic-auth", s.deps.Admin.BasicAuthAddUser)
 			r.Post("/{id}/basic-auth/{username}/delete", s.deps.Admin.BasicAuthRemoveUser)
+			// mTLS path rules (RBAC).
+			r.Post("/{id}/mtls-path-rules", s.deps.Admin.MTLSPathRuleCreate)
+			r.Post("/{id}/mtls-path-rules/{rule_id}/delete", s.deps.Admin.MTLSPathRuleDelete)
 		})
 		// Built-in forward-auth portal: local access groups + members.
 		r.Route("/access-groups", func(r chi.Router) {

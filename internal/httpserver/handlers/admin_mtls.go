@@ -26,6 +26,8 @@ type mtlsCARow struct {
 	Status     string
 	Expired    bool
 	Certs      []mtlsCertRow
+	// Roles lists RBAC roles defined for this CA.
+	Roles []mtlsRoleRow
 }
 
 // mtlsCertRow is the display shape for one issued client cert (no key material).
@@ -39,6 +41,8 @@ type mtlsCertRow struct {
 	Expired   bool
 	IssuedAt  string
 	RevokedAt string
+	// AssignedRoles lists roles currently assigned to this cert.
+	AssignedRoles []mtlsRoleRow
 }
 
 // mtlsBundle holds freshly issued material shown exactly once after Issue.
@@ -87,12 +91,14 @@ func (h *AdminHandlers) mtlsSvc() *mtls.Service {
 	}
 }
 
-// loadMTLSView builds the full CA + issued-cert tree for the list page.
+// loadMTLSView builds the full CA + issued-cert tree for the list page,
+// including roles per CA and assigned roles per cert.
 func (h *AdminHandlers) loadMTLSView(ctx context.Context, svc *mtls.Service) ([]mtlsCARow, error) {
 	cas, err := svc.ListCAs(ctx)
 	if err != nil {
 		return nil, err
 	}
+	db := h.DB()
 	out := make([]mtlsCARow, 0, len(cas))
 	for _, ca := range cas {
 		row := mtlsCARow{
@@ -104,6 +110,20 @@ func (h *AdminHandlers) loadMTLSView(ctx context.Context, svc *mtls.Service) ([]
 			Status:     ca.Status,
 			Expired:    time.Now().After(ca.NotAfter),
 		}
+		// Load roles for this CA.
+		if db != nil {
+			if rr, rerr := db.QueryContext(ctx,
+				`SELECT id, name FROM mtls_roles WHERE ca_id=? ORDER BY name ASC`, ca.ID); rerr == nil {
+				for rr.Next() {
+					var ro mtlsRoleRow
+					if rr.Scan(&ro.ID, &ro.Name) == nil {
+						row.Roles = append(row.Roles, ro)
+					}
+				}
+				rr.Close()
+			}
+		}
+
 		issued, ierr := svc.ListIssued(ctx, ca.ID)
 		if ierr != nil {
 			return nil, ierr
@@ -121,6 +141,23 @@ func (h *AdminHandlers) loadMTLSView(ctx context.Context, svc *mtls.Service) ([]
 			}
 			if c.RevokedAt.Valid {
 				cr.RevokedAt = c.RevokedAt.Time.UTC().Format("2006-01-02")
+			}
+			// Load roles assigned to this cert.
+			if db != nil {
+				if ar, arerr := db.QueryContext(ctx, `
+					SELECT ro.id, ro.name
+					  FROM mtls_cert_roles cr
+					  JOIN mtls_roles ro ON ro.id = cr.role_id
+					 WHERE cr.cert_id = ?
+					 ORDER BY ro.name ASC`, c.ID); arerr == nil {
+					for ar.Next() {
+						var ro mtlsRoleRow
+						if ar.Scan(&ro.ID, &ro.Name) == nil {
+							cr.AssignedRoles = append(cr.AssignedRoles, ro)
+						}
+					}
+					ar.Close()
+				}
 			}
 			row.Certs = append(row.Certs, cr)
 		}

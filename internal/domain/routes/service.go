@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net"
+	"net/url"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -2077,6 +2078,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			// emitted, fail open so a deleted CA can't brick the node /load).
 			RequireClientCert: requireClientCert && sslEnabled && mtlsCACertPEM != "",
 			MTLSCACertPEM:     mtlsCACertPEM,
+			PanelBaseURL:      panelBaseURL(s.AskURL),
 		})
 		// Audit when require_client_cert=1 but enforcement is silently skipped
 		// (no active CA, SSL off, or mtls_ca_id NULL) - fail-open is a security gap.
@@ -2097,6 +2099,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	s.attachRouteUpstreams(ctx, built, ids)
 	s.attachLocationRules(ctx, built, ids)
 	s.attachBasicAuthUsers(ctx, built, ids)
+	s.attachMTLSPathRules(ctx, built, ids)
 	return built, ids, nil
 }
 
@@ -2137,6 +2140,60 @@ func (s *Service) attachBasicAuthUsers(ctx context.Context, built []caddyapi.Rou
 			built[i].BasicAuthUsers = append(built[i].BasicAuthUsers, u)
 		}
 	}
+}
+
+// attachMTLSPathRules loads mtls_path_rules for the given route IDs in one
+// batch query and sets MTLSPathRules on each matching route.
+func (s *Service) attachMTLSPathRules(ctx context.Context, built []caddyapi.Route, ids []int64) {
+	if len(ids) == 0 {
+		return
+	}
+	idx := make(map[int64]int, len(ids))
+	ph := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		idx[id] = i
+		ph[i] = "?"
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT pr.route_id, ro.name, pr.path_pattern
+		   FROM mtls_path_rules pr
+		   JOIN mtls_roles ro ON ro.id = pr.required_role_id
+		  WHERE pr.route_id IN (`+strings.Join(ph, ",")+`)
+		  ORDER BY pr.route_id, pr.id ASC`, args...)
+	if err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("mtls_path_rules load failed", "err", err)
+		}
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var rid int64
+		var role, pattern string
+		if err := rows.Scan(&rid, &role, &pattern); err != nil {
+			continue
+		}
+		if i, ok := idx[rid]; ok {
+			built[i].MTLSPathRules = append(built[i].MTLSPathRules, caddyapi.MTLSPathRule{
+				PathPattern:  pattern,
+				RequiredRole: role,
+			})
+		}
+	}
+}
+
+// panelBaseURL extracts scheme://host from a full URL (e.g. AskURL).
+func panelBaseURL(askURL string) string {
+	if askURL == "" {
+		return ""
+	}
+	u, err := url.Parse(askURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // attachRouteUpstreams fills caddyapi.Route.Upstreams for the built routes via
