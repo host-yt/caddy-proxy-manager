@@ -113,11 +113,11 @@ type statsData struct {
 	Requests24h  string
 	Errors24h    string
 
-	NodeStats      []nodeStatRow
-	TopClients     []topClientRow
-	RecentRoutes   []recentRouteRow
-	RecentSignups  []recentSignupRow
-	PlanUsage      []planUsageRow
+	NodeStats        []nodeStatRow
+	TopClients       []topClientRow
+	RecentRoutes     []recentRouteRow
+	RecentSignups    []recentSignupRow
+	PlanUsage        []planUsageRow
 	NodeTraffic      []nodeTrafficRow
 	PlanViolations   []planViolationRow
 	ModuleMismatches []moduleMismatchRow
@@ -350,22 +350,29 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 	// --- Module mismatches (routes needing modules the node lacks) ----
 	mmCtx, mmCancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer mmCancel()
+	// Effective capability = per-node declared flag if set, else fleet-wide env
+	// flag (mirrors probedOr); COALESCE the env value so unprobed nodes do not
+	// false-flag a mismatch when the module is fleet-wide available.
+	envWAF := h.Routes != nil && h.Routes.WAFModuleAvailable
+	envGeo := h.Routes != nil && h.Routes.GeoModuleAvailable
+	envRate := h.Routes != nil && h.Routes.RateLimitModuleAvailable
 	mmRows, _ := db.QueryContext(mmCtx,
 		`SELECT r.id, r.domain, n.name,
 		        CASE
-		          WHEN COALESCE(r.waf_enabled,0)=1 AND COALESCE(n.has_waf,0)=0 THEN "WAF"
-		          WHEN COALESCE(r.geo_mode,"off")!="off" AND COALESCE(n.has_geoip,0)=0 THEN "GeoIP"
-		          WHEN COALESCE(r.rate_limit_rpm,0)>0 AND COALESCE(n.has_rate_limit,0)=0 THEN "Rate limit"
+		          WHEN COALESCE(r.waf_enabled,0)=1 AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf END, ?)=0 THEN "WAF"
+		          WHEN COALESCE(r.geo_mode,"off")!="off" AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip END, ?)=0 THEN "GeoIP"
+		          WHEN COALESCE(r.rate_limit_rpm,0)>0 AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?)=0 THEN "Rate limit"
 		        END AS feature
 		 FROM routes r
 		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
 		 WHERE r.status NOT IN ("disabled","deleted")
 		   AND (
-		     (COALESCE(r.waf_enabled,0)=1 AND COALESCE(n.has_waf,0)=0)
-		     OR (COALESCE(r.geo_mode,"off")!="off" AND COALESCE(n.has_geoip,0)=0)
-		     OR (COALESCE(r.rate_limit_rpm,0)>0 AND COALESCE(n.has_rate_limit,0)=0)
+		     (COALESCE(r.waf_enabled,0)=1 AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf END, ?)=0)
+		     OR (COALESCE(r.geo_mode,"off")!="off" AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip END, ?)=0)
+		     OR (COALESCE(r.rate_limit_rpm,0)>0 AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?)=0)
 		   )
-		 LIMIT 50`)
+		 LIMIT 50`,
+		b2i(envWAF), b2i(envGeo), b2i(envRate), b2i(envWAF), b2i(envGeo), b2i(envRate))
 	if mmRows != nil {
 		for mmRows.Next() {
 			var row moduleMismatchRow

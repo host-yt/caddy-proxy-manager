@@ -199,24 +199,5 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ct
 	return nil
 }
 
-// ListModules returns the list of module IDs from GET /modules/ (falls back to /modules).
-func (c *Client) ListModules(ctx context.Context) ([]string, error) {
-	body, err := c.GetRaw(ctx, "/modules/")
-	if err != nil {
-		// Caddy older builds may serve /modules (no trailing slash)
-		body, err = c.GetRaw(ctx, "/modules")
-	}
-	if err != nil {
-		return nil, err
-	}
-	var resp struct {
-		Modules []string `json:"modules"`
-	}
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, fmt.Errorf("parse modules response: %w", err)
-	}
-	return resp.Modules, nil
-}
-
 // ErrNotFound is returned by higher-level helpers when a config node is absent.
 var ErrNotFound = errors.New("caddy: config node not found")

@@ -158,6 +158,14 @@ const hostsPageSize = 50
 // kind='npm', uncapped, lives in the default node group.
 const internalAdminPlanName = "_admin-self"
 
+// b2i maps a bool to MySQL TINYINT (1/0) for use as a bound query parameter.
+func b2i(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 // HostsList renders /admin/hosts: every route in the DB, NPM-style flat list.
 // Optional query params: q (domain or client email substring),
 // status (route status enum), node_id (assigned node).
@@ -1030,7 +1038,7 @@ func (h *AdminHandlers) HostsClone(w http.ResponseWriter, r *http.Request) {
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.host.clone", Entity: "route",
 		EntityID: itoa64(newID),
-		Meta:    map[string]any{"source_id": id, "domain": "clone-of-" + domain},
+		Meta:     map[string]any{"source_id": id, "domain": "clone-of-" + domain},
 	})
 	redirectWithFlash(w, r, fmt.Sprintf("/admin/hosts/%d/edit", newID), "Route cloned - update domain + activate.", "")
 }
@@ -1251,10 +1259,18 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		        n.fwd_docker_rules_installed,
 		        n.fwd_firewall_backend, n.fwd_last_setup_error,
 		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),''),
-		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0), COALESCE(n.has_dns_module,0),
-		        COALESCE(n.has_rate_limit,0), COALESCE(n.has_geoip,0), COALESCE(n.caddy_version,'')
+		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?),
+		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_l4         END, ?),
+		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_dns_module END, ?),
+		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?),
+		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?), COALESCE(n.caddy_version,'')
 		 FROM caddy_nodes n JOIN node_groups ng ON ng.id = n.node_group_id
-		 WHERE n.id = ?`, id,
+		 WHERE n.id = ?`,
+		b2i(h.Routes != nil && h.Routes.WAFModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.Layer4ModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.DNS01ModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.RateLimitModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.GeoModuleAvailable), id,
 	).Scan(&d.Node.ID, &d.Node.Name, &d.Node.APIURL, &d.Node.PublicHost, &d.Node.PublicIP,
 		&d.Node.GroupName, &d.Node.Health, &d.Node.Enabled, &d.Node.Approved,
 		&lastSeen, &d.Node.MaxRoutes, &d.Node.CurrentRoutes,
@@ -1375,22 +1391,28 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Preflight: routes that need a Caddy module the node doesn't have.
+	// Preflight: routes that need a Caddy module the node doesn't have. Effective
+	// capability = per-node declared flag if set, else fleet-wide env flag (mirrors
+	// probedOr); COALESCE the env value in so unprobed nodes don't false-warn.
+	envWAF := h.Routes != nil && h.Routes.WAFModuleAvailable
+	envGeo := h.Routes != nil && h.Routes.GeoModuleAvailable
+	envRate := h.Routes != nil && h.Routes.RateLimitModuleAvailable
 	mmRows, mmErr := db.QueryContext(ctx, `
 		SELECT r.id, r.domain, CASE
-		  WHEN r.waf_enabled=1     AND n.has_waf=0       THEN 'WAF'
-		  WHEN r.geo_mode!='off'   AND n.has_geoip=0     THEN 'GeoIP'
-		  WHEN r.rate_enabled=1    AND n.has_rate_limit=0 THEN 'rate_limit'
+		  WHEN r.waf_enabled=1     AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?)=0 THEN 'WAF'
+		  WHEN r.geo_mode!='off'   AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?)=0 THEN 'GeoIP'
+		  WHEN r.rate_enabled=1    AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?)=0 THEN 'rate_limit'
 		END AS missing
 		FROM routes r
 		JOIN caddy_nodes n ON n.id = r.caddy_node_id
 		WHERE r.caddy_node_id = ? AND r.status != 'disabled'
 		  AND (
-		        (r.waf_enabled=1     AND n.has_waf=0)
-		     OR (r.geo_mode!='off'   AND n.has_geoip=0)
-		     OR (r.rate_enabled=1    AND n.has_rate_limit=0)
+		        (r.waf_enabled=1     AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?)=0)
+		     OR (r.geo_mode!='off'   AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?)=0)
+		     OR (r.rate_enabled=1    AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?)=0)
 		  )
-		ORDER BY r.domain LIMIT 50`, id)
+		ORDER BY r.domain LIMIT 50`,
+		b2i(envWAF), b2i(envGeo), b2i(envRate), id, b2i(envWAF), b2i(envGeo), b2i(envRate))
 	if mmErr == nil {
 		defer mmRows.Close()
 		for mmRows.Next() {
@@ -2037,22 +2059,22 @@ type hostEditData struct {
 
 	// Load balancing + health checks (A2). Upstreams are ADDITIONAL backends;
 	// empty = single-dial. WeightedLBAvail gates the weighted policy in the UI.
-	Upstreams       []upstreamRow
-	LocationRules   []locationRuleRow
-	LBPolicy        string
-	WeightedLBAvail bool
+	Upstreams               []upstreamRow
+	LocationRules           []locationRuleRow
+	LBPolicy                string
+	WeightedLBAvail         bool
 	LBTryDurationMs         int // total retry budget in ms (0 = default 5000)
 	LBTryIntervalMs         int // delay between retries in ms (0 = no delay)
 	DialTimeoutMs           int // per-route dial timeout override (0 = default 10s)
 	ResponseHeaderTimeoutMs int // per-route response header timeout (0 = no limit)
 	HealthURI               string
-	HealthInterval  int
-	HealthTimeout   int
-	HealthStatus    int
-	HealthFails     int
-	HealthPassive   bool
-	HealthFailDur   int
-	HealthMaxFails  int
+	HealthInterval          int
+	HealthTimeout           int
+	HealthStatus            int
+	HealthFails             int
+	HealthPassive           bool
+	HealthFailDur           int
+	HealthMaxFails          int
 
 	// Rate limiting (A3, gated). ModuleAvailable warns when the node lacks it.
 	RateLimitEnabled         bool
@@ -2071,9 +2093,9 @@ type hostEditData struct {
 	GeoModuleAvailable bool
 	// Per-node capability flags from caddy_nodes.has_* columns.
 	// Warn in UI when a module is enabled on a node that lacks it.
-	NodeHasWAF      bool
-	NodeHasL4       bool
-	NodeHasGeoIP    bool
+	NodeHasWAF       bool
+	NodeHasL4        bool
+	NodeHasGeoIP     bool
 	NodeHasRateLimit bool
 	// GeoIPAvailable reflects whether the runtime GeoIP database is loaded.
 	GeoIPAvailable bool
@@ -2227,13 +2249,18 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(r.dns_resolver_via_wg_peer_id,0),
 	        COALESCE(r.dns_address_family,'any'),
 	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0),
-		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0), COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0),
+		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?), COALESCE(n.has_l4,0),
+		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?),
+		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?),
 		        COALESCE(r.dial_timeout_ms,0), COALESCE(r.response_header_timeout_ms,0),
 		        COALESCE(r.group_id,0)
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN caddy_nodes n ON n.id = r.caddy_node_id
-		 WHERE r.id = ?`, id,
+		 WHERE r.id = ?`,
+		b2i(h.Routes != nil && h.Routes.WAFModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.GeoModuleAvailable),
+		b2i(h.Routes != nil && h.Routes.RateLimitModuleAvailable), id,
 	).Scan(&d.Domain, &aliases, &d.PathPrefix, &d.BackendIP, &d.Port, &d.UpstreamScheme, &d.UpstreamSkipTLSVerify, &d.Status,
 		&d.Kind, &redirectURL, &redirectCode, &d.SSL,
 		&d.ForceHTTPS, &d.WebSocket, &d.HTTP2, &d.HTTP3,
@@ -2648,23 +2675,46 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	outboundIP := strings.TrimSpace(r.FormValue("outbound_ip"))
 	// Plan gate: check whether the plan allows non-default egress.
 	editPath := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
-	// Hard block: reject save when a module-gated feature is on but the node lacks the Caddy module.
+	// Hard block: reject save when a module-gated feature is on but the node lacks
+	// the Caddy module. Effective capability = the per-node operator-declared flag
+	// if the node was declared (modules_probed_at set), else the fleet-wide env
+	// flag. Mirrors probedOr() in routes.Service.buildNodePush so the gate matches
+	// what actually gets emitted.
 	{
-		var hasWAF, hasGeoIP, hasRateLimit bool
+		var probedWAF, probedGeo, probedRate sql.NullBool
 		_ = h.DB().QueryRowContext(r.Context(),
-			`SELECT COALESCE(n.has_waf,0), COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0)
+			`SELECT CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END,
+			        CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END,
+			        CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END
 			   FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id WHERE r.id = ?`, id,
-		).Scan(&hasWAF, &hasGeoIP, &hasRateLimit)
-		if wafEnabled && !hasWAF {
-			redirectWithFlash(w, r, editPath, "", "WAF requires coraza-caddy/v2 module. This node's Caddy binary was not built with it. Disable WAF or redeploy Caddy with coraza-caddy/v2 included.")
+		).Scan(&probedWAF, &probedGeo, &probedRate)
+		// Default true (don't block) when env flags are unknown; emission still
+		// gates via probedOr, so a false env never breaks the node here.
+		effWAF, effGeo, effRate := true, true, true
+		if h.Routes != nil {
+			effWAF = h.Routes.WAFModuleAvailable
+			effGeo = h.Routes.GeoModuleAvailable
+			effRate = h.Routes.RateLimitModuleAvailable
+		}
+		if probedWAF.Valid {
+			effWAF = probedWAF.Bool
+		}
+		if probedGeo.Valid {
+			effGeo = probedGeo.Bool
+		}
+		if probedRate.Valid {
+			effRate = probedRate.Bool
+		}
+		if wafEnabled && !effWAF {
+			redirectWithFlash(w, r, editPath, "", "WAF requires the coraza-caddy/v2 module. Enable WAF_MODULE_AVAILABLE, or tick WAF (Coraza) under Module capabilities on the node edit page once Caddy is built with it.")
 			return
 		}
-		if geoMode != "off" && !hasGeoIP {
-			redirectWithFlash(w, r, editPath, "", "GeoIP filtering requires the caddy-geoip module. This node's Caddy binary was not built with it. Disable GeoIP or redeploy Caddy with the geoip module.")
+		if geoMode != "off" && !effGeo {
+			redirectWithFlash(w, r, editPath, "", "GeoIP filtering requires the caddy-maxmind-geolocation module. Enable GEOIP_AVAILABLE, or tick GeoIP under Module capabilities on the node edit page once Caddy is built with it.")
 			return
 		}
-		if rateEnabled && !hasRateLimit {
-			redirectWithFlash(w, r, editPath, "", "Rate limiting requires the caddy-ratelimit module. This node's Caddy binary was not built with it. Disable rate limit or redeploy Caddy with the ratelimit module.")
+		if rateEnabled && !effRate {
+			redirectWithFlash(w, r, editPath, "", "Rate limiting requires the caddy-ratelimit module. Enable RATE_LIMIT_AVAILABLE, or tick Rate limit under Module capabilities on the node edit page once Caddy is built with it.")
 			return
 		}
 	}

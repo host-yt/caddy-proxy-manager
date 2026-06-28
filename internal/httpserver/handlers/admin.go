@@ -32,10 +32,12 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/captcha"
 	"github.com/host-yt/caddy-proxy-manager/internal/chatstore"
 	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
+	"github.com/host-yt/caddy-proxy-manager/internal/customfields"
 	"github.com/host-yt/caddy-proxy-manager/internal/deployment"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/portal"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
+	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
@@ -48,8 +50,6 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 	"github.com/host-yt/caddy-proxy-manager/internal/webhook"
-	"github.com/host-yt/caddy-proxy-manager/internal/customfields"
-	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
 
@@ -357,16 +357,16 @@ type AttentionItem struct {
 
 // dashCounts holds the cheap headline numbers shown as stat cards.
 type dashCounts struct {
-	TotalHosts           int
-	ActiveHosts          int
-	PendingHosts         int
-	FailedHosts          int
-	NodesTotal           int
-	NodesOnline          int
-	Clients              int
-	Plans                int
-	SuspendedServices    int
-	MTLSCAsExpiringSoon  int
+	TotalHosts          int
+	ActiveHosts         int
+	PendingHosts        int
+	FailedHosts         int
+	NodesTotal          int
+	NodesOnline         int
+	Clients             int
+	Plans               int
+	SuspendedServices   int
+	MTLSCAsExpiringSoon int
 }
 
 // dashEvent is a single recent audit-log line (latest activity feed).
@@ -915,10 +915,13 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Set modules_probed_at so these operator-declared flags become authoritative
+	// over the fleet-wide env defaults (see probedOr in routes.Service).
 	if _, err := db.ExecContext(ctx,
 		`UPDATE caddy_nodes SET outbound_ips = ?,
 		        has_waf = ?, has_l4 = ?, has_dns_module = ?,
-		        has_rate_limit = ?, has_geoip = ?, caddy_version = ?
+		        has_rate_limit = ?, has_geoip = ?, caddy_version = ?,
+		        modules_probed_at = NOW()
 		 WHERE id = ?`,
 		outboundIPsVal, hasWAF, hasL4, hasDNSModule, hasRateLimit, hasGeoIP, caddyVersion, id); err != nil {
 		redirectWithFlash(w, r, editPath, "", "update failed: "+sanitizeErr(err))
@@ -932,64 +935,11 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/nodes", "Node updated", "")
 }
 
-// ProbeNodeCapabilities handles POST /admin/nodes/{id}/probe-capabilities.
-// Calls the node's Caddy admin API, maps modules to capability flags, and updates caddy_nodes.
-func (h *AdminHandlers) ProbeNodeCapabilities(w http.ResponseWriter, r *http.Request) {
-	db := h.DB()
-	if db == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusServiceUnavailable)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "no db"})
-		return
-	}
-	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if id == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "invalid node id"})
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	var apiURL string
-	if err := db.QueryRowContext(ctx, "SELECT api_url FROM caddy_nodes WHERE id = ?", id).Scan(&apiURL); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "node not found"})
-		return
-	}
-
-	client := caddyapi.New(apiURL)
-	caps, err := caddyapi.ProbeCapabilities(ctx, client)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadGateway)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": err.Error()})
-		return
-	}
-
-	_, dbErr := db.ExecContext(ctx,
-		`UPDATE caddy_nodes SET has_waf=?, has_l4=?, has_dns_module=?, has_rate_limit=?, has_geoip=?, modules_probed_at=NOW()
-		 WHERE id=?`,
-		caps.HasWAF, caps.HasL4, caps.HasDNS, caps.HasRateLimit, caps.HasGeoIP, id)
-	if dbErr != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{"ok": false, "error": "db update failed: " + sanitizeErr(dbErr)})
-		return
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"ok":           true,
-		"has_waf":      caps.HasWAF,
-		"has_l4":       caps.HasL4,
-		"has_dns":      caps.HasDNS,
-		"has_rate_limit": caps.HasRateLimit,
-		"has_geoip":    caps.HasGeoIP,
-	})
-}
+// Note: there is no auto-probe of Caddy module capabilities. The Caddy admin
+// API (:2019) exposes no endpoint to enumerate compiled-in modules, so module
+// availability is declared two ways: fleet-wide env flags (WAF_MODULE_AVAILABLE
+// etc., the default/fallback) and per-node operator checkboxes on the node edit
+// page (authoritative once set; see modules_probed_at sentinel + probedOr).
 
 // failoverPreviewTarget is one healthy sibling node returned by FailoverPreview.
 type failoverPreviewTarget struct {
@@ -1000,11 +950,11 @@ type failoverPreviewTarget struct {
 
 // failoverPreviewRoute describes one route and whether it can be moved.
 type failoverPreviewRoute struct {
-	RouteID  int64  `json:"route_id"`
-	Domain   string `json:"domain"`
-	Status   string `json:"status"`
-	CanMove  bool   `json:"can_move"`
-	Reason   string `json:"reason"`
+	RouteID int64  `json:"route_id"`
+	Domain  string `json:"domain"`
+	Status  string `json:"status"`
+	CanMove bool   `json:"can_move"`
+	Reason  string `json:"reason"`
 }
 
 // failoverPreviewResp is the full JSON payload for FailoverPreview.
@@ -1928,16 +1878,16 @@ func (h *AdminHandlers) PlansDelete(w http.ResponseWriter, r *http.Request) {
 // ---- Clients ------------------------------------------------------------
 
 type clientRow struct {
-	ID              int64
-	DisplayName     string // display fallback: COALESCE(display_name, full_name, email)
-	EditDisplayName string // real stored clients.display_name (may be empty) for the edit modal
-	Email           string
-	ExternalRef     string
-	ServiceCount    int
-	Bandwidth30d    int64  // bytes out, last 30 days
-	CreatedAt       string
-	Tag             string // grouping label
-	Category        string // billing/segment category
+	ID               int64
+	DisplayName      string // display fallback: COALESCE(display_name, full_name, email)
+	EditDisplayName  string // real stored clients.display_name (may be empty) for the edit modal
+	Email            string
+	ExternalRef      string
+	ServiceCount     int
+	Bandwidth30d     int64 // bytes out, last 30 days
+	CreatedAt        string
+	Tag              string // grouping label
+	Category         string // billing/segment category
 	CustomFieldsJSON string // raw JSON for edit modal prefill
 }
 
@@ -1945,19 +1895,19 @@ type clientsData struct {
 	baseAdminData
 	Clients []clientRow
 	// Pagination/sort/search.
-	Page           int
-	Size           int
-	Total          int
-	TotalPgs       int
-	Sort           string
-	Dir            string
-	Q              string
-	TagFilter      string
-	CategoryFilter string
-	PrevURL        string
-	NextURL        string
-	QueryValues    string
-	SavedFilters   []savedFilter
+	Page            int
+	Size            int
+	Total           int
+	TotalPgs        int
+	Sort            string
+	Dir             string
+	Q               string
+	TagFilter       string
+	CategoryFilter  string
+	PrevURL         string
+	NextURL         string
+	QueryValues     string
+	SavedFilters    []savedFilter
 	CustomFieldDefs []customfields.Def // admin-defined fields for the create/edit form
 }
 
@@ -4303,8 +4253,8 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 	d.ViewAll = viewAll
 
 	var (
-		where    string
-		args     []any
+		where      string
+		args       []any
 		fromClause string
 	)
 	if viewAll {
@@ -5281,4 +5231,3 @@ func (h *AdminHandlers) Stub(title string) http.HandlerFunc {
 		})
 	}
 }
-

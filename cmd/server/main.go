@@ -567,9 +567,6 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// Background node health probe — leader-only.
 	go runTicker(rootCtx, 30*time.Second, leaderElec, guard(logger, "health-probe", routesSvc.HealthProbe))
 
-	// Node capability probe — refresh module flags every 6h, leader-only.
-	go runTicker(rootCtx, 6*time.Hour, leaderElec, guard(logger, "node-cap-probe", routesSvc.ProbeNodeCapabilities))
-
 	// Background route reconciler — leader-only, picks up stuck routes.
 	go runTicker(rootCtx, 60*time.Second, leaderElec, guard(logger, "reconcile", routesSvc.Reconcile))
 

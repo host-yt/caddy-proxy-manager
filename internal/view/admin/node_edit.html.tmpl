@@ -30,16 +30,7 @@
       <!-- Module capabilities: which custom Caddy modules are present on this node -->
       <fieldset class="space-y-3 border-t border-[rgb(var(--border))] pt-4">
         <legend class="t-eyebrow mb-2">Module capabilities</legend>
-        <p class="t-caption -mt-1">Which custom Caddy modules are installed on this node</p>
-        <div class="flex items-center gap-2 mb-1">
-          <button type="button" id="btn-probe" class="r-btn-secondary text-xs cursor-pointer inline-flex items-center gap-1.5" style="border-color:rgb(var(--accent)/0.4);color:rgb(var(--accent))">
-            <svg viewBox="0 0 20 20" fill="currentColor" class="w-3.5 h-3.5">
-              <path fill-rule="evenodd" d="M2 10a8 8 0 1 1 16 0 8 8 0 0 1-16 0Zm6.39-2.908a.75.75 0 0 1 .766.027l3.5 2.25a.75.75 0 0 1 0 1.262l-3.5 2.25A.75.75 0 0 1 8 12.25v-4.5a.75.75 0 0 1 .39-.658Z" clip-rule="evenodd" />
-            </svg>
-            Auto-detect from Caddy
-          </button>
-          <span id="probe-status" class="t-caption"></span>
-        </div>
+        <p class="t-caption -mt-1">Which custom Caddy modules are installed on this node. Caddy's admin API cannot enumerate modules, so declare them here. Ticking any box makes this node's flags authoritative over the fleet-wide defaults.</p>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           <label class="flex items-center gap-2 cursor-pointer t-body">
             <input type="checkbox" name="has_waf" value="1" {{if .HasWAF}}checked{{end}}
@@ -81,39 +72,4 @@
     </form>
   </section>
 </div>
-
-<script nonce="{{.CSPNonce}}">
-(function () {
-  document.addEventListener('click', function (e) {
-    if (e.target.closest('#btn-probe') === null) return;
-    var btn = document.getElementById('btn-probe');
-    var status = document.getElementById('probe-status');
-    btn.disabled = true;
-    status.textContent = 'Detecting...';
-    status.className = 't-caption';
-    fetch('/admin/nodes/{{.NodeID}}/probe-capabilities', {method: 'POST'})
-      .then(function (r) { return r.json(); })
-      .then(function (data) {
-        if (!data.ok) {
-          status.textContent = 'Error: ' + data.error;
-          status.style.color = 'rgb(var(--danger))';
-          return;
-        }
-        // Update checkboxes from detected capabilities.
-        var map = {has_waf: data.has_waf, has_l4: data.has_l4, has_dns_module: data.has_dns, has_rate_limit: data.has_rate_limit, has_geoip: data.has_geoip};
-        Object.keys(map).forEach(function (name) {
-          var el = document.querySelector('input[name="' + name + '"]');
-          if (el) el.checked = !!map[name];
-        });
-        status.textContent = 'Detected!';
-        status.style.color = 'rgb(var(--success))';
-      })
-      .catch(function (err) {
-        status.textContent = 'Request failed';
-        status.style.color = 'rgb(var(--danger))';
-      })
-      .finally(function () { btn.disabled = false; });
-  });
-})();
-</script>
 {{end}}
