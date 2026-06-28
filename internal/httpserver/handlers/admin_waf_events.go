@@ -62,6 +62,14 @@ func parseWAFFilter(r *http.Request) wafevents.Filter {
 			f.To = t.Add(24*time.Hour - time.Second) // inclusive end of day
 		}
 	}
+	// How many rows to show. Default 200; ?limit=N raises it (capped) so the page
+	// is not silently stuck at a low number when there are more events.
+	f.Limit, _ = strconv.Atoi(q.Get("limit"))
+	if f.Limit <= 0 {
+		f.Limit = 200
+	} else if f.Limit > 1000 {
+		f.Limit = 1000
+	}
 	return f
 }
 
@@ -103,10 +111,9 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 		err     error
 	)
 	if hasWAFFilter(f) {
-		f.Limit = 200
 		entries, _, err = h.WAFEvents.FilteredWithSuppressions(ctx, f)
 	} else {
-		entries, err = h.WAFEvents.Recent(ctx, 0, 100)
+		entries, err = h.WAFEvents.Recent(ctx, 0, f.Limit)
 		if err == nil {
 			// Annotate recent results with suppression state too.
 			keys, kerr := h.WAFEvents.ActiveSuppressedKeys(ctx)

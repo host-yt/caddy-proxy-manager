@@ -175,7 +175,7 @@
               <div id="waf-act-{{.ID}}" class="hpg-act-menu" role="menu">
                 {{if not .AcknowledgedAt.Valid}}
                 <form method="POST" action="/admin/waf/events/{{.ID}}/ack" class="contents">
-                  <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                   <button type="submit" class="hpg-act-item" role="menuitem">Acknowledge</button>
                 </form>
                 {{end}}
@@ -234,7 +234,7 @@
             <td class="font-mono text-xs tabular-nums whitespace-nowrap">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
             <td>
               <form method="POST" action="/admin/waf/suppressions/{{.ID}}/delete" class="inline" data-confirm="Delete this suppression?">
-                <input type="hidden" name="csrf" value="{{$.CSRF}}">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 {{if .RouteID.Valid}}<input type="hidden" name="route_id" value="{{.RouteID.Int64}}">{{end}}
                 <button type="submit" class="r-btn-danger text-xs inline-flex items-center gap-1 cursor-pointer">
                   <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -262,7 +262,7 @@
         Suppress WAF rule
       </h3>
       <form method="POST" action="/admin/waf/suppress" class="space-y-3">
-        <input type="hidden" name="csrf" value="{{.CSRF}}">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div class="flex flex-col gap-1">
           <label class="t-caption">Rule ID</label>
           <input type="text" name="rule_id" id="waf-suppress-rule-id" required class="r-input text-xs font-mono">
