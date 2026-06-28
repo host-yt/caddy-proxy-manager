@@ -2098,6 +2098,9 @@ type hostEditData struct {
 	GeoMode            string
 	GeoCountries       string
 	GeoModuleAvailable bool
+	GeoResponseCode    int
+	GeoFailClosed      bool
+	GeoAllowCIDRs      string
 	// Per-node capability flags from caddy_nodes.has_* columns.
 	// Warn in UI when a module is enabled on a node that lacks it.
 	NodeHasWAF       bool
@@ -2252,6 +2255,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,''),
 		        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
 		        COALESCE(r.geo_mode,'off'), COALESCE(r.geo_countries,''),
+		        COALESCE(r.geo_response_code,403), COALESCE(r.geo_fail_closed,0), COALESCE(r.geo_allow_cidrs,''),
 		        COALESCE(r.wildcard_enabled,0), COALESCE(r.wildcard_zone,''),
 		        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
 		        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
@@ -2296,6 +2300,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.RateLimitEnabled, &d.RateLimitWindow, &d.RateLimitMaxEvents, &d.RateLimitKey,
 		&d.WAFEnabled, &d.WAFBlocking, &d.WAFDirectives,
 		&d.GeoMode, &d.GeoCountries,
+		&d.GeoResponseCode, &d.GeoFailClosed, &d.GeoAllowCIDRs,
 		&d.WildcardEnabled, &d.WildcardZone,
 		&d.ErrorOverride, &d.ErrorHTML, &d.ErrorLogoURL, &d.ErrorBrand, &d.ErrorBgColor,
 		&d.OutboundIPMode, &d.OutboundIP,
@@ -2657,6 +2662,12 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		geoMode = "off"
 	}
 	geoCountries := geoip.NormalizeCountries(r.FormValue("geo_countries"))
+	geoResponseCodeRaw, _ := strconv.Atoi(r.FormValue("geo_response_code"))
+	if geoResponseCodeRaw == 0 {
+		geoResponseCodeRaw = 403
+	}
+	geoFailClosed := r.FormValue("geo_fail_closed") == "1"
+	geoAllowCIDRs := strings.TrimSpace(r.FormValue("geo_allow_cidrs"))
 	// mTLS client-cert enforcement. require_client_cert needs a valid CA; an
 	// enforced host with no CA would brick the handshake, so reject early.
 	requireClientCert := r.FormValue("require_client_cert") == "1"
@@ -3252,6 +3263,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
 			   geo_mode = ?, geo_countries = ?,
+			   geo_response_code = ?, geo_fail_closed = ?, geo_allow_cidrs = ?,
 			   require_client_cert = ?, mtls_ca_id = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
@@ -3287,6 +3299,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
 			geoMode, geoCountries,
+			geoResponseCodeRaw, geoFailClosed, geoAllowCIDRs,
 			requireClientCert, nullableInt64(mtlsCAID),
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,
@@ -3324,6 +3337,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   rate_enabled = ?, rate_window = ?, rate_max_events = ?, rate_key = ?,
 			   waf_enabled = ?, waf_blocking = ?, waf_directives = ?,
 			   geo_mode = ?, geo_countries = ?,
+			   geo_response_code = ?, geo_fail_closed = ?, geo_allow_cidrs = ?,
 			   require_client_cert = ?, mtls_ca_id = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
@@ -3359,6 +3373,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			rateEnabled, rateWindow, rateMaxEvents, rateKey,
 			wafEnabled, wafBlocking, wafDirectives,
 			geoMode, geoCountries,
+			geoResponseCodeRaw, geoFailClosed, geoAllowCIDRs,
 			requireClientCert, nullableInt64(mtlsCAID),
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,

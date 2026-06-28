@@ -219,6 +219,9 @@ type Route struct {
 	GeoMode            string
 	GeoCountries       string
 	GeoModuleAvailable bool
+	GeoResponseCode    int    // HTTP status for blocked requests (0 = use 403)
+	GeoFailClosed      bool   // block all traffic when GeoIP module unavailable
+	GeoAllowCIDRs      string // comma-separated CIDRs/IPs that bypass country block
 
 	// OutboundIPMode: "default" = OS picks; "fixed"/"random" = bind transport
 	// local_addr to OutboundIP so the connection leaves via a specific NIC IP.
@@ -1340,21 +1343,45 @@ const (
 	geoDBPath      = "/data/geoip/GeoLite2-Country.mmdb"
 )
 
-// buildGeoBlock returns a subroute handler that 403s requests from disallowed
+// buildGeoBlock returns a subroute handler that blocks requests from disallowed
 // countries, or nil when geo blocking is off / no countries / module absent.
 //
 // deny mode: matcher uses deny_countries=[list] (matches requests FROM those
-// countries) -> the matched request is the blocked one, so handle 403 directly.
+// countries) -> the matched request is the blocked one, so handle deny directly.
 // allow mode: matcher uses allow_countries=[list] (matches requests FROM allowed
-// countries); wrap in `not` so the handler fires for the NON-allowed set -> 403.
+// countries); wrap in `not` so the handler fires for the NON-allowed set -> deny.
+// GeoAllowCIDRs: IPs/CIDRs added as a NOT remote_ip condition, bypassing the block.
+// GeoFailClosed: when module unavailable, block all traffic instead of passing through.
 func buildGeoBlock(r Route) map[string]any {
 	mode := strings.ToLower(strings.TrimSpace(r.GeoMode))
 	if mode != "allow" && mode != "deny" {
 		return nil
 	}
-	if !r.GeoModuleAvailable {
-		return nil
+
+	code := r.GeoResponseCode
+	if code == 0 {
+		code = 403
 	}
+	denyResp := map[string]any{
+		"handler":     "static_response",
+		"status_code": code,
+		"body":        "Forbidden\n",
+	}
+
+	if !r.GeoModuleAvailable {
+		if !r.GeoFailClosed {
+			return nil
+		}
+		// Fail-closed: block everything when geo module is missing.
+		return map[string]any{
+			"handler": "subroute",
+			"routes": []any{map[string]any{
+				"handle":   []any{denyResp},
+				"terminal": true,
+			}},
+		}
+	}
+
 	var countries []string
 	for _, c := range strings.Split(r.GeoCountries, ",") {
 		if c = strings.ToUpper(strings.TrimSpace(c)); c != "" {
@@ -1365,14 +1392,17 @@ func buildGeoBlock(r Route) map[string]any {
 		return nil
 	}
 
-	deny403 := map[string]any{
-		"handler":     "static_response",
-		"status_code": 403,
-		"body":        "Forbidden\n",
+	// Parse CIDR allow-list; matching IPs skip the country block.
+	var allowRanges []string
+	for _, cidr := range strings.Split(r.GeoAllowCIDRs, ",") {
+		if c := strings.TrimSpace(cidr); c != "" {
+			allowRanges = append(allowRanges, c)
+		}
 	}
+
 	var match map[string]any
 	if mode == "deny" {
-		// Matcher fires for the blocked countries -> abort directly.
+		// Matcher fires for blocked countries -> abort directly.
 		match = map[string]any{
 			geoMatcherName: map[string]any{
 				geoFieldDBPath: geoDBPath,
@@ -1380,8 +1410,7 @@ func buildGeoBlock(r Route) map[string]any {
 			},
 		}
 	} else {
-		// allow: matcher fires for allowed countries; negate so the handler
-		// runs for everyone else (and requests with no/unknown country).
+		// allow: matcher fires for allowed countries; negate so handler runs for everyone else.
 		match = map[string]any{
 			"not": []any{map[string]any{
 				geoMatcherName: map[string]any{
@@ -1391,12 +1420,22 @@ func buildGeoBlock(r Route) map[string]any {
 			}},
 		}
 	}
-	// Subroute wrapper: the 403 short-circuits before any later handler/upstream.
+
+	// Add NOT remote_ip condition: IPs in allow-list pass through regardless of country.
+	if len(allowRanges) > 0 {
+		notList, _ := match["not"].([]any)
+		notList = append(notList, map[string]any{
+			"remote_ip": map[string]any{"ranges": allowRanges},
+		})
+		match["not"] = notList
+	}
+
+	// Subroute wrapper: deny short-circuits before any later handler/upstream.
 	return map[string]any{
 		"handler": "subroute",
 		"routes": []any{map[string]any{
 			"match":    []any{match},
-			"handle":   []any{deny403},
+			"handle":   []any{denyResp},
 			"terminal": true,
 		}},
 	}

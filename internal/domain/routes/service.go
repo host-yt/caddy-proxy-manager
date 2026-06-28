@@ -1731,6 +1731,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,''),
 	        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
 	        COALESCE(r.geo_mode,'off'), COALESCE(r.geo_countries,''),
+	        COALESCE(r.geo_response_code,403), COALESCE(r.geo_fail_closed,0), COALESCE(r.geo_allow_cidrs,''),
 	        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
 	        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
 	        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
@@ -1819,6 +1820,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var wafEnabled, wafBlocking bool
 		var wafDirectives string
 		var geoMode, geoCountries string
+		var geoResponseCode int
+		var geoFailClosed bool
+		var geoAllowCIDRs string
 		var errOverride bool
 		var errHTML, errLogo, errBrand, errBg string
 		var outboundIPMode, outboundIP string
@@ -1848,6 +1852,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&rateEnabled, &rateWindow, &rateMaxEvents, &rateKey,
 			&wafEnabled, &wafBlocking, &wafDirectives,
 			&geoMode, &geoCountries,
+			&geoResponseCode, &geoFailClosed, &geoAllowCIDRs,
 			&errOverride, &errHTML, &errLogo, &errBrand, &errBg,
 			&outboundIPMode, &outboundIP, &planAllowEgress,
 			&dnsResolverIP, &dnsResolverPeerIP, &dnsAddressFamily,
@@ -2045,6 +2050,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			GeoMode:                  geoMode,
 			GeoCountries:             geoCountries,
 			GeoModuleAvailable:       s.GeoModuleAvailable,
+			GeoResponseCode:          geoResponseCode,
+			GeoFailClosed:            geoFailClosed,
+			GeoAllowCIDRs:            geoAllowCIDRs,
 
 			// Per-route error/maintenance page override (else node-wide branding).
 			CustomErrorOverride: errOverride,
