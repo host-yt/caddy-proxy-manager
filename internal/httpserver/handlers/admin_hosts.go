@@ -2066,6 +2066,9 @@ type hostEditData struct {
 	Upstreams               []upstreamRow
 	LocationRules           []locationRuleRow
 	LBPolicy                string
+	LBHeaderField           string // header name for "header" policy
+	LBCookieName            string // cookie name for "cookie" policy
+	LBCookieSecret          string // HMAC secret for "cookie" policy
 	WeightedLBAvail         bool
 	LBTryDurationMs         int // total retry budget in ms (0 = default 5000)
 	LBTryIntervalMs         int // delay between retries in ms (0 = no delay)
@@ -2241,6 +2244,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(r.upstream_external,0), COALESCE(r.upstream_host_header,''), COALESCE(r.proxy_secret_enc,''),
 		        COALESCE(r.compress_disabled,0),
 		        COALESCE(r.lb_policy,''),
+		        COALESCE(r.lb_header_field,''), COALESCE(r.lb_cookie_name,''), COALESCE(r.lb_cookie_secret,''),
 		        COALESCE(r.health_active_uri,''), COALESCE(r.health_active_interval,10), COALESCE(r.health_active_timeout,5),
 		        COALESCE(r.health_active_status,0), COALESCE(r.health_active_fails,3),
 		        COALESCE(r.health_passive_enabled,0), COALESCE(r.health_passive_fail_dur,30), COALESCE(r.health_passive_max_fail,3),
@@ -2285,6 +2289,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&extFlag, &extHostHeader, &secretEnc,
 		&d.CompressDisabled,
 		&d.LBPolicy,
+		&d.LBHeaderField, &d.LBCookieName, &d.LBCookieSecret,
 		&d.HealthURI, &d.HealthInterval, &d.HealthTimeout, &d.HealthStatus, &d.HealthFails,
 		&d.HealthPassive, &d.HealthFailDur, &d.HealthMaxFails,
 		&d.LBTryDurationMs, &d.LBTryIntervalMs,
@@ -2537,7 +2542,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// rejected unless the module gate is on so stock nodes never break.
 	lbPolicy := r.FormValue("lb_policy")
 	switch lbPolicy {
-	case "", "round_robin", "least_conn", "ip_hash":
+	case "", "round_robin", "least_conn", "ip_hash", "uri_hash", "header", "cookie":
 	case "weighted_round_robin":
 		if !h.Routes.WeightedLBAvailable {
 			lbPolicy = "round_robin"
@@ -2545,6 +2550,9 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	default:
 		lbPolicy = ""
 	}
+	lbHeaderField := strings.TrimSpace(r.FormValue("lb_header_field"))
+	lbCookieName := strings.TrimSpace(r.FormValue("lb_cookie_name"))
+	lbCookieSecret := strings.TrimSpace(r.FormValue("lb_cookie_secret"))
 	healthURI := strings.TrimSpace(r.FormValue("health_uri"))
 	if healthURI != "" && !strings.HasPrefix(healthURI, "/") {
 		healthURI = "/" + healthURI
@@ -3235,7 +3243,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   http2_enabled = ?, http3_enabled = ?,
 			   cache_enabled = ?, cache_ttl_secs = ?,
 			   compress_disabled = ?,
-			   lb_policy = ?,
+			   lb_policy = ?, lb_header_field = ?, lb_cookie_name = ?, lb_cookie_secret = ?,
 			   health_active_uri = ?, health_active_interval = ?, health_active_timeout = ?,
 			   health_active_status = ?, health_active_fails = ?,
 			   health_passive_enabled = ?, health_passive_fail_dur = ?, health_passive_max_fail = ?,
@@ -3270,7 +3278,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			http2, http3,
 			cacheEnabled, cacheTTL,
 			compressDisabled,
-			lbPolicy,
+			lbPolicy, lbHeaderField, lbCookieName, lbCookieSecret,
 			healthURI, healthInterval, healthTimeout,
 			healthStatus, healthFails,
 			healthPassive, healthFailDur, healthMaxFails,
@@ -3307,7 +3315,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   http2_enabled = ?, http3_enabled = ?,
 			   cache_enabled = ?, cache_ttl_secs = ?,
 			   compress_disabled = ?,
-			   lb_policy = ?,
+			   lb_policy = ?, lb_header_field = ?, lb_cookie_name = ?, lb_cookie_secret = ?,
 			   health_active_uri = ?, health_active_interval = ?, health_active_timeout = ?,
 			   health_active_status = ?, health_active_fails = ?,
 			   health_passive_enabled = ?, health_passive_fail_dur = ?, health_passive_max_fail = ?,
@@ -3342,7 +3350,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			http2, http3,
 			cacheEnabled, cacheTTL,
 			compressDisabled,
-			lbPolicy,
+			lbPolicy, lbHeaderField, lbCookieName, lbCookieSecret,
 			healthURI, healthInterval, healthTimeout,
 			healthStatus, healthFails,
 			healthPassive, healthFailDur, healthMaxFails,

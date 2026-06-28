@@ -162,12 +162,18 @@ type Route struct {
 	// without dropping into raw Caddy JSON.
 	LocationRules []LocationRule
 	// LBPolicy: "" | "round_robin" | "least_conn" | "ip_hash" |
-	// "weighted_round_robin". Emitted as load_balancing.selection_policy.
+	// "weighted_round_robin" | "uri_hash" | "header" | "cookie".
 	LBPolicy string
 	// WeightedLBAvailable gates weighted_round_robin (not guaranteed stock).
 	// When false and LBPolicy=="weighted_round_robin" the builder downgrades
 	// to round_robin so stock Caddy never rejects the /load.
 	WeightedLBAvailable bool
+	// LBHeaderField is the request header name used by the "header" lb policy.
+	LBHeaderField string
+	// LBCookieName is the cookie name for the "cookie" lb policy.
+	LBCookieName string
+	// LBCookieSecret is the optional HMAC secret for the "cookie" lb policy.
+	LBCookieSecret string
 	// LBTryDurationMs: total time (ms) Caddy may spend retrying across all
 	// upstreams. 0 falls back to the 5s default.
 	LBTryDurationMs int
@@ -1405,6 +1411,19 @@ func buildLoadBalancing(r Route) map[string]any {
 		return nil
 	}
 	sel := map[string]any{"policy": policy}
+	switch policy {
+	case "header":
+		if r.LBHeaderField != "" {
+			sel["field"] = r.LBHeaderField
+		}
+	case "cookie":
+		if r.LBCookieName != "" {
+			sel["name"] = r.LBCookieName
+		}
+		if r.LBCookieSecret != "" {
+			sel["secret"] = r.LBCookieSecret
+		}
+	}
 	if policy == "weighted_round_robin" {
 		// Weights map 1:1 positionally to the emitted upstreams array.
 		weights := make([]any, 0, len(r.Upstreams)+1)

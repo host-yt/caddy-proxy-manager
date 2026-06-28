@@ -1716,6 +1716,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.upstream_external, 0), COALESCE(r.upstream_host_header, ''), COALESCE(r.proxy_secret_enc, ''),
 	        COALESCE(r.compress_disabled, 0),
 	        COALESCE(r.lb_policy,''),
+	        COALESCE(r.lb_header_field,''), COALESCE(r.lb_cookie_name,''), COALESCE(r.lb_cookie_secret,''),
 	        COALESCE(r.health_active_uri,''), COALESCE(r.health_active_interval,10), COALESCE(r.health_active_timeout,5),
 	        COALESCE(r.health_active_status,0), COALESCE(r.health_active_fails,3),
 	        COALESCE(r.health_passive_enabled,0), COALESCE(r.health_passive_fail_dur,30), COALESCE(r.health_passive_max_fail,3),
@@ -1799,6 +1800,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var upstreamHostHeader, proxySecretEnc string
 		var compressDisabled bool
 		var lbPolicy string
+		var lbHeaderField, lbCookieName, lbCookieSecret string
 		var hActiveURI string
 		var hActiveInterval, hActiveTimeout, hActiveStatus, hActiveFails int
 		var hPassiveEnabled bool
@@ -1832,6 +1834,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&upstreamExternal, &upstreamHostHeader, &proxySecretEnc,
 			&compressDisabled,
 			&lbPolicy,
+			&lbHeaderField, &lbCookieName, &lbCookieSecret,
 			&hActiveURI, &hActiveInterval, &hActiveTimeout, &hActiveStatus, &hActiveFails,
 			&hPassiveEnabled, &hPassiveFailDur, &hPassiveMaxFail,
 			&lbTryDurationMs, &lbTryIntervalMs,
@@ -2006,6 +2009,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			ProxySecret:            proxySecret,
 			CompressDisabled:       compressDisabled,
 			LBPolicy:               lbPolicy,
+			LBHeaderField:          lbHeaderField,
+			LBCookieName:           lbCookieName,
+			LBCookieSecret:         lbCookieSecret,
 			WeightedLBAvailable:    s.WeightedLBAvailable,
 			LBTryDurationMs:         lbTryDurationMs,
 			LBTryIntervalMs:         lbTryIntervalMs,

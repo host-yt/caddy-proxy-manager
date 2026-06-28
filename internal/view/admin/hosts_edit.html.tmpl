@@ -630,8 +630,27 @@ X-Authentik-Meta-Version</pre>
             <option value="round_robin"       {{if eq .LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
             <option value="least_conn"        {{if eq .LBPolicy "least_conn"}}selected{{end}}>Least connections</option>
             <option value="ip_hash"           {{if eq .LBPolicy "ip_hash"}}selected{{end}}>IP hash (sticky)</option>
+            <option value="uri_hash"          {{if eq .LBPolicy "uri_hash"}}selected{{end}}>URI hash</option>
+            <option value="header"            {{if eq .LBPolicy "header"}}selected{{end}}>Header</option>
+            <option value="cookie"            {{if eq .LBPolicy "cookie"}}selected{{end}}>Cookie</option>
             {{if .WeightedLBAvail}}<option value="weighted_round_robin" {{if eq .LBPolicy "weighted_round_robin"}}selected{{end}}>Weighted round robin</option>{{end}}
           </select>
+        </label>
+      </div>
+      <div id="hpg-lb-header-row" class="{{if ne .LBPolicy "header"}}hidden{{end}}">
+        <label class="block">
+          <span class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Header name</span>
+          <input type="text" name="lb_header_field" value="{{.LBHeaderField}}" placeholder="X-User-ID" class="r-input w-full text-sm">
+        </label>
+      </div>
+      <div id="hpg-lb-cookie-row" class="{{if ne .LBPolicy "cookie"}}hidden{{end}} space-y-3">
+        <label class="block">
+          <span class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Cookie name</span>
+          <input type="text" name="lb_cookie_name" value="{{.LBCookieName}}" placeholder="lb_sticky" class="r-input w-full text-sm">
+        </label>
+        <label class="block">
+          <span class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Cookie HMAC secret (optional)</span>
+          <input type="text" name="lb_cookie_secret" value="{{.LBCookieSecret}}" placeholder="leave empty to disable signing" class="r-input w-full text-sm">
         </label>
       </div>
       {{if not .WeightedLBAvail}}<p class="t-caption text-warning">Weighted round-robin needs the custom Caddy image (WEIGHTED_LB_AVAILABLE); hidden until the fleet runs it.</p>{{end}}
@@ -1205,6 +1224,17 @@ X-Authentik-Meta-Version</pre>
     if (wafTg && wafFl) wafTg.addEventListener('change', function(){ wafFl.classList.toggle('hidden', !wafTg.checked); });
     var mtlsTg = document.getElementById('hpg-mtls-toggle'), mtlsFl = document.getElementById('hpg-mtls-fields');
     if (mtlsTg && mtlsFl) mtlsTg.addEventListener('change', function(){ mtlsFl.classList.toggle('hidden', !mtlsTg.checked); });
+
+    // LB policy: show header/cookie extra fields when the matching policy is selected.
+    var lbPolicySel = document.getElementById('hpg-lb-policy');
+    var lbHeaderRow = document.getElementById('hpg-lb-header-row');
+    var lbCookieRow = document.getElementById('hpg-lb-cookie-row');
+    function syncLBPolicy() {
+      var v = lbPolicySel ? lbPolicySel.value : '';
+      if (lbHeaderRow) lbHeaderRow.classList.toggle('hidden', v !== 'header');
+      if (lbCookieRow) lbCookieRow.classList.toggle('hidden', v !== 'cookie');
+    }
+    if (lbPolicySel) lbPolicySel.addEventListener('change', syncLBPolicy);
 
     // Egress IP: show fixed-IP input only when mode=fixed.
     var egressMode = document.getElementById('hpg-egress-mode');
