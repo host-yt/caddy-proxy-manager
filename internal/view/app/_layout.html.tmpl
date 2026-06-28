@@ -211,9 +211,12 @@
     {{if .Data.Flash}}<div class="mb-4 p-3 rounded-md bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/30 text-emerald-800 dark:text-emerald-300 text-sm">{{.Data.Flash}}</div>{{end}}
     {{if .Data.Error}}<div class="mb-4 p-3 rounded-md bg-rose-50 dark:bg-rose-500/10 border border-rose-200 dark:border-rose-500/30 text-rose-800 dark:text-rose-300 text-sm">{{.Data.Error}}</div>{{end}}
     {{if .Data.SystemBanner}}
-    <div class="mb-4 {{if eq .Data.SystemBannerType "error"}}bg-rose-50 border-rose-400 text-rose-800 dark:bg-rose-900/30 dark:border-rose-600 dark:text-rose-200{{else if eq .Data.SystemBannerType "warning"}}bg-amber-50 border-amber-400 text-amber-800 dark:bg-amber-900/30 dark:border-amber-600 dark:text-amber-200{{else}}bg-sky-50 border-sky-400 text-sky-800 dark:bg-sky-900/30 dark:border-sky-600 dark:text-sky-200{{end}} border-l-4 px-4 py-2 text-sm flex items-center gap-2">
-      <span>{{.Data.SystemBanner}}</span>
+    <div id="hpg-sys-banner" data-banner-text="{{.Data.SystemBanner}}" class="mb-4 {{if eq .Data.SystemBannerType "error"}}bg-rose-50 border-rose-400 text-rose-800 dark:bg-rose-900/30 dark:border-rose-600 dark:text-rose-200{{else if eq .Data.SystemBannerType "warning"}}bg-amber-50 border-amber-400 text-amber-800 dark:bg-amber-900/30 dark:border-amber-600 dark:text-amber-200{{else}}bg-sky-50 border-sky-400 text-sky-800 dark:bg-sky-900/30 dark:border-sky-600 dark:text-sky-200{{end}} border-l-4 px-4 py-2 text-sm flex items-center gap-2">
+      <span class="flex-1">{{.Data.SystemBanner}}</span>
+      {{if .Data.SystemBannerLink}}<a href="{{.Data.SystemBannerLink}}" target="_blank" rel="noopener" class="ml-2 underline font-medium whitespace-nowrap cursor-pointer">{{if .Data.SystemBannerLinkLabel}}{{.Data.SystemBannerLinkLabel}}{{else}}Learn more{{end}}</a>{{end}}
+      <button id="hpg-sys-banner-x" type="button" class="ml-3 shrink-0 opacity-60 hover:opacity-100 cursor-pointer transition-opacity leading-none" aria-label="Dismiss">&times;</button>
     </div>
+    <script nonce="{{.Data.CSPNonce}}">(function(){var b=document.getElementById('hpg-sys-banner');if(!b)return;function key(s){var h=0,i;for(i=0;i<s.length;i++)h=((h<<5)-h+s.charCodeAt(i))|0;return 'hpg-banner-'+h;}var k=key(b.dataset.bannerText||'');try{if(localStorage.getItem(k)){b.style.display='none';return;}}catch(e){}var x=document.getElementById('hpg-sys-banner-x');if(x)x.addEventListener('click',function(){try{localStorage.setItem(k,'1');}catch(e){}b.style.display='none';});})();</script>
     {{end}}
 
     {{if eq .Page "dashboard"}}{{template "dashboard" .Data}}{{end}}

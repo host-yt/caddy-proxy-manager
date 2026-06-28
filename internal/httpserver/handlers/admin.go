@@ -158,8 +158,10 @@ type baseAdminData struct {
 	Profile  string
 	Features deployment.Features
 	// SystemBanner is shown site-wide; empty means no banner.
-	SystemBanner     string
-	SystemBannerType string // "info" | "warning" | "error"
+	SystemBanner          string
+	SystemBannerType      string // "info" | "warning" | "error"
+	SystemBannerLink      string // optional CTA URL
+	SystemBannerLinkLabel string // optional CTA label; defaults to "Learn more"
 }
 
 // pageBreadcrumbs maps a page key to its breadcrumb trail (section + leaf).
@@ -234,17 +236,21 @@ func (h *AdminHandlers) base(r *http.Request, title string) baseAdminData {
 	d.Features = prof.Features()
 	// Load system announcement banner from DB.
 	if db := h.DB(); db != nil {
-		var text, btype string
+		var text, btype, link, linkLabel string
 		ctx2, can := context.WithTimeout(r.Context(), 500*time.Millisecond)
 		defer can()
 		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_text").Scan(&text)
 		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_type").Scan(&btype)
+		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_link").Scan(&link)
+		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_link_label").Scan(&linkLabel)
 		if strings.TrimSpace(text) != "" {
 			d.SystemBanner = strings.TrimSpace(text)
 			d.SystemBannerType = btype
 			if d.SystemBannerType == "" {
 				d.SystemBannerType = "info"
 			}
+			d.SystemBannerLink = strings.TrimSpace(link)
+			d.SystemBannerLinkLabel = strings.TrimSpace(linkLabel)
 		}
 	}
 	return d
@@ -1929,23 +1935,27 @@ type clientRow struct {
 	ServiceCount    int
 	Bandwidth30d    int64  // bytes out, last 30 days
 	CreatedAt       string
+	Tag             string // grouping label
+	Category        string // billing/segment category
 }
 
 type clientsData struct {
 	baseAdminData
 	Clients []clientRow
 	// Pagination/sort/search.
-	Page         int
-	Size         int
-	Total        int
-	TotalPgs     int
-	Sort         string
-	Dir          string
-	Q            string
-	PrevURL      string
-	NextURL      string
-	QueryValues  string
-	SavedFilters []savedFilter
+	Page           int
+	Size           int
+	Total          int
+	TotalPgs       int
+	Sort           string
+	Dir            string
+	Q              string
+	TagFilter      string
+	CategoryFilter string
+	PrevURL        string
+	NextURL        string
+	QueryValues    string
+	SavedFilters   []savedFilter
 }
 
 func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
@@ -1955,12 +1965,14 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	lp := parseListParams(r, []string{"id", "display_name", "email", "created_at"},
 		"id", "desc", 50)
 	d := clientsData{
-		baseAdminData: h.base(r, "Clients"),
-		Page:          lp.Page,
-		Size:          lp.Size,
-		Sort:          lp.Sort,
-		Dir:           lp.Dir,
-		Q:             lp.Q,
+		baseAdminData:  h.base(r, "Clients"),
+		Page:           lp.Page,
+		Size:           lp.Size,
+		Sort:           lp.Sort,
+		Dir:            lp.Dir,
+		Q:              lp.Q,
+		TagFilter:      strings.TrimSpace(r.URL.Query().Get("tag")),
+		CategoryFilter: strings.TrimSpace(r.URL.Query().Get("category")),
 	}
 	db := h.DB()
 	if db == nil {
@@ -1971,12 +1983,20 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	where := "1=1"
+	where := []string{"1=1"}
 	var args []any
 	if lp.Q != "" {
 		like := likeContains(lp.Q)
-		where = `(u.email LIKE ? ESCAPE '\\' OR c.display_name LIKE ? ESCAPE '\\' OR u.full_name LIKE ? ESCAPE '\\' OR c.external_ref LIKE ? ESCAPE '\\')`
-		args = []any{like, like, like, like}
+		where = append(where, `(u.email LIKE ? ESCAPE '\\' OR c.display_name LIKE ? ESCAPE '\\' OR u.full_name LIKE ? ESCAPE '\\' OR c.external_ref LIKE ? ESCAPE '\\')`)
+		args = append(args, like, like, like, like)
+	}
+	if d.TagFilter != "" {
+		where = append(where, "c.tag = ?")
+		args = append(args, d.TagFilter)
+	}
+	if d.CategoryFilter != "" {
+		where = append(where, "c.category = ?")
+		args = append(args, d.CategoryFilter)
 	}
 
 	orderCol := clientsSortCol(lp.Sort)
@@ -1985,7 +2005,8 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 		dir = "desc"
 	}
 
-	baseFrom := `FROM clients c JOIN users u ON u.id = c.user_id WHERE ` + where
+	whereSQL := strings.Join(where, " AND ")
+	baseFrom := `FROM clients c JOIN users u ON u.id = c.user_id WHERE ` + whereSQL
 
 	var total int
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) "+baseFrom, args...).Scan(&total)
@@ -1993,7 +2014,8 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	selectSQL := `SELECT c.id, COALESCE(c.display_name, u.full_name, u.email), COALESCE(c.display_name, ''), u.email,
 	        COALESCE(c.external_ref, ''),
 	        (SELECT COUNT(*) FROM services s WHERE s.client_id = c.id),
-	        DATE_FORMAT(c.created_at, '%Y-%m-%d')
+	        DATE_FORMAT(c.created_at, '%Y-%m-%d'),
+	        COALESCE(c.tag, ''), COALESCE(c.category, '')
 	 ` + baseFrom + ` ORDER BY ` + orderCol + ` ` + dir + ` LIMIT ? OFFSET ?`
 	queryArgs := append(args, lp.Size, lp.Offset())
 
@@ -2002,7 +2024,7 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var c clientRow
-			if err := rows.Scan(&c.ID, &c.DisplayName, &c.EditDisplayName, &c.Email, &c.ExternalRef, &c.ServiceCount, &c.CreatedAt); err == nil {
+			if err := rows.Scan(&c.ID, &c.DisplayName, &c.EditDisplayName, &c.Email, &c.ExternalRef, &c.ServiceCount, &c.CreatedAt, &c.Tag, &c.Category); err == nil {
 				d.Clients = append(d.Clients, c)
 			}
 		}
@@ -2054,7 +2076,7 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	if lp.Page < d.TotalPgs {
 		d.NextURL = buildPageURL(q, lp.Page+1)
 	}
-	d.QueryValues = clientsQueryJSON(lp.Q, lp.Sort, lp.Dir)
+	d.QueryValues = clientsQueryJSON(lp.Q, lp.Sort, lp.Dir, d.TagFilter, d.CategoryFilter)
 	if sess != nil {
 		d.SavedFilters = h.savedFiltersForView(ctx, sess.UserID, "clients")
 	}
@@ -2074,8 +2096,8 @@ func clientsSortCol(s string) string {
 	}
 }
 
-func clientsQueryJSON(q, sort, dir string) string {
-	b, _ := json.Marshal(map[string]string{"q": q, "sort": sort, "dir": dir})
+func clientsQueryJSON(q, sort, dir, tag, category string) string {
+	b, _ := json.Marshal(map[string]string{"q": q, "sort": sort, "dir": dir, "tag": tag, "category": category})
 	return string(b)
 }
 
@@ -2093,6 +2115,14 @@ func (h *AdminHandlers) ClientsUpdate(w http.ResponseWriter, r *http.Request) {
 	displayName := strings.TrimSpace(r.FormValue("display_name"))
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 	externalRef := strings.TrimSpace(r.FormValue("external_ref"))
+	tag := strings.TrimSpace(r.FormValue("tag"))
+	category := strings.TrimSpace(r.FormValue("category"))
+	if len(tag) > 64 {
+		tag = tag[:64]
+	}
+	if len(category) > 64 {
+		category = category[:64]
+	}
 
 	if displayName == "" || email == "" {
 		redirectWithFlash(w, r, "/admin/clients", "", "name and email are required")
@@ -2129,7 +2159,11 @@ func (h *AdminHandlers) ClientsUpdate(w http.ResponseWriter, r *http.Request) {
 		extRef = sql.NullString{String: externalRef, Valid: true}
 	}
 	if _, err := tx.ExecContext(ctx,
-		"UPDATE clients SET display_name = ?, external_ref = ? WHERE id = ?", displayName, extRef, id); err != nil {
+		"UPDATE clients SET display_name = ?, external_ref = ?, tag = ?, category = ? WHERE id = ?",
+		displayName, extRef,
+		sql.NullString{String: tag, Valid: tag != ""},
+		sql.NullString{String: category, Valid: category != ""},
+		id); err != nil {
 		redirectWithFlash(w, r, "/admin/clients", "", "client update failed")
 		return
 	}
@@ -2156,6 +2190,14 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 	password := r.FormValue("password")
 	externalRef := strings.TrimSpace(r.FormValue("external_ref"))
+	tag := strings.TrimSpace(r.FormValue("tag"))
+	category := strings.TrimSpace(r.FormValue("category"))
+	if len(tag) > 64 {
+		tag = tag[:64]
+	}
+	if len(category) > 64 {
+		category = category[:64]
+	}
 
 	if displayName == "" || email == "" || password == "" {
 		redirectWithFlash(w, r, "/admin/clients", "", "all fields required")
@@ -2200,8 +2242,10 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 		extRef = sql.NullString{String: externalRef, Valid: true}
 	}
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO clients (user_id, display_name, external_ref) VALUES (?, ?, ?)",
-		userID, displayName, extRef); err != nil {
+		"INSERT INTO clients (user_id, display_name, external_ref, tag, category) VALUES (?, ?, ?, ?, ?)",
+		userID, displayName, extRef,
+		sql.NullString{String: tag, Valid: tag != ""},
+		sql.NullString{String: category, Valid: category != ""}); err != nil {
 		h.Logger.Error("client record create", "err", err)
 		redirectWithFlash(w, r, "/admin/clients", "", "client insert failed")
 		return
@@ -3552,8 +3596,10 @@ type settingsData struct {
 	AlertErrorRatePct       float64
 	AlertErrorRateWindowMin int
 	// Banner tab fields.
-	SystemBannerText string
-	SystemBannerType string
+	SystemBannerText      string
+	SystemBannerType      string
+	SystemBannerLink      string
+	SystemBannerLinkLabel string
 }
 
 func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -3586,6 +3632,8 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			"failover.auto_enabled",
 			"system.banner_text",
 			"system.banner_type",
+			"system.banner_link",
+			"system.banner_link_label",
 		})
 		d.OIDC = oidcView{
 			Enabled: kv["oidc.enabled"] == "1", ProviderName: defaultStr(kv["oidc.provider_name"], "Authentik"),
@@ -3689,6 +3737,8 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		d.AlertErrorRateWindowMin = atoiOr(alertKV["alert.error_rate_window_minutes"], alertCfg.ErrorRateWindowMinutes)
 		d.SystemBannerText = kv["system.banner_text"]
 		d.SystemBannerType = defaultStr(kv["system.banner_type"], "info")
+		d.SystemBannerLink = kv["system.banner_link"]
+		d.SystemBannerLinkLabel = kv["system.banner_link_label"]
 	}
 	d.SSOJump = h.loadSSOJumpSettingsView(r, d.AppURL)
 	// Branding tab: pre-fill from the shared cached loader (same source as
@@ -5169,11 +5219,14 @@ func (h *AdminHandlers) SettingsBanner(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	text := strings.TrimSpace(r.FormValue("banner_text"))
 	btype := r.FormValue("banner_type")
+	link := strings.TrimSpace(r.FormValue("banner_link"))
+	linkLabel := strings.TrimSpace(r.FormValue("banner_link_label"))
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if text == "" {
-		// Clear banner.
-		_, _ = db.ExecContext(ctx, "DELETE FROM settings WHERE `key` IN (?,?)", "system.banner_text", "system.banner_type")
+		// Clear banner and all associated fields.
+		_, _ = db.ExecContext(ctx, "DELETE FROM settings WHERE `key` IN (?,?,?,?)",
+			"system.banner_text", "system.banner_type", "system.banner_link", "system.banner_link_label")
 		redirectWithFlash(w, r, "/admin/settings?tab=banner", "Announcement cleared", "")
 		return
 	}
@@ -5187,6 +5240,8 @@ func (h *AdminHandlers) SettingsBanner(w http.ResponseWriter, r *http.Request) {
 	}
 	upsert("system.banner_text", text)
 	upsert("system.banner_type", btype)
+	upsert("system.banner_link", link)
+	upsert("system.banner_link_label", linkLabel)
 	redirectWithFlash(w, r, "/admin/settings?tab=banner", "Announcement saved", "")
 }
 

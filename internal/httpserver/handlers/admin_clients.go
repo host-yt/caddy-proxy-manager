@@ -180,10 +180,14 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 		}
 	}
 
-	// Load admin notes; ignore errors if column not yet migrated.
-	var notes sql.NullString
-	_ = db.QueryRowContext(ctx, "SELECT COALESCE(notes,'') FROM clients WHERE id=?", id).Scan(&notes)
+	// Load admin notes, tag, category; ignore errors if columns not yet migrated.
+	var notes, tag, category sql.NullString
+	_ = db.QueryRowContext(ctx,
+		"SELECT COALESCE(notes,''), COALESCE(tag,''), COALESCE(category,'') FROM clients WHERE id=?", id,
+	).Scan(&notes, &tag, &category)
 	d.Notes = notes.String
+	d.Tag = tag.String
+	d.Category = category.String
 
 	// Load all plans for plan-change select.
 	prows, perr := db.QueryContext(ctx, "SELECT id, name FROM plans ORDER BY name")
@@ -250,6 +254,8 @@ type clientDetailData struct {
 	ActiveRoutes     int
 	BandwidthBytes7d int64            // last 7 days from host_access_log
 	Notes            string           // admin-only internal notes
+	Tag              string           // grouping label
+	Category         string           // billing/segment category
 	ClientAudit      []clientAuditRow // last 15 audit entries for this client
 	AllPlans         []planRow        // for plan change select
 	CurrentPlanID    int64            // plan_id of the first service (representative)

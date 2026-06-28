@@ -8,11 +8,19 @@
 
 <div class="space-y-4">
 
-<!-- Search bar -->
-<form method="GET" action="/admin/clients" class="flex items-center gap-2">
-  <div class="relative flex-1 max-w-xs">
+<!-- Search + tag filter bar -->
+<form method="GET" action="/admin/clients" class="flex flex-wrap items-end gap-2">
+  <div class="relative flex-1 min-w-[180px] max-w-xs">
     <svg class="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style="color:rgb(var(--muted))" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="9" cy="9" r="5"/><path d="M13.5 13.5l3 3"/></svg>
     <input name="q" value="{{.Q}}" placeholder="Search name, email..." class="r-input pl-9">
+  </div>
+  <div class="min-w-[140px]">
+    <label class="t-eyebrow mb-1 block">Tag</label>
+    <input name="tag" value="{{.TagFilter}}" placeholder="e.g. enterprise" class="r-input">
+  </div>
+  <div class="min-w-[140px]">
+    <label class="t-eyebrow mb-1 block">Category</label>
+    <input name="category" value="{{.CategoryFilter}}" placeholder="e.g. saas" class="r-input">
   </div>
   <button class="r-btn-primary cursor-pointer">Search</button>
   {{if .Q}}<a href="/admin/clients" class="t-small hover:underline cursor-pointer">Clear</a>{{end}}
@@ -105,7 +113,11 @@
         {{range .Clients}}
         <tr class="cursor-pointer">
           <td class="pl-5 pr-2 py-3.5"><input type="checkbox" name="ids" value="{{.ID}}" class="rounded cursor-pointer cli-row-chk"></td>
-          <td class="px-5 py-3.5 font-medium whitespace-nowrap">{{.DisplayName}}</td>
+          <td class="px-5 py-3.5 font-medium whitespace-nowrap">
+            {{.DisplayName}}
+            {{if .Tag}}<a href="/admin/clients?tag={{.Tag}}" class="r-pill r-pill-neutral mt-1 hover:underline cursor-pointer">{{.Tag}}</a>{{end}}
+            {{if .Category}}<span class="r-pill r-pill-info mt-1">{{.Category}}</span>{{end}}
+          </td>
           <td class="px-5 py-3.5 whitespace-nowrap">{{.Email}}</td>
           <td class="px-5 py-3.5">{{.ExternalRef}}</td>
           <td class="px-5 py-3.5"><span class="r-pill r-pill-neutral">{{.ServiceCount}}</span></td>
@@ -121,7 +133,9 @@
                 data-id="{{.ID}}"
                 data-name="{{if .EditDisplayName}}{{.EditDisplayName}}{{else}}{{.DisplayName}}{{end}}"
                 data-email="{{.Email}}"
-                data-extref="{{.ExternalRef}}">Edit</button>
+                data-extref="{{.ExternalRef}}"
+                data-tag="{{.Tag}}"
+                data-category="{{.Category}}">Edit</button>
               <form method="POST" action="/admin/clients/{{.ID}}/delete" class="contents" data-confirm="Delete client {{.DisplayName}} and their user account?">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button type="submit" class="hpg-act-item is-danger" role="menuitem">Delete</button>
@@ -188,6 +202,16 @@
         <div>
           <label class="t-eyebrow block mb-1.5">External reference (FOSSBilling order ID)</label>
           <input name="external_ref" class="r-input w-full">
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="t-eyebrow block mb-1.5">Tag</label>
+            <input name="tag" maxlength="64" placeholder="e.g. enterprise" class="r-input w-full">
+          </div>
+          <div>
+            <label class="t-eyebrow block mb-1.5">Category</label>
+            <input name="category" maxlength="64" placeholder="e.g. saas" class="r-input w-full">
+          </div>
         </div>
         <div class="flex items-center justify-end gap-2 pt-1">
           <button type="button" id="cli-modal-cancel" class="r-btn-secondary cursor-pointer">Cancel</button>
@@ -272,6 +296,8 @@
       setVal("display_name", d.name);
       setVal("email", d.email);
       setVal("external_ref", d.extref);
+      setVal("tag", d.tag);
+      setVal("category", d.category);
       open();
     });
   }

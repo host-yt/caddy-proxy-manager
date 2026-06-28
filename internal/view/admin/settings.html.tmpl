@@ -109,9 +109,9 @@
 
   <!-- ── Customer fields ───────────────────────────────────── -->
   <section data-settings-pane="customer" class="hpg-settings-pane hidden r-card">
-    <p class="t-eyebrow mb-1">Customer fields</p>
-    <h2 class="t-h3 mb-2">Optional profile fields</h2>
-    <p class="t-small mb-4" style="color:rgb(var(--muted))">Controls which optional profile fields the customer can fill in <code class="text-xs">/app/account</code>. Disabled = field hidden from the customer UI and refused at the server layer even if posted directly.</p>
+    <p class="t-eyebrow mb-1">Customer profile fields</p>
+    <h2 class="t-h3 mb-2">Customer profile fields</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Configures which optional profile fields customers can fill at <code class="text-xs">/app/account</code>. Disabled = field hidden from the customer portal and refused server-side even if posted directly.</p>
     <form method="POST" action="/admin/settings/customer-fields" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <label class="r-toggle">
@@ -328,20 +328,49 @@
   <!-- ── SMTP ──────────────────────────────────────────────── -->
   <section data-settings-pane="email" class="hpg-settings-pane hidden r-card">
     <p class="t-eyebrow mb-1">Delivery</p>
-    <h2 class="t-h3 mb-4">SMTP</h2>
+    <h2 class="t-h3 mb-3">SMTP</h2>
+
+    <!-- Preset cards - JS-only convenience, no hidden field needed -->
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 mb-4" id="smtp-preset-cards">
+      <button type="button" class="smtp-preset-card text-left rounded-xl border p-3 cursor-pointer transition" data-smtp-preset="custom" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+        <span class="block text-sm font-medium" style="color:rgb(var(--text))">Custom</span>
+        <span class="block t-caption" style="color:rgb(var(--muted))">Enter manually</span>
+      </button>
+      <button type="button" class="smtp-preset-card text-left rounded-xl border p-3 cursor-pointer transition" data-smtp-preset="gmail" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+        <span class="block text-sm font-medium" style="color:rgb(var(--text))">Gmail</span>
+        <span class="block t-caption" style="color:rgb(var(--muted))">smtp.gmail.com:587</span>
+      </button>
+      <button type="button" class="smtp-preset-card text-left rounded-xl border p-3 cursor-pointer transition" data-smtp-preset="microsoft365" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+        <span class="block text-sm font-medium" style="color:rgb(var(--text))">Microsoft 365</span>
+        <span class="block t-caption" style="color:rgb(var(--muted))">smtp.office365.com:587</span>
+      </button>
+      <button type="button" class="smtp-preset-card text-left rounded-xl border p-3 cursor-pointer transition" data-smtp-preset="sendgrid" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+        <span class="block text-sm font-medium" style="color:rgb(var(--text))">SendGrid</span>
+        <span class="block t-caption" style="color:rgb(var(--muted))">smtp.sendgrid.net:587</span>
+      </button>
+      <button type="button" class="smtp-preset-card text-left rounded-xl border p-3 cursor-pointer transition" data-smtp-preset="brevo" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+        <span class="block text-sm font-medium" style="color:rgb(var(--text))">Brevo</span>
+        <span class="block t-caption" style="color:rgb(var(--muted))">smtp-relay.brevo.com:587</span>
+      </button>
+      <button type="button" class="smtp-preset-card text-left rounded-xl border p-3 cursor-pointer transition" data-smtp-preset="mailgun" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+        <span class="block text-sm font-medium" style="color:rgb(var(--text))">Mailgun</span>
+        <span class="block t-caption" style="color:rgb(var(--muted))">smtp.mailgun.org:587</span>
+      </button>
+    </div>
+
     <form method="POST" action="/admin/settings/smtp" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
         <label class="block t-caption mb-1" style="color:rgb(var(--text))">Host</label>
-        <input name="host" value="{{.SMTP.Host}}" class="r-input">
+        <input name="host" id="smtp-host" value="{{.SMTP.Host}}" class="r-input">
       </div>
       <div>
         <label class="block t-caption mb-1" style="color:rgb(var(--text))">Port</label>
-        <input name="port" type="number" min="1" max="65535" value="{{.SMTP.Port}}" class="r-input tabular-nums">
+        <input name="port" id="smtp-port" type="number" min="1" max="65535" value="{{.SMTP.Port}}" class="r-input tabular-nums">
       </div>
       <div>
         <label class="block t-caption mb-1" style="color:rgb(var(--text))">Encryption</label>
-        <select name="encryption" class="r-select">
+        <select name="encryption" id="smtp-encryption" class="r-select">
           <option value="tls" {{if eq .SMTP.Encryption "tls"}}selected{{end}}>STARTTLS</option>
           <option value="ssl" {{if eq .SMTP.Encryption "ssl"}}selected{{end}}>SSL/TLS</option>
           <option value="none" {{if eq .SMTP.Encryption "none"}}selected{{end}}>None</option>
@@ -609,8 +638,8 @@
   <!-- ── Cloudflare ─────────────────────────────────────────── -->
   <section data-settings-pane="cloudflare" class="hpg-settings-pane hidden r-card">
     <p class="t-eyebrow mb-1">Infrastructure</p>
-    <h2 class="t-h3 mb-2">Cloudflare account</h2>
-    <p class="t-small mb-4" style="color:rgb(var(--muted))">API token + account ID. Token is verified against Cloudflare on save.</p>
+    <h2 class="t-h3 mb-2">Cloudflare account integration</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Account-level Cloudflare integration: an API token (verified on save) lets the panel call Cloudflare APIs, and the IP-trust toggle instructs Caddy to read real client IPs from the <code class="text-xs">CF-Connecting-IP</code> header when proxied through Cloudflare. This is <strong>not</strong> the same as the per-zone DNS credentials used for ACME DNS-01 wildcard certificates - those are configured per-domain in the DNS providers section.</p>
     <form method="POST" action="/admin/settings/cloudflare" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
@@ -653,46 +682,61 @@
     <p class="t-small mb-4" style="color:rgb(var(--muted))">Configure an LLM provider for the in-app assistant. API keys are stored AES-256-GCM encrypted at rest and never shown again - leave a field blank to keep the existing key. Use <strong>Test</strong> to verify a saved key with a minimal request.</p>
     <form method="POST" action="/admin/settings/ai" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <!-- hidden input kept in sync by the card-picker JS below; Go handler reads "default_provider" -->
+      <input type="hidden" id="ai-provider-input" name="default_provider" value="{{.AI.DefaultProvider}}">
+
+      <!-- Provider cards -->
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Default provider</label>
-        <select name="default_provider" class="r-select" style="max-width:18rem">
-          <option value="" {{if eq .AI.DefaultProvider ""}}selected{{end}}>- none -</option>
-          {{range .AI.Providers}}
-          <option value="{{.ID}}" {{if eq $.AI.DefaultProvider .ID}}selected{{end}}>{{.Label}}</option>
-          {{end}}
-        </select>
-        <p class="t-caption mt-1" style="color:rgb(var(--muted))">The assistant uses this provider's key unless overridden.</p>
+        <p class="t-caption mb-2" style="color:rgb(var(--text))">Default provider</p>
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-2" id="ai-provider-cards">
+          <button type="button" class="ai-provider-card text-left rounded-xl border p-3 cursor-pointer transition" data-ai-card="anthropic" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+            <span class="block text-sm font-medium" style="color:rgb(var(--text))">Anthropic</span>
+            <span class="block t-caption" style="color:rgb(var(--muted))">Claude models</span>
+          </button>
+          <button type="button" class="ai-provider-card text-left rounded-xl border p-3 cursor-pointer transition" data-ai-card="openai" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+            <span class="block text-sm font-medium" style="color:rgb(var(--text))">OpenAI</span>
+            <span class="block t-caption" style="color:rgb(var(--muted))">GPT models</span>
+          </button>
+          <button type="button" class="ai-provider-card text-left rounded-xl border p-3 cursor-pointer transition" data-ai-card="gemini" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+            <span class="block text-sm font-medium" style="color:rgb(var(--text))">Google Gemini</span>
+            <span class="block t-caption" style="color:rgb(var(--muted))">Gemini models</span>
+          </button>
+          <button type="button" class="ai-provider-card text-left rounded-xl border p-3 cursor-pointer transition" data-ai-card="openrouter" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+            <span class="block text-sm font-medium" style="color:rgb(var(--text))">OpenRouter</span>
+            <span class="block t-caption" style="color:rgb(var(--muted))">Multi-model gateway</span>
+          </button>
+        </div>
+        <p class="t-caption mt-2" style="color:rgb(var(--muted))">The assistant uses this provider's key unless overridden.</p>
       </div>
 
-      <div class="grid grid-cols-1 gap-3">
-        {{range .AI.Providers}}
-        <div class="r-card" style="background:rgb(var(--surface-2)/.5)">
-          <div class="flex items-center justify-between mb-3">
-            <span class="t-body font-medium" style="color:rgb(var(--text))">{{.Label}}</span>
-            {{if .Configured}}
-            <span class="r-pill r-pill-success">Key configured</span>
-            {{else}}
-            <span class="r-pill r-pill-neutral">Not set</span>
-            {{end}}
-          </div>
-          <div class="flex flex-col sm:flex-row sm:items-center gap-2">
-            <input name="key_{{.ID}}" type="password" autocomplete="new-password" placeholder="{{if .Configured}}leave blank to keep{{else}}paste API key{{end}}" class="r-input font-mono flex-1">
-            <button type="button" data-ai-test="{{.ID}}" class="r-btn-secondary cursor-pointer whitespace-nowrap">Test key</button>
-          </div>
-          <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
-            <label class="t-caption shrink-0" style="min-width:4rem;color:rgb(var(--muted))">Model</label>
-            <select name="model_{{.ID}}" data-ai-model="{{.ID}}" data-ai-model-saved="{{.Model}}" class="r-select flex-1" style="font-size:.75rem">
-              <option value="" {{if eq .Model ""}}selected{{end}}>Default ({{if eq .ID "anthropic"}}claude-3-5-haiku-latest{{else if eq .ID "openai"}}gpt-4o-mini{{else if eq .ID "gemini"}}gemini-1.5-flash{{else}}openai/gpt-4o-mini{{end}})</option>
-              {{if .Model}}<option value="{{.Model}}" selected>{{.Model}}</option>{{end}}
-            </select>
-            <button type="button" data-ai-models-refresh="{{.ID}}" class="r-btn-secondary cursor-pointer whitespace-nowrap">Refresh models</button>
-          </div>
-          {{if .Configured}}<label class="r-toggle mt-2" style="font-size:.75rem;color:rgb(var(--danger))"><input type="checkbox" name="clear_{{.ID}}" value="1"><span></span>Remove stored key on save</label>{{end}}
-          <p data-ai-models-status="{{.ID}}" class="hidden mt-2 t-caption"></p>
-          <p data-ai-test-result="{{.ID}}" class="hidden mt-2 t-caption"></p>
+      <!-- Per-provider field blocks; only the selected one is shown -->
+      {{range .AI.Providers}}
+      <div id="ai-fields-{{.ID}}" class="ai-provider-fields r-card hidden" style="background:rgb(var(--surface-2)/.5)">
+        <div class="flex items-center justify-between mb-3">
+          <span class="t-body font-medium" style="color:rgb(var(--text))">{{.Label}}</span>
+          {{if .Configured}}
+          <span class="r-pill r-pill-success">Key configured</span>
+          {{else}}
+          <span class="r-pill r-pill-neutral">Not set</span>
+          {{end}}
         </div>
-        {{end}}
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+          <input name="key_{{.ID}}" type="password" autocomplete="new-password" placeholder="{{if .Configured}}leave blank to keep{{else}}paste API key{{end}}" class="r-input font-mono flex-1">
+          <button type="button" data-ai-test="{{.ID}}" class="r-btn-secondary cursor-pointer whitespace-nowrap">Test key</button>
+        </div>
+        <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-2">
+          <label class="t-caption shrink-0" style="min-width:4rem;color:rgb(var(--muted))">Model</label>
+          <select name="model_{{.ID}}" data-ai-model="{{.ID}}" data-ai-model-saved="{{.Model}}" class="r-select flex-1" style="font-size:.75rem">
+            <option value="" {{if eq .Model ""}}selected{{end}}>Default ({{if eq .ID "anthropic"}}claude-3-5-haiku-latest{{else if eq .ID "openai"}}gpt-4o-mini{{else if eq .ID "gemini"}}gemini-1.5-flash{{else}}openai/gpt-4o-mini{{end}})</option>
+            {{if .Model}}<option value="{{.Model}}" selected>{{.Model}}</option>{{end}}
+          </select>
+          <button type="button" data-ai-models-refresh="{{.ID}}" class="r-btn-secondary cursor-pointer whitespace-nowrap">Refresh models</button>
+        </div>
+        {{if .Configured}}<label class="r-toggle mt-2" style="font-size:.75rem;color:rgb(var(--danger))"><input type="checkbox" name="clear_{{.ID}}" value="1"><span></span>Remove stored key on save</label>{{end}}
+        <p data-ai-models-status="{{.ID}}" class="hidden mt-2 t-caption"></p>
+        <p data-ai-test-result="{{.ID}}" class="hidden mt-2 t-caption"></p>
       </div>
+      {{end}}
 
       <div class="flex justify-end">
         <button class="r-btn-primary cursor-pointer">Save AI settings</button>
@@ -1065,8 +1109,9 @@
   <!-- ── SSO Jump ───────────────────────────────────────────── -->
   <section data-settings-pane="sso-jump" class="hpg-settings-pane hidden r-card">
     <p class="t-eyebrow mb-1">Delivery</p>
-    <h2 class="t-h3 mb-2">SSO Jump - FOSSBilling integration</h2>
-    <p class="t-small mb-4" style="color:rgb(var(--muted))">Allows FOSSBilling (or any trusted system) to sign a URL that logs a customer directly into the panel. Signature: <code class="text-xs">HMAC-SHA256(secret, "email=&lt;email&gt;&amp;exp=&lt;unix&gt;")</code>. <a href="/docs/sso-jump" style="color:rgb(var(--accent))" class="hover:underline">View integration docs →</a></p>
+    <h2 class="t-h3 mb-2">External SSO jump (signed URL)</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Lets an <strong>external system</strong> (FOSSBilling or any other trusted back-end) sign a URL with a shared HMAC secret to log a customer directly into the panel without a password. Signature: <code class="text-xs">HMAC-SHA256(secret, "email=&lt;email&gt;&amp;exp=&lt;unix&gt;")</code>. <a href="/docs/sso-jump" style="color:rgb(var(--accent))" class="hover:underline">View integration docs →</a></p>
+    <p class="t-caption mb-4" style="color:rgb(var(--muted))">To log into a customer account from inside the panel, use <strong>Impersonate</strong> on the Users page.</p>
 
     {{if .SSOJump.NewSecret}}
     <div id="hpg-sso-secret-modal" class="fixed inset-0 z-[60] flex items-center justify-center p-4" style="background:rgba(0,0,0,.5);backdrop-filter:blur(4px)">
@@ -1223,6 +1268,65 @@
     });
     selectProvider(providerInput.value || 'bulkgate');
   }
+
+  // AI provider card picker
+  (function(){
+    var aiInput = document.getElementById('ai-provider-input');
+    var aiCards = document.querySelectorAll('[data-ai-card]');
+    function paintAICard(card, active) {
+      card.style.borderColor = active ? 'rgb(var(--accent))' : 'rgb(var(--border))';
+      card.style.background  = active ? 'rgb(var(--accent)/.12)' : 'rgb(var(--surface-2)/.4)';
+      card.style.boxShadow   = active ? '0 0 0 1px rgb(var(--accent))' : 'none';
+    }
+    function selectAIProvider(id) {
+      if (aiInput) aiInput.value = id;
+      document.querySelectorAll('.ai-provider-fields').forEach(function(div) {
+        div.classList.toggle('hidden', div.id !== 'ai-fields-' + id);
+      });
+      aiCards.forEach(function(c) { paintAICard(c, c.dataset.aiCard === id); });
+    }
+    if (aiCards.length) {
+      aiCards.forEach(function(c) {
+        c.addEventListener('click', function() { selectAIProvider(c.dataset.aiCard); });
+      });
+      selectAIProvider(aiInput ? (aiInput.value || '') : '');
+    }
+  })();
+
+  // SMTP preset card picker
+  (function(){
+    var SMTP_PRESETS = {
+      gmail:        { host: 'smtp.gmail.com',         port: '587', enc: 'tls' },
+      microsoft365: { host: 'smtp.office365.com',     port: '587', enc: 'tls' },
+      sendgrid:     { host: 'smtp.sendgrid.net',      port: '587', enc: 'tls' },
+      brevo:        { host: 'smtp-relay.brevo.com',   port: '587', enc: 'tls' },
+      mailgun:      { host: 'smtp.mailgun.org',       port: '587', enc: 'tls' }
+    };
+    var smtpCards = document.querySelectorAll('[data-smtp-preset]');
+    var hostEl = document.getElementById('smtp-host');
+    var portEl = document.getElementById('smtp-port');
+    var encEl  = document.getElementById('smtp-encryption');
+    var activePreset = '';
+    function paintSMTPCard(card, active) {
+      card.style.borderColor = active ? 'rgb(var(--accent))' : 'rgb(var(--border))';
+      card.style.background  = active ? 'rgb(var(--accent)/.12)' : 'rgb(var(--surface-2)/.4)';
+      card.style.boxShadow   = active ? '0 0 0 1px rgb(var(--accent))' : 'none';
+    }
+    smtpCards.forEach(function(c) {
+      c.addEventListener('click', function() {
+        var key = c.dataset.smtpPreset;
+        activePreset = key;
+        smtpCards.forEach(function(x) { paintSMTPCard(x, x.dataset.smtpPreset === key); });
+        var p = SMTP_PRESETS[key];
+        if (p) {
+          if (hostEl) hostEl.value = p.host;
+          if (portEl) portEl.value = p.port;
+          if (encEl)  encEl.value  = p.enc;
+        }
+        // Custom: leave fields as-is, just highlight
+      });
+    });
+  })();
 
   // OIDC: "Use default" redirect fill button.
   var fillBtn = document.querySelector('[data-oidc-fill-redirect]');
@@ -1417,6 +1521,14 @@
           <span class="r-pill r-pill-danger">Error</span>
         </label>
       </div>
+    </div>
+    <div>
+      <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Link URL (optional)</label>
+      <input name="banner_link" type="url" value="{{.SystemBannerLink}}" placeholder="https://example.com/status" class="r-input">
+    </div>
+    <div>
+      <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Link label (optional)</label>
+      <input name="banner_link_label" value="{{.SystemBannerLinkLabel}}" placeholder="View details" class="r-input">
     </div>
     <div class="flex justify-end">
       <button class="r-btn-primary">Save</button>

@@ -67,8 +67,10 @@ type baseAppData struct {
 	// Features gates client nav items by install profile (e.g. tunnels, api_tokens).
 	Features deployment.Features
 	// SystemBanner is shown site-wide; empty means no banner.
-	SystemBanner     string
-	SystemBannerType string // "info" | "warning" | "error"
+	SystemBanner          string
+	SystemBannerType      string // "info" | "warning" | "error"
+	SystemBannerLink      string // optional CTA URL
+	SystemBannerLinkLabel string // optional CTA label; defaults to "Learn more"
 }
 
 func (h *ClientHandlers) base(r *http.Request, title string) baseAppData {
@@ -99,17 +101,21 @@ func (h *ClientHandlers) base(r *http.Request, title string) baseAppData {
 	d.Features = prof.Features()
 	// Load system announcement banner from DB.
 	if db := h.DB(); db != nil {
-		var text, btype string
+		var text, btype, link, linkLabel string
 		ctx2, can := context.WithTimeout(r.Context(), 500*time.Millisecond)
 		defer can()
 		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_text").Scan(&text)
 		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_type").Scan(&btype)
+		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_link").Scan(&link)
+		db.QueryRowContext(ctx2, "SELECT value FROM settings WHERE `key`=?", "system.banner_link_label").Scan(&linkLabel)
 		if strings.TrimSpace(text) != "" {
 			d.SystemBanner = strings.TrimSpace(text)
 			d.SystemBannerType = btype
 			if d.SystemBannerType == "" {
 				d.SystemBannerType = "info"
 			}
+			d.SystemBannerLink = strings.TrimSpace(link)
+			d.SystemBannerLinkLabel = strings.TrimSpace(linkLabel)
 		}
 	}
 	return d
