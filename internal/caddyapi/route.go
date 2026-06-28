@@ -222,6 +222,8 @@ type Route struct {
 	GeoResponseCode    int    // HTTP status for blocked requests (0 = use 403)
 	GeoFailClosed      bool   // block all traffic when GeoIP module unavailable
 	GeoAllowCIDRs      string // comma-separated CIDRs/IPs that bypass country block
+	GeoContinents      string // comma-sep continent codes (ISO: AF AN AS EU NA OC SA)
+	GeoBlockCIDRs      string // comma-sep CIDRs/IPs to always block, independent of geo mode
 
 	// OutboundIPMode: "default" = OS picks; "fixed"/"random" = bind transport
 	// local_addr to OutboundIP so the connection leaves via a specific NIC IP.
@@ -525,6 +527,10 @@ func BuildRoute(r Route) map[string]any {
 	}
 
 	handlers := []any{}
+	// CIDR block list fires before geo check so explicit IP bans always apply.
+	if cidrH := buildCIDRBlock(r); cidrH != nil {
+		handlers = append(handlers, cidrH)
+	}
 	// Geo blocking (maxmind/caddy-maxmind-geolocation, non-stock). Emitted FIRST
 	// so a disallowed country gets 403 before reaching the upstream. Module-gated:
 	// without it stock Caddy rejects the unknown matcher and the node goes offline.
@@ -1336,11 +1342,13 @@ func locationPathMatchers(path string) []string {
 // "maxmind_geolocation", config keys "db_path" / "allow_countries" /
 // "deny_countries". Centralised so a rename is a one-line edit.
 const (
-	geoMatcherName = "maxmind_geolocation"
-	geoFieldDBPath = "db_path"
-	geoFieldAllow  = "allow_countries"
-	geoFieldDeny   = "deny_countries"
-	geoDBPath      = "/data/geoip/GeoLite2-Country.mmdb"
+	geoMatcherName    = "maxmind_geolocation"
+	geoFieldDBPath    = "db_path"
+	geoFieldAllow     = "allow_countries"
+	geoFieldDeny      = "deny_countries"
+	geoFieldAllowCont = "allow_continents"
+	geoFieldDenyCont  = "deny_continents"
+	geoDBPath         = "/data/geoip/GeoLite2-Country.mmdb"
 )
 
 // buildGeoBlock returns a subroute handler that blocks requests from disallowed
@@ -1388,7 +1396,14 @@ func buildGeoBlock(r Route) map[string]any {
 			countries = append(countries, c)
 		}
 	}
-	if len(countries) == 0 {
+	var continents []string
+	for _, c := range strings.Split(r.GeoContinents, ",") {
+		if c = strings.ToUpper(strings.TrimSpace(c)); c != "" {
+			continents = append(continents, c)
+		}
+	}
+	// Bail only when both lists are empty; one empty list is fine.
+	if len(countries) == 0 && len(continents) == 0 {
 		return nil
 	}
 
@@ -1402,22 +1417,26 @@ func buildGeoBlock(r Route) map[string]any {
 
 	var match map[string]any
 	if mode == "deny" {
-		// Matcher fires for blocked countries -> abort directly.
-		match = map[string]any{
-			geoMatcherName: map[string]any{
-				geoFieldDBPath: geoDBPath,
-				geoFieldDeny:   countries,
-			},
+		// Matcher fires for blocked countries/continents -> abort directly.
+		geoConf := map[string]any{geoFieldDBPath: geoDBPath}
+		if len(countries) > 0 {
+			geoConf[geoFieldDeny] = countries
 		}
+		if len(continents) > 0 {
+			geoConf[geoFieldDenyCont] = continents
+		}
+		match = map[string]any{geoMatcherName: geoConf}
 	} else {
-		// allow: matcher fires for allowed countries; negate so handler runs for everyone else.
+		// allow: matcher fires for allowed countries/continents; negate so handler runs for everyone else.
+		geoConf := map[string]any{geoFieldDBPath: geoDBPath}
+		if len(countries) > 0 {
+			geoConf[geoFieldAllow] = countries
+		}
+		if len(continents) > 0 {
+			geoConf[geoFieldAllowCont] = continents
+		}
 		match = map[string]any{
-			"not": []any{map[string]any{
-				geoMatcherName: map[string]any{
-					geoFieldDBPath: geoDBPath,
-					geoFieldAllow:  countries,
-				},
-			}},
+			"not": []any{map[string]any{geoMatcherName: geoConf}},
 		}
 	}
 
@@ -1436,6 +1455,38 @@ func buildGeoBlock(r Route) map[string]any {
 		"routes": []any{map[string]any{
 			"match":    []any{match},
 			"handle":   []any{denyResp},
+			"terminal": true,
+		}},
+	}
+}
+
+// buildCIDRBlock returns a subroute that always blocks requests from specific
+// IPs/CIDRs, regardless of geo mode. Fires before geo country/continent check.
+func buildCIDRBlock(r Route) map[string]any {
+	var ranges []string
+	for _, cidr := range strings.Split(r.GeoBlockCIDRs, ",") {
+		if c := strings.TrimSpace(cidr); c != "" {
+			ranges = append(ranges, c)
+		}
+	}
+	if len(ranges) == 0 {
+		return nil
+	}
+	code := r.GeoResponseCode
+	if code == 0 {
+		code = 403
+	}
+	return map[string]any{
+		"handler": "subroute",
+		"routes": []any{map[string]any{
+			"match": []any{map[string]any{
+				"remote_ip": map[string]any{"ranges": ranges},
+			}},
+			"handle": []any{map[string]any{
+				"handler":     "static_response",
+				"status_code": code,
+				"body":        "Forbidden\n",
+			}},
 			"terminal": true,
 		}},
 	}

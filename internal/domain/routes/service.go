@@ -1732,6 +1732,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.waf_directives,''),
 	        COALESCE(r.geo_mode,'off'), COALESCE(r.geo_countries,''),
 	        COALESCE(r.geo_response_code,403), COALESCE(r.geo_fail_closed,0), COALESCE(r.geo_allow_cidrs,''),
+	        COALESCE(r.geo_continents,''), r.geo_block_cidrs,
 	        COALESCE(r.error_override,0), COALESCE(r.error_html,''), COALESCE(r.error_logo_url,''),
 	        COALESCE(r.error_brand,''), COALESCE(r.error_bg_color,''),
 	        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
@@ -1823,6 +1824,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var geoResponseCode int
 		var geoFailClosed bool
 		var geoAllowCIDRs string
+		var geoContinents string
+		var geoBlockCIDRs sql.NullString
 		var errOverride bool
 		var errHTML, errLogo, errBrand, errBg string
 		var outboundIPMode, outboundIP string
@@ -1853,6 +1856,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&wafEnabled, &wafBlocking, &wafDirectives,
 			&geoMode, &geoCountries,
 			&geoResponseCode, &geoFailClosed, &geoAllowCIDRs,
+			&geoContinents, &geoBlockCIDRs,
 			&errOverride, &errHTML, &errLogo, &errBrand, &errBg,
 			&outboundIPMode, &outboundIP, &planAllowEgress,
 			&dnsResolverIP, &dnsResolverPeerIP, &dnsAddressFamily,
@@ -2053,6 +2057,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			GeoResponseCode:          geoResponseCode,
 			GeoFailClosed:            geoFailClosed,
 			GeoAllowCIDRs:            geoAllowCIDRs,
+			GeoContinents:            geoContinents,
+			GeoBlockCIDRs:            geoBlockCIDRs.String,
 
 			// Per-route error/maintenance page override (else node-wide branding).
 			CustomErrorOverride: errOverride,

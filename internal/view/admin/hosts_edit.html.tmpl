@@ -857,6 +857,16 @@ X-Authentik-Meta-Version</pre>
         <textarea name="geo_allow_cidrs" rows="3" placeholder="1.2.3.4, 10.0.0.0/8, 2001:db8::/32" class="r-input w-full font-mono text-xs">{{.GeoAllowCIDRs}}</textarea>
         <span class="t-caption text-muted">Comma-separated IPs or CIDR ranges that bypass the country block.</span>
       </div>
+      <div>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Continents</label>
+        <input type="text" name="geo_continents" value="{{.GeoContinents}}" placeholder="EU,NA,AS" class="r-input w-full font-mono text-xs">
+        <span class="t-caption text-muted">Comma-separated ISO continent codes: AF AN AS EU NA OC SA. Applied with the same mode as countries.</span>
+      </div>
+      <div>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Always-block IPs/CIDRs</label>
+        <textarea name="geo_block_cidrs" rows="3" placeholder="192.0.2.0/24, 1.2.3.4" class="r-input w-full font-mono text-xs">{{.GeoBlockCIDRs}}</textarea>
+        <span class="t-caption text-muted">Blocked regardless of geo mode. Comma-separated IPs or CIDR ranges (e.g. 192.0.2.0/24, 1.2.3.4).</span>
+      </div>
     </section>
 
     <!-- mTLS -->
