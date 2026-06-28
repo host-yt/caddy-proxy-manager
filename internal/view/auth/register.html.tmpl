@@ -1,0 +1,60 @@
+{{define "register.html.tmpl"}}<!doctype html>
+<html lang="en" class="h-full">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Create account - {{if .Brand.BrandName}}{{.Brand.BrandName}}{{else}}Hostyt Proxy Gateway{{end}}</title>
+<link rel="stylesheet" href="/static/fonts/inter.css">
+<link rel="stylesheet" href="/static/css/tailwind.css">
+<script nonce="{{.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
+{{if .Brand.FaviconURL}}<link rel="icon" href="{{.Brand.FaviconURL}}">{{end}}
+</head>
+<body style="background:rgb(var(--bg));color:rgb(var(--text))" class="min-h-screen flex items-center justify-center p-4">
+<div class="w-full max-w-sm mx-auto">
+
+  <header class="text-center mb-6">
+    {{if .Brand.LogoURLLight}}<img src="{{.Brand.LogoURLLight}}" alt="" class="h-12 mx-auto mb-3 dark:hidden">{{end}}
+    {{if .Brand.LogoURLDark}}<img src="{{.Brand.LogoURLDark}}" alt="" class="h-12 mx-auto mb-3 hidden dark:inline-block">{{end}}
+    <h1 class="t-h2">{{if .Brand.BrandName}}{{.Brand.BrandName}}{{else}}Hostyt Proxy Gateway{{end}}</h1>
+    {{if .Brand.Tagline}}<p class="t-caption mt-1" style="color:rgb(var(--muted))">{{.Brand.Tagline}}</p>{{end}}
+    <p class="t-small mt-1" style="color:rgb(var(--muted))">Create a new account</p>
+  </header>
+
+  <div class="r-card">
+    {{if .Flash}}
+    <div class="mb-4 p-3 rounded-lg t-small" style="background:rgb(var(--success)/.12);border:1px solid rgb(var(--success)/.3);color:rgb(var(--success))">{{.Flash}}</div>
+    {{end}}
+    {{if .Error}}
+    <div class="mb-4 p-3 rounded-lg t-small" style="background:rgb(var(--danger)/.12);border:1px solid rgb(var(--danger)/.3);color:rgb(var(--danger))">{{.Error}}</div>
+    {{end}}
+
+    <form method="POST" action="/auth/register" class="space-y-4">
+      <div>
+        <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Email</label>
+        <input name="email" type="email" required autofocus autocomplete="username"
+               class="r-input w-full">
+      </div>
+      <div>
+        <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Password</label>
+        <input name="password" type="password" required autocomplete="new-password"
+               class="r-input w-full">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Minimum 10 characters.</p>
+      </div>
+      <div>
+        <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Confirm password</label>
+        <input name="confirm_password" type="password" required autocomplete="new-password"
+               class="r-input w-full">
+      </div>
+      <button class="r-btn-primary w-full cursor-pointer">Create account</button>
+    </form>
+
+    <p class="mt-4 text-center t-small" style="color:rgb(var(--muted))">
+      Already have an account?
+      <a href="/auth/login" class="hover:underline" style="color:rgb(var(--accent))">Sign in</a>
+    </p>
+  </div>
+
+</div>
+</body>
+</html>
+{{end}}

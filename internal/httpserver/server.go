@@ -225,6 +225,8 @@ func (s *Server) routes() {
 	r.Route("/auth", func(r chi.Router) {
 		r.Get("/login", s.deps.Auth.LoginPage)
 		r.Post("/login", s.deps.Auth.LoginSubmit)
+		r.Get("/register", s.deps.Auth.RegisterPage)
+		r.Post("/register", s.deps.Auth.RegisterSubmit)
 		r.Post("/logout", s.deps.Auth.Logout)
 		r.Post("/end-impersonation", s.deps.Auth.EndImpersonation)
 		r.Get("/forgot", s.deps.Auth.ForgotPage)
@@ -583,6 +585,7 @@ func (s *Server) routes() {
 			r.Post("/sso-jump/rotate", s.deps.Admin.SettingsSSOJumpRotate)
 			r.Post("/apidocs", s.deps.Admin.SettingsAPIDocs)
 			r.Post("/require-2fa", s.deps.Admin.SettingsRequire2FA)
+			r.Post("/self-registration", s.deps.Admin.SettingsSelfRegistration)
 			r.Post("/ai", s.deps.Admin.SettingsAI)
 			r.Post("/ai/test", s.deps.Admin.SettingsAITest)
 			r.Get("/ai/models", s.deps.Admin.SettingsAIModels)

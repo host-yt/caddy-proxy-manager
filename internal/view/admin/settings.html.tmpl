@@ -29,6 +29,7 @@
       <div class="grid gap-0.5">
         <button type="button" data-settings-tab="auth" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">SSO / OIDC</button>
         <button type="button" data-settings-tab="security" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Admin 2FA</button>
+        <button type="button" data-settings-tab="self-registration" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Self-registration</button>
         <button type="button" data-settings-tab="captcha" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">CAPTCHA</button>
       </div>
     </div>
@@ -86,6 +87,29 @@
         <button class="r-btn-primary">Save</button>
       </div>
       {{end}}
+    </form>
+  </section>
+
+  <!-- ── Self-registration ─────────────────────────────────── -->
+  <section data-settings-pane="self-registration" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Client self-registration</p>
+    <h2 class="t-h3 mb-2">Allow public registration</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">When on, <code class="text-xs">/auth/register</code> is publicly accessible and anyone can create a client account. New accounts are active immediately - no email verification step.</p>
+    <form method="POST" action="/admin/settings/self-registration" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <label class="r-toggle">
+        <input type="checkbox" name="allow_self_registration" value="1" {{if .AllowSelfRegistration}}checked{{end}}>
+        <span></span>
+        Allow client self-registration
+      </label>
+      <div>
+        <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Default plan for new registrations</label>
+        <input name="default_plan_id" value="{{.DefaultPlanID}}" placeholder="Plan ID (optional)" class="r-input w-full font-mono">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">When set, a service on this plan is assigned to the new client automatically. Leave empty to assign no plan.</p>
+      </div>
+      <div class="flex justify-end">
+        <button class="r-btn-primary">Save</button>
+      </div>
     </form>
   </section>
 

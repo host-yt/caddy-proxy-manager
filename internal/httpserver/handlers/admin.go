@@ -3625,6 +3625,9 @@ type settingsData struct {
 	SystemBannerType      string
 	SystemBannerLink      string
 	SystemBannerLinkLabel string
+	// Self-registration settings tab.
+	AllowSelfRegistration bool
+	DefaultPlanID         string
 }
 
 func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -3659,6 +3662,8 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			"system.banner_type",
 			"system.banner_link",
 			"system.banner_link_label",
+			"auth.allow_self_registration",
+			"auth.default_plan_id",
 		})
 		d.OIDC = oidcView{
 			Enabled: kv["oidc.enabled"] == "1", ProviderName: defaultStr(kv["oidc.provider_name"], "Authentik"),
@@ -3767,6 +3772,8 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		d.SystemBannerType = defaultStr(kv["system.banner_type"], "info")
 		d.SystemBannerLink = kv["system.banner_link"]
 		d.SystemBannerLinkLabel = kv["system.banner_link_label"]
+		d.AllowSelfRegistration = kv["auth.allow_self_registration"] == "1"
+		d.DefaultPlanID = kv["auth.default_plan_id"]
 	}
 	d.SSOJump = h.loadSSOJumpSettingsView(r, d.AppURL)
 	// Branding tab: pre-fill from the shared cached loader (same source as
