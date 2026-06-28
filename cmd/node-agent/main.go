@@ -38,6 +38,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -1041,40 +1042,45 @@ func postAccessLogBatch(ctx context.Context, c config, endpoint string, body []b
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
-// corazaAuditEntry is the subset of the Coraza v3 JSON audit log we care about.
-// Field names match Coraza's actual schema: transaction.client_ip,
-// messages[].data.{id,severity} (id/severity are numbers in JSON), and an
-// optional top-level interruption when a request was blocked.
+// corazaAuditEntry is the subset of the coraza-caddy v2 JSON audit log we care
+// about. Matches the ACTUAL emitted schema (verified on prod): rule details live
+// as a ModSecurity-style text blob in messages[].error_message (data is null and
+// message is empty); host is transaction.server_id; unix_timestamp is in
+// NANOSECONDS; is_interrupted marks a blocked request.
 type corazaAuditEntry struct {
 	Transaction struct {
 		Timestamp     string `json:"timestamp"`
 		UnixTimestamp int64  `json:"unix_timestamp"`
 		ClientIP      string `json:"client_ip"`
+		ServerID      string `json:"server_id"`
+		IsInterrupted bool   `json:"is_interrupted"`
 		Request       struct {
 			URI     string              `json:"uri"`
 			Headers map[string][]string `json:"headers"`
 		} `json:"request"`
 	} `json:"transaction"`
 	Messages []struct {
-		Message string `json:"message"`
-		Data    struct {
-			ID       corazaScalar `json:"id"`
-			Severity corazaScalar `json:"severity"`
-		} `json:"data"`
+		Message      string `json:"message"`
+		ErrorMessage string `json:"error_message"`
 	} `json:"messages"`
 	Interruption *struct {
 		Action string `json:"action"`
 	} `json:"interruption"`
 }
 
-// corazaScalar accepts a JSON value that may be a number OR a string and stores
-// its textual form. Coraza emits rule id and severity as numbers in JSON audit
-// output; tolerate string forms from other versions too.
-type corazaScalar string
+// Coraza writes rule metadata as `[id "941100"]`, `[severity "critical"]`,
+// `[msg "..."]` inside the error_message blob; pull the fields back out.
+var (
+	reCorazaID  = regexp.MustCompile(`\[id "([^"]*)"\]`)
+	reCorazaSev = regexp.MustCompile(`\[severity "([^"]*)"\]`)
+	reCorazaMsg = regexp.MustCompile(`\[msg "([^"]*)"\]`)
+)
 
-func (c *corazaScalar) UnmarshalJSON(b []byte) error {
-	*c = corazaScalar(bytes.Trim(b, `"`))
-	return nil
+func corazaField(re *regexp.Regexp, blob string) string {
+	if m := re.FindStringSubmatch(blob); len(m) == 2 {
+		return m[1]
+	}
+	return ""
 }
 
 // wafEventPayload is one WAF event sent to the panel.
@@ -1117,26 +1123,30 @@ func firstHeader(h map[string][]string, name string) string {
 }
 
 // corazaTS normalizes Coraza's timestamp to RFC3339, which the panel ingest
-// requires. Prefers the unix timestamp; falls back to Coraza's Apache-style
-// string, then to now.
-func corazaTS(unix int64, s string) string {
-	if unix > 0 {
-		return time.Unix(unix, 0).UTC().Format(time.RFC3339)
-	}
+// requires. Prefers the human timestamp string (unambiguous); falls back to the
+// unix field (coraza-caddy emits NANOSECONDS), then to now.
+func corazaTS(unixVal int64, s string) string {
 	for _, layout := range []string{
+		"2006/01/02 15:04:05",
 		time.RFC3339,
 		"02/Jan/2006:15:04:05 -0700",
-		"02/Jan/2006:15:04:05.000 -0700",
 	} {
-		if t, err := time.Parse(layout, s); err == nil {
+		if t, err := time.Parse(layout, strings.TrimSpace(s)); err == nil {
 			return t.UTC().Format(time.RFC3339)
 		}
+	}
+	if unixVal > 0 {
+		if unixVal > 1_000_000_000_000_000 { // nanoseconds (19 digits)
+			return time.Unix(0, unixVal).UTC().Format(time.RFC3339)
+		}
+		return time.Unix(unixVal, 0).UTC().Format(time.RFC3339)
 	}
 	return time.Now().UTC().Format(time.RFC3339)
 }
 
-// parseCorazaLines decodes NDJSON lines into WAF event payloads; skips malformed lines.
-// Takes only the first message per entry (the primary triggering rule).
+// parseCorazaLines decodes NDJSON lines into WAF event payloads; skips malformed
+// lines. Per entry it takes the first message carrying a rule id, pulling id /
+// severity / msg out of coraza's error_message text blob.
 func parseCorazaLines(data []byte) []wafEventPayload {
 	var events []wafEventPayload
 	for _, line := range bytes.Split(data, []byte("\n")) {
@@ -1151,28 +1161,45 @@ func parseCorazaLines(data []byte) []wafEventPayload {
 		if len(e.Messages) == 0 {
 			continue
 		}
-		msg := e.Messages[0]
-		ruleID := string(msg.Data.ID)
+		var ruleID, sev, msgText string
+		for _, m := range e.Messages {
+			blob := m.ErrorMessage
+			if blob == "" {
+				blob = m.Message
+			}
+			if id := corazaField(reCorazaID, blob); id != "" {
+				ruleID = id
+				sev = corazaField(reCorazaSev, blob)
+				if msgText = corazaField(reCorazaMsg, blob); msgText == "" {
+					msgText = m.Message
+				}
+				break
+			}
+		}
 		if ruleID == "" {
 			continue // panel ingest rejects events without a rule id
 		}
 		action := "detected"
-		if e.Interruption != nil && e.Interruption.Action != "" {
+		if e.Transaction.IsInterrupted || (e.Interruption != nil && e.Interruption.Action != "") {
 			action = "blocked"
 		}
 		ip := e.Transaction.ClientIP
 		if host, _, err := net.SplitHostPort(ip); err == nil {
 			ip = host
 		}
+		host := e.Transaction.ServerID
+		if host == "" {
+			host = firstHeader(e.Transaction.Request.Headers, "host")
+		}
 		events = append(events, wafEventPayload{
 			TS:       corazaTS(e.Transaction.UnixTimestamp, e.Transaction.Timestamp),
-			Severity: corazaSeverity(string(msg.Data.Severity)),
+			Severity: corazaSeverity(sev),
 			RuleID:   ruleID,
 			Action:   action,
 			RemoteIP: ip,
-			Host:     firstHeader(e.Transaction.Request.Headers, "host"),
+			Host:     host,
 			URI:      e.Transaction.Request.URI,
-			Message:  msg.Message,
+			Message:  msgText,
 		})
 	}
 	return events

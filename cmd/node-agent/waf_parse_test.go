@@ -2,12 +2,11 @@ package main
 
 import "testing"
 
-// A realistic Coraza v3 JSON audit line (SecAuditLogFormat JSON): rule id and
-// severity are NUMBERS, the message data object key is "data", the client IP is
-// "client_ip", and the timestamp is Apache-style. This locks the parser to the
-// real schema - the previous struct used "details"/"ruleId"/"remote_address"
-// and would have silently produced zero events.
-const corazaSampleLine = `{"transaction":{"timestamp":"28/Jun/2026:13:54:06 +0000","unix_timestamp":1782654846,"client_ip":"85.222.65.102","client_port":60198,"request":{"uri":"/?id=1' UNION SELECT NULL,NULL--","headers":{"Host":["sso.example.com"],"User-Agent":["curl/8"]}}},"messages":[{"message":"SQL Injection Attack Detected via libinjection","data":{"id":942100,"severity":2,"msg":"SQL Injection Attack Detected via libinjection"}}],"interruption":{"action":"deny"}}`
+// A VERBATIM coraza-caddy v2 JSON audit line captured from prod: rule details
+// are in messages[].error_message (data is null, message is empty), host is
+// transaction.server_id, unix_timestamp is nanoseconds, and the timestamp is
+// "2006/01/02 15:04:05". This locks the parser to the real emitted schema.
+const corazaSampleLine = `{"transaction":{"timestamp":"2026/06/28 14:23:55","unix_timestamp":1782656635784730907,"id":"FtOIiOOzqTxjyCIl","client_ip":"85.222.65.102","client_port":0,"server_id":"sso.example.com","request":{"method":"GET","uri":"/?q=<script>alert(1)</script>","headers":{"host":["sso.example.com"],"user-agent":["curl/8.7.1"]}},"is_interrupted":false},"messages":[{"actionset":"","message":"","error_message":"[client \"85.222.65.102\"] Coraza: Warning. XSS Attack Detected via libinjection [file \"@owasp_crs/REQUEST-941-APPLICATION-ATTACK-XSS.conf\"] [line \"5178\"] [id \"941100\"] [msg \"XSS Attack Detected via libinjection\"] [data \"Matched Data: XSS data\"] [severity \"critical\"] [tag \"attack-xss\"] [unique_id \"FtOIiOOzqTxjyCIl\"]","data":null}]}`
 
 func TestParseCorazaLines_RealSchema(t *testing.T) {
 	evs := parseCorazaLines([]byte(corazaSampleLine + "\n"))
@@ -15,41 +14,48 @@ func TestParseCorazaLines_RealSchema(t *testing.T) {
 		t.Fatalf("expected 1 event, got %d", len(evs))
 	}
 	e := evs[0]
-	if e.RuleID != "942100" {
-		t.Errorf("rule_id: got %q want 942100", e.RuleID)
+	if e.RuleID != "941100" {
+		t.Errorf("rule_id: got %q want 941100 (from error_message blob)", e.RuleID)
 	}
-	if e.Severity != "critical" { // numeric 2 -> critical
+	if e.Severity != "critical" {
 		t.Errorf("severity: got %q want critical", e.Severity)
 	}
-	if e.Action != "blocked" { // interruption present
-		t.Errorf("action: got %q want blocked", e.Action)
+	if e.Action != "detected" { // is_interrupted false
+		t.Errorf("action: got %q want detected", e.Action)
 	}
 	if e.RemoteIP != "85.222.65.102" {
 		t.Errorf("remote_ip: got %q", e.RemoteIP)
 	}
-	if e.Host != "sso.example.com" { // case-insensitive header lookup
+	if e.Host != "sso.example.com" { // from server_id
 		t.Errorf("host: got %q want sso.example.com", e.Host)
 	}
-	if e.TS != "2026-06-28T13:54:06Z" { // apache ts -> RFC3339 UTC
-		t.Errorf("ts: got %q want 2026-06-28T13:54:06Z", e.TS)
+	if e.TS != "2026-06-28T14:23:55Z" { // "2006/01/02 15:04:05" -> RFC3339 UTC
+		t.Errorf("ts: got %q want 2026-06-28T14:23:55Z", e.TS)
 	}
-	if e.URI == "" || e.Message == "" {
-		t.Errorf("uri/message must be populated: %+v", e)
+	if e.Message != "XSS Attack Detected via libinjection" {
+		t.Errorf("message: got %q (want the [msg ...] field)", e.Message)
+	}
+	if e.URI == "" {
+		t.Errorf("uri must be populated: %+v", e)
 	}
 }
 
-// Detection-only entries have no interruption -> action "detected".
-func TestParseCorazaLines_DetectionAndStringSeverity(t *testing.T) {
-	line := `{"transaction":{"unix_timestamp":1782654846,"client_ip":"1.2.3.4","request":{"uri":"/x","headers":{}}},"messages":[{"message":"XSS","data":{"id":"941100","severity":"critical"}}]}`
+// A blocked request: is_interrupted=true -> action "blocked". Also proves the
+// nanosecond unix_timestamp fallback when no timestamp string is present.
+func TestParseCorazaLines_BlockedAndNanoUnix(t *testing.T) {
+	line := `{"transaction":{"unix_timestamp":1782656635784730907,"client_ip":"1.2.3.4","server_id":"x.example","is_interrupted":true,"request":{"uri":"/x","headers":{}}},"messages":[{"error_message":"[id \"942100\"] [severity \"CRITICAL\"] [msg \"SQLi\"]"}]}`
 	evs := parseCorazaLines([]byte(line))
 	if len(evs) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(evs))
 	}
-	if evs[0].Action != "detected" {
-		t.Errorf("action: got %q want detected", evs[0].Action)
+	if evs[0].Action != "blocked" {
+		t.Errorf("action: got %q want blocked", evs[0].Action)
 	}
-	if evs[0].RuleID != "941100" || evs[0].Severity != "critical" {
-		t.Errorf("string-form id/severity not handled: %+v", evs[0])
+	if evs[0].RuleID != "942100" || evs[0].Severity != "critical" {
+		t.Errorf("id/severity from blob: %+v", evs[0])
+	}
+	if evs[0].TS != "2026-06-28T14:23:55Z" {
+		t.Errorf("nano unix ts: got %q", evs[0].TS)
 	}
 }
 
