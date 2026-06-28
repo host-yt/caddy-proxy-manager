@@ -57,9 +57,13 @@
           <td>{{if .ClientCount}}{{.ClientCount}}{{else}}-{{end}}</td>
           <td>{{if .RouteCount}}{{.RouteCount}}{{else}}-{{end}}</td>
           <td class="text-right whitespace-nowrap">
-            <div class="inline-flex items-center gap-3">
+            <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="plan-act-{{.ID}}">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+            </button>
+            <div id="plan-act-{{.ID}}" class="hpg-act-menu" role="menu">
               <button type="button"
-                class="plan-edit-btn t-small font-medium text-[rgb(var(--accent))] hover:underline cursor-pointer"
+                class="plan-edit-btn hpg-act-item"
+                role="menuitem"
                 data-id="{{.ID}}"
                 data-name="{{.Name}}"
                 data-kind="{{.Kind}}"
@@ -73,9 +77,10 @@
                 data-allowegressip="{{if .AllowEgressIP}}1{{else}}0{{end}}"
                 data-ratelimit="{{.RateLimitRPM}}"
                 data-nodegroup="{{.NodeGroupID}}"
-                data-wgkeyrotdays="{{.WGKeyRotationDays}}">edit</button>
-              <form method="POST" action="/admin/plans/{{.ID}}/delete" data-confirm="Delete plan {{.Name}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="t-small font-medium text-[rgb(var(--danger,220_38_38))] hover:underline cursor-pointer">delete</button>
+                data-wgkeyrotdays="{{.WGKeyRotationDays}}">Edit</button>
+              <form method="POST" action="/admin/plans/{{.ID}}/delete" class="contents" data-confirm="Delete plan {{.Name}}?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit" class="hpg-act-item is-danger" role="menuitem">Delete</button>
               </form>
             </div>
           </td>

@@ -203,36 +203,39 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
               </div>
             </td>
             <td class="text-right whitespace-nowrap">
-              <div class="flex items-center justify-end gap-2 flex-wrap">
+              <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="node-act-{{.ID}}">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+              </button>
+              <div id="node-act-{{.ID}}" class="hpg-act-menu" role="menu">
                 {{if not .Approved}}
-                  <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/approve" data-confirm="Approve {{.Name}}? Verify the fingerprint above matches the bootstrap script output.">
-                    <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                    <button class="r-btn-primary text-xs cursor-pointer py-1 px-2">approve</button>
-                  </form>
+                <form class="contents" method="POST" action="/admin/nodes/{{.ID}}/approve" data-confirm="Approve {{.Name}}? Verify the fingerprint above matches the bootstrap script output.">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button type="submit" class="hpg-act-item" role="menuitem">Approve</button>
+                </form>
                 {{end}}
-                <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/resync">
+                <a href="/admin/nodes/{{.ID}}" class="hpg-act-item" role="menuitem">Detail</a>
+                <a href="/admin/nodes/{{.ID}}/edit" class="hpg-act-item" role="menuitem">Edit IPs</a>
+                <a href="/admin/nodes/{{.ID}}/preflight.json" target="_blank" rel="noopener" class="hpg-act-item" role="menuitem" title="Capability mismatch check">Preflight ↗</a>
+                <button type="button" data-tunnel-open="{{.ID}}" data-tunnel-name="{{.Name}}" data-tunnel-host="{{.PublicHostname}}" data-tunnel-transport="{{.Transport}}" data-tunnel-wstport="{{.WstunnelPort}}" class="hpg-act-item" role="menuitem">Tunnel</button>
+                <form class="contents" method="POST" action="/admin/nodes/{{.ID}}/resync">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="r-btn-ghost text-xs cursor-pointer" style="color:rgb(var(--accent))">resync</button>
+                  <button type="submit" class="hpg-act-item" role="menuitem">Resync</button>
                 </form>
-                <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/toggle">
+                <form class="contents" method="POST" action="/admin/nodes/{{.ID}}/toggle">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="r-btn-ghost text-xs cursor-pointer">{{if .Enabled}}disable{{else}}enable{{end}}</button>
+                  <button type="submit" class="hpg-act-item" role="menuitem">{{if .Enabled}}Disable{{else}}Enable{{end}}</button>
                 </form>
-                <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/rekey" data-confirm="Rotate WG key for {{.Name}}? New private key will be stashed in settings encrypted; copy it to the node.">
+                <form class="contents" method="POST" action="/admin/nodes/{{.ID}}/rekey" data-confirm="Rotate WG key for {{.Name}}? New private key will be stashed in settings encrypted; copy it to the node.">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="r-btn-ghost text-xs cursor-pointer" style="color:rgb(var(--warning))">rekey</button>
+                  <button type="submit" class="hpg-act-item" role="menuitem">Rekey</button>
                 </form>
-                <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/drain" data-confirm="Drain {{.Name}}? Routes will be moved to a healthy peer in the same group + node is disabled (maintenance mode). Re-enable later without re-approval.">
+                <form class="contents" method="POST" action="/admin/nodes/{{.ID}}/drain" data-confirm="Drain {{.Name}}? Routes will be moved to a healthy peer in the same group + node is disabled (maintenance mode). Re-enable later without re-approval.">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="r-btn-ghost text-xs cursor-pointer" style="color:rgb(var(--warning))">drain</button>
+                  <button type="submit" class="hpg-act-item is-danger" role="menuitem">Drain</button>
                 </form>
-                <button type="button" data-tunnel-open="{{.ID}}" data-tunnel-name="{{.Name}}" data-tunnel-host="{{.PublicHostname}}" data-tunnel-transport="{{.Transport}}" data-tunnel-wstport="{{.WstunnelPort}}" class="r-btn-ghost text-xs cursor-pointer" style="color:rgb(var(--info,59 130 246))">tunnel</button>
-                <a href="/admin/nodes/{{.ID}}" class="r-btn-ghost text-xs">detail</a>
-                <a href="/admin/nodes/{{.ID}}/preflight.json" target="_blank" class="r-btn-ghost text-xs" title="Capability mismatch check">preflight</a>
-                <a href="/admin/nodes/{{.ID}}/edit" class="r-btn-ghost text-xs" style="color:rgb(var(--accent))">edit IPs</a>
-                <form class="inline" method="POST" action="/admin/nodes/{{.ID}}/decommission" data-confirm="Decommission {{.Name}}? Routes will be migrated to a peer in the same group; then the node is removed." data-confirm-type="{{.Name}}">
+                <form class="contents" method="POST" action="/admin/nodes/{{.ID}}/decommission" data-confirm="Decommission {{.Name}}? Routes will be migrated to a peer in the same group; then the node is removed." data-confirm-type="{{.Name}}">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="r-btn-ghost text-xs cursor-pointer" style="color:rgb(var(--danger))">decommission</button>
+                  <button type="submit" class="hpg-act-item is-danger" role="menuitem">Decommission</button>
                 </form>
               </div>
             </td>

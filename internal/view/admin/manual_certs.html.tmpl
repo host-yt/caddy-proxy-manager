@@ -61,18 +61,21 @@
             {{else}}<span class="r-pill r-pill-success">valid</span>{{end}}
           </td>
           <td class="text-right whitespace-nowrap">
-            <div class="flex items-center justify-end gap-2">
+            <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="mcert-act-{{.ID}}">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+            </button>
+            <div id="mcert-act-{{.ID}}" class="hpg-act-menu" role="menu">
               {{if ne .Status "ok"}}
               <button type="button"
                 data-action="open-replace-modal"
                 data-cert-id="{{.ID}}"
                 data-cert-name="{{.Name}}"
                 data-route-id="{{if .RouteID.Valid}}{{.RouteID.Int64}}{{else}}{{end}}"
-                class="r-btn-ghost t-small cursor-pointer" style="color:rgb(var(--accent))">replace</button>
+                class="hpg-act-item" role="menuitem">Replace</button>
               {{end}}
-              <form method="POST" action="/admin/manual-certs/{{.ID}}/delete" class="inline" data-confirm="Delete this certificate?">
+              <form method="POST" action="/admin/manual-certs/{{.ID}}/delete" class="contents" data-confirm="Delete this certificate?">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="r-btn-ghost t-small cursor-pointer" style="color:rgb(var(--danger))">delete</button>
+                <button type="submit" class="hpg-act-item is-danger" role="menuitem">Delete</button>
               </form>
             </div>
           </td>

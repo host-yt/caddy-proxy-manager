@@ -136,7 +136,7 @@
             <th>URI</th>
             <th>Message</th>
             <th>Status</th>
-            <th>Actions</th>
+            <th class="text-right"></th>
           </tr>
         </thead>
         <tbody>
@@ -168,30 +168,23 @@
               {{else if .AcknowledgedAt.Valid}}<span class="r-pill r-pill-neutral">acked</span>
               {{end}}
             </td>
-            <td class="whitespace-nowrap">
-              <div class="flex items-center gap-2">
+            <td class="text-right whitespace-nowrap">
+              <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="waf-act-{{.ID}}">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+              </button>
+              <div id="waf-act-{{.ID}}" class="hpg-act-menu" role="menu">
                 {{if not .AcknowledgedAt.Valid}}
-                <form method="POST" action="/admin/waf/events/{{.ID}}/ack" class="inline">
+                <form method="POST" action="/admin/waf/events/{{.ID}}/ack" class="contents">
                   <input type="hidden" name="csrf" value="{{$.CSRF}}">
-                  <button type="submit" title="Acknowledge" class="r-btn-ghost text-xs inline-flex items-center gap-1 cursor-pointer">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
-                    </svg>
-                    Ack
-                  </button>
+                  <button type="submit" class="hpg-act-item" role="menuitem">Acknowledge</button>
                 </form>
                 {{end}}
                 {{if not .Suppressed}}
-                <button type="button" title="Suppress rule"
+                <button type="button"
                   data-action="waf-show-suppress"
                   data-rule-id="{{.RuleID}}"
                   data-route-id="{{if .RouteID.Valid}}{{.RouteID.Int64}}{{else}}0{{end}}"
-                  class="r-btn-ghost text-xs inline-flex items-center gap-1 cursor-pointer" style="color:rgb(var(--warning))">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <circle cx="12" cy="12" r="10"/><line x1="4.93" y1="4.93" x2="19.07" y2="19.07"/>
-                  </svg>
-                  Suppress
-                </button>
+                  class="hpg-act-item" role="menuitem">Suppress</button>
                 {{end}}
               </div>
             </td>

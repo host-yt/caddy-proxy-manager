@@ -107,39 +107,40 @@
             </td>
             <td class="tabular-nums text-[rgb(var(--muted))] whitespace-nowrap">{{if .LastLoginAt}}{{.LastLoginAt}}{{else}}never{{end}}</td>
             <td class="text-right">
-              <div class="flex flex-wrap justify-end gap-2 whitespace-nowrap">
+              <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="usr-act-{{.ID}}">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+              </button>
+              <div id="usr-act-{{.ID}}" class="hpg-act-menu" role="menu">
                 {{if ne .Role "client"}}
-                <button type="button"
-                  class="usr-edit-btn r-btn-ghost text-xs cursor-pointer"
+                <button type="button" class="usr-edit-btn hpg-act-item" role="menuitem"
                   data-id="{{.ID}}" data-fullname="{{.FullName}}" data-email="{{.Email}}" data-role="{{.Role}}" data-active="{{if .IsActive}}1{{else}}0{{end}}">Edit</button>
                 {{end}}
                 {{if and $.CanManageScopes (ne .Role "client") (ne .Role "super_admin")}}
-                <button type="button"
-                  class="usr-scope-btn r-btn-ghost text-xs cursor-pointer"
+                <button type="button" class="usr-scope-btn hpg-act-item" role="menuitem"
                   data-id="{{.ID}}" data-email="{{.Email}}" data-scope="{{.ScopeIDs}}">Scope</button>
                 {{end}}
                 {{if and (eq .Role "client") .IsActive}}
-                <form class="inline" method="POST" action="/admin/users/{{.ID}}/impersonate">
+                <form class="contents" method="POST" action="/admin/users/{{.ID}}/impersonate">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="r-btn-ghost text-xs cursor-pointer">Impersonate</button>
+                  <button class="hpg-act-item" role="menuitem">Impersonate</button>
                 </form>
                 {{end}}
                 {{if .CanToggle}}
-                <form class="inline" method="POST" action="/admin/users/{{.ID}}/toggle">
+                <form class="contents" method="POST" action="/admin/users/{{.ID}}/toggle">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="r-btn-secondary text-xs cursor-pointer">{{if .IsActive}}Disable{{else}}Enable{{end}}</button>
+                  <button class="hpg-act-item" role="menuitem">{{if .IsActive}}Disable{{else}}Enable{{end}}</button>
                 </form>
                 {{end}}
                 {{if and $.CanManageScopes .TOTPEnabled .CanToggle}}
-                <form class="inline" method="POST" action="/admin/users/{{.ID}}/reset-2fa" data-confirm="Reset 2FA for {{.Email}}? This clears TOTP, SMS, and email OTP.">
+                <form class="contents" method="POST" action="/admin/users/{{.ID}}/reset-2fa" data-confirm="Reset 2FA for {{.Email}}? This clears TOTP, SMS, and email OTP.">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="r-btn-ghost text-xs cursor-pointer">Reset 2FA</button>
+                  <button class="hpg-act-item" role="menuitem">Reset 2FA</button>
                 </form>
                 {{end}}
                 {{if .CanDelete}}
-                <form class="inline" method="POST" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Email}}? This is permanent.">
+                <form class="contents" method="POST" action="/admin/users/{{.ID}}/delete" data-confirm="Delete {{.Email}}? This is permanent.">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="r-btn-danger text-xs cursor-pointer">Delete</button>
+                  <button class="hpg-act-item is-danger" role="menuitem">Delete</button>
                 </form>
                 {{end}}
               </div>

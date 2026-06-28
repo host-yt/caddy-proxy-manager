@@ -161,18 +161,18 @@
   var max = 0;
   Object.keys(counts).forEach(function(k){ if (counts[k] > max) max = counts[k]; });
 
-  // Read primary accent colors from CSS variables so the map adapts to palette switches.
-  function cssRGB(v) {
-    var ch = getComputedStyle(document.documentElement).getPropertyValue(v).trim();
-    return 'rgb(' + ch.replace(/\s+/g, ',') + ')';
+  // Read accent token from CSS so the ramp adapts to palette switches.
+  function accentRGB() {
+    return getComputedStyle(document.documentElement).getPropertyValue('--accent').trim().replace(/\s+/g, ',');
   }
   function getRamp() {
+    var a = accentRGB();
     return [
-      cssRGB('--c-indigo-100'),
-      cssRGB('--c-indigo-300'),
-      cssRGB('--c-indigo-500'),
-      cssRGB('--c-indigo-700'),
-      cssRGB('--c-indigo-900'),
+      'rgba(' + a + ',0.15)',
+      'rgba(' + a + ',0.35)',
+      'rgba(' + a + ',0.55)',
+      'rgba(' + a + ',0.75)',
+      'rgba(' + a + ',1)',
     ];
   }
 
@@ -206,7 +206,7 @@
     if (!path) return;
     var v = counts[path.getAttribute('id')] || 0;
     if (on) {
-      path.setAttribute('stroke', cssRGB('--c-indigo-700'));
+      path.setAttribute('stroke', 'rgba(' + accentRGB() + ',0.85)');
       path.setAttribute('stroke-width', '1.5');
       path.style.filter = 'brightness(1.12)';
     } else {

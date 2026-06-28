@@ -17,6 +17,7 @@
 <script src="/static/js/htmx.min.js" nonce="{{.Data.CSPNonce}}" defer></script>
 <script src="/static/js/cmdk.js" nonce="{{.Data.CSPNonce}}" defer></script>
 <script src="/static/js/sheet.js" nonce="{{.Data.CSPNonce}}" defer></script>
+<script src="/static/js/rowactions.js" nonce="{{.Data.CSPNonce}}" defer></script>
 <style>
   /* Global form-control dark-mode safety net (see install/_layout for context). */
   input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
@@ -663,7 +664,7 @@ document.addEventListener('DOMContentLoaded', function(){
   if (!pal || !inp || !lst) return;
   var debTimer = null, items = [], cursor = -1;
   var kindClass = {
-    host:   'bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-300',
+    host:   'bg-[rgb(var(--accent)/.12)] text-[rgb(var(--accent))]',
     client: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
     node:   'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
     tunnel: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'

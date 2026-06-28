@@ -64,53 +64,38 @@
   * { scroll-behavior: auto !important; }
 }
 
-/* ── Mobile overflow-action dropdown ─────────────────────────────────── */
-/* Trigger button: three-dot icon, visible only on mobile. */
+/* ── Row-action kebab menu (dark-ops, always visible) ────────────────── */
+/* Trigger button: three-dot icon, shown on every viewport. */
 .hpg-act-toggle {
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   width: 2rem; height: 2rem;
   border-radius: 0.5rem;
-  border: 1px solid rgba(148,163,184,0.4);
+  border: 1px solid rgb(var(--border));
   background: transparent;
-  color: #64748b;
+  color: rgb(var(--muted));
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease;
+  transition: background 150ms ease, color 150ms ease, border-color 150ms ease;
 }
-.dark .hpg-act-toggle { border-color: rgba(82,82,91,0.5); color: #94a3b8; }
-.hpg-act-toggle:hover { background: #f1f5f9; color: #1e293b; }
-.dark .hpg-act-toggle:hover { background: rgba(39,39,42,0.8); color: #e2e8f0; }
+.hpg-act-toggle:hover { background: rgb(var(--surface-2)); color: rgb(var(--text)); }
+.hpg-act-toggle:focus-visible { outline: 2px solid rgb(var(--accent)); outline-offset: 2px; }
 
-@media (max-width: 767px) {
-  /* Show the three-dot toggle on mobile. */
-  .hpg-act-toggle { display: inline-flex; }
-  /* Hide the full inline button row on mobile. */
-  .hpg-act-desktop { display: none !important; }
-}
-
-/* Dropdown panel: absolutely positioned below-right of the toggle. */
+/* Dropdown panel: position:fixed; JS sets top/left from the button rect. */
 .hpg-act-menu {
-  position: absolute;
-  right: 0.75rem;
-  top: calc(100% - 0.5rem);
+  position: fixed;
   z-index: 50;
-  min-width: 9rem;
+  min-width: 10rem;
   border-radius: 0.75rem;
-  background: #fff;
-  border: 1px solid rgba(148,163,184,0.25);
-  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.07), 0 16px 32px -8px rgba(0,0,0,0.12);
+  background: rgb(var(--surface));
+  border: 1px solid rgb(var(--border));
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / .25), 0 16px 32px -8px rgb(0 0 0 / .45);
   padding: 0.3rem;
   opacity: 0;
   transform: scale(0.95) translateY(-4px);
   transform-origin: top right;
   pointer-events: none;
   transition: opacity 150ms ease, transform 150ms ease;
-}
-.dark .hpg-act-menu {
-  background: #18181b;
-  border-color: rgba(63,63,70,0.6);
-  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3), 0 16px 32px -8px rgba(0,0,0,0.5);
 }
 
 /* Open state. */
@@ -130,7 +115,7 @@
   border-radius: 0.5rem;
   font-size: 0.8125rem;
   font-weight: 500;
-  color: #475569;
+  color: rgb(var(--text));
   background: transparent;
   border: none;
   cursor: pointer;
@@ -138,13 +123,13 @@
   white-space: nowrap;
   transition: background 120ms ease, color 120ms ease;
 }
-.dark .hpg-act-item { color: #94a3b8; }
-.hpg-act-item:hover { background: #f1f5f9; color: #1e293b; }
-.dark .hpg-act-item:hover { background: rgba(39,39,42,0.8); color: #e2e8f0; }
-.hpg-act-item.is-danger { color: #e11d48; }
-.dark .hpg-act-item.is-danger { color: #fb7185; }
-.hpg-act-item.is-danger:hover { background: #fff1f2; color: #be123c; }
-.dark .hpg-act-item.is-danger:hover { background: rgba(244,63,94,0.12); color: #fda4af; }
+.hpg-act-item:hover { background: rgb(var(--surface-2)); color: rgb(var(--text)); }
+.hpg-act-item.is-danger { color: rgb(var(--danger)); }
+.hpg-act-item.is-danger:hover { background: rgb(var(--danger) / .1); color: rgb(var(--danger)); }
+
+/* Forms wrapping a POST item: collapse the form box so the button is a direct
+   menu row. Safety net in case the Tailwind .contents utility isn't emitted. */
+.hpg-act-menu form.contents { display: contents; }
 
 /* ── Admin topology map ──────────────────────────────────────────────── */
 .hpg-topology-shell {
@@ -1123,16 +1108,6 @@ a.r-btn-primary, a.r-btn-secondary, a.r-btn-ghost, a.r-btn-danger {
   text-align: right;
   font-variant-numeric: tabular-nums;
 }
-
-/* Tighten hpg-act-menu/item to use token colors where possible. */
-.hpg-act-menu {
-  background: rgb(var(--surface));
-  border-color: rgb(var(--border));
-}
-.hpg-act-item { color: rgb(var(--muted)); }
-.hpg-act-item:hover { background: rgb(var(--surface-2)); color: rgb(var(--text)); }
-.hpg-act-item.is-danger { color: rgb(var(--danger)); }
-.hpg-act-item.is-danger:hover { background: rgb(var(--danger) / .1); }
 
 /* Nav link active: use accent token. */
 .hpg-nav-link.is-active {
