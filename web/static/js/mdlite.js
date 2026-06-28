@@ -64,6 +64,24 @@
         continue;
       }
 
+      // Table: pipe-delimited with separator row
+      if (/\|/.test(line) && i + 1 < lines.length && /^\|?[\s|:-]+\|?$/.test(lines[i + 1])) {
+        var parseRow = function (r) {
+          return r.replace(/^\||\|$/g, '').split('|').map(function (c) { return inlineTransform(c.trim()); });
+        };
+        var headers = parseRow(line);
+        i += 2; // skip header + separator
+        var tableHtml = '<thead><tr>' + headers.map(function (h) { return '<th>' + h + '</th>'; }).join('') + '</tr></thead><tbody>';
+        while (i < lines.length && /\|/.test(lines[i]) && lines[i].trim() !== '') {
+          var cells = parseRow(lines[i]);
+          tableHtml += '<tr>' + cells.map(function (c) { return '<td>' + c + '</td>'; }).join('') + '</tr>';
+          i++;
+        }
+        tableHtml += '</tbody>';
+        output.push('<table>' + tableHtml + '</table>');
+        continue;
+      }
+
       // Unordered list
       if (/^[-*+]\s+/.test(line)) {
         var ulItems = [];
