@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"io/fs"
 
 	"github.com/pressly/goose/v3"
 )
@@ -17,10 +18,17 @@ type MigrationsFS = embed.FS
 // RunMigrations applies all pending migrations against db using goose.
 // dialect is hard-coded to MySQL/MariaDB. Pass the embed.FS containing
 // migrations/*.sql files (root dir = "migrations").
-func RunMigrations(ctx context.Context, db *sql.DB, fs embed.FS, dir string) error {
-	goose.SetBaseFS(fs)
-	if err := goose.SetDialect("mysql"); err != nil {
-		return fmt.Errorf("goose dialect: %w", err)
+// AllowMissing lets out-of-order migrations (added retroactively) be applied.
+func RunMigrations(ctx context.Context, db *sql.DB, fsys embed.FS, dir string) error {
+	subFS, err := fs.Sub(fsys, dir)
+	if err != nil {
+		return fmt.Errorf("migrations sub-fs: %w", err)
+	}
+	p, err := goose.NewProvider(goose.DialectMySQL, db, subFS,
+		goose.WithAllowOutofOrder(true),
+	)
+	if err != nil {
+		return fmt.Errorf("goose provider: %w", err)
 	}
 	// Serialize concurrent boots (multi-replica / rolling deploy) so two
 	// processes can't double-apply and race goose_db_version. goose's session
@@ -38,10 +46,9 @@ func RunMigrations(ctx context.Context, db *sql.DB, fs embed.FS, dir string) err
 	if !got.Valid || got.Int64 != 1 {
 		return fmt.Errorf("migrate lock timeout: another instance is migrating")
 	}
-	// Release on a fresh context: ctx may be cancelled by the time we unwind.
 	defer func() { _, _ = conn.ExecContext(context.Background(), "DO RELEASE_LOCK('hpg_goose_migrate')") }()
 
-	if err := goose.UpContext(ctx, db, dir); err != nil {
+	if _, err := p.Up(ctx); err != nil {
 		return fmt.Errorf("goose up: %w", err)
 	}
 	return nil
