@@ -167,6 +167,28 @@ docs/                   all the docs you'll find linked below
 
 ---
 
+## Screenshots
+
+| Install wizard | Admin dashboard |
+|---|---|
+| ![Install wizard welcome](docs/screenshots/00_install_welcome.png) | ![Admin dashboard](docs/screenshots/01_dashboard.png) |
+
+| Host list | New host form |
+|---|---|
+| ![Host list](docs/screenshots/02_hosts.png) | ![New host](docs/screenshots/03_host_new.png) |
+
+| Stats | World map |
+|---|---|
+| ![Stats](docs/screenshots/05_stats.png) | ![World map](docs/screenshots/06_worldmap.png) |
+
+| AI assistant | Audit log |
+|---|---|
+| ![AI chat](docs/screenshots/10_ai_chat.png) | ![Audit](docs/screenshots/09_audit.png) |
+
+Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs/install_video/install_wizard.webm)
+
+---
+
 ## Documentation
 
 | Doc | What's in it |
