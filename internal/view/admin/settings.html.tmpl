@@ -20,6 +20,7 @@
         <button type="button" data-settings-tab="general" class="hpg-settings-tab hpg-settings-tab-active r-segment-item is-active text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">General</button>
         <button type="button" data-settings-tab="branding" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Branding</button>
         <button type="button" data-settings-tab="customer" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Customer fields</button>
+        <button type="button" data-settings-tab="customfields" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Custom fields</button>
       </div>
     </div>
 
@@ -124,6 +125,167 @@
       </div>
     </form>
   </section>
+
+  <!-- ── Custom fields ────────────────────────────────────── -->
+  <section data-settings-pane="customfields" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Entity custom fields</p>
+    <h2 class="t-h3 mb-2">Custom fields</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Define extra fields per entity type. Values are stored as JSON on each entity row and rendered on the client/host edit and detail pages.</p>
+
+    <!-- Entity switcher -->
+    <div class="flex gap-2 mb-4" id="cf-entity-switcher">
+      <button type="button" data-cf-entity="client" class="r-btn-primary" id="cf-btn-client">Clients</button>
+      <button type="button" data-cf-entity="host"   class="r-btn-secondary" id="cf-btn-host">Hosts</button>
+    </div>
+
+    <!-- Defs list -->
+    <div id="cf-defs-list" class="space-y-2 mb-4"></div>
+
+    <!-- Add field form -->
+    <div class="r-card" style="background:rgb(var(--surface-2)/.5)">
+      <p class="t-body font-medium mb-3" style="color:rgb(var(--text))">Add field</p>
+      <form id="cf-add-form" method="POST" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <input type="hidden" name="entity_type" id="cf-entity-type-input" value="client">
+        <div>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Label</label>
+          <input name="label" id="cf-label-input" maxlength="120" placeholder="e.g. Company name" class="r-input" required>
+        </div>
+        <div>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Key (slug)</label>
+          <input name="field_key" id="cf-key-input" maxlength="40" placeholder="e.g. company_name" pattern="[a-z0-9_]{1,40}" class="r-input font-mono" required>
+          <p class="t-caption mt-1" style="color:rgb(var(--muted))">Lowercase letters, digits, underscores only.</p>
+        </div>
+        <div>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Type</label>
+          <select name="field_type" id="cf-type-select" class="r-select">
+            <option value="text">Text</option>
+            <option value="number">Number</option>
+            <option value="select">Select</option>
+            <option value="bool">Boolean</option>
+          </select>
+        </div>
+        <div id="cf-options-row" class="hidden">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Options (one per line or comma-separated)</label>
+          <textarea name="options" rows="3" class="r-input" placeholder="Option A&#10;Option B"></textarea>
+        </div>
+        <div class="sm:col-span-2">
+          <label class="r-toggle">
+            <input type="checkbox" name="required" value="1">
+            <span></span>
+            Required field
+          </label>
+        </div>
+        <div class="sm:col-span-2 flex justify-end">
+          <button type="submit" class="r-btn-primary cursor-pointer">Add field</button>
+        </div>
+      </form>
+    </div>
+  </section>
+  <script nonce="{{.CSPNonce}}">
+  (function(){
+    var currentEntity = 'client';
+    var csrfToken = document.querySelector('[data-settings-pane="customfields"] input[name="csrf_token"]');
+    var csrfVal = csrfToken ? csrfToken.value : '';
+
+    var btnClient = document.getElementById('cf-btn-client');
+    var btnHost   = document.getElementById('cf-btn-host');
+    var listEl    = document.getElementById('cf-defs-list');
+    var addForm   = document.getElementById('cf-add-form');
+    var entityIn  = document.getElementById('cf-entity-type-input');
+    var labelIn   = document.getElementById('cf-label-input');
+    var keyIn     = document.getElementById('cf-key-input');
+    var typeEl    = document.getElementById('cf-type-select');
+    var optsRow   = document.getElementById('cf-options-row');
+
+    if (!listEl || !addForm) return;
+
+    function setEntity(e) {
+      currentEntity = e;
+      if (entityIn) entityIn.value = e;
+      if (btnClient) { btnClient.className = e === 'client' ? 'r-btn-primary' : 'r-btn-secondary'; }
+      if (btnHost)   { btnHost.className   = e === 'host'   ? 'r-btn-primary' : 'r-btn-secondary'; }
+      loadDefs();
+    }
+
+    function loadDefs() {
+      listEl.innerHTML = '<p class="t-caption" style="color:rgb(var(--muted))">Loading…</p>';
+      fetch('/admin/settings/custom-fields?entity=' + currentEntity, {
+        credentials: 'same-origin', headers: {'Accept': 'application/json'}
+      }).then(function(r){ return r.json(); })
+        .then(function(j){
+          renderDefs(j.defs || []);
+        })
+        .catch(function(){ listEl.innerHTML = '<p class="t-caption" style="color:rgb(var(--danger))">Failed to load fields.</p>'; });
+    }
+
+    function renderDefs(defs) {
+      if (!defs.length) {
+        listEl.innerHTML = '<p class="t-caption" style="color:rgb(var(--muted))">No custom fields defined yet.</p>';
+        return;
+      }
+      var html = '';
+      defs.forEach(function(d) {
+        var opts = (d.options && d.options.length) ? d.options.join(', ') : '';
+        html += '<div class="r-card flex items-center justify-between gap-3" style="background:rgb(var(--surface-2)/.4)">' +
+          '<div class="flex-1 min-w-0">' +
+          '<span class="t-body font-medium" style="color:rgb(var(--text))">' + esc(d.label) + '</span>' +
+          ' <code class="text-xs font-mono" style="color:rgb(var(--muted))">' + esc(d.key) + '</code>' +
+          ' <span class="r-pill r-pill-neutral" style="font-size:.6rem">' + esc(d.type) + '</span>' +
+          (d.required ? ' <span class="r-pill r-pill-warning" style="font-size:.6rem">required</span>' : '') +
+          (opts ? '<p class="t-caption mt-0.5" style="color:rgb(var(--muted))">Options: ' + esc(opts) + '</p>' : '') +
+          '</div>' +
+          '<form method="POST" action="/admin/settings/custom-fields/' + d.id + '/delete" onsubmit="return confirm(\'Delete field \\\'' + esc(d.label) + '\\\'?\')">' +
+          '<input type="hidden" name="csrf_token" value="' + esc(csrfVal) + '">' +
+          '<button type="submit" class="r-btn-danger" style="font-size:.75rem;padding:.25rem .6rem">Delete</button>' +
+          '</form>' +
+          '</div>';
+      });
+      listEl.innerHTML = html;
+    }
+
+    function esc(s) {
+      return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+    }
+
+    if (btnClient) btnClient.addEventListener('click', function(){ setEntity('client'); });
+    if (btnHost)   btnHost.addEventListener('click',   function(){ setEntity('host'); });
+
+    if (typeEl) {
+      typeEl.addEventListener('change', function(){
+        if (optsRow) optsRow.classList.toggle('hidden', typeEl.value !== 'select');
+      });
+    }
+
+    // Auto-slug label -> key
+    if (labelIn && keyIn) {
+      labelIn.addEventListener('input', function(){
+        if (keyIn.dataset.userEdited) return;
+        keyIn.value = labelIn.value.toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,40);
+      });
+      keyIn.addEventListener('input', function(){
+        keyIn.dataset.userEdited = '1';
+      });
+    }
+
+    if (addForm) {
+      addForm.action = '/admin/settings/custom-fields';
+      addForm.addEventListener('submit', function(){
+        if (keyIn) delete keyIn.dataset.userEdited;
+      });
+    }
+
+    // Load on first tab activate
+    document.querySelectorAll('[data-settings-tab="customfields"]').forEach(function(btn){
+      btn.addEventListener('click', function(){ if (!listEl.children.length) loadDefs(); });
+    });
+
+    // Also load if pane is already active (page reload via hash)
+    if (!document.querySelector('[data-settings-pane="customfields"]').classList.contains('hidden')) {
+      loadDefs();
+    }
+  })();
+  </script>
 
   <!-- ── General ───────────────────────────────────────────── -->
   <section data-settings-pane="general" class="hpg-settings-pane r-card">

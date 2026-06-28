@@ -48,6 +48,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 	"github.com/host-yt/caddy-proxy-manager/internal/webhook"
+	"github.com/host-yt/caddy-proxy-manager/internal/customfields"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
@@ -1937,6 +1938,7 @@ type clientRow struct {
 	CreatedAt       string
 	Tag             string // grouping label
 	Category        string // billing/segment category
+	CustomFieldsJSON string // raw JSON for edit modal prefill
 }
 
 type clientsData struct {
@@ -1956,6 +1958,7 @@ type clientsData struct {
 	NextURL        string
 	QueryValues    string
 	SavedFilters   []savedFilter
+	CustomFieldDefs []customfields.Def // admin-defined fields for the create/edit form
 }
 
 func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
@@ -2015,7 +2018,8 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	        COALESCE(c.external_ref, ''),
 	        (SELECT COUNT(*) FROM services s WHERE s.client_id = c.id),
 	        DATE_FORMAT(c.created_at, '%Y-%m-%d'),
-	        COALESCE(c.tag, ''), COALESCE(c.category, '')
+	        COALESCE(c.tag, ''), COALESCE(c.category, ''),
+	        COALESCE(c.custom_fields, '')
 	 ` + baseFrom + ` ORDER BY ` + orderCol + ` ` + dir + ` LIMIT ? OFFSET ?`
 	queryArgs := append(args, lp.Size, lp.Offset())
 
@@ -2024,7 +2028,7 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var c clientRow
-			if err := rows.Scan(&c.ID, &c.DisplayName, &c.EditDisplayName, &c.Email, &c.ExternalRef, &c.ServiceCount, &c.CreatedAt, &c.Tag, &c.Category); err == nil {
+			if err := rows.Scan(&c.ID, &c.DisplayName, &c.EditDisplayName, &c.Email, &c.ExternalRef, &c.ServiceCount, &c.CreatedAt, &c.Tag, &c.Category, &c.CustomFieldsJSON); err == nil {
 				d.Clients = append(d.Clients, c)
 			}
 		}
@@ -2079,6 +2083,10 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	d.QueryValues = clientsQueryJSON(lp.Q, lp.Sort, lp.Dir, d.TagFilter, d.CategoryFilter)
 	if sess != nil {
 		d.SavedFilters = h.savedFiltersForView(ctx, sess.UserID, "clients")
+	}
+	// Load client custom field defs for the create/edit form.
+	if defs, err := customfields.LoadDefs(ctx, db, "client"); err == nil {
+		d.CustomFieldDefs = defs
 	}
 	h.render(w, "clients", d)
 }
@@ -2158,12 +2166,19 @@ func (h *AdminHandlers) ClientsUpdate(w http.ResponseWriter, r *http.Request) {
 	if externalRef != "" {
 		extRef = sql.NullString{String: externalRef, Valid: true}
 	}
+	cfDefs, _ := customfields.LoadDefs(ctx, db, "client")
+	cfJSON, cfErr := customfields.EncodeFromForm(cfDefs, r.Form)
+	if cfErr != nil {
+		tx.Rollback() //nolint:errcheck
+		redirectWithFlash(w, r, "/admin/clients", "", cfErr.Error())
+		return
+	}
 	if _, err := tx.ExecContext(ctx,
-		"UPDATE clients SET display_name = ?, external_ref = ?, tag = ?, category = ? WHERE id = ?",
+		"UPDATE clients SET display_name = ?, external_ref = ?, tag = ?, category = ?, custom_fields = ? WHERE id = ?",
 		displayName, extRef,
 		sql.NullString{String: tag, Valid: tag != ""},
 		sql.NullString{String: category, Valid: category != ""},
-		id); err != nil {
+		cfJSON, id); err != nil {
 		redirectWithFlash(w, r, "/admin/clients", "", "client update failed")
 		return
 	}
@@ -2237,15 +2252,23 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	userID, _ := res.LastInsertId()
 
+	cfDefs, _ := customfields.LoadDefs(ctx, db, "client")
+	cfJSON, cfErr := customfields.EncodeFromForm(cfDefs, r.Form)
+	if cfErr != nil {
+		tx.Rollback() //nolint:errcheck
+		redirectWithFlash(w, r, "/admin/clients", "", cfErr.Error())
+		return
+	}
 	var extRef sql.NullString
 	if externalRef != "" {
 		extRef = sql.NullString{String: externalRef, Valid: true}
 	}
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO clients (user_id, display_name, external_ref, tag, category) VALUES (?, ?, ?, ?, ?)",
+		"INSERT INTO clients (user_id, display_name, external_ref, tag, category, custom_fields) VALUES (?, ?, ?, ?, ?, ?)",
 		userID, displayName, extRef,
 		sql.NullString{String: tag, Valid: tag != ""},
-		sql.NullString{String: category, Valid: category != ""}); err != nil {
+		sql.NullString{String: category, Valid: category != ""},
+		cfJSON); err != nil {
 		h.Logger.Error("client record create", "err", err)
 		redirectWithFlash(w, r, "/admin/clients", "", "client insert failed")
 		return

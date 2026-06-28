@@ -179,6 +179,39 @@
           </div>
         </div>
       </details>
+
+      {{if .CFViews}}
+      <!-- Custom fields -->
+      <details class="hpg-adv group rounded-xl" style="border:1px solid rgb(var(--border))">
+        <summary class="cursor-pointer select-none px-4 py-3 t-small font-medium flex items-center justify-between rounded-xl transition-colors" style="color:rgb(var(--text))">
+          <span>Custom fields</span>
+          <span style="color:rgb(var(--muted))" class="group-open:rotate-90 transition-transform">&#8250;</span>
+        </summary>
+        <div class="px-4 pb-4 pt-1 space-y-3">
+          {{range .CFViews}}
+          {{$cfv := .Value}}
+          <div>
+            <label class="t-eyebrow mb-1 block">{{.Def.Label}}{{if .Def.Required}}<span style="color:rgb(var(--danger,220 38 38))"> *</span>{{end}}</label>
+            {{if eq .Def.Type "bool"}}
+            <label class="flex items-center gap-2 t-body cursor-pointer">
+              <input type="checkbox" name="cf_{{.Def.Key}}" value="1" {{if eq .Value "1"}}checked{{end}} class="rounded cursor-pointer">
+              {{.Def.Label}}
+            </label>
+            {{else if eq .Def.Type "select"}}
+            <select name="cf_{{.Def.Key}}" class="r-select w-full cursor-pointer">
+              <option value="">- select -</option>
+              {{range .Def.Options}}<option value="{{.}}" {{if eq . $cfv}}selected{{end}}>{{.}}</option>{{end}}
+            </select>
+            {{else if eq .Def.Type "number"}}
+            <input type="number" name="cf_{{.Def.Key}}" value="{{.Value}}" {{if .Def.Required}}required{{end}} class="r-input w-full">
+            {{else}}
+            <input type="text" name="cf_{{.Def.Key}}" value="{{.Value}}" {{if .Def.Required}}required{{end}} maxlength="1000" class="r-input w-full">
+            {{end}}
+          </div>
+          {{end}}
+        </div>
+      </details>
+      {{end}}
     </div>
 
     <div class="flex justify-end gap-3 pt-1">

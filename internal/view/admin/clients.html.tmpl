@@ -135,7 +135,8 @@
                 data-email="{{.Email}}"
                 data-extref="{{.ExternalRef}}"
                 data-tag="{{.Tag}}"
-                data-category="{{.Category}}">Edit</button>
+                data-category="{{.Category}}"
+                data-cf="{{.CustomFieldsJSON}}">Edit</button>
               <form method="POST" action="/admin/clients/{{.ID}}/delete" class="contents" data-confirm="Delete client {{.DisplayName}} and their user account?">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button type="submit" class="hpg-act-item is-danger" role="menuitem">Delete</button>
@@ -213,6 +214,26 @@
             <input name="category" maxlength="64" placeholder="e.g. saas" class="r-input w-full">
           </div>
         </div>
+        {{range .CustomFieldDefs}}
+        <div>
+          <label class="t-eyebrow block mb-1.5">{{.Label}}{{if .Required}} <span style="color:rgb(var(--danger))">*</span>{{end}}</label>
+          {{if eq .Type "bool"}}
+          <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" name="cf_{{.Key}}" value="1" class="rounded cursor-pointer">
+            <span class="t-small">{{.Label}}</span>
+          </label>
+          {{else if eq .Type "select"}}
+          <select name="cf_{{.Key}}" class="r-select w-full cursor-pointer"{{if .Required}} required{{end}}>
+            <option value="">— select —</option>
+            {{range .Options}}<option value="{{.}}">{{.}}</option>{{end}}
+          </select>
+          {{else if eq .Type "number"}}
+          <input type="number" name="cf_{{.Key}}" class="r-input w-full"{{if .Required}} required{{end}}>
+          {{else}}
+          <input type="text" name="cf_{{.Key}}" maxlength="1000" class="r-input w-full"{{if .Required}} required{{end}}>
+          {{end}}
+        </div>
+        {{end}}
         <div class="flex items-center justify-end gap-2 pt-1">
           <button type="button" id="cli-modal-cancel" class="r-btn-secondary cursor-pointer">Cancel</button>
           <button type="submit" id="cli-modal-submit" class="r-btn-primary cursor-pointer">Create client</button>
@@ -298,6 +319,15 @@
       setVal("external_ref", d.extref);
       setVal("tag", d.tag);
       setVal("category", d.category);
+      // Prefill custom fields from the stored JSON blob.
+      var cfVals = {};
+      try { cfVals = JSON.parse(d.cf || "{}"); } catch(_) {}
+      for (var key in cfVals) {
+        var el = form.elements["cf_" + key];
+        if (!el) continue;
+        if (el.type === "checkbox") { el.checked = cfVals[key] === "1"; }
+        else { el.value = cfVals[key]; }
+      }
       open();
     });
   }

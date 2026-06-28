@@ -107,6 +107,21 @@
     </div>
   </section>
 
+  <!-- Custom fields (admin-defined) -->
+  {{if .CustomFields}}
+  <section class="r-card space-y-3">
+    <p class="t-eyebrow">Custom fields</p>
+    {{range .CustomFields}}
+    {{if .Value}}
+    <div class="flex items-start gap-3">
+      <span class="t-caption w-36 shrink-0 pt-0.5">{{.Def.Label}}</span>
+      <span class="t-small break-words">{{.Value}}</span>
+    </div>
+    {{end}}
+    {{end}}
+  </section>
+  {{end}}
+
   <!-- Change plan -->
   {{if .AllPlans}}
   <section class="r-card">

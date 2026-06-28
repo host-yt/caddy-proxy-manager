@@ -425,6 +425,11 @@ func (s *Server) routes() {
 		// Drain = move routes off + disable (non-destructive maintenance).
 		r.Post("/nodes/{id}/drain", s.deps.Admin.NodesDrain)
 		r.Post("/settings/customer-fields", s.deps.Admin.SettingsCustomerFields)
+			r.Get("/settings/custom-fields", s.deps.Admin.CustomFieldDefsJSON)
+			r.Post("/settings/custom-fields", s.deps.Admin.CustomFieldCreate)
+			r.Post("/settings/custom-fields/reorder", s.deps.Admin.CustomFieldReorder)
+			r.Post("/settings/custom-fields/{id}/update", s.deps.Admin.CustomFieldUpdate)
+			r.Post("/settings/custom-fields/{id}/delete", s.deps.Admin.CustomFieldDelete)
 		r.Route("/plans", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.PlansList)
 			r.Post("/", s.deps.Admin.PlansCreate)

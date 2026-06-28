@@ -53,6 +53,7 @@
     <button type="button" data-tab="custom"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Custom JSON</button>
     <button type="button" data-tab="egress"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Egress IP</button>
     <button type="button" data-tab="dns"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">DNS</button>
+    {{if .CFViews}}<button type="button" data-tab="customfields" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Custom fields</button>{{end}}
   </nav>
 
   <form method="POST" action="/admin/hosts/{{.RouteID}}/edit" class="space-y-4" id="hpg-edit-form">
@@ -958,6 +959,34 @@ X-Authentik-Meta-Version</pre>
         <div id="hpg-dns-test-result" class="hidden rounded-xl p-3 t-caption font-mono space-y-1"></div>
       </div>
     </section>
+
+    {{if .CFViews}}
+    <!-- Custom fields -->
+    <section data-pane="customfields" class="hpg-pane hidden r-card space-y-4">
+      <p class="t-eyebrow">Custom fields</p>
+      {{range .CFViews}}
+      {{$cfv := .Value}}
+      <div>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">{{.Def.Label}}{{if .Def.Required}}<span class="text-danger ml-0.5">*</span>{{end}}</label>
+        {{if eq .Def.Type "bool"}}
+        <label class="flex items-center gap-2 t-body cursor-pointer">
+          <input type="checkbox" name="cf_{{.Def.Key}}" value="1" {{if eq .Value "1"}}checked{{end}} class="rounded cursor-pointer">
+          {{.Def.Label}}
+        </label>
+        {{else if eq .Def.Type "select"}}
+        <select name="cf_{{.Def.Key}}" class="r-select w-full cursor-pointer">
+          <option value="">- select -</option>
+          {{range .Def.Options}}<option value="{{.}}" {{if eq . $cfv}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
+        {{else if eq .Def.Type "number"}}
+        <input type="number" name="cf_{{.Def.Key}}" value="{{.Value}}" {{if .Def.Required}}required{{end}} class="r-input w-full">
+        {{else}}
+        <input type="text" name="cf_{{.Def.Key}}" value="{{.Value}}" {{if .Def.Required}}required{{end}} maxlength="1000" class="r-input w-full">
+        {{end}}
+      </div>
+      {{end}}
+    </section>
+    {{end}}
 
     <div class="flex flex-wrap justify-between items-center gap-3 pt-2">
       <a href="/admin/hosts" class="r-btn-ghost t-body">Cancel</a>

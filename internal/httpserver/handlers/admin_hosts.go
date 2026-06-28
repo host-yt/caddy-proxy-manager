@@ -23,6 +23,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/customfields"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
@@ -540,9 +541,10 @@ func hostCertStatus(ssl bool, status string) string {
 
 type hostsNewData struct {
 	baseAdminData
-	Nodes  []hostsNewNode
-	Groups []hostGroupOption
-	Form   hostsNewForm
+	Nodes   []hostsNewNode
+	Groups  []hostGroupOption
+	Form    hostsNewForm
+	CFViews []customfields.View
 }
 
 type hostsNewNode struct {
@@ -586,6 +588,9 @@ func (h *AdminHandlers) HostsNew(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		d.Groups = loadHostGroups(ctx, db)
+		if defs, err := customfields.LoadDefs(ctx, db, "host"); err == nil {
+			d.CFViews = customfields.Merge(defs, nil)
+		}
 	}
 	h.render(w, "hosts_new", d)
 }
@@ -762,6 +767,17 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		proxySecret = s
 	}
 
+	// Load host custom field defs and encode submitted values before create.
+	cfDefs, cfDefsErr := customfields.LoadDefs(ctx, db, "host")
+	if cfDefsErr != nil {
+		h.Logger.Warn("admin hosts: load cf defs", "err", cfDefsErr)
+	}
+	cfJSON, cfErr := customfields.EncodeFromForm(cfDefs, r.Form)
+	if cfErr != nil {
+		h.renderHostsNewErr(w, r, form, cfErr.Error())
+		return
+	}
+
 	routeID, err := h.Routes.Create(ctx, 0, routes.CreateInput{
 		ServiceID:      serviceID,
 		UpstreamPort:   port,
@@ -787,7 +803,12 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		h.renderHostsNewErr(w, r, form, "create failed: "+sanitizeErr(err))
 		return
 	}
-	if groupID > 0 {
+	// Persist custom_fields and optional group together after create.
+	if groupID > 0 || cfJSON != "" {
+		_, _ = db.ExecContext(ctx,
+			"UPDATE routes SET group_id = NULLIF(?, 0), custom_fields = NULLIF(?, '') WHERE id = ?",
+			groupID, cfJSON, routeID)
+	} else {
 		_, _ = db.ExecContext(ctx, "UPDATE routes SET group_id = NULLIF(?, 0) WHERE id = ?", groupID, routeID)
 	}
 
@@ -817,6 +838,18 @@ func (h *AdminHandlers) renderHostsNewErr(w http.ResponseWriter, r *http.Request
 	d := hostsNewData{baseAdminData: h.base(r, "Add host"), Form: form}
 	d.Error = msg
 	d.Nodes = h.loadNodeOptions(r.Context())
+	db := h.DB()
+	if db != nil {
+		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
+		d.Groups = loadHostGroups(ctx, db)
+		if defs, err := customfields.LoadDefs(ctx, db, "host"); err == nil {
+			// Preserve submitted values on re-render after validation error.
+			_ = r.ParseForm()
+			vals, _ := customfields.EncodeFromForm(defs, r.Form)
+			d.CFViews = customfields.Merge(defs, customfields.Decode(vals))
+		}
+	}
 	h.render(w, "hosts_new", d)
 }
 
@@ -2113,6 +2146,8 @@ type hostEditData struct {
 
 	Groups  []hostGroupOption
 	GroupID sql.NullInt64
+
+	CFViews []customfields.View
 }
 
 // mtlsCAOption is one selectable trust-anchor CA in the host editor dropdown.
@@ -2404,6 +2439,12 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 			}
 			d.CustomHeaders = strings.Join(lines, "\n")
 		}
+	}
+	// Load host custom field defs + decode stored values for the edit form.
+	if cfDefs, cfErr := customfields.LoadDefs(ctx, db, "host"); cfErr == nil && len(cfDefs) > 0 {
+		var cfRaw sql.NullString
+		_ = db.QueryRowContext(ctx, "SELECT COALESCE(custom_fields,'') FROM routes WHERE id = ?", id).Scan(&cfRaw)
+		d.CFViews = customfields.Merge(cfDefs, customfields.Decode(cfRaw.String))
 	}
 	h.render(w, "hosts_edit", d)
 }
@@ -3106,6 +3147,18 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		extHostHeaderVal = sql.NullString{String: extHostHeader, Valid: true}
 	}
 
+	// Load host custom field defs and encode submitted values for this update.
+	cfDefs, _ := customfields.LoadDefs(ctx, h.DB(), "host")
+	cfJSON, cfErr := customfields.EncodeFromForm(cfDefs, r.Form)
+	if cfErr != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", cfErr.Error())
+		return
+	}
+	var cfVal sql.NullString
+	if cfJSON != "" {
+		cfVal = sql.NullString{String: cfJSON, Valid: true}
+	}
+
 	// Two UPDATE branches: when 'keep current password' is ticked we
 	// must NOT touch basic_auth_bcrypt. Cleanest split is two queries.
 	var err error
@@ -3144,6 +3197,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   outbound_ip_mode = ?, outbound_ip = ?,
 			   dns_resolver_ip = ?, dns_resolver_via_wg_peer_id = ?, dns_address_family = ?,
 			   group_id = NULLIF(?, 0),
+			   custom_fields = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -3178,6 +3232,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			outboundIPMode, nullableString(outboundIP),
 			nullableString(dnsResolverIP), nullableInt64(dnsResolverViaWGID), dnsAddressFamily,
 			groupID,
+			cfVal,
 			id)
 	} else {
 		_, err = h.DB().ExecContext(ctx,
@@ -3214,6 +3269,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   outbound_ip_mode = ?, outbound_ip = ?,
 			   dns_resolver_ip = ?, dns_resolver_via_wg_peer_id = ?, dns_address_family = ?,
 			   group_id = NULLIF(?, 0),
+			   custom_fields = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
 			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
@@ -3248,6 +3304,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			outboundIPMode, nullableString(outboundIP),
 			nullableString(dnsResolverIP), nullableInt64(dnsResolverViaWGID), dnsAddressFamily,
 			groupID,
+			cfVal,
 			id)
 	}
 	if err != nil {
