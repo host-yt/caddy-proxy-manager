@@ -215,6 +215,40 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// If DB wasn't ready at boot, swap it in once available.
 	bindDBWhenReady(func(db *sql.DB) { routesSvc.DB = db })
 
+	// Seed ACME CA settings from DB so they survive restarts without env vars.
+	bindDBWhenReady(func(db *sql.DB) {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		rows := map[string]string{}
+		if r, err := db.QueryContext(ctx,
+			"SELECT `key`, value, is_encrypted FROM settings WHERE `key` IN ('acme.ca_url','acme.eab_kid','acme.eab_hmac')"); err == nil {
+			defer r.Close()
+			for r.Next() {
+				var k, v string
+				var enc bool
+				if err := r.Scan(&k, &v, &enc); err == nil {
+					if enc {
+						if dec, err := state.Decrypt(v); err == nil {
+							v = dec
+						} else {
+							v = ""
+						}
+					}
+					rows[k] = v
+				}
+			}
+		}
+		if v := rows["acme.ca_url"]; v != "" {
+			routesSvc.ACMECaURL = v
+		}
+		if v := rows["acme.eab_kid"]; v != "" {
+			routesSvc.ACMEEabKID = v
+		}
+		if v := rows["acme.eab_hmac"]; v != "" {
+			routesSvc.ACMEEabHMAC = v
+		}
+	})
+
 	// Wire the wizard's self-bootstrap hook now that routesSvc exists.
 	// CaddySubmit will call this once the operator's first node is inserted.
 	wizard.ResyncNode = routesSvc.Resync
@@ -388,7 +422,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		PerIPPerMin: 10,
 		Webhooks:    whSvc,
 	}
-	adminH.SetConfigRefs(&routesSvc.ACMEEmail, &routesSvc.ACMEStaging)
+	adminH.SetConfigRefs(&routesSvc.ACMEEmail, &routesSvc.ACMEStaging, &routesSvc.ACMECaURL, &routesSvc.ACMEEabKID, &routesSvc.ACMEEabHMAC)
 	adminH.ResyncNode = routesSvc.Resync
 	adminH.Routes = routesSvc
 	adminH.WriteWGConfig = writeWG

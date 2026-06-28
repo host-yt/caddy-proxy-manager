@@ -42,6 +42,10 @@ type Service struct {
 	AskURL      string
 	ACMEEmail   string
 	ACMEStaging bool
+	// ACMECaURL / ACMEEabKID / ACMEEabHMAC mirror caddyapi.NodeSettings fields.
+	ACMECaURL   string
+	ACMEEabKID  string
+	ACMEEabHMAC string
 
 	// BgCtx is a background context derived from the app root context,
 	// cancelled after HTTP shutdown so fire-and-forget pushes drain cleanly
@@ -1378,6 +1382,9 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 	cfg := caddyapi.BuildNodeConfig(built, caddyapi.NodeSettings{
 		ACMEEmail:                s.ACMEEmail,
 		ACMEStaging:              s.ACMEStaging,
+		ACMECaURL:                s.ACMECaURL,
+		ACMEEabKID:               s.ACMEEabKID,
+		ACMEEabHMAC:              s.ACMEEabHMAC,
 		AskURL:                   s.AskURL,
 		PanelRoute:               s.panelRoute(),
 		CacheModuleAvailable:     s.CacheModuleAvailable,

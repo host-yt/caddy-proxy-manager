@@ -1006,19 +1006,41 @@
   <!-- ── ACME / TLS ─────────────────────────────────────────── -->
   <section data-settings-pane="acme" class="hpg-settings-pane hidden r-card">
     <p class="t-eyebrow mb-1">Infrastructure</p>
-    <h2 class="t-h3 mb-4">ACME / Let's Encrypt</h2>
-    <form method="POST" action="/admin/settings/acme" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <h2 class="t-h3 mb-4">ACME / TLS</h2>
+    <form method="POST" action="/admin/settings/acme" class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="acme-form">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
         <label class="block t-caption mb-1" style="color:rgb(var(--text))">ACME contact email</label>
         <input name="email" type="email" required value="{{.ACME.Email}}" class="r-input">
-        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Used as the registration contact for Let's Encrypt.</p>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Registration contact for the ACME CA.</p>
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Certificate Authority</label>
+        <select name="acme_ca_url" id="acme-ca-select" class="r-input cursor-pointer" onchange="acmeCAChange(this.value)">
+          <option value="" {{if or (eq .ACME.CaURL "") (eq .ACME.CaURL "letsencrypt")}}selected{{end}}>Let's Encrypt (default)</option>
+          <option value="zerossl" {{if eq .ACME.CaURL "zerossl"}}selected{{end}}>ZeroSSL</option>
+          <option value="custom" {{if and (ne .ACME.CaURL "") (ne .ACME.CaURL "letsencrypt") (ne .ACME.CaURL "zerossl")}}selected{{end}}>Custom URL</option>
+        </select>
+      </div>
+      <div class="sm:col-span-2" id="acme-custom-url-row" style="display:none">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Custom ACME directory URL</label>
+        <input name="acme_ca_url_custom" id="acme-ca-url-custom" type="url" class="r-input" placeholder="https://acme.example.com/directory" value="{{if and (ne .ACME.CaURL "") (ne .ACME.CaURL "letsencrypt") (ne .ACME.CaURL "zerossl")}}{{.ACME.CaURL}}{{end}}">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Full ACME directory URL for a private or alternate CA.</p>
+      </div>
+      <div class="sm:col-span-2" id="acme-eab-row" style="display:none">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">EAB Key ID</label>
+        <input name="acme_eab_kid" type="text" class="r-input" placeholder="ZeroSSL EAB key ID" value="{{.ACME.EabKID}}">
+      </div>
+      <div class="sm:col-span-2" id="acme-eab-hmac-row" style="display:none">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))">EAB HMAC Key</label>
+        <input name="acme_eab_hmac" type="password" class="r-input" placeholder="{{if .ACME.HasEABKey}}(unchanged){{else}}ZeroSSL EAB HMAC key{{end}}" autocomplete="new-password">
+        {{if .ACME.HasEABKey}}<p class="t-caption mt-1" style="color:rgb(var(--muted))">A key is stored. Leave blank to keep the existing value.</p>{{end}}
       </div>
       <div class="sm:col-span-2">
         <label class="r-toggle">
           <input type="checkbox" name="staging" value="1" {{if .ACME.Staging}}checked{{end}}>
           <span></span>
-          Use Let's Encrypt staging directory
+          Use Let's Encrypt staging directory (overrides CA selection above)
         </label>
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Enable while testing to avoid burning production rate limits. Issued certs will not be trusted by browsers.</p>
       </div>
@@ -1027,6 +1049,29 @@
       </div>
     </form>
     <p class="t-caption mt-3" style="color:rgb(var(--muted))">Changes take effect on the next Caddy push (next route create/delete or node resync).</p>
+    <script>
+    (function(){
+      function acmeCAChange(val){
+        document.getElementById('acme-custom-url-row').style.display = val === 'custom' ? '' : 'none';
+        document.getElementById('acme-eab-row').style.display = val === 'zerossl' ? '' : 'none';
+        document.getElementById('acme-eab-hmac-row').style.display = val === 'zerossl' ? '' : 'none';
+      }
+      window.acmeCAChange = acmeCAChange;
+      // On submit, write custom URL into the select value so the server sees it.
+      var form = document.getElementById('acme-form');
+      if(form){
+        form.addEventListener('submit', function(){
+          var sel = document.getElementById('acme-ca-select');
+          if(sel && sel.value === 'custom'){
+            var inp = document.getElementById('acme-ca-url-custom');
+            if(inp) sel.value = inp.value;
+          }
+        });
+      }
+      var sel = document.getElementById('acme-ca-select');
+      if(sel) acmeCAChange(sel.value);
+    })();
+    </script>
   </section>
 
   <!-- ── mTLS ──────────────────────────────────────────────── -->

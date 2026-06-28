@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"strings"
 )
 
 // NodeSettings carries per-node TLS + ACME knobs needed to build a full
@@ -19,6 +20,10 @@ import (
 type NodeSettings struct {
 	ACMEEmail   string
 	ACMEStaging bool
+	// ACMECaURL selects the ACME CA: "" or "letsencrypt"=LE default, "zerossl"=ZeroSSL, else=custom URL.
+	ACMECaURL   string
+	ACMEEabKID  string // ZeroSSL EAB key ID
+	ACMEEabHMAC string // ZeroSSL EAB HMAC key (plaintext)
 	AskURL      string // e.g. http://app:8080/internal/ask
 	PanelRoute  *Route
 
@@ -139,6 +144,26 @@ type ErrorBranding struct {
 	Brand    string // short brand label shown under the logo when no image
 }
 
+// applyACMECA sets the "ca" and optional "external_account" fields on an ACME
+// issuer map based on NodeSettings. Staging overrides CA selection (caller's job).
+func applyACMECA(issuer map[string]any, s NodeSettings) {
+	caURL := strings.ToLower(strings.TrimSpace(s.ACMECaURL))
+	switch caURL {
+	case "", "letsencrypt":
+		// LE default - no ca field needed
+	case "zerossl":
+		issuer["ca"] = "https://acme.zerossl.com/v2/DV90"
+		if s.ACMEEabKID != "" && s.ACMEEabHMAC != "" {
+			issuer["external_account"] = map[string]any{
+				"key_id":  s.ACMEEabKID,
+				"mac_key": s.ACMEEabHMAC,
+			}
+		}
+	default:
+		issuer["ca"] = s.ACMECaURL
+	}
+}
+
 // BuildNodeConfig renders the full Caddy JSON config for one node from
 // the supplied routes. POST this to /load on the node's Admin API.
 //
@@ -172,7 +197,9 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		"module": "acme",
 		"email":  s.ACMEEmail,
 	}
+	applyACMECA(acmeIssuer, s)
 	if s.ACMEStaging {
+		// Staging overrides any CA selection.
 		acmeIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
 	}
 
@@ -196,6 +223,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 					},
 				},
 			}
+			applyACMECA(dnsIssuer, s)
 			if s.ACMEStaging {
 				dnsIssuer["ca"] = "https://acme-staging-v02.api.letsencrypt.org/directory"
 			}

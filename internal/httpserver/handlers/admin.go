@@ -125,11 +125,20 @@ type AdminHandlers struct {
 type adminConfigRefs struct {
 	ACMEEmail   *string
 	ACMEStaging *bool
+	ACMECaURL   *string
+	ACMEEabKID  *string
+	ACMEEabHMAC *string
 }
 
 // SetConfigRefs wires the runtime-mutable config pointers.
-func (h *AdminHandlers) SetConfigRefs(email *string, staging *bool) {
-	h.Config = &adminConfigRefs{ACMEEmail: email, ACMEStaging: staging}
+func (h *AdminHandlers) SetConfigRefs(email *string, staging *bool, caURL, eabKID, eabHMAC *string) {
+	h.Config = &adminConfigRefs{
+		ACMEEmail:   email,
+		ACMEStaging: staging,
+		ACMECaURL:   caURL,
+		ACMEEabKID:  eabKID,
+		ACMEEabHMAC: eabHMAC,
+	}
 }
 
 // ---- shared base data ---------------------------------------------------
@@ -3500,8 +3509,11 @@ type smtpView struct {
 }
 
 type acmeView struct {
-	Email   string
-	Staging bool
+	Email      string
+	Staging    bool
+	CaURL      string // "" or "letsencrypt" or "zerossl" or custom URL
+	EabKID     string
+	HasEABKey  bool // true when an encrypted EAB HMAC is stored
 }
 
 type geoipView struct {
@@ -3631,7 +3643,7 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		kv := h.loadSettings(ctx, db, []string{
 			"smtp.host", "smtp.port", "smtp.encryption", "smtp.username",
 			"smtp.from_email", "smtp.from_name", "smtp.password",
-			"acme.email", "acme.staging",
+			"acme.email", "acme.staging", "acme.ca_url", "acme.eab_kid", "acme.eab_hmac",
 			"oidc.enabled", "oidc.provider_name", "oidc.issuer", "oidc.client_id",
 			"oidc.client_secret", "oidc.redirect_url", "oidc.default_role", "oidc.auto_provision",
 			"oidc.password_login_disabled", "oidc.scopes",
@@ -3702,8 +3714,11 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			HasPassword: kv["smtp.password"] != "",
 		}
 		d.ACME = acmeView{
-			Email:   kv["acme.email"],
-			Staging: kv["acme.staging"] == "1",
+			Email:     kv["acme.email"],
+			Staging:   kv["acme.staging"] == "1",
+			CaURL:     kv["acme.ca_url"],
+			EabKID:    kv["acme.eab_kid"],
+			HasEABKey: kv["acme.eab_hmac"] != "",
 		}
 		d.GeoIP = h.loadGeoIPView(ctx, db)
 		// Fall back to wizard state / env if settings rows missing.
@@ -3863,19 +3878,40 @@ func (h *AdminHandlers) SettingsACME(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/settings", "", "ACME email required")
 		return
 	}
+	caURL := strings.TrimSpace(r.FormValue("acme_ca_url"))
+	eabKID := strings.TrimSpace(r.FormValue("acme_eab_kid"))
+	eabHMAC := r.FormValue("acme_eab_hmac")
+
 	stagingStr := "0"
 	if staging {
 		stagingStr = "1"
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+
+	// Save plain-text fields first.
 	if err := h.saveSettings(ctx, db, map[string]string{
 		"acme.email":   email,
 		"acme.staging": stagingStr,
+		"acme.ca_url":  caURL,
+		"acme.eab_kid": eabKID,
 	}, false); err != nil {
 		redirectWithFlash(w, r, "/admin/settings", "", "save failed")
 		return
 	}
+	// Save EAB HMAC encrypted only when a new value is provided.
+	if eabHMAC != "" && eabHMAC != "(unchanged)" {
+		ct, err := h.encryptSetting(eabHMAC)
+		if err != nil {
+			redirectWithFlash(w, r, "/admin/settings", "", "encrypt failed")
+			return
+		}
+		if err := h.saveSettings(ctx, db, map[string]string{"acme.eab_hmac": ct}, true); err != nil {
+			redirectWithFlash(w, r, "/admin/settings", "", "save failed")
+			return
+		}
+	}
+
 	// Flip the live config pointers so the next Caddy push picks up changes.
 	if h.Config != nil {
 		if h.Config.ACMEEmail != nil {
@@ -3883,6 +3919,16 @@ func (h *AdminHandlers) SettingsACME(w http.ResponseWriter, r *http.Request) {
 		}
 		if h.Config.ACMEStaging != nil {
 			*h.Config.ACMEStaging = staging
+		}
+		if h.Config.ACMECaURL != nil {
+			*h.Config.ACMECaURL = caURL
+		}
+		if h.Config.ACMEEabKID != nil {
+			*h.Config.ACMEEabKID = eabKID
+		}
+		// Only update live HMAC pointer when a new value was saved.
+		if h.Config.ACMEEabHMAC != nil && eabHMAC != "" && eabHMAC != "(unchanged)" {
+			*h.Config.ACMEEabHMAC = eabHMAC
 		}
 	}
 	sess := middleware.SessionFromContext(r.Context())
