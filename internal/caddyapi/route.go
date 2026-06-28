@@ -536,7 +536,11 @@ func BuildRoute(r Route) map[string]any {
 		// no consumable output. RelevantOnly = only transactions that matched a
 		// rule; Serial + JSON = one JSON object per line at WAFAuditLogFilePath.
 		sb.WriteString("\nSecAuditEngine RelevantOnly")
-		sb.WriteString("\nSecAuditLogParts ABIJDEFHZ")
+		// Parts ABDFHZ: audit header, request headers, response headers, the
+		// trailer (matched-rule messages the agent parses) and boundaries -
+		// deliberately NO request/response bodies (C/E/I), which would bloat a
+		// single JSON line and risk stalling the agent's bounded tailer.
+		sb.WriteString("\nSecAuditLogParts ABDFHZ")
 		sb.WriteString("\nSecAuditLogType Serial")
 		sb.WriteString("\nSecAuditLogFormat JSON")
 		sb.WriteString("\nSecAuditLog ")

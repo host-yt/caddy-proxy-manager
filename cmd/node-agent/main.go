@@ -1202,6 +1202,20 @@ func postWAFBatch(ctx context.Context, c config, events []wafEventPayload) bool 
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
+// wafBatchBounds decides how much of a read buffer to process. It returns the
+// length up to and including the last newline (the complete-lines prefix), and
+// skip=true when the buffer is a single oversized record (no newline AND the
+// read filled the window) that must be discarded so forwarding can't stall.
+func wafBatchBounds(buf []byte, atCap bool) (batchLen int, skip bool) {
+	if nl := bytes.LastIndexByte(buf, '\n'); nl >= 0 {
+		return nl + 1, false
+	}
+	if atCap {
+		return 0, true // full window, no newline: oversized record -> skip
+	}
+	return 0, false // partial trailing line still being written -> wait
+}
+
 // forwardWAFEvents tails the Coraza audit log and POSTs parsed events to the panel.
 // Same poll pattern as forwardAccessLogs; batches at most 500 events per flush.
 func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
@@ -1247,12 +1261,19 @@ func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
 		if err != nil || len(buf) == 0 {
 			continue
 		}
-		// Advance only through the last complete line.
-		nl := bytes.LastIndexByte(buf, '\n')
-		if nl < 0 {
+		// Advance only through the last complete line. If a single record fills
+		// the whole read window with no newline, skip it so one oversized audit
+		// entry can't deadlock forwarding forever.
+		batchLen, skip := wafBatchBounds(buf, int64(len(buf)) >= maxRead)
+		if skip {
+			log.Warn("WAF audit record exceeds read window; skipping to avoid stall", "skip_bytes", len(buf))
+			offset += int64(len(buf))
 			continue
 		}
-		batch := buf[:nl+1]
+		if batchLen == 0 {
+			continue // incomplete trailing line; wait for the rest
+		}
+		batch := buf[:batchLen]
 		events := parseCorazaLines(batch)
 		ok := true
 		// Ship in chunks of maxBatch so the panel's 500-event limit is respected.

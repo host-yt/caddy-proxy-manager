@@ -53,6 +53,27 @@ func TestParseCorazaLines_DetectionAndStringSeverity(t *testing.T) {
 	}
 }
 
+// wafBatchBounds must process complete lines, wait on a partial trailing line,
+// and skip (not loop on) a single oversized record that fills the read window.
+func TestWAFBatchBounds(t *testing.T) {
+	// complete lines: process up to last newline
+	if n, skip := wafBatchBounds([]byte("a\nb\n"), false); n != 4 || skip {
+		t.Errorf("complete lines: got n=%d skip=%v want 4,false", n, skip)
+	}
+	// trailing partial line (not at cap): wait, don't advance
+	if n, skip := wafBatchBounds([]byte("a\npartial"), false); n != 2 || skip {
+		t.Errorf("partial line: got n=%d skip=%v want 2,false", n, skip)
+	}
+	// no newline at all, not at cap: wait
+	if n, skip := wafBatchBounds([]byte("stillwriting"), false); n != 0 || skip {
+		t.Errorf("no newline, not cap: got n=%d skip=%v want 0,false", n, skip)
+	}
+	// no newline AND window full: oversized record -> skip (the deadlock fix)
+	if n, skip := wafBatchBounds([]byte("giantrecordnotnewline"), true); n != 0 || !skip {
+		t.Errorf("oversized: got n=%d skip=%v want 0,true", n, skip)
+	}
+}
+
 // Lines without a rule id or without messages are skipped (panel rejects them).
 func TestParseCorazaLines_SkipsEmpty(t *testing.T) {
 	in := `{"transaction":{"client_ip":"1.2.3.4"},"messages":[]}` + "\n" +

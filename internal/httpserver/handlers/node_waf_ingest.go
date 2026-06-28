@@ -135,9 +135,14 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		if !ok {
 			continue // skip items missing required fields or with invalid values
 		}
-		// Never trust a client-supplied route_id: only associate when the route is
-		// served by THIS node; otherwise null it to avoid cross-tenant pollution/eviction.
-		if e.RouteID.Valid && !h.routeOwnedByNode(ctx, e.RouteID.Int64, nodeID) {
+		// Attribute the event to a route on THIS node. Trust nothing from the
+		// client: resolve server-side from the authenticated nodeID + the event's
+		// host/uri (Coraza does not emit a route id). Unattributable events are
+		// stored with NULL route_id. Correct attribution is what makes the
+		// per-route WAF view, scoped-admin visibility, and per-route pruning work.
+		if rid := h.resolveRoute(ctx, nodeID, item.Host, item.URI); rid > 0 {
+			e.RouteID = sql.NullInt64{Int64: rid, Valid: true}
+		} else {
 			e.RouteID = sql.NullInt64{}
 		}
 		if err := h.WAFEvents.Insert(ctx, e); err != nil {
@@ -156,17 +161,53 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write([]byte(`{"accepted":` + itoa(int64(accepted)) + `}`))
 }
 
-// routeOwnedByNode reports whether routeID is a route served by nodeID.
-func (h *NodeWAFIngestHandler) routeOwnedByNode(ctx context.Context, routeID, nodeID int64) bool {
+// resolveRoute maps a WAF event to a route served by nodeID, using the event's
+// Host header and request path. Returns 0 when no route on this node matches.
+// Server-side + nodeID-scoped so a node can never attribute events to another
+// node's routes. For path-routed domains it prefers the longest matching
+// path_prefix, falling back to a bare-domain (” or '/') route.
+func (h *NodeWAFIngestHandler) resolveRoute(ctx context.Context, nodeID int64, host, uri string) int64 {
 	db := h.DB()
 	if db == nil {
-		return false
+		return 0
 	}
-	var one int
-	err := db.QueryRowContext(ctx,
-		`SELECT 1 FROM routes WHERE id = ? AND caddy_node_id = ? LIMIT 1`,
-		routeID, nodeID).Scan(&one)
-	return err == nil
+	host = strings.ToLower(strings.TrimSpace(host))
+	if i := strings.IndexByte(host, ':'); i >= 0 {
+		host = host[:i] // strip :port
+	}
+	if host == "" {
+		return 0
+	}
+	path := uri
+	if i := strings.IndexByte(path, '?'); i >= 0 {
+		path = path[:i]
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, COALESCE(path_prefix,'') FROM routes
+		   WHERE caddy_node_id = ? AND status <> 'disabled' AND LOWER(domain) = ?
+		   ORDER BY CHAR_LENGTH(COALESCE(path_prefix,'')) DESC`, nodeID, host)
+	if err != nil {
+		return 0
+	}
+	defer rows.Close()
+	var fallback int64
+	for rows.Next() {
+		var id int64
+		var pp string
+		if rows.Scan(&id, &pp) != nil {
+			continue
+		}
+		if pp == "" || pp == "/" {
+			if fallback == 0 {
+				fallback = id
+			}
+			continue
+		}
+		if strings.HasPrefix(path, pp) {
+			return id // longest prefix first (ORDER BY length DESC)
+		}
+	}
+	return fallback
 }
 
 // decodeWAFBatch stream-decodes the {"events":[...]} body one element at a time,
