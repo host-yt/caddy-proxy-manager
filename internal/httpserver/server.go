@@ -383,6 +383,8 @@ func (s *Server) routes() {
 			r.Post("/groups", s.deps.Admin.HostGroupCreate)
 			r.Post("/groups/{id}/update", s.deps.Admin.HostGroupUpdate)
 			r.Post("/groups/{id}/delete", s.deps.Admin.HostGroupDelete)
+			r.Post("/{id}/basic-auth", s.deps.Admin.BasicAuthAddUser)
+			r.Post("/{id}/basic-auth/{username}/delete", s.deps.Admin.BasicAuthRemoveUser)
 		})
 		// Built-in forward-auth portal: local access groups + members.
 		r.Route("/access-groups", func(r chi.Router) {

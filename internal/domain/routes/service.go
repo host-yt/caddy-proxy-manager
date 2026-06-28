@@ -2069,7 +2069,47 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	// a query error leaves routes single-dial rather than failing the build.
 	s.attachRouteUpstreams(ctx, built, ids)
 	s.attachLocationRules(ctx, built, ids)
+	s.attachBasicAuthUsers(ctx, built, ids)
 	return built, ids, nil
+}
+
+// attachBasicAuthUsers loads route_basic_auth_users in one IN(...) query and
+// maps them onto the built routes. Routes with users get BasicAuthUsers set;
+// routes without rows keep the legacy single-user BasicAuthUser/BasicAuthBcrypt.
+func (s *Service) attachBasicAuthUsers(ctx context.Context, built []caddyapi.Route, ids []int64) {
+	if len(ids) == 0 {
+		return
+	}
+	idx := make(map[int64]int, len(ids))
+	ph := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		idx[id] = i
+		ph[i] = "?"
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT route_id, username, bcrypt_hash
+		   FROM route_basic_auth_users
+		  WHERE route_id IN (`+strings.Join(ph, ",")+`)
+		  ORDER BY route_id, username ASC`, args...)
+	if err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("route_basic_auth_users load failed; using single-user fallback", "err", err)
+		}
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var rid int64
+		var u caddyapi.BasicAuthUser
+		if err := rows.Scan(&rid, &u.Username, &u.Hash); err != nil {
+			continue
+		}
+		if i, ok := idx[rid]; ok {
+			built[i].BasicAuthUsers = append(built[i].BasicAuthUsers, u)
+		}
+	}
 }
 
 // attachRouteUpstreams fills caddyapi.Route.Upstreams for the built routes via

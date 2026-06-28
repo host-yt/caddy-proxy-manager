@@ -10,6 +10,12 @@ import (
 // Route builders. Produce Caddy JSON config fragments for reverse-proxy routes.
 // Reference schema: https://caddyserver.com/docs/json/apps/http/servers/routes/
 
+// BasicAuthUser is one account entry for Caddy's http_basic provider.
+type BasicAuthUser struct {
+	Username string
+	Hash     string // bcrypt hash
+}
+
 // Route represents a single host(+path) -> upstream rule.
 //
 // Kind selects the handler family:
@@ -76,6 +82,8 @@ type Route struct {
 	// Empty means no auth gate. Hash format must be bcrypt (cost ≥ 10).
 	BasicAuthUser   string
 	BasicAuthBcrypt string
+	// BasicAuthUsers overrides single-user fields when non-empty.
+	BasicAuthUsers []BasicAuthUser
 	// SSO forward-auth (Authentik / Authelia / generic). Empty
 	// SSOProviderURL = no SSO gate. CopyHeaders is a list of response
 	// headers from the auth subrequest to forward to upstream (e.g.
@@ -962,9 +970,25 @@ func BuildRoute(r Route) map[string]any {
 
 	// Basic auth gate: Caddy's authentication handler with http_basic
 	// provider. Returns 401 (with WWW-Authenticate) until the browser
-	// supplies matching creds. Hash is bcrypt (matches Caddy's default
-	// account.password format).
-	if r.BasicAuthUser != "" && r.BasicAuthBcrypt != "" {
+	// supplies matching creds. Multi-user list takes precedence over single-user fields.
+	if len(r.BasicAuthUsers) > 0 {
+		accounts := make([]any, 0, len(r.BasicAuthUsers))
+		for _, u := range r.BasicAuthUsers {
+			accounts = append(accounts, map[string]any{
+				"username": u.Username,
+				"password": u.Hash,
+			})
+		}
+		handlers = append(handlers, map[string]any{
+			"handler": "authentication",
+			"providers": map[string]any{
+				"http_basic": map[string]any{
+					"accounts": accounts,
+					"hash":     map[string]any{"algorithm": "bcrypt"},
+				},
+			},
+		})
+	} else if r.BasicAuthUser != "" && r.BasicAuthBcrypt != "" {
 		handlers = append(handlers, map[string]any{
 			"handler": "authentication",
 			"providers": map[string]any{

@@ -2009,6 +2009,10 @@ type locationRuleRow struct {
 	RewriteURI     string
 }
 
+type basicAuthUserRow struct {
+	Username string
+}
+
 type hostEditData struct {
 	baseAdminData
 	RouteID               int64
@@ -2115,6 +2119,8 @@ type hostEditData struct {
 	// 'keep current password' or force a new one.
 	BasicAuthUser        string
 	BasicAuthHasPassword bool
+	// BasicAuthUsers lists accounts from route_basic_auth_users for the multi-user table.
+	BasicAuthUsers []basicAuthUserRow
 
 	// SSO forward-auth (Authentik / Authelia / generic).
 	SSOProviderURL    string
@@ -2410,6 +2416,17 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		d.BasicAuthUser = baUser.String
 	}
 	d.BasicAuthHasPassword = baHash.Valid && baHash.String != ""
+	// Load multi-user basic auth accounts (best-effort; falls back to single-user if table missing).
+	if burows, buerr := db.QueryContext(ctx,
+		`SELECT username FROM route_basic_auth_users WHERE route_id = ? ORDER BY username ASC`, id); buerr == nil {
+		for burows.Next() {
+			var u basicAuthUserRow
+			if burows.Scan(&u.Username) == nil {
+				d.BasicAuthUsers = append(d.BasicAuthUsers, u)
+			}
+		}
+		burows.Close()
+	}
 	if ssoURL.Valid {
 		d.SSOProviderURL = ssoURL.String
 	}
@@ -4113,4 +4130,91 @@ func (h *AdminHandlers) HostGroupDelete(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	redirectWithFlash(w, r, "/admin/hosts", "Group deleted", "")
+}
+
+// BasicAuthAddUser handles POST /admin/hosts/{id}/basic-auth.
+// Adds or updates a basic auth account for the route.
+func (h *AdminHandlers) BasicAuthAddUser(w http.ResponseWriter, r *http.Request) {
+	if h.DB() == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	routeID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || routeID <= 0 {
+		http.Redirect(w, r, "/admin/hosts", http.StatusSeeOther)
+		return
+	}
+	editURL := fmt.Sprintf("/admin/hosts/%d/edit", routeID)
+	_ = r.ParseForm()
+	username := strings.TrimSpace(r.FormValue("username"))
+	password := r.FormValue("password")
+	if username == "" {
+		redirectWithFlash(w, r, editURL, "", "username is required")
+		return
+	}
+	if len(password) < 8 {
+		redirectWithFlash(w, r, editURL, "", "password must be at least 8 characters")
+		return
+	}
+	hash, herr := bcryptHash([]byte(password))
+	if herr != nil {
+		redirectWithFlash(w, r, editURL, "", "hash error: "+sanitizeErr(herr))
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	_, dbErr := h.DB().ExecContext(ctx,
+		`INSERT INTO route_basic_auth_users (route_id, username, bcrypt_hash)
+		 VALUES (?, ?, ?)
+		 ON DUPLICATE KEY UPDATE bcrypt_hash = VALUES(bcrypt_hash)`,
+		routeID, username, string(hash))
+	if dbErr != nil {
+		redirectWithFlash(w, r, editURL, "", "save failed: "+sanitizeErr(dbErr))
+		return
+	}
+	if h.Routes != nil {
+		var nodeID int64
+		_ = h.DB().QueryRowContext(ctx, "SELECT caddy_node_id FROM routes WHERE id=?", routeID).Scan(&nodeID)
+		if nodeID > 0 {
+			h.Routes.SchedulePush(nodeID)
+		}
+	}
+	redirectWithFlash(w, r, editURL, "User added", "")
+}
+
+// BasicAuthRemoveUser handles POST /admin/hosts/{id}/basic-auth/{username}/delete.
+// Removes one basic auth account from the route.
+func (h *AdminHandlers) BasicAuthRemoveUser(w http.ResponseWriter, r *http.Request) {
+	if h.DB() == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	routeID, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if err != nil || routeID <= 0 {
+		http.Redirect(w, r, "/admin/hosts", http.StatusSeeOther)
+		return
+	}
+	editURL := fmt.Sprintf("/admin/hosts/%d/edit", routeID)
+	username := chi.URLParam(r, "username")
+	if username == "" {
+		redirectWithFlash(w, r, editURL, "", "username missing")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	_, dbErr := h.DB().ExecContext(ctx,
+		"DELETE FROM route_basic_auth_users WHERE route_id = ? AND username = ?",
+		routeID, username)
+	if dbErr != nil {
+		redirectWithFlash(w, r, editURL, "", "delete failed: "+sanitizeErr(dbErr))
+		return
+	}
+	if h.Routes != nil {
+		var nodeID int64
+		_ = h.DB().QueryRowContext(ctx, "SELECT caddy_node_id FROM routes WHERE id=?", routeID).Scan(&nodeID)
+		if nodeID > 0 {
+			h.Routes.SchedulePush(nodeID)
+		}
+	}
+	redirectWithFlash(w, r, editURL, "User removed", "")
 }
