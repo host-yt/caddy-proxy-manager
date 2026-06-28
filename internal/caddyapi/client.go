@@ -199,9 +199,13 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ct
 	return nil
 }
 
-// ListModules returns the list of module IDs from GET /modules/.
+// ListModules returns the list of module IDs from GET /modules/ (falls back to /modules).
 func (c *Client) ListModules(ctx context.Context) ([]string, error) {
 	body, err := c.GetRaw(ctx, "/modules/")
+	if err != nil {
+		// Caddy older builds may serve /modules (no trailing slash)
+		body, err = c.GetRaw(ctx, "/modules")
+	}
 	if err != nil {
 		return nil, err
 	}
