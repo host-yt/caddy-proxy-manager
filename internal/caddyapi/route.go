@@ -531,6 +531,16 @@ func BuildRoute(r Route) map[string]any {
 		}
 		sb.WriteString("Include @owasp_crs/*.conf\nSecRuleEngine ")
 		sb.WriteString(engine)
+		// Emit a Coraza NDJSON audit log so the node-agent can ship rule matches
+		// to the panel (waf_events). Without these, detection fires but produces
+		// no consumable output. RelevantOnly = only transactions that matched a
+		// rule; Serial + JSON = one JSON object per line at WAFAuditLogFilePath.
+		sb.WriteString("\nSecAuditEngine RelevantOnly")
+		sb.WriteString("\nSecAuditLogParts ABIJDEFHZ")
+		sb.WriteString("\nSecAuditLogType Serial")
+		sb.WriteString("\nSecAuditLogFormat JSON")
+		sb.WriteString("\nSecAuditLog ")
+		sb.WriteString(WAFAuditLogFilePath)
 		handlers = append(handlers, map[string]any{
 			"handler":        "waf",
 			"load_owasp_crs": true,

@@ -1041,11 +1041,15 @@ func postAccessLogBatch(ctx context.Context, c config, endpoint string, body []b
 	return resp.StatusCode >= 200 && resp.StatusCode < 300
 }
 
-// corazaAuditEntry is the subset of Coraza NDJSON audit log we care about.
+// corazaAuditEntry is the subset of the Coraza v3 JSON audit log we care about.
+// Field names match Coraza's actual schema: transaction.client_ip,
+// messages[].data.{id,severity} (id/severity are numbers in JSON), and an
+// optional top-level interruption when a request was blocked.
 type corazaAuditEntry struct {
 	Transaction struct {
 		Timestamp     string `json:"timestamp"`
-		RemoteAddress string `json:"remote_address"`
+		UnixTimestamp int64  `json:"unix_timestamp"`
+		ClientIP      string `json:"client_ip"`
 		Request       struct {
 			URI     string              `json:"uri"`
 			Headers map[string][]string `json:"headers"`
@@ -1053,14 +1057,24 @@ type corazaAuditEntry struct {
 	} `json:"transaction"`
 	Messages []struct {
 		Message string `json:"message"`
-		Details struct {
-			RuleID   string `json:"ruleId"`
-			Severity string `json:"severity"`
-		} `json:"details"`
+		Data    struct {
+			ID       corazaScalar `json:"id"`
+			Severity corazaScalar `json:"severity"`
+		} `json:"data"`
 	} `json:"messages"`
 	Interruption *struct {
 		Action string `json:"action"`
 	} `json:"interruption"`
+}
+
+// corazaScalar accepts a JSON value that may be a number OR a string and stores
+// its textual form. Coraza emits rule id and severity as numbers in JSON audit
+// output; tolerate string forms from other versions too.
+type corazaScalar string
+
+func (c *corazaScalar) UnmarshalJSON(b []byte) error {
+	*c = corazaScalar(bytes.Trim(b, `"`))
+	return nil
 }
 
 // wafEventPayload is one WAF event sent to the panel.
@@ -1076,19 +1090,49 @@ type wafEventPayload struct {
 	RouteID  int64  `json:"route_id,omitempty"`
 }
 
-// corazaSeverity maps Coraza numeric severity to the panel enum.
-// Coraza levels: 0-2 = EMERGENCY/ALERT/CRITICAL, 3 = ERROR, 4 = WARNING, 5-7 = NOTICE/INFO/DEBUG.
+// corazaSeverity maps a Coraza severity (numeric 0-7 in JSON audit, or the
+// textual name) to the panel enum. Levels: 0-2 = EMERGENCY/ALERT/CRITICAL,
+// 3 = ERROR, 4 = WARNING, 5-7 = NOTICE/INFO/DEBUG.
 func corazaSeverity(s string) string {
-	switch s {
-	case "0", "1", "2":
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "0", "1", "2", "emergency", "alert", "critical":
 		return "critical"
-	case "3":
+	case "3", "error":
 		return "high"
-	case "4":
+	case "4", "warning":
 		return "medium"
 	default:
 		return "low"
 	}
+}
+
+// firstHeader returns the first value of a header by case-insensitive name.
+func firstHeader(h map[string][]string, name string) string {
+	for k, v := range h {
+		if strings.EqualFold(k, name) && len(v) > 0 {
+			return v[0]
+		}
+	}
+	return ""
+}
+
+// corazaTS normalizes Coraza's timestamp to RFC3339, which the panel ingest
+// requires. Prefers the unix timestamp; falls back to Coraza's Apache-style
+// string, then to now.
+func corazaTS(unix int64, s string) string {
+	if unix > 0 {
+		return time.Unix(unix, 0).UTC().Format(time.RFC3339)
+	}
+	for _, layout := range []string{
+		time.RFC3339,
+		"02/Jan/2006:15:04:05 -0700",
+		"02/Jan/2006:15:04:05.000 -0700",
+	} {
+		if t, err := time.Parse(layout, s); err == nil {
+			return t.UTC().Format(time.RFC3339)
+		}
+	}
+	return time.Now().UTC().Format(time.RFC3339)
 }
 
 // parseCorazaLines decodes NDJSON lines into WAF event payloads; skips malformed lines.
@@ -1108,29 +1152,25 @@ func parseCorazaLines(data []byte) []wafEventPayload {
 			continue
 		}
 		msg := e.Messages[0]
+		ruleID := string(msg.Data.ID)
+		if ruleID == "" {
+			continue // panel ingest rejects events without a rule id
+		}
 		action := "detected"
 		if e.Interruption != nil && e.Interruption.Action != "" {
 			action = "blocked"
 		}
-		ip := e.Transaction.RemoteAddress
+		ip := e.Transaction.ClientIP
 		if host, _, err := net.SplitHostPort(ip); err == nil {
 			ip = host
 		}
-		hostVal := ""
-		if hosts, ok := e.Transaction.Request.Headers["host"]; ok && len(hosts) > 0 {
-			hostVal = hosts[0]
-		}
-		ts := e.Transaction.Timestamp
-		if ts == "" {
-			ts = time.Now().UTC().Format(time.RFC3339)
-		}
 		events = append(events, wafEventPayload{
-			TS:       ts,
-			Severity: corazaSeverity(msg.Details.Severity),
-			RuleID:   msg.Details.RuleID,
+			TS:       corazaTS(e.Transaction.UnixTimestamp, e.Transaction.Timestamp),
+			Severity: corazaSeverity(string(msg.Data.Severity)),
+			RuleID:   ruleID,
 			Action:   action,
 			RemoteIP: ip,
-			Host:     hostVal,
+			Host:     firstHeader(e.Transaction.Request.Headers, "host"),
 			URI:      e.Transaction.Request.URI,
 			Message:  msg.Message,
 		})

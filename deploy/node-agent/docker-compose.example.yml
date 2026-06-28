@@ -35,6 +35,10 @@ services:
       # authenticated /internal/access-log. Requires the same host path mounted
       # into the caddy service at /var/log/caddy (see remote-node compose).
       HPG_CADDY_ACCESS_LOG: "/var/log/caddy/access.log"
+      # WAF event forwarding: tail Coraza's NDJSON audit log and POST to the
+      # panel's /api/node/waf/events. The panel emits SecAuditLog to this path
+      # when WAF is enabled on a route.
+      HPG_CADDY_WAF_AUDIT_LOG: "/var/log/caddy/waf-audit.log"
     volumes:
       # Shared with caddy: agent reads the rolling access log Caddy writes.
       - /opt/hostyt-node/caddy-logs:/var/log/caddy:ro

@@ -165,6 +165,7 @@ services:
       HPG_TUNNEL_TRANSPORT: ${HPG_TUNNEL_TRANSPORT:-auto}
       HPG_WSTUNNEL_PORT: ${HPG_WSTUNNEL_PORT:-51823}
       HPG_CADDY_ACCESS_LOG: /var/log/caddy/access.log
+      HPG_CADDY_WAF_AUDIT_LOG: /var/log/caddy/waf-audit.log
     volumes:
       # Same named volume caddy writes to; agent reads it (:ro).
       - caddy_logs:/var/log/caddy:ro

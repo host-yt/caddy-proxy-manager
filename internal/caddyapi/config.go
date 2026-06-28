@@ -90,6 +90,11 @@ type NodeSettings struct {
 // (tailer/forwarder) agree on. Mount a shared volume here in the node compose.
 const AccessLogFilePath = "/var/log/caddy/access.log"
 
+// WAFAuditLogFilePath is the Coraza NDJSON audit log. The WAF handler writes
+// here (SecAuditLog) and the node-agent tails it (HPG_CADDY_WAF_AUDIT_LOG),
+// parsing each line into a waf_events row via POST /api/node/waf/events.
+const WAFAuditLogFilePath = "/var/log/caddy/waf-audit.log"
+
 // WstunnelRoute carries the node-level data for the wstunnel Caddy route.
 type WstunnelRoute struct {
 	NodeID   int64

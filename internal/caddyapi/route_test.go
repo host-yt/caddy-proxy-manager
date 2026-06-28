@@ -358,6 +358,13 @@ func TestBuildRouteWAFGated(t *testing.T) {
 	if !strings.Contains(s, `"handler":"waf"`) || !strings.Contains(s, `SecRuleEngine DetectionOnly`) || !strings.Contains(s, `"load_owasp_crs":true`) {
 		t.Errorf("waf detection-only missing\nfull: %s", s)
 	}
+	// Must emit a Coraza JSON audit log so the node-agent can ship events to the
+	// panel; without this the WAF events page stays empty even when rules fire.
+	if !strings.Contains(s, `SecAuditEngine RelevantOnly`) ||
+		!strings.Contains(s, `SecAuditLogFormat JSON`) ||
+		!strings.Contains(s, `SecAuditLog `+WAFAuditLogFilePath) {
+		t.Errorf("waf must emit Coraza JSON audit log directives\nfull: %s", s)
+	}
 	if strings.Contains(s, `SecRuleEngine On`) {
 		t.Errorf("default WAF must be detection-only, not blocking\nfull: %s", s)
 	}
