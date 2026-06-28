@@ -91,20 +91,15 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	var certID int64
-	if err := db.QueryRowContext(ctx,
-		"SELECT id FROM mtls_issued_certs WHERE ca_id=? AND subject=? AND status='active' LIMIT 1",
-		caID, subject).Scan(&certID); err != nil {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
-
-	// Check cert has the required role.
+	// Check across ALL active certs with this subject (subject is not unique per CA).
+	// Any active cert carrying the required role grants access.
 	var count int
 	_ = db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM mtls_cert_roles cr
+		SELECT COUNT(*) FROM mtls_issued_certs c
+		  JOIN mtls_cert_roles cr ON cr.cert_id = c.id
 		  JOIN mtls_roles ro ON ro.id = cr.role_id
-		 WHERE cr.cert_id = ? AND ro.name = ?`, certID, requiredRole).Scan(&count)
+		 WHERE c.ca_id = ? AND c.subject = ? AND c.status = 'active'
+		   AND ro.name = ?`, caID, subject, requiredRole).Scan(&count)
 	if count == 0 {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return

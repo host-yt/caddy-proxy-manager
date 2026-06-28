@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 // mtlsRoleRow is one named role in the UI.
@@ -158,6 +160,13 @@ func (h *AdminHandlers) MTLSPathRuleCreate(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	page := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		redirectWithFlash(w, r, page, "", "form parse error")
 		return
@@ -169,11 +178,19 @@ func (h *AdminHandlers) MTLSPathRuleCreate(w http.ResponseWriter, r *http.Reques
 		redirectWithFlash(w, r, page, "", "path and role required")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
 	db := h.DB()
 	if db == nil {
 		redirectWithFlash(w, r, page, "", "db unavailable")
+		return
+	}
+	// Verify the selected role belongs to the CA configured on this route.
+	var roleMatch int
+	_ = db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM mtls_roles ro
+		  JOIN routes rt ON rt.mtls_ca_id = ro.ca_id
+		 WHERE ro.id = ? AND rt.id = ?`, roleID, id).Scan(&roleMatch)
+	if roleMatch == 0 {
+		redirectWithFlash(w, r, page, "", "role does not belong to this route's CA")
 		return
 	}
 	_, err = db.ExecContext(ctx,
@@ -194,19 +211,24 @@ func (h *AdminHandlers) MTLSPathRuleDelete(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	page := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	ruleID, err := strconv.ParseInt(chi.URLParam(r, "rule_id"), 10, 64)
 	if err != nil || ruleID <= 0 {
 		redirectWithFlash(w, r, page, "", "invalid rule id")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
 	db := h.DB()
 	if db == nil {
 		redirectWithFlash(w, r, page, "", "db unavailable")
 		return
 	}
-	// WHERE route_id ensures a user can't delete another route's rule.
+	// WHERE route_id scopes deletion to the verified route only.
 	if _, err := db.ExecContext(ctx,
 		"DELETE FROM mtls_path_rules WHERE id=? AND route_id=?", ruleID, id); err != nil {
 		redirectWithFlash(w, r, page, "", "delete rule failed: "+sanitizeErr(err))

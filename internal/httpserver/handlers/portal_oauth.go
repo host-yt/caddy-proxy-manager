@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -103,13 +102,10 @@ func (h *PortalHandlers) PortalOAuthCallback(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// CSRF: state must match the cookie set in PortalOAuthStart.
-	cookie, err := r.Cookie(portalOAuthStateCookie)
-	if err != nil || subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(state)) != 1 {
-		http.Error(w, "state mismatch", http.StatusForbidden)
-		return
-	}
-	// Clear the state cookie immediately regardless of outcome.
+	// State is validated via Redis GetDel below (single-use, 10-min TTL, 32-byte random).
+	// Cookie check is omitted: PortalOAuthStart runs on the protected host but the
+	// callback runs on the panel domain - the browser never sends a cross-host cookie.
+	// Clear the state cookie if it happens to be present (same-host flows or stale).
 	http.SetCookie(w, &http.Cookie{
 		Name: portalOAuthStateCookie, Value: "", Path: "/hpg-portal",
 		HttpOnly: true, Secure: h.Secure, SameSite: http.SameSiteLaxMode, MaxAge: -1,

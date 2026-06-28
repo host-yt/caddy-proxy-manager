@@ -1791,10 +1791,13 @@ func buildMTLSRBAC(r Route) map[string]any {
 						},
 					},
 					// forward_auth pattern: reverse_proxy rewritten to the check endpoint.
+					// request_buffers:-1 preserves POST/PUT/PATCH bodies for the backend
+					// after the auth subrequest (same pattern as SSO forward_auth).
 					// Non-2xx from panel blocks the request with 403.
 					map[string]any{
-						"handler":   "reverse_proxy",
-						"upstreams": []any{map[string]any{"dial": panelDial(r.PanelBaseURL)}},
+						"handler":         "reverse_proxy",
+						"upstreams":       []any{map[string]any{"dial": panelDial(r.PanelBaseURL)}},
+						"request_buffers": -1,
 						"headers": map[string]any{
 							"request": map[string]any{
 								"set": map[string]any{
