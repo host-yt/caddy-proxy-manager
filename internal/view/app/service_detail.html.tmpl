@@ -54,7 +54,7 @@
   <section class="hpg-card">
     <div class="flex items-center justify-between gap-3 mb-4">
       <h3 class="font-semibold text-slate-950 dark:text-white">Routes</h3>
-      <a href="/app/routes/new?service_id={{.ServiceID}}" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 shadow-sm transition">Add route</a>
+      <a href="/app/routes/new?service_id={{.ServiceID}}" class="r-btn-primary inline-flex items-center justify-center px-3.5 py-2 rounded-lg text-sm font-medium shadow-sm transition">Add route</a>
     </div>
 
     {{if .Routes}}
@@ -88,7 +88,7 @@
               {{if .SSL}}<span class="hpg-pill bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">SSL</span>{{else}}<span class="text-slate-400 dark:text-slate-500 text-xs">-</span>{{end}}
             </td>
             <td class="px-5 py-3 text-right">
-              <a href="/app/routes/{{.RouteID}}/edit" class="text-xs font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 transition cursor-pointer">Edit</a>
+              <a href="/app/routes/{{.RouteID}}/edit" class="text-xs font-medium transition cursor-pointer" style="color:rgb(var(--accent))">Edit</a>
             </td>
           </tr>
           {{end}}
@@ -97,7 +97,7 @@
     </div>
     {{else}}
     <div class="py-8 text-center text-sm text-slate-500 dark:text-slate-400">
-      No routes yet. <a href="/app/routes/new?service_id={{.ServiceID}}" class="text-indigo-600 dark:text-indigo-400 hover:underline font-medium">Add the first one.</a>
+      No routes yet. <a href="/app/routes/new?service_id={{.ServiceID}}" class="hover:underline font-medium" style="color:rgb(var(--accent))">Add the first one.</a>
     </div>
     {{end}}
   </section>

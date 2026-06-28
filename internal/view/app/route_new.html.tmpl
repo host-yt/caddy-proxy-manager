@@ -19,7 +19,7 @@
     </div>
     <div>
       <label class="hpg-eyebrow block mb-1.5">Service</label>
-      <select name="service_id" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+      <select name="service_id" required class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-[rgb(var(--accent))] outline-none">
         {{range .Services}}
           <option value="{{.ID}}" data-port-start="{{.PortStart}}" data-port-end="{{.PortEnd}}" {{if eq .ID $.SelectedServiceID}}selected{{end}}>
             {{.Name}} (ports {{.PortStart}}-{{.PortEnd}})
@@ -31,19 +31,19 @@
       <div>
         <label class="hpg-eyebrow block mb-1.5">Domain</label>
         <input name="domain" required value="{{.Form.Domain}}" placeholder="app.your-domain.com"
-               class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+               class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-[rgb(var(--accent))] outline-none">
       </div>
       <div>
         <label class="hpg-eyebrow block mb-1.5">Backend port</label>
         <input name="upstream_port" type="number" min="1" max="65535" required
                value="{{.Form.UpstreamPort}}"
-               class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm font-mono focus:ring-2 focus:ring-indigo-500 outline-none">
+               class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm font-mono focus:ring-2 focus:ring-[rgb(var(--accent))] outline-none">
       </div>
     </div>
     <div>
       <label class="hpg-eyebrow block mb-1.5">Path prefix</label>
       <input name="path_prefix" value="{{.Form.PathPrefix}}" placeholder="/api"
-             class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-indigo-500 outline-none">
+             class="w-full px-3 py-2 rounded-lg border-0 bg-slate-50 dark:bg-zinc-800/50 ring-1 ring-slate-200 dark:ring-zinc-700 text-sm focus:ring-2 focus:ring-[rgb(var(--accent))] outline-none">
       <p class="text-xs text-slate-500 dark:text-slate-400 mt-1">Leave empty to route from the domain root.</p>
     </div>
     <div class="grid gap-2 text-sm">
@@ -53,7 +53,7 @@
     </div>
     <div class="flex flex-col-reverse sm:flex-row sm:items-center sm:justify-between gap-3 pt-1">
       <a href="/app/routes" class="inline-flex items-center justify-center px-3.5 py-2 rounded-lg text-sm font-medium text-slate-600 dark:text-slate-300 ring-1 ring-slate-200 dark:ring-zinc-700 hover:bg-slate-50 dark:hover:bg-zinc-800">Cancel</a>
-      <button class="inline-flex items-center justify-center px-4 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700">Create route</button>
+      <button class="r-btn-primary inline-flex items-center justify-center px-4 py-2 rounded-lg text-sm font-medium">Create route</button>
     </div>
   </form>
 

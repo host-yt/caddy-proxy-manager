@@ -13,6 +13,7 @@
 <script nonce="{{.Data.CSPNonce}}">(function(){try{var ok={default:1,midnight:1,ocean:1,forest:1,violet:1,sunset:1,nord:1,mono:1};var p=localStorage.getItem('ui_theme');if(p&&ok[p]&&p!==document.documentElement.dataset.theme)document.documentElement.dataset.theme=p;}catch(e){}})();</script>
 {{if .Data.Brand.FaviconURL}}<link rel="icon" href="{{.Data.Brand.FaviconURL}}">{{end}}
 <script src="/static/js/sheet.js" nonce="{{.Data.CSPNonce}}" defer></script>
+<script src="/static/js/rowactions.js" nonce="{{.Data.CSPNonce}}" defer></script>
 <style>
   /* Global form-control dark-mode safety net (see install/_layout for context). */
   input:not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset]),
@@ -38,7 +39,7 @@
   <div class="flex items-center gap-2.5 px-4 py-4 border-b shrink-0" style="border-color:rgb(var(--border))">
     {{if .Data.Brand.LogoURLLight}}<img src="{{.Data.Brand.LogoURLLight}}" alt="" class="h-5 dark:hidden">{{end}}
     {{if .Data.Brand.LogoURLDark}}<img src="{{.Data.Brand.LogoURLDark}}" alt="" class="h-5 hidden dark:inline-block">{{end}}
-    {{if not .Data.Brand.LogoURLLight}}<span class="w-8 h-8 rounded-xl bg-indigo-600 shrink-0 flex items-center justify-center shadow-sm shadow-indigo-900/20">
+    {{if not .Data.Brand.LogoURLLight}}<span class="w-8 h-8 rounded-xl bg-[rgb(var(--accent))] shrink-0 flex items-center justify-center shadow-sm shadow-[rgb(var(--accent)/.18)]">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-white" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
     </span>{{end}}
     <span class="font-semibold text-sm tracking-tight truncate" style="color:rgb(var(--text))">{{if .Data.Brand.BrandName}}{{.Data.Brand.BrandName}}{{else}}Hostyt Proxy{{end}}</span>

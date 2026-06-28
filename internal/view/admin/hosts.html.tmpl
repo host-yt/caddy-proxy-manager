@@ -216,56 +216,8 @@
           <td class="px-4 py-4 align-top text-xs whitespace-nowrap" style="color:rgb(var(--text))">{{.NodeName}} <span style="color:rgb(var(--muted))">{{.NodeHostname}}</span></td>
           <td class="px-4 py-4 align-top text-xs text-right whitespace-nowrap" style="color:rgb(var(--text))">{{if gt .Req24h 0}}{{printf "%d" .Req24h}}{{else}}-{{end}}</td>
           <td class="px-4 py-4 align-top text-xs text-right whitespace-nowrap">{{if gt .Err24h 0}}<span class="font-medium" style="color:rgb(var(--danger,220 38 38))">{{printf "%d" .Err24h}}</span>{{else}}<span style="color:rgb(var(--muted))">-</span>{{end}}</td>
-          <td class="pl-2 pr-5 py-4 align-top text-right relative">
-            <!-- Desktop: full inline button row (hidden on mobile via CSS). -->
-            <div class="hpg-act-desktop inline-flex items-center gap-1.5 text-xs whitespace-nowrap">
-              <a href="/admin/hosts/{{.RouteID}}/edit" class="r-btn-ghost px-2 py-1 text-xs" style="color:rgb(var(--accent))">edit</a>
-              <a href="/admin/waf?route_id={{.RouteID}}" title="WAF events for this route"
-                 class="r-btn-ghost px-2 py-1 text-xs" style="color:rgb(var(--danger,220 38 38))">WAF</a>
-              <a href="https://{{.Domain}}" target="_blank" rel="noopener" title="Open site" class="r-btn-ghost px-2 py-1 text-xs">open ↗</a>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" class="inline" title="Re-run DNS check + re-push to Caddy (forces cert reissue if ACME has been failing)">
-                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="r-btn-ghost px-2 py-1 text-xs cursor-pointer">retry</button>
-              </form>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle" class="inline">
-                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="r-btn-ghost px-2 py-1 text-xs cursor-pointer" style="color:rgb(var(--danger,220 38 38))">{{if eq .Status "disabled"}}enable{{else}}disable{{end}}</button>
-              </form>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle-maintenance" class="inline">
-                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button type="submit"
-                  class="r-btn-ghost p-1 cursor-pointer transition-colors"
-                  style="{{if .MaintenanceMode}}color:rgb(var(--warning,245 158 11)){{end}}"
-                  title="{{if .MaintenanceMode}}Disable maintenance{{else}}Enable maintenance{{end}}">
-                  <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
-                  </svg>
-                </button>
-              </form>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/clone" class="inline">
-                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button type="submit" title="Clone route"
-                        class="r-btn-ghost p-1 cursor-pointer transition-colors"
-                        onclick="return confirm('Clone this route? It will be created as inactive.')">
-                  <svg class="w-4 h-4" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5">
-                    <rect x="7" y="7" width="10" height="10" rx="1.5"/>
-                    <path d="M4 13V4a1.5 1.5 0 0 1 1.5-1.5H13"/>
-                  </svg>
-                </button>
-              </form>
-              <!-- htmx removes the row in place; no-JS falls back to a full POST.
-                   hx-confirm is routed through hpgConfirm by the htmx:confirm hook. -->
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/delete" class="inline"
-                    hx-post="/admin/hosts/{{.RouteID}}/delete"
-                    hx-target="#host-row-{{.RouteID}}" hx-swap="outerHTML swap:150ms"
-                    hx-confirm="Delete {{.Domain}}? This cannot be undone.">
-                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="r-btn-danger px-2 py-1 text-xs cursor-pointer">delete</button>
-              </form>
-            </div>
-
-            <!-- Mobile: three-dot toggle (visible only on mobile via CSS). -->
+          <td class="pl-2 pr-5 py-4 align-top text-right">
+            <!-- Kebab toggle; menu is position:fixed, opened by global rowactions.js. -->
             <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-expanded="false" aria-haspopup="true"
                     data-hpg-act-btn="host-act-{{.RouteID}}">
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
@@ -287,14 +239,14 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                 Open site
               </a>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" title="Re-run DNS check + re-push to Caddy">
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/retry" class="contents" title="Re-run DNS check + re-push to Caddy">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button type="submit" class="hpg-act-item" role="menuitem">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.85"/></svg>
                   Retry
                 </button>
               </form>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle">
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle" class="contents">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button type="submit" class="hpg-act-item" role="menuitem">
                   {{if eq .Status "disabled"}}
@@ -306,14 +258,14 @@
                   {{end}}
                 </button>
               </form>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle-maintenance">
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/toggle-maintenance" class="contents">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button type="submit" class="hpg-act-item" role="menuitem">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
                   {{if .MaintenanceMode}}Disable maintenance{{else}}Enable maintenance{{end}}
                 </button>
               </form>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/clone">
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/clone" class="contents">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                 <button type="submit" class="hpg-act-item" role="menuitem"
                         onclick="return confirm('Clone this route? It will be created as inactive.')">
@@ -325,7 +277,7 @@
                 </button>
               </form>
               <div style="height:1px;background:rgb(var(--border));margin:0.25rem 0.4rem;border-radius:1px;"></div>
-              <form method="POST" action="/admin/hosts/{{.RouteID}}/delete"
+              <form method="POST" action="/admin/hosts/{{.RouteID}}/delete" class="contents"
                     hx-post="/admin/hosts/{{.RouteID}}/delete"
                     hx-target="#host-row-{{.RouteID}}" hx-swap="outerHTML swap:150ms"
                     hx-confirm="Delete {{.Domain}}? This cannot be undone.">
@@ -481,40 +433,7 @@
       });
     }
 
-    /* -- Mobile row-action dropdown ------------------------------------ */
-    var openMenu = null; // currently open menu element
-
-    function closeOpen() {
-      if (openMenu) {
-        openMenu.classList.remove('is-open');
-        var prev = document.querySelector('[data-hpg-act-btn][aria-expanded="true"]');
-        if (prev) prev.setAttribute('aria-expanded', 'false');
-        openMenu = null;
-      }
-    }
-
-    document.addEventListener('click', function(e) {
-      var toggle = e.target.closest('[data-hpg-act-btn]');
-      if (toggle) {
-        e.stopPropagation();
-        var menuId = toggle.dataset.hpgActBtn;
-        var menu = document.getElementById(menuId);
-        if (!menu) return;
-        if (openMenu && openMenu !== menu) closeOpen();
-        var isNowOpen = !menu.classList.contains('is-open');
-        menu.classList.toggle('is-open', isNowOpen);
-        toggle.setAttribute('aria-expanded', isNowOpen ? 'true' : 'false');
-        openMenu = isNowOpen ? menu : null;
-        return;
-      }
-      // Click outside closes any open menu.
-      if (openMenu && !e.target.closest('.hpg-act-menu')) closeOpen();
-    });
-
-    // Escape key closes open menu.
-    document.addEventListener('keydown', function(e) {
-      if (e.key === 'Escape') closeOpen();
-    });
+    /* Row-action kebab open/close is handled globally by rowactions.js. */
 
     // host group inline edit
     document.querySelectorAll('.hg-edit-btn').forEach(function(btn) {

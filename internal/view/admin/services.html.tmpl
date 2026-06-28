@@ -87,9 +87,12 @@
             <span class="r-pill {{if eq .Status "active"}}r-pill-success{{else if eq .Status "suspended"}}r-pill-warning{{else}}r-pill-danger{{end}}">{{.Status}}</span>
           </td>
           <td class="text-right whitespace-nowrap">
-            <div class="inline-flex items-center gap-3">
+            <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="svc-act-{{.ID}}">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+            </button>
+            <div id="svc-act-{{.ID}}" class="hpg-act-menu" role="menu">
               <button type="button"
-                class="svc-edit-btn t-small font-medium text-[rgb(var(--accent))] hover:underline cursor-pointer"
+                class="svc-edit-btn hpg-act-item" role="menuitem"
                 data-id="{{.ID}}"
                 data-name="{{.Name}}"
                 data-client="{{.ClientID}}"
@@ -98,21 +101,22 @@
                 data-pend="{{.PortEnd}}"
                 data-plan="{{.PlanID}}"
                 data-extref="{{.ExternalRef}}"
-                data-notes="{{.Notes}}">edit</button>
-              <form method="POST" action="/admin/services/{{.ID}}/delete" data-confirm="Delete service {{.Name}}?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="t-small font-medium text-[rgb(var(--danger,220_38_38))] hover:underline cursor-pointer">delete</button>
-              </form>
+                data-notes="{{.Notes}}">Edit</button>
               {{if eq .Status "active"}}
-              <form method="POST" action="/admin/services/{{.ID}}/suspend" class="inline" data-confirm="Suspend all routes for {{.Name}}?">
+              <form method="POST" action="/admin/services/{{.ID}}/suspend" class="contents" data-confirm="Suspend all routes for {{.Name}}?">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="t-small font-medium text-[rgb(var(--warning,245_158_11))] hover:underline cursor-pointer">suspend</button>
+                <button type="submit" class="hpg-act-item is-danger" role="menuitem">Suspend</button>
               </form>
               {{else if eq .Status "suspended"}}
-              <form method="POST" action="/admin/services/{{.ID}}/resume" class="inline">
+              <form method="POST" action="/admin/services/{{.ID}}/resume" class="contents">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="t-small font-medium text-[rgb(var(--success,16_185_129))] hover:underline cursor-pointer">resume</button>
+                <button type="submit" class="hpg-act-item" role="menuitem">Resume</button>
               </form>
               {{end}}
+              <form method="POST" action="/admin/services/{{.ID}}/delete" class="contents" data-confirm="Delete service {{.Name}}?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit" class="hpg-act-item is-danger" role="menuitem">Delete</button>
+              </form>
             </div>
           </td>
         </tr>

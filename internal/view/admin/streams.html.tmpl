@@ -50,13 +50,15 @@
             <td>
               <span class="r-pill {{if eq .Status "active"}}r-pill-success{{else}}r-pill-neutral{{end}}">{{.Status}}</span>
             </td>
-            <td class="text-right">
-              <div class="inline-flex items-center gap-3">
-                <a href="/admin/streams/{{.ID}}/edit"
-                   class="t-small text-[rgb(var(--accent))] hover:underline cursor-pointer">edit</a>
-                <form method="POST" action="/admin/streams/{{.ID}}/delete" class="inline" data-confirm="Delete stream {{.Protocol}} :{{.ListenPort}} → {{.BackendIP}}:{{.UpstreamPort}}?">
+            <td class="text-right whitespace-nowrap">
+              <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="stream-act-{{.ID}}">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+              </button>
+              <div id="stream-act-{{.ID}}" class="hpg-act-menu" role="menu">
+                <a href="/admin/streams/{{.ID}}/edit" class="hpg-act-item" role="menuitem">Edit</a>
+                <form method="POST" action="/admin/streams/{{.ID}}/delete" class="contents" data-confirm="Delete stream {{.Protocol}} :{{.ListenPort}} → {{.BackendIP}}:{{.UpstreamPort}}?">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                  <button class="t-small text-[rgb(var(--danger,220_38_38))] hover:underline cursor-pointer">delete</button>
+                  <button type="submit" class="hpg-act-item is-danger" role="menuitem">Delete</button>
                 </form>
               </div>
             </td>

@@ -112,22 +112,19 @@
           <td class="px-5 py-3.5 text-xs whitespace-nowrap">{{if .Bandwidth30d}}{{formatBytes .Bandwidth30d}}{{else}}-{{end}}</td>
           <td class="px-5 py-3.5 text-xs whitespace-nowrap">{{.CreatedAt}}</td>
           <td class="px-5 py-3.5 text-right whitespace-nowrap">
-            <div class="inline-flex items-center gap-3">
+            <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="cli-act-{{.ID}}">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+            </button>
+            <div id="cli-act-{{.ID}}" class="hpg-act-menu" role="menu">
               <button type="button"
-                class="cli-edit-btn inline-flex items-center gap-1 text-xs font-medium cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-[rgb(var(--accent))] rounded"
-                style="color:rgb(var(--accent))"
+                class="cli-edit-btn hpg-act-item" role="menuitem"
                 data-id="{{.ID}}"
                 data-name="{{if .EditDisplayName}}{{.EditDisplayName}}{{else}}{{.DisplayName}}{{end}}"
                 data-email="{{.Email}}"
-                data-extref="{{.ExternalRef}}">
-                <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13.5 3.5l3 3L7 16l-3.5.5L4 13z"/></svg>
-                edit
-              </button>
-              <form method="POST" action="/admin/clients/{{.ID}}/delete" data-confirm="Delete client {{.DisplayName}} and their user account?"><input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="inline-flex items-center gap-1 text-xs font-medium cursor-pointer transition-colors focus:outline-none focus:ring-2 focus:ring-[rgb(var(--danger))] rounded" style="color:rgb(var(--danger))">
-                  <svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 6h12M8 6V4h4v2M6 6l.7 10h6.6L14 6"/></svg>
-                  delete
-                </button>
+                data-extref="{{.ExternalRef}}">Edit</button>
+              <form method="POST" action="/admin/clients/{{.ID}}/delete" class="contents" data-confirm="Delete client {{.DisplayName}} and their user account?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button type="submit" class="hpg-act-item is-danger" role="menuitem">Delete</button>
               </form>
             </div>
           </td>

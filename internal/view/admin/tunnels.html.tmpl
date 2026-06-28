@@ -77,33 +77,36 @@
           </td>
           <td class="font-mono t-small whitespace-nowrap" style="color:rgb(var(--muted))">{{.LastHandshake}}</td>
           <td class="t-small font-mono whitespace-nowrap">
-            <span class="flex flex-col gap-0.5 tabular-nums">
+            <span class="flex flex-col tabular-nums leading-tight">
               <span><span style="color:rgb(var(--success))">&#x2193;</span> {{.RxHuman}}</span>
               <span><span style="color:rgb(52,211,153)">&#x2191;</span> {{.TxHuman}}</span>
-              <span class="t-caption" style="color:rgb(var(--muted))" title="Lifetime usage (survives rekey/restart)">&Sigma; {{.CumRxHuman}} / {{.CumTxHuman}}</span>
+              <span class="t-caption mt-0.5" style="color:rgb(var(--muted))" title="Lifetime usage (survives rekey/restart)">&Sigma; {{.CumRxHuman}} / {{.CumTxHuman}}</span>
             </span>
           </td>
-          <td class="text-right whitespace-nowrap align-top" style="padding-top:0.75rem">
-            <div class="flex items-center justify-end gap-2 flex-wrap">
-              <button type="button" class="r-btn-ghost t-small cursor-pointer" style="color:rgb(var(--accent))" data-bw-toggle="{{.ID}}">bandwidth</button>
+          <td class="text-right whitespace-nowrap">
+            <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="tun-act-{{.ID}}">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 5v.01M12 12v.01M12 19v.01"/></svg>
+            </button>
+            <div id="tun-act-{{.ID}}" class="hpg-act-menu" role="menu">
+              <button type="button" data-bw-toggle="{{.ID}}" class="hpg-act-item" role="menuitem">Bandwidth</button>
               {{if ne $.Role "support"}}
               {{if ne .Status "revoked"}}
-              <form method="POST" action="/admin/tunnels/{{.ID}}/reissue" class="inline" data-confirm="Re-issue config for {{.Name}}? Same keys, fresh install URL with current template (e.g. MTU/MSS updates).">
+              <form method="POST" action="/admin/tunnels/{{.ID}}/reissue" class="contents" data-confirm="Re-issue config for {{.Name}}? Same keys, fresh install URL with current template (e.g. MTU/MSS updates).">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="r-btn-ghost t-small cursor-pointer" style="color:rgb(14,165,233)">reissue</button>
+                <button type="submit" class="hpg-act-item" role="menuitem">Reissue</button>
               </form>
-              <form method="POST" action="/admin/tunnels/{{.ID}}/rotate" class="inline" data-confirm="Rotate key for {{.Name}}? Customer will need to re-run install with the new token.">
+              <form method="POST" action="/admin/tunnels/{{.ID}}/rotate" class="contents" data-confirm="Rotate key for {{.Name}}? Customer will need to re-run install with the new token.">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="r-btn-ghost t-small cursor-pointer" style="color:rgb(var(--accent))">rotate</button>
+                <button type="submit" class="hpg-act-item" role="menuitem">Rotate</button>
               </form>
-              <form method="POST" action="/admin/tunnels/{{.ID}}/revoke" class="inline" data-confirm="Revoke tunnel {{.Name}}? The customer's connection will drop on next node reconcile (~30s).">
+              <form method="POST" action="/admin/tunnels/{{.ID}}/revoke" class="contents" data-confirm="Revoke tunnel {{.Name}}? The customer's connection will drop on next node reconcile (~30s).">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="r-btn-ghost t-small cursor-pointer" style="color:rgb(var(--danger))">revoke</button>
+                <button type="submit" class="hpg-act-item is-danger" role="menuitem">Revoke</button>
               </form>
               {{end}}
-              <form method="POST" action="/admin/tunnels/{{.ID}}/delete" class="inline" data-confirm="Hard-delete tunnel {{.Name}}? Row + bootstrap tokens removed permanently. Reclaims assigned_ip. Cannot be undone." data-confirm-type="{{.Name}}">
+              <form method="POST" action="/admin/tunnels/{{.ID}}/delete" class="contents" data-confirm="Hard-delete tunnel {{.Name}}? Row + bootstrap tokens removed permanently. Reclaims assigned_ip. Cannot be undone." data-confirm-type="{{.Name}}">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
-                <button class="r-btn-ghost t-small cursor-pointer" style="color:rgb(var(--danger))">delete</button>
+                <button type="submit" class="hpg-act-item is-danger" role="menuitem">Delete</button>
               </form>
               {{end}}
             </div>
