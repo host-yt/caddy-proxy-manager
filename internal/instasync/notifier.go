@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
@@ -77,10 +78,16 @@ func (n *Notifier) notify(ctx context.Context) {
 	}
 	rows.Close()
 
+	var wg sync.WaitGroup
 	for _, s := range slaves {
 		s := s
-		go n.pushSlave(ctx, s)
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n.pushSlave(ctx, s)
+		}()
 	}
+	wg.Wait()
 }
 
 func (n *Notifier) pushSlave(ctx context.Context, s slave) {

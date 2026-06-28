@@ -1286,7 +1286,11 @@ func (s *Service) ReconcileDrift(ctx context.Context) {
 // Resync rebuilds the node's Caddy config from DB and POSTs /load.
 // Public wrapper around pushNodeConfig for admin use.
 func (s *Service) Resync(ctx context.Context, nodeID int64) error {
-	return s.pushNodeConfig(ctx, nodeID)
+	err := s.pushNodeConfig(ctx, nodeID)
+	if err == nil && s.AfterPush != nil {
+		s.AfterPush(ctx)
+	}
+	return err
 }
 
 // nodePush is the built, ready-to-Load config for one node plus the data
