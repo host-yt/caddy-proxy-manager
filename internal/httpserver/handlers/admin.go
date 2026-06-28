@@ -41,6 +41,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/instasync"
 	"github.com/host-yt/caddy-proxy-manager/internal/mail"
 	"github.com/host-yt/caddy-proxy-manager/internal/nodejoin"
 	"github.com/host-yt/caddy-proxy-manager/internal/obs"
@@ -119,6 +120,13 @@ type AdminHandlers struct {
 	AlertCfg alert.Config
 	// AlertEval is the running evaluator; used to TestFire on-demand.
 	AlertEval *alert.Evaluator
+
+	// SyncNotifier pushes sync triggers to slave HPG instances after config changes.
+	SyncNotifier *instasync.Notifier
+	// SlaveMode, when true, means this instance is read-only; SyncPushReceive is the only write endpoint.
+	SlaveMode bool
+	// SlaveToken is the pre-shared bearer token expected on /internal/sync/push.
+	SlaveToken string
 }
 
 // adminConfigRefs holds pointers admin settings handlers can flip at runtime.
@@ -3628,6 +3636,9 @@ type settingsData struct {
 	// Self-registration settings tab.
 	AllowSelfRegistration bool
 	DefaultPlanID         string
+	// Instances tab: registered slave HPG instances.
+	Slaves     []SyncSlaveView
+	IsSlaveMode bool
 }
 
 func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
@@ -3774,7 +3785,9 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		d.SystemBannerLinkLabel = kv["system.banner_link_label"]
 		d.AllowSelfRegistration = kv["auth.allow_self_registration"] == "1"
 		d.DefaultPlanID = kv["auth.default_plan_id"]
+		d.Slaves = h.loadSyncSlaves(ctx)
 	}
+	d.IsSlaveMode = h.SlaveMode
 	d.SSOJump = h.loadSSOJumpSettingsView(r, d.AppURL)
 	// Branding tab: pre-fill from the shared cached loader (same source as
 	// BrandingPage). Form still POSTs to /admin/branding.

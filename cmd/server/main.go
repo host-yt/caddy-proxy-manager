@@ -40,6 +40,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/handlers"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/instasync"
 	"github.com/host-yt/caddy-proxy-manager/internal/jobs"
 	"github.com/host-yt/caddy-proxy-manager/internal/leader"
 	"github.com/host-yt/caddy-proxy-manager/internal/mail"
@@ -428,6 +429,17 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	adminH.WriteWGConfig = writeWG
 	adminH.AlertCfg = alertEval.Cfg
 	adminH.AlertEval = alertEval
+
+	slaveMode := os.Getenv("HPG_SLAVE") == "1"
+	slaveToken := os.Getenv("HPG_SLAVE_TOKEN")
+	syncNotifier := instasync.New(wizard.DB, state, logger)
+	adminH.SlaveMode = slaveMode
+	adminH.SlaveToken = slaveToken
+	if !slaveMode {
+		adminH.SyncNotifier = syncNotifier
+		// Notify slaves after every PushAll (boot push + drift reconcile).
+		routesSvc.AfterPush = syncNotifier.Notify
+	}
 	clientH := &handlers.ClientHandlers{
 		DB: wizard.DB, Sessions: sessions, Templates: appTpls, Routes: routesSvc, Logger: logger,
 		State: state, SMS: smsSvc, Mailer: mailer, AccessLogs: alStore,
@@ -739,6 +751,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 			DB:     wizard.DB,
 			Logger: logger,
 		},
+		SlaveMode: slaveMode,
 	})
 
 	httpSrv := &http.Server{

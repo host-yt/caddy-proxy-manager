@@ -115,6 +115,10 @@ type Service struct {
 	// permitted. Enforced at Create AND again at build time (defense in depth).
 	ExternalUpstreamAllowlist []string
 
+	// AfterPush, when set, is called after every successful PushAll so the
+	// caller can fan out to slave HPG instances (instasync). Nil-safe.
+	AfterPush func(ctx context.Context)
+
 	// IncrementalPush enables per-route Caddy @id mutations (PATCH/POST/DELETE)
 	// for single-route changes instead of a full /load. Kill switch: env
 	// INCREMENTAL_PATCH=0 reverts to full /load with no code change. Every
@@ -1001,6 +1005,9 @@ func (s *Service) PushAll(ctx context.Context) {
 	}
 	rows.Close()
 	s.pushNodesConcurrent(ctx, ids, "boot push")
+	if s.AfterPush != nil {
+		s.AfterPush(ctx)
+	}
 }
 
 // AutoFailover migrates routes off Caddy nodes that have been "down"

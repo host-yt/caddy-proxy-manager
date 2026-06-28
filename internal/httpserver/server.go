@@ -64,6 +64,8 @@ type Deps struct {
 
 	// NodeWAFIngest receives WAF event batches POSTed by node-local Caddy WAF modules.
 	NodeWAFIngest *handlers.NodeWAFIngestHandler
+	// SlaveMode, when true, applies SlaveReadOnly middleware (blocks admin writes).
+	SlaveMode bool
 }
 
 type Server struct {
@@ -119,6 +121,9 @@ func (s *Server) routes() {
 	r.Use(chimw.Timeout(30_000_000_000))
 	r.Use(installRedirectMiddleware(s.deps.InstallState))
 	r.Use(mw.LoadSession(s.deps.Sessions))
+	if s.deps.SlaveMode {
+		r.Use(mw.SlaveReadOnly)
+	}
 	r.Use(mw.VerifyCSRF)
 	// Global anti-DDoS: cap unauthenticated POST traffic per source IP.
 	// Authenticated sessions are skipped (admin workflows hit their own
@@ -181,6 +186,7 @@ func (s *Server) routes() {
 
 	r.Get("/internal/ask", s.deps.Ask.ServeHTTP)
 	r.Get("/internal/mtls-rbac/{route_id}", s.deps.Admin.MTLSRBACCheck)
+	r.Post("/internal/sync/push", s.deps.Admin.SyncPushReceive)
 	if s.deps.AccessLogIngest != nil {
 		r.Post("/internal/access-log", s.deps.AccessLogIngest.ServeHTTP)
 	}
@@ -601,6 +607,9 @@ func (s *Server) routes() {
 			r.Post("/failover", s.deps.Admin.SettingsFailover)
 			r.Post("/alert", s.deps.Admin.SettingsAlert)
 			r.Post("/banner", s.deps.Admin.SettingsBanner)
+			r.Post("/instances", s.deps.Admin.SlaveAdd)
+			r.Post("/instances/{id}/delete", s.deps.Admin.SlaveDelete)
+			r.Post("/instances/{id}/sync", s.deps.Admin.SlaveSync)
 		})
 	})
 

@@ -66,6 +66,7 @@
         <button type="button" data-settings-tab="apidocs" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">API docs</button>
         <button type="button" data-settings-tab="ai" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">AI assistant</button>
         <button type="button" data-settings-tab="banner" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Announcement</button>
+        <button type="button" data-settings-tab="instances" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Instances</button>
       </div>
     </div>
   </div>
@@ -1831,5 +1832,65 @@
       <button class="r-btn-primary">Save</button>
     </div>
   </form>
+</section>
+
+<section data-settings-pane="instances" class="hpg-settings-pane hidden r-card">
+  <p class="t-eyebrow mb-1">Multi-instance</p>
+  <h2 class="t-h3 mb-2">Instance sync</h2>
+  {{if .IsSlaveMode}}
+  <div class="r-alert r-alert-info mb-4">This instance runs in <strong>slave mode</strong>. Config writes are disabled; it receives sync pushes from the master.</div>
+  {{end}}
+  <p class="t-muted mb-4">Register slave HPG instances. After every route, WAF, or cert save the master sends a push trigger so slaves re-apply config to their Caddy nodes.</p>
+  {{if not .IsSlaveMode}}
+  {{if .Slaves}}
+  <table class="r-table mb-6 w-full">
+    <thead><tr><th>Name</th><th>URL</th><th>Last sync</th><th>Status</th><th></th></tr></thead>
+    <tbody>
+    {{range .Slaves}}
+    <tr>
+      <td class="font-medium">{{.Name}}</td>
+      <td class="t-muted text-xs">{{.URL}}</td>
+      <td class="t-muted text-xs">{{if .LastSyncAt}}{{.LastSyncAt}}{{else}}-{{end}}</td>
+      <td>
+        {{if eq .LastSyncStatus "ok"}}<span class="r-pill r-pill-success">ok</span>
+        {{else if eq .LastSyncStatus "error"}}<span class="r-pill r-pill-danger" title="{{.LastSyncError}}">error</span>
+        {{else}}<span class="r-pill r-pill-neutral">-</span>{{end}}
+      </td>
+      <td class="text-right space-x-2">
+        <form method="POST" action="/admin/settings/instances/{{.ID}}/sync" class="inline">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <button class="r-btn r-btn-sm r-btn-secondary cursor-pointer" type="submit">Sync</button>
+        </form>
+        <form method="POST" action="/admin/settings/instances/{{.ID}}/delete" class="inline">
+          <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+          <button class="r-btn r-btn-sm r-btn-danger cursor-pointer" type="submit">Remove</button>
+        </form>
+      </td>
+    </tr>
+    {{end}}
+    </tbody>
+  </table>
+  {{else}}
+  <p class="t-muted mb-4">No slave instances registered.</p>
+  {{end}}
+  <p class="t-eyebrow mb-2">Add slave instance</p>
+  <p class="t-muted text-xs mb-3">Generate a random token, configure <code>HPG_SLAVE=1</code> and <code>HPG_SLAVE_TOKEN=&lt;token&gt;</code> on the slave, then register it here.</p>
+  <form method="POST" action="/admin/settings/instances" class="space-y-3 max-w-lg">
+    <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+    <div>
+      <label class="r-label">Name</label>
+      <input class="r-input" name="name" placeholder="eu-slave-1" required>
+    </div>
+    <div>
+      <label class="r-label">Slave panel URL</label>
+      <input class="r-input" name="url" type="url" placeholder="https://panel.eu.example.com" required>
+    </div>
+    <div>
+      <label class="r-label">Pre-shared token</label>
+      <input class="r-input" name="token" placeholder="paste HPG_SLAVE_TOKEN value" required>
+    </div>
+    <button class="r-btn r-btn-primary cursor-pointer" type="submit">Add slave</button>
+  </form>
+  {{end}}
 </section>
 {{end}}
