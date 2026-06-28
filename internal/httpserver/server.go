@@ -266,6 +266,9 @@ func (s *Server) routes() {
 			r.Get("/logout", s.deps.Portal.Logout)
 			r.Get("/2fa", s.deps.Portal.Portal2FAPage)
 			r.Post("/2fa", s.deps.Portal.Portal2FASubmit)
+			// OAuth2 social login for the portal (provider-agnostic).
+			r.Get("/oauth/{provider}", s.deps.Portal.PortalOAuthStart)
+			r.Get("/oauth/{provider}/callback", s.deps.Portal.PortalOAuthCallback)
 		})
 	}
 
@@ -400,6 +403,7 @@ func (s *Server) routes() {
 		r.Post("/waf/suppress", s.deps.Admin.WAFSuppressRule)
 		r.Post("/waf/suppressions/{id}/delete", s.deps.Admin.WAFDeleteSuppression)
 		r.Post("/waf/events/{id}/ack", s.deps.Admin.WAFAckEvent)
+		r.Post("/waf/events/clear", s.deps.Admin.WAFClearEvents)
 		r.Route("/streams", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.StreamsList)
 			r.Post("/new", s.deps.Admin.StreamsCreate)
@@ -509,6 +513,7 @@ func (s *Server) routes() {
 		}
 		r.Get("/audit", s.deps.Admin.AuditList)
 		r.Get("/audit/export", s.deps.Admin.AuditExport)
+		r.Post("/audit/clear", s.deps.Admin.AuditClear)
 		r.Route("/saved-filters", func(r chi.Router) {
 			r.Post("/{view}", s.deps.Admin.SavedFilterSave)
 			r.Post("/{view}/{id}/delete", s.deps.Admin.SavedFilterDelete)

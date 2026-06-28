@@ -410,6 +410,8 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		SameSite: handlers.ParseSameSite(cfg.Security.SessionCookieSameSite),
 		TTL:      sessionTTL,
 		State:    state,
+		OAuth2X:  oauth2xSvc,
+		AppURL:   cfg.App.URL,
 	}
 
 	// Passkey/WebAuthn (nil-safe). Requires a valid App.URL to derive RPID.

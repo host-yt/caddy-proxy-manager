@@ -22,6 +22,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/portal"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/oauth2x"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
@@ -41,6 +42,8 @@ type PortalHandlers struct {
 	SameSite http.SameSite // mirrors the panel auth cookie SameSite
 	TTL      time.Duration      // portal session lifetime
 	State    *installstate.Manager // for decrypting totp_secret_enc
+	OAuth2X  *oauth2x.Service      // social login for the portal; nil disables buttons
+	AppURL   string                // panel base URL, used to build OAuth callback URLs
 }
 
 // metricsLoginEmitter is the subset of obs.Metrics the portal touches; kept
@@ -172,19 +175,28 @@ func (h *PortalHandlers) denyVerify(w http.ResponseWriter, r *http.Request, host
 	http.Redirect(w, r, loc, http.StatusFound)
 }
 
+// portalOAuthProvider is the minimal provider info passed to the login template.
+type portalOAuthProvider struct {
+	Provider string // slug: "github", "google"
+	Label    string // display name
+}
+
 // portalViewData is the login template payload.
 type portalViewData struct {
-	Error    string
-	Back     string
-	Host     string
-	CSPNonce string
+	Error          string
+	Back           string
+	Host           string
+	CSPNonce       string
+	OAuthProviders []portalOAuthProvider
 }
 
 // LoginPage renders the portal login form (served on the protected host).
 func (h *PortalHandlers) LoginPage(w http.ResponseWriter, r *http.Request) {
 	host := portalRequestHost(r)
 	back := portalSafeBack(r.URL.Query().Get("back"), host)
-	h.renderLogin(w, r, http.StatusOK, portalViewData{Back: back, Host: host})
+	d := portalViewData{Back: back, Host: host}
+	d.OAuthProviders = h.loadPortalOAuthProviders(r.Context())
+	h.renderLogin(w, r, http.StatusOK, d)
 }
 
 // LoginSubmit validates credentials against the users table (reusing argon2),
@@ -637,10 +649,29 @@ func portalSafeBack(raw, host string) string {
 	return out
 }
 
+// loadPortalOAuthProviders returns enabled OAuth providers for the login page.
+func (h *PortalHandlers) loadPortalOAuthProviders(ctx context.Context) []portalOAuthProvider {
+	if h.OAuth2X == nil {
+		return nil
+	}
+	slugs := []string{oauth2x.ProviderGitHub, oauth2x.ProviderGoogle}
+	var out []portalOAuthProvider
+	for _, s := range slugs {
+		if h.OAuth2X.Enabled(ctx, s) {
+			out = append(out, portalOAuthProvider{Provider: s, Label: FormatProviderLabel(s)})
+		}
+	}
+	return out
+}
+
 // renderLogin writes the portal login page. Inline-template (no panel layout)
 // since it is served on the customer host; CSP nonce is applied to the form.
 func (h *PortalHandlers) renderLogin(w http.ResponseWriter, r *http.Request, status int, d portalViewData) {
 	d.CSPNonce = middleware.CSPNonce(r.Context())
+	// Populate OAuth buttons on every render (including error re-renders).
+	if d.OAuthProviders == nil {
+		d.OAuthProviders = h.loadPortalOAuthProviders(r.Context())
+	}
 	var buf bytes.Buffer
 	if err := portalLoginTmpl.Execute(&buf, d); err != nil {
 		http.Error(w, "render failed", http.StatusInternalServerError)
@@ -667,8 +698,12 @@ var portalLoginTmpl = template.Must(template.New("portal_login").Parse(`<!doctyp
  .remember{display:flex;align-items:center;gap:8px;margin-top:14px}
  .remember input{width:auto}
  .remember span{font-size:13px;color:#334155}
- button{margin-top:16px;width:100%;padding:10px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-size:14px;cursor:pointer}
+ button{margin-top:16px;width:100%;padding:10px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-size:14px;cursor:pointer;cursor:pointer}
  .err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:10px;padding:8px 10px;font-size:13px;margin-bottom:8px}
+ .divider{display:flex;align-items:center;gap:8px;margin:18px 0 2px;color:#94a3b8;font-size:12px}
+ .divider::before,.divider::after{content:"";flex:1;border-top:1px solid #e2e8f0}
+ .oauth-btn{display:block;margin-top:10px;width:100%;box-sizing:border-box;padding:10px;border:1px solid #cbd5e1;border-radius:10px;background:#fff;font-size:14px;color:#334155;text-align:center;text-decoration:none;cursor:pointer;transition:background .15s}
+ .oauth-btn:hover{background:#f8fafc}
 </style></head><body>
 <div class="card">
  <h1>Sign in</h1>
@@ -686,5 +721,11 @@ var portalLoginTmpl = template.Must(template.New("portal_login").Parse(`<!doctyp
   </div>
   <button type="submit">Sign in</button>
  </form>
+ {{if .OAuthProviders}}
+ <div class="divider">or continue with</div>
+ {{range .OAuthProviders}}
+ <a class="oauth-btn" href="/hpg-portal/oauth/{{.Provider}}?back={{$.Back}}">{{.Label}}</a>
+ {{end}}
+ {{end}}
 </div>
 </body></html>`))
