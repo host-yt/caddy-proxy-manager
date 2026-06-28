@@ -4167,6 +4167,13 @@ func (h *AdminHandlers) BasicAuthAddUser(w http.ResponseWriter, r *http.Request)
 		http.Redirect(w, r, "/admin/hosts", http.StatusSeeOther)
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckRoute(ctx, sess, routeID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	editURL := fmt.Sprintf("/admin/hosts/%d/edit", routeID)
 	_ = r.ParseForm()
 	username := strings.TrimSpace(r.FormValue("username"))
@@ -4184,8 +4191,6 @@ func (h *AdminHandlers) BasicAuthAddUser(w http.ResponseWriter, r *http.Request)
 		redirectWithFlash(w, r, editURL, "", "hash error: "+sanitizeErr(herr))
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
 	_, dbErr := h.DB().ExecContext(ctx,
 		`INSERT INTO route_basic_auth_users (route_id, username, bcrypt_hash)
 		 VALUES (?, ?, ?)
@@ -4217,14 +4222,19 @@ func (h *AdminHandlers) BasicAuthRemoveUser(w http.ResponseWriter, r *http.Reque
 		http.Redirect(w, r, "/admin/hosts", http.StatusSeeOther)
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckRoute(ctx, sess, routeID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	editURL := fmt.Sprintf("/admin/hosts/%d/edit", routeID)
 	username := chi.URLParam(r, "username")
 	if username == "" {
 		redirectWithFlash(w, r, editURL, "", "username missing")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
-	defer cancel()
 	_, dbErr := h.DB().ExecContext(ctx,
 		"DELETE FROM route_basic_auth_users WHERE route_id = ? AND username = ?",
 		routeID, username)

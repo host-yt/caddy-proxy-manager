@@ -610,7 +610,7 @@ func BuildRoute(r Route) map[string]any {
 	// the SSO forward_auth / basic_auth gates below, so a cache hit would
 	// serve one user's authenticated response to an unauthenticated client.
 	if r.CacheEnabled && r.Kind != "redirect" && !r.MaintenanceMode &&
-		r.SSOProviderURL == "" && r.BasicAuthUser == "" {
+		r.SSOProviderURL == "" && r.BasicAuthUser == "" && len(r.BasicAuthUsers) == 0 {
 		ttl := r.CacheTTLSeconds
 		if ttl <= 0 {
 			ttl = 60
