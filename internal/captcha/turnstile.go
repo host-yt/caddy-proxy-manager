@@ -1,10 +1,13 @@
-// Package captcha verifies Cloudflare Turnstile responses.
+// Package captcha verifies CAPTCHA responses from a configurable provider.
 //
 // Settings (DB-backed via Refresh; env fallback in main):
 //
-//	captcha.provider  = "turnstile" | "" (disabled)
+//	captcha.provider  = "turnstile" | "hcaptcha" | "recaptcha" | "" (disabled)
 //	captcha.site_key  = public site key shown in HTML
 //	captcha.secret    = server secret (encrypted at rest)
+//
+// All three providers share the same siteverify contract (POST secret+response,
+// JSON {success, error-codes}); only the endpoint URL differs.
 package captcha
 
 import (
@@ -21,7 +24,15 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 )
 
-const turnstileVerifyURL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+// verifyURLs maps each supported provider to its server-side siteverify endpoint.
+var verifyURLs = map[string]string{
+	"turnstile": "https://challenges.cloudflare.com/turnstile/v0/siteverify",
+	"hcaptcha":  "https://api.hcaptcha.com/siteverify",
+	"recaptcha": "https://www.google.com/recaptcha/api/siteverify",
+}
+
+// knownProvider reports whether p is a supported (non-empty) provider.
+func knownProvider(p string) bool { _, ok := verifyURLs[p]; return ok }
 
 // Verifier holds the secret + a shared client.
 type Verifier struct {
@@ -61,12 +72,21 @@ func (v *Verifier) SiteKey() string {
 	return v.siteKey
 }
 
-// Enabled returns true when both provider and secret are set.
+// Enabled returns true when a known provider and a secret are both set.
 func (v *Verifier) Enabled() bool {
 	v.maybeReload()
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	return v.provider == "turnstile" && v.secret != ""
+	return knownProvider(v.provider) && v.secret != ""
+}
+
+// Provider returns the active provider id ("turnstile"|"hcaptcha"|"recaptcha"|"")
+// so the login template can render the matching widget.
+func (v *Verifier) Provider() string {
+	v.maybeReload()
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	return v.provider
 }
 
 // Refresh forces a reload of captcha settings from DB (super_admin
@@ -144,7 +164,11 @@ func (v *Verifier) Verify(ctx context.Context, token, ip string) error {
 	}
 	v.mu.RLock()
 	secret := v.secret
+	endpoint := verifyURLs[v.provider]
 	v.mu.RUnlock()
+	if endpoint == "" {
+		return nil // unknown provider -> treat as disabled
+	}
 	form := url.Values{
 		"secret":   {secret},
 		"response": {token},
@@ -152,7 +176,7 @@ func (v *Verifier) Verify(ctx context.Context, token, ip string) error {
 	if ip != "" {
 		form.Set("remoteip", ip)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, turnstileVerifyURL, strings.NewReader(form.Encode()))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, strings.NewReader(form.Encode()))
 	if err != nil {
 		return err
 	}

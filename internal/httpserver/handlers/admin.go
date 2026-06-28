@@ -3491,6 +3491,7 @@ type oauthProviderView struct {
 
 type turnstileView struct {
 	Enabled   bool
+	Provider  string // "turnstile" | "hcaptcha" | "recaptcha" | "" (none)
 	SiteKey   string
 	HasSecret bool
 }
@@ -3606,8 +3607,9 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		d.Require2FAEnvForced = h.Enforce2FAEnv
 		d.Require2FA = d.Require2FAEnvForced || kv["security.require_admin_2fa"] == "1"
 		d.Turnstile = turnstileView{
-			Enabled: kv["captcha.provider"] == "turnstile",
-			SiteKey: kv["captcha.site_key"], HasSecret: kv["captcha.secret"] != "",
+			Provider: kv["captcha.provider"],
+			Enabled:  kv["captcha.provider"] != "",
+			SiteKey:  kv["captcha.site_key"], HasSecret: kv["captcha.secret"] != "",
 		}
 		d.Cloudflare = cloudflareView{
 			Enabled:   kv["cloudflare.enabled"] == "1",
@@ -4801,17 +4803,20 @@ func (h *AdminHandlers) SettingsTurnstile(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_ = r.ParseForm()
-	enabled := r.FormValue("enabled") == "1"
+	provider := strings.TrimSpace(r.FormValue("provider"))
+	switch provider {
+	case "turnstile", "hcaptcha", "recaptcha":
+		// valid provider
+	default:
+		provider = "" // anything else (incl. "none") disables CAPTCHA
+	}
+	enabled := provider != ""
 	siteKey := strings.TrimSpace(r.FormValue("site_key"))
 	secret := r.FormValue("secret")
 
 	if enabled && (siteKey == "" || (secret == "" && !h.captchaSecretPresent(r.Context()))) {
-		redirectWithFlash(w, r, "/admin/settings", "", "Turnstile: site_key and secret required when enabling")
+		redirectWithFlash(w, r, "/admin/settings", "", "CAPTCHA: site key and secret are required when a provider is selected")
 		return
-	}
-	provider := ""
-	if enabled {
-		provider = "turnstile"
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
@@ -4841,9 +4846,9 @@ func (h *AdminHandlers) SettingsTurnstile(w http.ResponseWriter, r *http.Request
 	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "settings.turnstile.save", Entity: "settings", EntityID: "turnstile",
-		Meta: map[string]any{"enabled": enabled},
+		Meta: map[string]any{"enabled": enabled, "provider": provider},
 	})
-	redirectWithFlash(w, r, "/admin/settings", "Turnstile saved", "")
+	redirectWithFlash(w, r, "/admin/settings", "CAPTCHA saved", "")
 }
 
 func (h *AdminHandlers) captchaSecretPresent(ctx context.Context) bool {

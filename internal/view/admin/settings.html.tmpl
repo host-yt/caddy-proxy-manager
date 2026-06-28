@@ -525,30 +525,81 @@
   <!-- ── CAPTCHA ───────────────────────────────────────────── -->
   <section data-settings-pane="captcha" class="hpg-settings-pane hidden r-card">
     <p class="t-eyebrow mb-1">Auth &amp; access</p>
-    <h2 class="t-h3 mb-2">Cloudflare Turnstile (CAPTCHA)</h2>
-    <p class="t-small mb-4" style="color:rgb(var(--muted))">Free, privacy-respecting CAPTCHA. Get keys from Cloudflare dashboard → Turnstile.</p>
-    <form method="POST" action="/admin/settings/turnstile" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <h2 class="t-h3 mb-2">CAPTCHA on login</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Protect the login form from bots. Pick a provider, paste its keys, save. Pick <b>None</b> to disable.</p>
+    <form method="POST" action="/admin/settings/turnstile" id="captcha-form">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
-      <div class="sm:col-span-2">
-        <label class="r-toggle">
-          <input type="checkbox" name="enabled" value="1" {{if .Turnstile.Enabled}}checked{{end}}>
-          <span></span>
-          Require Turnstile on login
-        </label>
+      <input type="hidden" name="provider" id="captcha-provider" value="{{.Turnstile.Provider}}">
+
+      <!-- Provider picker: clickable cards; selected one fills with the accent. -->
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-2 mb-5">
+        <button type="button" class="captcha-card text-left rounded-xl border p-3 cursor-pointer transition" data-provider="" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+          <span class="block text-sm font-medium" style="color:rgb(var(--text))">None</span>
+          <span class="block t-caption" style="color:rgb(var(--muted))">CAPTCHA off</span>
+        </button>
+        <button type="button" class="captcha-card text-left rounded-xl border p-3 cursor-pointer transition" data-provider="turnstile" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+          <span class="block text-sm font-medium" style="color:rgb(var(--text))">Cloudflare Turnstile</span>
+          <span class="block t-caption" style="color:rgb(var(--muted))">Free, privacy-first</span>
+        </button>
+        <button type="button" class="captcha-card text-left rounded-xl border p-3 cursor-pointer transition" data-provider="hcaptcha" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+          <span class="block text-sm font-medium" style="color:rgb(var(--text))">hCaptcha</span>
+          <span class="block t-caption" style="color:rgb(var(--muted))">Privacy-focused</span>
+        </button>
+        <button type="button" class="captcha-card text-left rounded-xl border p-3 cursor-pointer transition" data-provider="recaptcha" style="border-color:rgb(var(--border));background:rgb(var(--surface-2)/.4)">
+          <span class="block text-sm font-medium" style="color:rgb(var(--text))">Google reCAPTCHA</span>
+          <span class="block t-caption" style="color:rgb(var(--muted))">v2 checkbox</span>
+        </button>
       </div>
-      <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Site key (public)</label>
-        <input name="site_key" value="{{.Turnstile.SiteKey}}" class="r-input font-mono">
+
+      <!-- Keys: hidden when None is selected. -->
+      <div id="captcha-keys" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <p id="captcha-help" class="sm:col-span-2 t-caption" style="color:rgb(var(--muted))"></p>
+        <div>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Site key (public)</label>
+          <input name="site_key" value="{{.Turnstile.SiteKey}}" class="r-input font-mono">
+        </div>
+        <div>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Secret key {{if .Turnstile.HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input name="secret" type="password" placeholder="{{if .Turnstile.HasSecret}}leave blank to keep{{end}}" class="r-input">
+        </div>
       </div>
-      <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Secret key {{if .Turnstile.HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-        <input name="secret" type="password" placeholder="{{if .Turnstile.HasSecret}}leave blank to keep{{end}}" class="r-input">
-      </div>
-      <div class="sm:col-span-2 flex justify-end">
-        <button class="r-btn-primary">Save Turnstile</button>
+
+      <div class="flex justify-end mt-5">
+        <button class="r-btn-primary">Save CAPTCHA</button>
       </div>
     </form>
   </section>
+  <script nonce="{{.CSPNonce}}">
+  (function(){
+    var form = document.getElementById('captcha-form');
+    if (!form) return;
+    var hidden = document.getElementById('captcha-provider');
+    var keys   = document.getElementById('captcha-keys');
+    var help   = document.getElementById('captcha-help');
+    var cards  = form.querySelectorAll('.captcha-card');
+    var HELP = {
+      turnstile: 'Get keys from the Cloudflare dashboard → Turnstile.',
+      hcaptcha:  'Get keys from the hCaptcha dashboard → Sites.',
+      recaptcha: 'Get keys from Google reCAPTCHA admin (use reCAPTCHA v2 “I’m not a robot”).'
+    };
+    function paint(prov){
+      cards.forEach(function(c){
+        var on = c.getAttribute('data-provider') === prov;
+        c.style.borderColor = on ? 'rgb(var(--accent))' : 'rgb(var(--border))';
+        c.style.background  = on ? 'rgb(var(--accent)/.12)' : 'rgb(var(--surface-2)/.4)';
+        c.style.boxShadow   = on ? '0 0 0 1px rgb(var(--accent))' : 'none';
+      });
+      hidden.value = prov;
+      var none = (prov === '');
+      keys.style.display = none ? 'none' : '';
+      if (!none && help) help.textContent = HELP[prov] || '';
+    }
+    cards.forEach(function(c){
+      c.addEventListener('click', function(){ paint(c.getAttribute('data-provider')); });
+    });
+    paint(hidden.value || '');
+  })();
+  </script>
 
   <!-- ── Cloudflare ─────────────────────────────────────────── -->
   <section data-settings-pane="cloudflare" class="hpg-settings-pane hidden r-card">

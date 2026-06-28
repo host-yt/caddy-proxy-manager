@@ -8,7 +8,11 @@
 <link rel="stylesheet" href="/static/css/tailwind.css">
 <script nonce="{{.CSPNonce}}">(function(){var t=localStorage.getItem('theme')||(matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');if(t==='dark')document.documentElement.classList.add('dark')})();</script>
 {{if .Brand.FaviconURL}}<link rel="icon" href="{{.Brand.FaviconURL}}">{{end}}
-{{if .CaptchaEnabled}}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer nonce="{{.CSPNonce}}"></script>{{end}}
+{{if .CaptchaEnabled}}
+  {{if eq .CaptchaProvider "turnstile"}}<script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer nonce="{{.CSPNonce}}"></script>{{end}}
+  {{if eq .CaptchaProvider "hcaptcha"}}<script src="https://js.hcaptcha.com/1/api.js" async defer nonce="{{.CSPNonce}}"></script>{{end}}
+  {{if eq .CaptchaProvider "recaptcha"}}<script src="https://www.google.com/recaptcha/api.js" async defer nonce="{{.CSPNonce}}"></script>{{end}}
+{{end}}
 </head>
 <body style="background:rgb(var(--bg));color:rgb(var(--text))" class="min-h-screen flex items-center justify-center p-4">
 <div class="w-full max-w-sm mx-auto">
@@ -55,7 +59,11 @@
           <input name="password" id="login-password" type="password" required autocomplete="current-password"
                  class="r-input w-full">
         </div>
-        {{if .CaptchaEnabled}}<div class="cf-turnstile" data-sitekey="{{.CaptchaSiteKey}}"></div>{{end}}
+        {{if .CaptchaEnabled}}
+          {{if eq .CaptchaProvider "turnstile"}}<div class="cf-turnstile" data-sitekey="{{.CaptchaSiteKey}}"></div>{{end}}
+          {{if eq .CaptchaProvider "hcaptcha"}}<div class="h-captcha" data-sitekey="{{.CaptchaSiteKey}}"></div>{{end}}
+          {{if eq .CaptchaProvider "recaptcha"}}<div class="g-recaptcha" data-sitekey="{{.CaptchaSiteKey}}"></div>{{end}}
+        {{end}}
         <button class="r-btn-primary w-full cursor-pointer">Sign in</button>
       </div>
     </form>

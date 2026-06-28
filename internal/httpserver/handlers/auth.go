@@ -155,6 +155,7 @@ type loginViewData struct {
 	Error                 string
 	Flash                 string
 	CaptchaEnabled        bool
+	CaptchaProvider       string // "turnstile" | "hcaptcha" | "recaptcha"
 	CaptchaSiteKey        string
 	OIDCEnabled           bool
 	OIDCProviderName      string
@@ -235,6 +236,7 @@ func (h *AuthHandlers) renderLogin(w http.ResponseWriter, status int, data login
 	data.PasskeyEnabled = h.PasskeyEnabled
 	if h.Captcha != nil && h.Captcha.Enabled() {
 		data.CaptchaSiteKey = h.Captcha.SiteKey()
+		data.CaptchaProvider = h.Captcha.Provider()
 	}
 	var buf bytes.Buffer
 	if err := h.Templates.Render(&buf, "login.html.tmpl", data); err != nil {
@@ -256,7 +258,12 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 	password := r.FormValue("password")
-	captchaToken := r.FormValue("cf-turnstile-response")
+	// Each widget posts its own token field name; read whichever is present.
+	captchaToken := firstNonEmpty(
+		r.FormValue("cf-turnstile-response"),
+		r.FormValue("h-captcha-response"),
+		r.FormValue("g-recaptcha-response"),
+	)
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
@@ -1271,6 +1278,16 @@ func (h *AuthHandlers) issueTrustCookie(w http.ResponseWriter, userID int64) {
 // IP attribution flows through internal/security.ClientIP - the single
 // trusted source after chimw.RealIP + CloudflareIP middlewares have run.
 func clientIPFromReq(r *http.Request) string { return security.ClientIP(r) }
+
+// firstNonEmpty returns the first non-empty string from the arguments.
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
 
 // firstLine trims the first line of an error string and caps the length,
 // so a provider's multi-line stack trace can't pollute a response body.

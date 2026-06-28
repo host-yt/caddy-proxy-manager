@@ -68,17 +68,21 @@ func SecurityHeaders(next http.Handler) http.Handler {
 // When a fully static Tailwind build replaces the CDN runtime, drop
 // 'unsafe-inline' from style-src and require nonces only.
 func strictCSP(nonce string) string {
+	// CAPTCHA vendor origins (login widget): Cloudflare Turnstile, hCaptcha,
+	// Google reCAPTCHA. Only loaded when an admin selects that provider.
+	const captchaScript = " https://challenges.cloudflare.com https://*.hcaptcha.com https://www.google.com https://www.gstatic.com"
+	const captchaFrame = " https://challenges.cloudflare.com https://*.hcaptcha.com https://www.google.com"
 	return "default-src 'self'; " +
 		// Everything is now self-hosted: Tailwind at /static/css/tailwind.css,
-		// Chart.js at /static/js/chart.umd.min.js, Inter font at
-		// /static/fonts/. Only challenges.cloudflare.com remains for Turnstile.
-		"script-src 'self' 'nonce-" + nonce + "' https://challenges.cloudflare.com; " +
+		// Chart.js at /static/js/chart.umd.min.js, Inter font at /static/fonts/.
+		// Remote hosts below are CAPTCHA vendor widgets only.
+		"script-src 'self' 'nonce-" + nonce + "'" + captchaScript + "; " +
 		"style-src 'self' 'unsafe-inline'; " +
 		"font-src 'self'; " +
 		// https: lets branding logo/favicon come from any HTTPS CDN.
 		"img-src 'self' https: data: blob:; " +
-		"connect-src 'self' https://challenges.cloudflare.com; " +
-		"frame-src https://challenges.cloudflare.com; " +
+		"connect-src 'self'" + captchaFrame + "; " +
+		"frame-src" + captchaFrame + "; " +
 		"frame-ancestors 'none'; " +
 		"base-uri 'self'; " +
 		"form-action 'self'; " +
