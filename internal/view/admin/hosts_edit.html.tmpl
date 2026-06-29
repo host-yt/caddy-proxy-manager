@@ -1,5 +1,5 @@
 {{define "hosts_edit"}}
-<div class="max-w-4xl space-y-4">
+<div class="max-w-7xl space-y-4">
   <!-- Page header -->
   <div class="flex items-start justify-between gap-4">
     <div>
@@ -33,30 +33,32 @@
     </div>
   </div>
 
-  <!-- Tab strip -->
-  <nav class="flex flex-wrap gap-1 border-b border-[rgb(var(--border))] text-sm" id="hpg-tabs">
-    <button type="button" data-tab="basics"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-[rgb(var(--accent))] text-[rgb(var(--accent))] font-medium t-small">Basics</button>
-    <button type="button" data-tab="target"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Target</button>
-    <button type="button" data-tab="locations" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Routing rules</button>
-    <button type="button" data-tab="ssl"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">SSL &amp; Protocols</button>
-    <button type="button" data-tab="cache"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Cache</button>
-    <button type="button" data-tab="lb"        class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Load balancing</button>
-    <button type="button" data-tab="ratelimit" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Rate limit</button>
-    <button type="button" data-tab="waf"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">WAF</button>
-    <button type="button" data-tab="geo"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Geo</button>
-    <button type="button" data-tab="mtls"      class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">mTLS</button>
-    <button type="button" data-tab="access"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Access list</button>
-    <button type="button" data-tab="sso"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">SSO</button>
-    <button type="button" data-tab="portal"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Portal</button>
-    <button type="button" data-tab="maint"     class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Maintenance</button>
-    <button type="button" data-tab="headers"   class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Headers</button>
-    <button type="button" data-tab="custom"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Custom JSON</button>
-    <button type="button" data-tab="egress"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Egress IP</button>
-    <button type="button" data-tab="dns"       class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">DNS</button>
-    {{if .CFViews}}<button type="button" data-tab="customfields" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-muted hover:text-[rgb(var(--text))] t-small">Custom fields</button>{{end}}
+  <!-- Two-column layout: vertical tab sidebar + content pane -->
+  <div class="grid grid-cols-1 lg:grid-cols-[210px_minmax(0,1fr)] gap-5 items-start">
+  <!-- Tab sidebar -->
+  <nav class="flex flex-col gap-0.5 r-card !p-2 lg:sticky lg:top-4 text-sm" id="hpg-tabs">
+    <button type="button" data-tab="basics"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-[rgb(var(--accent))] bg-[rgb(var(--accent)/0.08)] text-[rgb(var(--accent))] font-medium t-small">Basics</button>
+    <button type="button" data-tab="target"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Target</button>
+    <button type="button" data-tab="locations" class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Routing rules</button>
+    <button type="button" data-tab="ssl"       class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">SSL &amp; Protocols</button>
+    <button type="button" data-tab="cache"     class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Cache</button>
+    <button type="button" data-tab="lb"        class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Load balancing</button>
+    <button type="button" data-tab="ratelimit" class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Rate limit</button>
+    <button type="button" data-tab="waf"       class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">WAF</button>
+    <button type="button" data-tab="geo"       class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Geo</button>
+    <button type="button" data-tab="mtls"      class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">mTLS</button>
+    <button type="button" data-tab="access"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Access list</button>
+    <button type="button" data-tab="sso"       class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">SSO</button>
+    <button type="button" data-tab="portal"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Portal</button>
+    <button type="button" data-tab="maint"     class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Maintenance</button>
+    <button type="button" data-tab="headers"   class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Headers</button>
+    <button type="button" data-tab="custom"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Custom JSON</button>
+    <button type="button" data-tab="egress"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Egress IP</button>
+    <button type="button" data-tab="dns"       class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">DNS</button>
+    {{if .CFViews}}<button type="button" data-tab="customfields" class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Custom fields</button>{{end}}
   </nav>
 
-  <form method="POST" action="/admin/hosts/{{.RouteID}}/edit" class="space-y-4" id="hpg-edit-form">
+  <form method="POST" action="/admin/hosts/{{.RouteID}}/edit" class="space-y-4 min-w-0" id="hpg-edit-form">
     <input type="hidden" name="active_tab" id="hpg-active-tab" value="basics">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 
@@ -831,10 +833,18 @@ X-Authentik-Meta-Version</pre>
         <span class="block mt-1 t-caption text-muted">GeoIP not configured</span>
         {{end}}
       </div>
-      <div>
+      <div class="relative" data-geo-multi="country">
         <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Countries</label>
-        <input type="text" name="geo_countries" value="{{.GeoCountries}}" placeholder="PL,DE,US" class="r-input w-full font-mono text-xs">
-        <span class="t-caption text-muted">Comma-separated ISO country codes (alpha-2).</span>
+        <button type="button" data-geo-toggle class="r-input w-full text-left flex items-center justify-between gap-2 cursor-pointer">
+          <span data-geo-summary class="truncate text-xs text-muted">No countries selected</span>
+          <svg class="w-4 h-4 shrink-0 text-muted" fill="none" viewBox="0 0 20 20" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 8l4 4 4-4"/></svg>
+        </button>
+        <div data-geo-panel class="hidden absolute z-20 mt-1 w-full r-card !p-2 shadow-lg max-h-72 flex flex-col gap-2">
+          <input type="search" data-geo-search placeholder="Search country or code..." class="r-input w-full text-xs">
+          <div data-geo-options class="overflow-y-auto flex-1 pr-1 space-y-0.5"></div>
+        </div>
+        <input type="hidden" name="geo_countries" id="geo_countries_input" value="{{.GeoCountries}}">
+        <span class="t-caption text-muted">Selected countries apply with the chosen mode above.</span>
       </div>
       <div>
         <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Block response code</label>
@@ -857,10 +867,17 @@ X-Authentik-Meta-Version</pre>
         <textarea name="geo_allow_cidrs" rows="3" placeholder="1.2.3.4, 10.0.0.0/8, 2001:db8::/32" class="r-input w-full font-mono text-xs">{{.GeoAllowCIDRs}}</textarea>
         <span class="t-caption text-muted">Comma-separated IPs or CIDR ranges that bypass the country block.</span>
       </div>
-      <div>
+      <div class="relative" data-geo-multi="continent">
         <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Continents</label>
-        <input type="text" name="geo_continents" value="{{.GeoContinents}}" placeholder="EU,NA,AS" class="r-input w-full font-mono text-xs">
-        <span class="t-caption text-muted">Comma-separated ISO continent codes: AF AN AS EU NA OC SA. Applied with the same mode as countries.</span>
+        <button type="button" data-geo-toggle class="r-input w-full text-left flex items-center justify-between gap-2 cursor-pointer">
+          <span data-geo-summary class="truncate text-xs text-muted">No continents selected</span>
+          <svg class="w-4 h-4 shrink-0 text-muted" fill="none" viewBox="0 0 20 20" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 8l4 4 4-4"/></svg>
+        </button>
+        <div data-geo-panel class="hidden absolute z-20 mt-1 w-full r-card !p-2 shadow-lg">
+          <div data-geo-options class="space-y-0.5"></div>
+        </div>
+        <input type="hidden" name="geo_continents" id="geo_continents_input" value="{{.GeoContinents}}">
+        <span class="t-caption text-muted">Each selected continent expands to its member countries.</span>
       </div>
       <div>
         <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Always-block IPs/CIDRs</label>
@@ -868,6 +885,66 @@ X-Authentik-Meta-Version</pre>
         <span class="t-caption text-muted">Blocked regardless of geo mode. Comma-separated IPs or CIDR ranges (e.g. 192.0.2.0/24, 1.2.3.4).</span>
       </div>
     </section>
+
+    <script nonce="{{.CSPNonce}}">
+    (function(){
+      var CC = "AD AE AF AG AI AL AM AO AQ AR AS AT AU AW AX AZ BA BB BD BE BF BG BH BI BJ BL BM BN BO BQ BR BS BT BV BW BY BZ CA CC CD CF CG CH CI CK CL CM CN CO CR CU CV CW CX CY CZ DE DJ DK DM DO DZ EC EE EG EH ER ES ET FI FJ FK FM FO FR GA GB GD GE GF GG GH GI GL GM GN GP GQ GR GS GT GU GW GY HK HM HN HR HT HU ID IE IL IM IN IO IQ IR IS IT JE JM JO JP KE KG KH KI KM KN KP KR KW KY KZ LA LB LC LI LK LR LS LT LU LV LY MA MC MD ME MF MG MH MK ML MM MN MO MP MQ MR MS MT MU MV MW MX MY MZ NA NC NE NF NG NI NL NO NP NR NU NZ OM PA PE PF PG PH PK PL PM PN PR PS PT PW PY QA RE RO RS RU RW SA SB SC SD SE SG SH SI SJ SK SL SM SN SO SR SS ST SV SX SY SZ TC TD TF TG TH TJ TK TL TM TN TO TR TT TV TW TZ UA UG UM US UY UZ VA VC VE VG VI VN VU WF WS YE YT ZA ZM ZW".split(" ");
+      var CONTS = [["AF","Africa"],["AS","Asia"],["EU","Europe"],["NA","North America"],["SA","South America"],["OC","Oceania"],["AN","Antarctica"]];
+      var regionNames = null;
+      try { regionNames = new Intl.DisplayNames(['en'], {type:'region'}); } catch(e){}
+      function cname(cc){ if(regionNames){ try{ var n=regionNames.of(cc); if(n&&n!==cc) return n; }catch(e){} } return cc; }
+      function flag(cc){ try{ return String.fromCodePoint.apply(null,[].map.call(cc,function(c){return 0x1F1E6+c.charCodeAt(0)-65;})); }catch(e){ return ''; } }
+
+      document.querySelectorAll('[data-geo-multi]').forEach(function(root){
+        var kind = root.getAttribute('data-geo-multi');
+        var input = root.querySelector('input[type=hidden]');
+        var summary = root.querySelector('[data-geo-summary]');
+        var panel = root.querySelector('[data-geo-panel]');
+        var toggle = root.querySelector('[data-geo-toggle]');
+        var optWrap = root.querySelector('[data-geo-options]');
+        var search = root.querySelector('[data-geo-search]');
+        var selected = {};
+        (input.value||'').split(',').forEach(function(t){ t=t.trim().toUpperCase(); if(t) selected[t]=true; });
+
+        var items = kind==='continent'
+          ? CONTS.map(function(c){return {code:c[0],label:c[1],flag:''};})
+          : CC.map(function(c){return {code:c,label:cname(c),flag:flag(c)};});
+        if(kind!=='continent') items.sort(function(a,b){return a.label.localeCompare(b.label);});
+
+        function sync(){
+          var keys = Object.keys(selected).filter(function(k){return selected[k];});
+          input.value = keys.join(',');
+          summary.classList.toggle('text-muted', keys.length===0);
+          summary.textContent = keys.length===0 ? ('No '+kind+'s selected')
+            : (keys.length+' '+kind+(keys.length>1?'s':'')+' selected');
+        }
+        function render(filter){
+          filter=(filter||'').trim().toLowerCase();
+          optWrap.innerHTML='';
+          items.forEach(function(it){
+            if(filter && it.label.toLowerCase().indexOf(filter)<0 && it.code.toLowerCase().indexOf(filter)<0) return;
+            var lab=document.createElement('label');
+            lab.className='flex items-center gap-2 px-2 py-1 rounded-md hover:bg-[rgb(var(--surface-2))] cursor-pointer text-xs';
+            var cb=document.createElement('input'); cb.type='checkbox'; cb.className='cursor-pointer'; cb.checked=!!selected[it.code];
+            cb.addEventListener('change',function(){ selected[it.code]=cb.checked; sync(); });
+            lab.appendChild(cb);
+            if(it.flag){ var fl=document.createElement('span'); fl.textContent=it.flag; lab.appendChild(fl); }
+            var nm=document.createElement('span'); nm.textContent=it.label+' ('+it.code+')'; lab.appendChild(nm);
+            optWrap.appendChild(lab);
+          });
+        }
+        toggle.addEventListener('click',function(e){
+          e.stopPropagation();
+          var willOpen = panel.classList.contains('hidden');
+          panel.classList.toggle('hidden');
+          if(willOpen){ render(search?search.value:''); if(search) search.focus(); }
+        });
+        if(search) search.addEventListener('input',function(){ render(search.value); });
+        document.addEventListener('click',function(e){ if(!root.contains(e.target)) panel.classList.add('hidden'); });
+        render(''); sync();
+      });
+    })();
+    </script>
 
     <!-- mTLS -->
     <section data-pane="mtls" class="hpg-pane hidden r-card space-y-4">
@@ -1113,6 +1190,7 @@ X-Authentik-Meta-Version</pre>
       </button>
     </div>
   </form>
+  </div><!-- /two-column layout -->
 
   <!-- Standalone regen form (outside edit form - nested forms invalid) -->
   <form id="hpg-regen-secret" method="POST" action="/admin/hosts/{{.RouteID}}/regenerate-secret" class="hidden">
@@ -1172,6 +1250,7 @@ X-Authentik-Meta-Version</pre>
       tabs.forEach(function(t){
         var on = t.dataset.tab === name;
         t.classList.toggle('border-[rgb(var(--accent))]', on);
+        t.classList.toggle('bg-[rgb(var(--accent)/0.08)]', on);
         t.classList.toggle('text-[rgb(var(--accent))]', on);
         t.classList.toggle('font-medium', on);
         t.classList.toggle('border-transparent', !on);

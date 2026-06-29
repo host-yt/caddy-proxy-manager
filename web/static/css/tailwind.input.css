@@ -185,6 +185,9 @@
     background: rgb(var(--surface-2));
   }
   .r-segment-item {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
     padding: .375rem .75rem;
     border-radius: 8px;
     font-size: .875rem;

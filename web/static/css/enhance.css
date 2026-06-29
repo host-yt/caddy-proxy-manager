@@ -291,6 +291,7 @@
   height: 0.45rem;
   border-radius: 999px;
   display: inline-block;
+  flex-shrink: 0;
 }
 .hpg-dot-ok { background: #10b981; box-shadow: 0 0 0 3px rgba(16,185,129,0.14); }
 .hpg-dot-warn { background: #f59e0b; box-shadow: 0 0 0 3px rgba(245,158,11,0.16); }
