@@ -60,6 +60,11 @@ type config struct {
 	WstunnelBindAddr string // host IP wstunnel listens on; never 0.0.0.0
 	AccessLogPath    string // Caddy access-log file to tail+forward; "" = disabled
 	WAFAuditLogPath  string // Coraza audit-log to tail and forward; "" = disabled
+	// ForwardTailOnly (HPG_FORWARD_TAIL_ONLY=1): on first run with no saved
+	// position, skip the existing log backlog (start at EOF) instead of forwarding
+	// it once. Default false so an upgrade/first start never silently drops
+	// accumulated access + WAF events.
+	ForwardTailOnly bool
 }
 
 // agentHTTP is a client-level backstop timeout: requests already set a
@@ -131,6 +136,7 @@ func loadConfig() (config, error) {
 		// Empty disables forwarding. Set to the shared Caddy access-log file.
 		AccessLogPath:   os.Getenv("HPG_CADDY_ACCESS_LOG"),
 		WAFAuditLogPath: os.Getenv("HPG_CADDY_WAF_AUDIT_LOG"),
+		ForwardTailOnly: os.Getenv("HPG_FORWARD_TAIL_ONLY") == "1",
 	}
 	if d := os.Getenv("HPG_POLL_INTERVAL"); d != "" {
 		if v, err := time.ParseDuration(d); err == nil {
@@ -995,7 +1001,9 @@ func forwardAccessLogs(ctx context.Context, log *slog.Logger, c config) {
 		}
 		if !inited {
 			inited = true
-			offset = initForwardOffset(posPath, fi.Size())
+			offset = initForwardOffset(posPath, fi.Size(), c.ForwardTailOnly)
+			log.Info("access-log forwarder start", "path", c.AccessLogPath,
+				"start_offset", offset, "size", fi.Size(), "tail_only", c.ForwardTailOnly)
 		}
 		if fi.Size() < offset {
 			offset = 0 // rotated/truncated: re-read from start
@@ -1057,16 +1065,23 @@ func writeForwardPos(path string, off int64) {
 }
 
 // initForwardOffset decides where a forwarder starts on its first tick:
-// resume from the persisted offset, reset to 0 if the file shrank while we were
-// down (rotation), or - with no saved position - tail from EOF so a brand-new
-// agent never backfills the entire historical log.
-func initForwardOffset(posPath string, size int64) int64 {
+//   - resume from the persisted offset when present and within the file;
+//   - reset to 0 if the saved offset is past EOF (file rotated/truncated);
+//   - with no saved position (first run, or an unreadable/corrupt sidecar),
+//     start at 0 so the existing backlog is forwarded ONCE - the persisted
+//     offset then prevents any replay on later restarts. Defaulting to EOF here
+//     would silently discard accumulated access/WAF logs on upgrade or first
+//     start, so EOF is only used when the operator opts into tailOnly.
+func initForwardOffset(posPath string, size int64, tailOnly bool) int64 {
 	p := readForwardPos(posPath)
 	switch {
 	case p < 0:
-		return size // first ever run: start at end, never replay history
+		if tailOnly {
+			return size // explicit opt-in: skip existing backlog
+		}
+		return 0 // forward existing backlog once (no silent data loss)
 	case p <= size:
-		return p // resume
+		return p // resume where we left off
 	default:
 		return 0 // file shrank while down: rotated, read the new file
 	}
@@ -1325,7 +1340,9 @@ func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
 		}
 		if !inited {
 			inited = true
-			offset = initForwardOffset(posPath, fi.Size())
+			offset = initForwardOffset(posPath, fi.Size(), c.ForwardTailOnly)
+			log.Info("WAF forwarder start", "path", c.WAFAuditLogPath,
+				"start_offset", offset, "size", fi.Size(), "tail_only", c.ForwardTailOnly)
 		}
 		if fi.Size() < offset {
 			offset = 0 // rotated/truncated
