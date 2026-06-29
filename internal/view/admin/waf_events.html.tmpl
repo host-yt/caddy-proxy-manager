@@ -12,7 +12,7 @@
       <p class="t-caption mt-0.5">Firewall rule matches and blocked requests across all hosts</p>
     </div>
     <div class="flex items-center gap-2">
-      {{if and .CanClear (gt .Total 0)}}
+      {{if .CanClear}}
       <form method="POST" action="/admin/waf/events/clear" class="inline" data-confirm="Permanently delete {{if gt .Filter.RouteID 0}}this route's{{else}}ALL{{end}} WAF events? This cannot be undone.">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         {{if gt .Filter.RouteID 0}}<input type="hidden" name="route_id" value="{{.Filter.RouteID}}">{{end}}

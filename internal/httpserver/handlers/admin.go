@@ -3408,7 +3408,9 @@ func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
 	var total int
 	countArgs := make([]any, len(args))
 	copy(countArgs, args)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) "+baseFrom, countArgs...).Scan(&total)
+	if cerr := db.QueryRowContext(ctx, "SELECT COUNT(*) "+baseFrom, countArgs...).Scan(&total); cerr != nil {
+		h.Logger.Warn("audit count query", "err", cerr)
+	}
 
 	sqlStr := `SELECT DATE_FORMAT(a.created_at, '%Y-%m-%dT%H:%i:%sZ'),
 	                  COALESCE(u.email, a.actor_type) AS actor,
@@ -3427,6 +3429,11 @@ func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// If count failed but entries loaded, use loaded count as lower bound
+	// so pagination controls render correctly.
+	if total == 0 && len(d.Entries) > 0 {
+		total = lp.Offset() + len(d.Entries)
+	}
 	d.Total = total
 	d.TotalPgs = (total + lp.Size - 1) / lp.Size
 	if d.TotalPgs < 1 {

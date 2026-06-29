@@ -98,9 +98,9 @@
   <a href="/admin/audit/export?entity={{.Filter}}&action={{.ActionLike}}&actor={{.ActorLike}}&since={{.Since}}&format=csv" class="r-btn-secondary text-xs">Export CSV</a>
   <a href="/admin/audit/export?entity={{.Filter}}&action={{.ActionLike}}&actor={{.ActorLike}}&since={{.Since}}&format=json" class="r-btn-secondary text-xs">Export JSON</a>
   <button type="button" id="audit-save-filter-btn" class="r-btn-ghost text-xs cursor-pointer transition-colors" style="color:rgb(var(--accent))">Save filter</button>
-  {{if and (eq .Role "super_admin") (gt .Total 0)}}
+  {{if eq .Role "super_admin"}}
   <form method="POST" action="/admin/audit/clear" class="inline ml-auto"
-        data-confirm-type="DELETE" data-confirm="Permanently delete ALL {{.Total}} audit entries? This cannot be undone.">
+        data-confirm-type="DELETE" data-confirm="Permanently delete ALL audit entries? This cannot be undone.">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <button type="submit" class="r-btn-danger text-xs inline-flex items-center gap-1 cursor-pointer">
       <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">

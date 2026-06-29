@@ -128,28 +128,30 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Total count for pagination (ignores limit/offset).
-	if total, cerr := h.WAFEvents.CountFiltered(ctx, f); cerr == nil {
-		d.Total = total
-		d.TotalPgs = (total + f.Limit - 1) / f.Limit
-		if d.TotalPgs < 1 {
-			d.TotalPgs = 1
-		}
-		if page > 1 {
-			d.PrevURL = buildPageURL(q, page-1)
-		}
-		if page < d.TotalPgs {
-			d.NextURL = buildPageURL(q, page+1)
-		}
-	} else {
-		h.Logger.Warn("waf events count", "err", cerr)
-	}
-
 	entries, _, err := h.WAFEvents.FilteredWithSuppressions(ctx, f)
 	if err != nil {
 		h.Logger.Warn("waf events query", "err", err)
 	}
 	d.Entries = entries
+
+	// Total count for pagination (ignores limit/offset).
+	total, cerr := h.WAFEvents.CountFiltered(ctx, f)
+	if cerr != nil {
+		h.Logger.Warn("waf events count", "err", cerr)
+		// Fall back: count failed but entries loaded; use lower bound.
+		total = f.Offset + len(entries)
+	}
+	d.Total = total
+	d.TotalPgs = (total + f.Limit - 1) / f.Limit
+	if d.TotalPgs < 1 {
+		d.TotalPgs = 1
+	}
+	if page > 1 {
+		d.PrevURL = buildPageURL(q, page-1)
+	}
+	if page < d.TotalPgs {
+		d.NextURL = buildPageURL(q, page+1)
+	}
 
 	// Enrich entries with ASN data when the DB is available; skip silently if absent.
 	if len(entries) > 0 {
