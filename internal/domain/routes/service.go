@@ -1489,18 +1489,34 @@ func (s *Service) buildOneRoute(ctx context.Context, nodeID, routeID int64) (cad
 		return caddyapi.Route{}, false, err
 	}
 	branding := s.loadErrorBranding(ctx)
+	// Mirror the full /load module gating (probe OR env): the WAF/Geo/RateLimit
+	// availability must use the node's probed capability, not just the env flag,
+	// or an incremental push emits JSON WITHOUT the handler while a full /load
+	// emits it WITH - suppressing the handler and diverging the config hash
+	// (endless resync). This is why geo blocking silently dropped on nodes whose
+	// module is probe-detected but GEOIP_AVAILABLE is unset.
+	probedOr := func(probed sql.NullBool, global bool) bool {
+		if probed.Valid {
+			return probed.Bool
+		}
+		return global
+	}
+	var nHasWAF, nHasGeoIP, nHasRate sql.NullBool
+	_ = s.DB.QueryRowContext(ctx,
+		`SELECT CASE WHEN modules_probed_at IS NOT NULL THEN has_waf        END,
+		        CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip      END,
+		        CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit END
+		   FROM caddy_nodes WHERE id = ?`, nodeID).Scan(&nHasWAF, &nHasGeoIP, &nHasRate)
 	for i, id := range ids {
 		if id == routeID {
 			r := built[i]
 			// Match what BuildNodeConfig sets per-route on a full /load so the
-			// emitted JSON is identical (drift consistency). Missing any of
-			// these would both suppress the handler on incremental pushes AND
-			// make the hash diverge from full-load → endless resync.
+			// emitted JSON is identical (drift consistency).
 			r.ErrorBranding = branding
 			r.CacheModuleAvailable = s.CacheModuleAvailable
-			r.RateLimitModuleAvailable = s.RateLimitModuleAvailable
-			r.WAFModuleAvailable = s.WAFModuleAvailable
-			r.GeoModuleAvailable = s.GeoModuleAvailable
+			r.RateLimitModuleAvailable = probedOr(nHasRate, s.RateLimitModuleAvailable)
+			r.WAFModuleAvailable = probedOr(nHasWAF, s.WAFModuleAvailable)
+			r.GeoModuleAvailable = probedOr(nHasGeoIP, s.GeoModuleAvailable)
 			return r, true, nil
 		}
 	}
