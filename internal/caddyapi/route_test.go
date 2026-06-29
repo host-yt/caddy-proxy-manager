@@ -594,3 +594,51 @@ func TestDialIPv6BracketedMultiUpstream(t *testing.T) {
 		t.Errorf("IPv4 pool upstream must remain unbracketed\nfull: %s", s)
 	}
 }
+
+// geoJSON marshals a geo block to a string for substring assertions.
+func geoJSON(t *testing.T, r Route) string {
+	t.Helper()
+	m := buildGeoBlock(r)
+	if m == nil {
+		t.Fatal("expected geo block, got nil")
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
+}
+
+// Deny mode must wrap the matcher in `not` so the terminal-deny fires for the
+// listed country - not for everyone except it (the previously inverted bug).
+func TestBuildGeoBlockDenyNotInverted(t *testing.T) {
+	s := geoJSON(t, Route{GeoMode: "deny", GeoCountries: "PL", GeoModuleAvailable: true})
+	if !strings.Contains(s, `"not"`) {
+		t.Errorf("deny mode must wrap matcher in not\nfull: %s", s)
+	}
+	if !strings.Contains(s, `"deny_countries"`) || !strings.Contains(s, `"PL"`) {
+		t.Errorf("missing deny_countries PL\nfull: %s", s)
+	}
+	if strings.Contains(s, "continents") {
+		t.Errorf("must never emit *_continents key (rejects Caddy /load)\nfull: %s", s)
+	}
+}
+
+// Continents are expanded panel-side to member ISO country codes; the unknown
+// *_continents matcher key must never be emitted.
+func TestBuildGeoBlockContinentExpands(t *testing.T) {
+	s := geoJSON(t, Route{GeoMode: "deny", GeoContinents: "EU", GeoModuleAvailable: true})
+	for _, cc := range []string{"PL", "DE", "FR"} {
+		if !strings.Contains(s, `"`+cc+`"`) {
+			t.Errorf("continent EU should expand to %s\nfull: %s", cc, s)
+		}
+	}
+	if strings.Contains(s, "continents") {
+		t.Errorf("must never emit *_continents key\nfull: %s", s)
+	}
+}
+
+// An allow-listed IP/CIDR must bypass the country block in deny mode.
+func TestBuildGeoBlockAllowCIDRBypass(t *testing.T) {
+	s := geoJSON(t, Route{GeoMode: "deny", GeoCountries: "PL", GeoAllowCIDRs: "1.2.3.4", GeoModuleAvailable: true})
+	if !strings.Contains(s, "remote_ip") || !strings.Contains(s, "1.2.3.4") {
+		t.Errorf("allow CIDR must add a remote_ip bypass\nfull: %s", s)
+	}
+}

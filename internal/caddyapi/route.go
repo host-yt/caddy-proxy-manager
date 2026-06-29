@@ -7,6 +7,8 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 )
 
 // Route builders. Produce Caddy JSON config fragments for reverse-proxy routes.
@@ -1364,13 +1366,11 @@ func locationPathMatchers(path string) []string {
 // "maxmind_geolocation", config keys "db_path" / "allow_countries" /
 // "deny_countries". Centralised so a rename is a one-line edit.
 const (
-	geoMatcherName    = "maxmind_geolocation"
-	geoFieldDBPath    = "db_path"
-	geoFieldAllow     = "allow_countries"
-	geoFieldDeny      = "deny_countries"
-	geoFieldAllowCont = "allow_continents"
-	geoFieldDenyCont  = "deny_continents"
-	geoDBPath         = "/data/geoip/GeoLite2-Country.mmdb"
+	geoMatcherName = "maxmind_geolocation"
+	geoFieldDBPath = "db_path"
+	geoFieldAllow  = "allow_countries"
+	geoFieldDeny   = "deny_countries"
+	geoDBPath      = "/data/geoip/GeoLite2-Country.mmdb"
 )
 
 // buildGeoBlock returns a subroute handler that blocks requests from disallowed
@@ -1412,20 +1412,31 @@ func buildGeoBlock(r Route) map[string]any {
 		}
 	}
 
+	// Collect country codes; expand any selected continent to its member ISO
+	// codes (the maxmind module matches only on country, so continents are
+	// resolved panel-side - emitting *_continents keys would reject /load).
+	seen := make(map[string]struct{})
 	var countries []string
+	addCountry := func(c string) {
+		if c = strings.ToUpper(strings.TrimSpace(c)); c == "" {
+			return
+		}
+		if _, dup := seen[c]; dup {
+			return
+		}
+		seen[c] = struct{}{}
+		countries = append(countries, c)
+	}
 	for _, c := range strings.Split(r.GeoCountries, ",") {
-		if c = strings.ToUpper(strings.TrimSpace(c)); c != "" {
-			countries = append(countries, c)
+		addCountry(c)
+	}
+	for _, cont := range strings.Split(r.GeoContinents, ",") {
+		cont = strings.ToUpper(strings.TrimSpace(cont))
+		for _, c := range geoip.CountriesInContinent(cont) {
+			addCountry(c)
 		}
 	}
-	var continents []string
-	for _, c := range strings.Split(r.GeoContinents, ",") {
-		if c = strings.ToUpper(strings.TrimSpace(c)); c != "" {
-			continents = append(continents, c)
-		}
-	}
-	// Bail only when both lists are empty; one empty list is fine.
-	if len(countries) == 0 && len(continents) == 0 {
+	if len(countries) == 0 {
 		return nil
 	}
 
@@ -1437,32 +1448,23 @@ func buildGeoBlock(r Route) map[string]any {
 		}
 	}
 
-	var match map[string]any
+	// The maxmind matcher returns TRUE when the request is PERMITTED (country
+	// not in deny list / in allow list), so the terminal-deny route must fire on
+	// NOT(matcher) in BOTH modes. The only per-mode difference is which field is
+	// populated. Wrapping deny in `not` as well fixes the previously inverted
+	// deny logic (which blocked everyone EXCEPT the listed country).
+	geoConf := map[string]any{geoFieldDBPath: geoDBPath}
 	if mode == "deny" {
-		// Matcher fires for blocked countries/continents -> abort directly.
-		geoConf := map[string]any{geoFieldDBPath: geoDBPath}
-		if len(countries) > 0 {
-			geoConf[geoFieldDeny] = countries
-		}
-		if len(continents) > 0 {
-			geoConf[geoFieldDenyCont] = continents
-		}
-		match = map[string]any{geoMatcherName: geoConf}
+		geoConf[geoFieldDeny] = countries
 	} else {
-		// allow: matcher fires for allowed countries/continents; negate so handler runs for everyone else.
-		geoConf := map[string]any{geoFieldDBPath: geoDBPath}
-		if len(countries) > 0 {
-			geoConf[geoFieldAllow] = countries
-		}
-		if len(continents) > 0 {
-			geoConf[geoFieldAllowCont] = continents
-		}
-		match = map[string]any{
-			"not": []any{map[string]any{geoMatcherName: geoConf}},
-		}
+		geoConf[geoFieldAllow] = countries
+	}
+	match := map[string]any{
+		"not": []any{map[string]any{geoMatcherName: geoConf}},
 	}
 
-	// Add NOT remote_ip condition: IPs in allow-list pass through regardless of country.
+	// Add NOT remote_ip condition: IPs in allow-list pass through regardless of
+	// country (allowlist overrides the geo block, in both modes).
 	if len(allowRanges) > 0 {
 		notList, _ := match["not"].([]any)
 		notList = append(notList, map[string]any{
