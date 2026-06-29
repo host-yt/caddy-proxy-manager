@@ -1380,6 +1380,36 @@ const (
 // countries) -> the matched request is the blocked one, so handle deny directly.
 // allow mode: matcher uses allow_countries=[list] (matches requests FROM allowed
 // countries); wrap in `not` so the handler fires for the NON-allowed set -> deny.
+// splitCIDRList parses a free-form IP/CIDR list from a textarea or comma list.
+// Splitting only on comma left newline-separated entries as one bogus "IP",
+// which made Caddy reject the whole /load with a remote_ip ParseAddr error.
+//
+// dropInvalid controls fail direction for unparseable tokens (entries are
+// normally validated at save, so this only guards legacy/raw data):
+//   - true  (allow-list bypass): drop bad tokens. Failing to bypass is safe -
+//     those IPs stay subject to the geo block (more restrictive).
+//   - false (block-list deny): keep bad tokens. A dropped deny entry would fail
+//     OPEN (let blocked traffic through); keeping it makes Caddy reject the
+//     route loudly instead, so the block is never silently lost.
+func splitCIDRList(s string, dropInvalid bool) []string {
+	var out []string
+	for _, p := range strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r'
+	}) {
+		v := strings.TrimSpace(p)
+		if v == "" {
+			continue
+		}
+		if dropInvalid {
+			if _, _, err := net.ParseCIDR(v); err != nil && net.ParseIP(v) == nil {
+				continue
+			}
+		}
+		out = append(out, v)
+	}
+	return out
+}
+
 // GeoAllowCIDRs: IPs/CIDRs added as a NOT remote_ip condition, bypassing the block.
 // GeoFailClosed: when module unavailable, block all traffic instead of passing through.
 func buildGeoBlock(r Route) map[string]any {
@@ -1441,12 +1471,7 @@ func buildGeoBlock(r Route) map[string]any {
 	}
 
 	// Parse CIDR allow-list; matching IPs skip the country block.
-	var allowRanges []string
-	for _, cidr := range strings.Split(r.GeoAllowCIDRs, ",") {
-		if c := strings.TrimSpace(cidr); c != "" {
-			allowRanges = append(allowRanges, c)
-		}
-	}
+	allowRanges := splitCIDRList(r.GeoAllowCIDRs, true)
 
 	// The maxmind matcher returns TRUE when the request is PERMITTED (country
 	// not in deny list / in allow list), so the terminal-deny route must fire on
@@ -1487,12 +1512,7 @@ func buildGeoBlock(r Route) map[string]any {
 // buildCIDRBlock returns a subroute that always blocks requests from specific
 // IPs/CIDRs, regardless of geo mode. Fires before geo country/continent check.
 func buildCIDRBlock(r Route) map[string]any {
-	var ranges []string
-	for _, cidr := range strings.Split(r.GeoBlockCIDRs, ",") {
-		if c := strings.TrimSpace(cidr); c != "" {
-			ranges = append(ranges, c)
-		}
-	}
+	ranges := splitCIDRList(r.GeoBlockCIDRs, false)
 	if len(ranges) == 0 {
 		return nil
 	}

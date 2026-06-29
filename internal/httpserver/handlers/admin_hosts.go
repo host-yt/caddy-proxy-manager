@@ -2704,9 +2704,20 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		geoResponseCodeRaw = 403
 	}
 	geoFailClosed := r.FormValue("geo_fail_closed") == "1"
-	geoAllowCIDRs := strings.TrimSpace(r.FormValue("geo_allow_cidrs"))
+	// Validate + normalize to a comma list: a bad entry must surface to the
+	// operator, not silently vanish (block-list drops would fail open) or reach
+	// Caddy as a newline blob that rejects the whole /load.
+	geoAllowCIDRs, errGA := sanitizeCIDRList(r.FormValue("geo_allow_cidrs"))
+	if errGA != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "geo allow list: "+sanitizeErr(errGA))
+		return
+	}
 	geoContinents := geoip.NormalizeCountries(r.FormValue("geo_continents"))
-	geoBlockCIDRs := strings.TrimSpace(r.FormValue("geo_block_cidrs"))
+	geoBlockCIDRs, errGB := sanitizeCIDRList(r.FormValue("geo_block_cidrs"))
+	if errGB != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "geo block list: "+sanitizeErr(errGB))
+		return
+	}
 	// mTLS client-cert enforcement. require_client_cert needs a valid CA; an
 	// enforced host with no CA would brick the handshake, so reject early.
 	requireClientCert := r.FormValue("require_client_cert") == "1"

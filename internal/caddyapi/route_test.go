@@ -642,3 +642,35 @@ func TestBuildGeoBlockAllowCIDRBypass(t *testing.T) {
 		t.Errorf("allow CIDR must add a remote_ip bypass\nfull: %s", s)
 	}
 }
+
+// Regression: newline-separated IPs must become separate ranges, not one bogus
+// string that makes Caddy reject the whole /load. dropInvalid=true (allow-list
+// bypass) also strips unparseable tokens so a bypass typo cannot wedge the node.
+func TestSplitCIDRListLenient(t *testing.T) {
+	got := splitCIDRList("65.21.225.183\r\n45.87.172.62\n  10.0.0.0/8 , bogus, 2001:db8::1", true)
+	want := []string{"65.21.225.183", "45.87.172.62", "10.0.0.0/8", "2001:db8::1"}
+	if len(got) != len(want) {
+		t.Fatalf("want %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("range %d: want %q, got %q", i, want[i], got[i])
+		}
+	}
+}
+
+// Block-list must NOT silently drop unparseable entries: a dropped deny rule
+// fails open. dropInvalid=false keeps the bad token so Caddy rejects the route
+// loudly instead of quietly admitting traffic the operator meant to block.
+func TestSplitCIDRListStrictKeepsInvalid(t *testing.T) {
+	got := splitCIDRList("10.0.0.0/8\nbogus", false)
+	want := []string{"10.0.0.0/8", "bogus"}
+	if len(got) != len(want) {
+		t.Fatalf("strict split must keep invalid entries: want %v, got %v", want, got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("range %d: want %q, got %q", i, want[i], got[i])
+		}
+	}
+}
