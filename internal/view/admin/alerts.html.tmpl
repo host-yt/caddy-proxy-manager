@@ -9,6 +9,18 @@
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <button class="r-btn-ghost text-xs cursor-pointer transition-colors" style="color:rgb(var(--warning));border-color:rgb(var(--warning) / .4)">Send test alert</button>
       </form>
+      {{if eq .Role "super_admin"}}
+      <form method="POST" action="/admin/alerts/clear" class="inline"
+            data-confirm-type="DELETE" data-confirm="Permanently delete ALL alert log entries? This cannot be undone.">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button type="submit" class="r-btn-danger text-xs inline-flex items-center gap-1 cursor-pointer">
+          <svg xmlns="http://www.w3.org/2000/svg" class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4h6v2"/>
+          </svg>
+          Clear log
+        </button>
+      </form>
+      {{end}}
     </div>
   </div>
 
@@ -81,7 +93,7 @@
           <p class="t-eyebrow">Alert log</p>
           <h2 class="t-h3">Fired alerts</h2>
         </div>
-        <span class="icon-chip">last 200</span>
+        <span class="icon-chip">{{.Total}} total</span>
       </div>
     </div>
     <ul class="divide-y" style="border-color:rgb(var(--border))">
@@ -106,7 +118,7 @@
       {{end}}
     </ul>
   </section>
-  <p class="t-caption">Showing last 200 alerts.</p>
+  {{template "pagination" (dict "Total" .Total "TotalPgs" .TotalPgs "Page" .Page "PrevURL" .PrevURL "NextURL" .NextURL "Size" .Size)}}
   {{else}}
   <div class="r-empty">
     <div class="r-empty-icon">

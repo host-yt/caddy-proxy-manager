@@ -539,6 +539,7 @@ func (s *Server) routes() {
 		r.Get("/alerts", s.deps.Admin.AlertsPage)
 		r.Get("/alerts/export.csv", s.deps.Admin.AlertsExport)
 		r.Post("/alerts/test-fire", s.deps.Admin.AlertsTestFire)
+		r.Post("/alerts/clear", s.deps.Admin.AlertsClear)
 		r.Route("/backups", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.BackupsPage)
 			r.Post("/destinations", s.deps.Admin.BackupsCreateDestination)

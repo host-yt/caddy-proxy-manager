@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/csv"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -40,6 +41,13 @@ type alertsData struct {
 	RulesStatus     []alertRuleStatus
 	AlertCfg        alert.Config
 	ErrorRatePct100 int // AlertCfg.ErrorRatePct * 100, pre-computed for template
+	// Pagination over alert_log.
+	Total    int
+	TotalPgs int
+	Page     int
+	Size     int
+	PrevURL  string
+	NextURL  string
 }
 
 // ruleDescriptions maps each known rule_id to a short human description.
@@ -60,12 +68,15 @@ var ruleDescriptions = map[string]string{
 // pattern as AuditList) - no pointer to the evaluator needed.
 func (h *AdminHandlers) AlertsPage(w http.ResponseWriter, r *http.Request) {
 	ruleFilter := strings.TrimSpace(r.URL.Query().Get("rule"))
+	lp := parseListParams(r, []string{"id"}, "id", "desc", 50)
 	d := alertsData{
 		baseAdminData:   h.base(r, "Alerts"),
 		RuleFilter:      ruleFilter,
 		KnownRules:      alert.KnownRuleIDs(),
 		AlertCfg:        h.AlertCfg,
 		ErrorRatePct100: int(h.AlertCfg.ErrorRatePct * 100),
+		Page:            lp.Page,
+		Size:            lp.Size,
 	}
 	db := h.DB()
 	if db == nil {
@@ -75,15 +86,25 @@ func (h *AdminHandlers) AlertsPage(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	q := `SELECT id, rule_id, severity, title, COALESCE(detail,''),
-	             COALESCE(labels_json,'{}'), DATE_FORMAT(fired_at,'%Y-%m-%d %H:%i:%s')
-	        FROM alert_log`
+	where := ""
 	args := []any{}
 	if ruleFilter != "" {
-		q += " WHERE rule_id = ?"
+		where = " WHERE rule_id = ?"
 		args = append(args, ruleFilter)
 	}
-	q += " ORDER BY id DESC LIMIT 200"
+
+	// Total count for pagination (ignores limit/offset).
+	var total int
+	countArgs := make([]any, len(args))
+	copy(countArgs, args)
+	if cerr := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM alert_log"+where, countArgs...).Scan(&total); cerr != nil {
+		h.Logger.Warn("alerts count query", "err", cerr)
+	}
+
+	q := `SELECT id, rule_id, severity, title, COALESCE(detail,''),
+	             COALESCE(labels_json,'{}'), DATE_FORMAT(fired_at,'%Y-%m-%d %H:%i:%s')
+	        FROM alert_log` + where + ` ORDER BY id DESC LIMIT ? OFFSET ?`
+	args = append(args, lp.Size, lp.Offset())
 
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err == nil {
@@ -94,6 +115,24 @@ func (h *AdminHandlers) AlertsPage(w http.ResponseWriter, r *http.Request) {
 				d.Rows = append(d.Rows, a)
 			}
 		}
+	}
+
+	// Count fallback: if COUNT failed but rows loaded, use lower bound so
+	// pagination controls still render.
+	if total == 0 && len(d.Rows) > 0 {
+		total = lp.Offset() + len(d.Rows)
+	}
+	d.Total = total
+	d.TotalPgs = (total + lp.Size - 1) / lp.Size
+	if d.TotalPgs < 1 {
+		d.TotalPgs = 1
+	}
+	qv := r.URL.Query()
+	if lp.Page > 1 {
+		d.PrevURL = buildPageURL(qv, lp.Page-1)
+	}
+	if lp.Page < d.TotalPgs {
+		d.NextURL = buildPageURL(qv, lp.Page+1)
 	}
 
 	// Query 7-day aggregate per rule_id from alert_log.
@@ -136,6 +175,37 @@ func (h *AdminHandlers) AlertsPage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, "alerts", d)
+}
+
+// AlertsClear handles POST /admin/alerts/clear. Purges the entire alert log.
+// Restricted to super_admin; CSRF enforced by middleware.
+func (h *AdminHandlers) AlertsClear(w http.ResponseWriter, r *http.Request) {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	db := h.DB()
+	if db == nil {
+		redirectWithFlash(w, r, "/admin/alerts", "", "database unavailable")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	res, err := db.ExecContext(ctx, "DELETE FROM alert_log")
+	if err != nil {
+		h.Logger.Error("alerts clear", "err", err)
+		redirectWithFlash(w, r, "/admin/alerts", "", "clear failed")
+		return
+	}
+	n, _ := res.RowsAffected()
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess),
+		Action: "alerts.cleared", Entity: "alert_log",
+		Meta: map[string]any{"rows": n},
+	})
+	redirectWithFlash(w, r, "/admin/alerts", fmt.Sprintf("Cleared %d alerts", n), "")
 }
 
 // AlertsExport streams alert_log rows as CSV (last 5000, same filters as AlertsPage).
