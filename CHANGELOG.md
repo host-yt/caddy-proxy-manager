@@ -121,8 +121,9 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 ### Infrastructure & Deployment
 
 - **Docker Compose stack**: `app` + `mariadb` (MariaDB 11) + `redis` (Redis 7) + `caddy` (xcaddy with cache-handler, L4) + `geoip-init` (volume prep) + `hpg-node-agent` (log forwarder, WG sync) + `wireguard` sidecar (profile: `mesh`).
-- **4 installation profiles**: `homelab` (single owner), `smallteam` (shared ops), `advanced` (DevOps/fleet), `provider` (hosting provider with multi-tenant). Only MySQL/MariaDB is supported as DB backend.
-- **goose migrations**: 117 migrations, out-of-order apply via Provider API with `WithAllowOutofOrder(true)`, MySQL GET_LOCK serialization for concurrent boots.
+- **4 installation profiles**: `homelab` (single owner), `smallteam` (shared ops), `advanced` (DevOps/fleet), `provider` (hosting provider with multi-tenant).
+- **Dual database backends**: MariaDB/MySQL (default, recommended for production and multi-node) and SQLite (`DB_DRIVER=sqlite3`, embedded pure-Go driver, no separate service, intended for homelab/single-node). Backend is chosen during the install wizard or via `DB_DRIVER` env var.
+- **goose migrations**: 117 migrations, out-of-order apply via Provider API with `WithAllowOutofOrder(true)`, MySQL GET_LOCK serialization for concurrent boots; runtime SQL transformer rewrites MySQL DDL to SQLite-compatible syntax.
 - **Pure static Go binary**: distroless `nonroot` runtime, ~21 MB image, ~28 MB idle RAM.
 - **Node agent** (Go): WireGuard peer sync, nftables verification, wstunnel supervision, access log forwarding, WAF audit log forwarding, GeoIP DB distribution, health reporting.
 - **Backup targets**: S3 (MinIO-compatible), SFTP, FTP; restore drill CLI endpoint.

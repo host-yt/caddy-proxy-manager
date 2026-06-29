@@ -97,7 +97,13 @@ All variables live in `.env` (copied from `.env.example`). Values in the **Defau
 |---|---|---|---|
 | `INSTALLED` | `0` | no | `0` = wizard accessible; wizard sets this to `1` on completion. Do not flip manually before running the wizard. |
 
-### Database (MariaDB / MySQL)
+### Database
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `DB_DRIVER` | `mysql` | no | Database backend: `mysql` (MariaDB/MySQL) or `sqlite3` (single-node, no separate service) |
+
+#### MariaDB / MySQL (default)
 
 | Variable | Default | Required | Description |
 |---|---|---|---|
@@ -109,6 +115,16 @@ All variables live in `.env` (copied from `.env.example`). Values in the **Defau
 | `DB_TLS` | `false` | no | Set `true` for managed cloud databases that require TLS |
 | `DB_DSN` | - | no | Full DSN override - takes precedence over the individual fields above |
 | `MARIADB_ROOT_PASSWORD` | `change_me_root_strong` | **yes** | Root password for the bundled MariaDB container - ignored when using an external DB |
+
+#### SQLite (single-node homelab)
+
+Set `DB_DRIVER=sqlite3` in `.env` **before** running the install wizard, or choose SQLite in the wizard itself. No separate database container is needed.
+
+| Variable | Default | Required | Description |
+|---|---|---|---|
+| `DB_SQLITE_PATH` | `./data/hpg.db` | no | Path to the SQLite database file. The directory must be writable by the `app` container. |
+
+SQLite is intended for homelab and single-node installs. It requires no credentials or separate service. For production multi-node deployments use MariaDB/MySQL.
 
 ### Redis
 
@@ -219,11 +235,13 @@ The wizard runs four steps:
 
 1. **Welcome** - confirms database and Redis connectivity before proceeding.
 
-2. **Admin account** - create the first `super_admin` user (email + password). This account owns the panel. Store the credentials; password reset requires SMTP to be configured.
+2. **Database backend** - choose MariaDB/MySQL (default, requires bundled `mariadb` service) or SQLite (embedded, no extra service). If you set `DB_DRIVER=sqlite3` in `.env` before opening the wizard, this step is pre-selected.
 
-3. **First Caddy node registration** - the wizard registers the bundled `caddy` container (from `CADDY_ADMIN_URL`) as the first node. It pushes the initial Caddy config via the Admin API.
+3. **Admin account** - create the first `super_admin` user (email + password). This account owns the panel. Store the credentials; password reset requires SMTP to be configured.
 
-4. **Self-route setup** - the wizard pushes a virtual host route for `APP_URL` → the `app` container on the first node, so the panel becomes accessible at `https://panel.example.com` (with a valid TLS certificate) without requiring a manual "Add host" step.
+4. **First Caddy node registration** - the wizard registers the bundled `caddy` container (from `CADDY_ADMIN_URL`) as the first node. It pushes the initial Caddy config via the Admin API.
+
+5. **Self-route setup** - the wizard pushes a virtual host route for `APP_URL` → the `app` container on the first node, so the panel becomes accessible at `https://panel.example.com` (with a valid TLS certificate) without requiring a manual "Add host" step.
 
 On completion the wizard sets `INSTALLED=1` in the persistent state file. The `/install` path becomes inaccessible.
 
