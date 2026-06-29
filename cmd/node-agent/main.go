@@ -967,7 +967,9 @@ type peerStat struct {
 func forwardAccessLogs(ctx context.Context, log *slog.Logger, c config) {
 	endpoint := strings.TrimRight(c.PanelURL, "/") + "/internal/access-log"
 	const maxBatch = 8 << 20 // matches the panel ingest body cap
+	posPath := c.AccessLogPath + ".hpgpos"
 	var offset int64
+	inited := false
 	warnedMissing := false
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
@@ -990,6 +992,10 @@ func forwardAccessLogs(ctx context.Context, log *slog.Logger, c config) {
 		if err != nil {
 			f.Close()
 			continue
+		}
+		if !inited {
+			inited = true
+			offset = initForwardOffset(posPath, fi.Size())
 		}
 		if fi.Size() < offset {
 			offset = 0 // rotated/truncated: re-read from start
@@ -1017,9 +1023,52 @@ func forwardAccessLogs(ctx context.Context, log *slog.Logger, c config) {
 		batch := buf[:nl+1]
 		if postAccessLogBatch(ctx, c, endpoint, batch) {
 			offset += int64(len(batch)) // advance only on successful delivery
+			writeForwardPos(posPath, offset)
 		} else {
 			log.Warn("access-log forward failed, will retry", "bytes", len(batch))
 		}
+	}
+}
+
+// readForwardPos reads a persisted tail offset from path; returns -1 when the
+// sidecar is absent or unparseable (treated as "first run").
+func readForwardPos(path string) int64 {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return -1
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
+	if err != nil || n < 0 {
+		return -1
+	}
+	return n
+}
+
+// writeForwardPos persists the tail offset so a restart resumes where it left
+// off instead of re-reading the whole log from byte 0. Without this a node-agent
+// restart replays the entire accumulated log and re-ships every historical
+// event, which is why "Clear events" in the panel never stuck.
+func writeForwardPos(path string, off int64) {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(strconv.FormatInt(off, 10)), 0o644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, path)
+}
+
+// initForwardOffset decides where a forwarder starts on its first tick:
+// resume from the persisted offset, reset to 0 if the file shrank while we were
+// down (rotation), or - with no saved position - tail from EOF so a brand-new
+// agent never backfills the entire historical log.
+func initForwardOffset(posPath string, size int64) int64 {
+	p := readForwardPos(posPath)
+	switch {
+	case p < 0:
+		return size // first ever run: start at end, never replay history
+	case p <= size:
+		return p // resume
+	default:
+		return 0 // file shrank while down: rotated, read the new file
 	}
 }
 
@@ -1248,7 +1297,9 @@ func wafBatchBounds(buf []byte, atCap bool) (batchLen int, skip bool) {
 func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
 	const maxBatch = 500
 	const maxRead = 8 << 20
+	posPath := c.WAFAuditLogPath + ".hpgpos"
 	var offset int64
+	inited := false
 	warnedMissing := false
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
@@ -1271,6 +1322,10 @@ func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
 		if err != nil {
 			f.Close()
 			continue
+		}
+		if !inited {
+			inited = true
+			offset = initForwardOffset(posPath, fi.Size())
 		}
 		if fi.Size() < offset {
 			offset = 0 // rotated/truncated
@@ -1317,6 +1372,7 @@ func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
 		}
 		if ok {
 			offset += int64(len(batch))
+			writeForwardPos(posPath, offset)
 		} else {
 			log.Warn("WAF event forward failed, will retry", "bytes", len(batch))
 		}
