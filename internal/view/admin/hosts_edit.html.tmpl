@@ -1267,6 +1267,23 @@ X-Authentik-Meta-Version</pre>
     if (m && m[1]) initialTab = m[1];
     activate(initialTab);
 
+    // Preserve scroll position across full-page form posts (add/remove basic-auth
+    // user, save) so the page doesn't jump back to the top on reload.
+    try { if ('scrollRestoration' in history) history.scrollRestoration = 'manual'; } catch(_) {}
+    var SCROLL_KEY = 'hpg-edit-scroll:' + location.pathname;
+    document.querySelectorAll('form').forEach(function(f){
+      f.addEventListener('submit', function(){
+        try { sessionStorage.setItem(SCROLL_KEY, String(window.scrollY)); } catch(_) {}
+      });
+    });
+    try {
+      var saved = sessionStorage.getItem(SCROLL_KEY);
+      if (saved !== null) {
+        sessionStorage.removeItem(SCROLL_KEY);
+        window.scrollTo(0, parseInt(saved, 10) || 0);
+      }
+    } catch(_) {}
+
     // Target pane: show proxy XOR redirect block based on Kind.
     var kind = document.getElementById('hpg-kind');
     var pBox = document.getElementById('hpg-target-proxy');

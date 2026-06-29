@@ -33,6 +33,14 @@ type Branding struct {
 	ErrorLogoURL  string
 	ErrorLogoLink string
 	ErrorBgColor  string
+	// Panel-wide geo-block response default. Clients can override this per
+	// account; an empty client action inherits these values.
+	GeoBlockAction      string
+	GeoBlockRedirectURL string
+	GeoBlockTitle       string
+	GeoBlockMessage     string
+	GeoBlockLogoURL     string
+	GeoBlockBgColor     string
 }
 
 // LogoURL is a convenience getter for callers that only care about the
@@ -72,7 +80,9 @@ func LoadBranding(ctx context.Context, db *sql.DB) Branding {
 				"'branding.brand_name','branding.tagline',"+
 				"'branding.logo_url','branding.logo_url_light','branding.logo_url_dark',"+
 				"'branding.favicon_url',"+
-				"'branding.error_logo_url','branding.error_logo_link','branding.error_bg_color')")
+				"'branding.error_logo_url','branding.error_logo_link','branding.error_bg_color',"+
+				"'geoblock.action','geoblock.redirect_url','geoblock.title',"+
+				"'geoblock.message','geoblock.logo_url','geoblock.bg_color')")
 		if err == nil {
 			defer rows.Close()
 			for rows.Next() {
@@ -102,6 +112,18 @@ func LoadBranding(ctx context.Context, db *sql.DB) Branding {
 					out.ErrorLogoLink = v
 				case "branding.error_bg_color":
 					out.ErrorBgColor = v
+				case "geoblock.action":
+					out.GeoBlockAction = v
+				case "geoblock.redirect_url":
+					out.GeoBlockRedirectURL = v
+				case "geoblock.title":
+					out.GeoBlockTitle = v
+				case "geoblock.message":
+					out.GeoBlockMessage = v
+				case "geoblock.logo_url":
+					out.GeoBlockLogoURL = v
+				case "geoblock.bg_color":
+					out.GeoBlockBgColor = v
 				}
 			}
 		}
@@ -155,10 +177,24 @@ func (h *AdminHandlers) BrandingSave(w http.ResponseWriter, r *http.Request) {
 	errLogoLink := strings.TrimSpace(r.FormValue("error_logo_link"))
 	errBg := strings.TrimSpace(r.FormValue("error_bg_color"))
 
+	// Panel-wide geo-block response default (clients inherit this).
+	gbAction := strings.ToLower(strings.TrimSpace(r.FormValue("geo_block_action")))
+	switch gbAction {
+	case "", "page", "redirect":
+	default:
+		redirectWithFlash(w, r, "/admin/settings", "", "invalid geo-block action")
+		return
+	}
+	gbRedirect := strings.TrimSpace(r.FormValue("geo_block_redirect_url"))
+	gbTitle := strings.TrimSpace(r.FormValue("geo_block_title"))
+	gbMessage := strings.TrimSpace(r.FormValue("geo_block_message"))
+	gbLogo := strings.TrimSpace(r.FormValue("geo_block_logo_url"))
+	gbBg := strings.TrimSpace(r.FormValue("geo_block_bg_color"))
+
 	// Reject anything that isn't a normal http/https URL. The values
 	// land in <img src> / <link href> on the login page, so a
 	// javascript: scheme here would be an XSS sink.
-	for _, u := range []string{logoLight, logoDark, favURL, errLogo, errLogoLink} {
+	for _, u := range []string{logoLight, logoDark, favURL, errLogo, errLogoLink, gbRedirect, gbLogo} {
 		if u != "" && !isHTTPURL(u) {
 			redirectWithFlash(w, r, "/admin/settings", "", "all URLs must be http(s)://")
 			return
@@ -167,9 +203,21 @@ func (h *AdminHandlers) BrandingSave(w http.ResponseWriter, r *http.Request) {
 	// Background colour: accept #hex (3/6/8) or a CSS rgb(...) literal.
 	// Reject anything else so we don't smuggle arbitrary CSS into the
 	// inline style block of the error page.
-	if errBg != "" && !isSafeCSSColor(errBg) {
-		redirectWithFlash(w, r, "/admin/settings", "", "background colour must be #RGB / #RRGGBB / #RRGGBBAA or rgb()/rgba()")
+	for _, c := range []string{errBg, gbBg} {
+		if c != "" && !isSafeCSSColor(c) {
+			redirectWithFlash(w, r, "/admin/settings", "", "background colour must be #RGB / #RRGGBB / #RRGGBBAA or rgb()/rgba()")
+			return
+		}
+	}
+	if gbAction == "redirect" && gbRedirect == "" {
+		redirectWithFlash(w, r, "/admin/settings", "", "geo-block redirect needs a target URL")
 		return
+	}
+	if len(gbTitle) > 128 {
+		gbTitle = gbTitle[:128]
+	}
+	if len(gbMessage) > 1000 {
+		gbMessage = gbMessage[:1000]
 	}
 	if len(name) > 64 {
 		name = name[:64]
@@ -190,12 +238,24 @@ func (h *AdminHandlers) BrandingSave(w http.ResponseWriter, r *http.Request) {
 		{"branding.error_logo_url", errLogo},
 		{"branding.error_logo_link", errLogoLink},
 		{"branding.error_bg_color", errBg},
+		{"geoblock.action", gbAction},
+		{"geoblock.redirect_url", gbRedirect},
+		{"geoblock.title", gbTitle},
+		{"geoblock.message", gbMessage},
+		{"geoblock.logo_url", gbLogo},
+		{"geoblock.bg_color", gbBg},
 	} {
 		if _, err := db.ExecContext(ctx, store.UpsertSettingSQL(), kv.k, kv.v, 0); err != nil {
 			h.Logger.Warn("branding save", "key", kv.k, "err", err)
 		}
 	}
 	invalidateBranding()
+	// Error-page branding and the geo-block default are baked into generated
+	// Caddy config, so existing nodes keep serving the old pages until a push.
+	// Re-push every node now instead of waiting for an unrelated route change.
+	if h.Routes != nil {
+		h.Routes.SchedulePushAllNodes(h.Routes.BackgroundCtx())
+	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "branding.update", Entity: "settings",
 		Meta: map[string]any{"name": name, "logo_light": logoLight != "", "logo_dark": logoDark != "", "favicon": favURL != ""},

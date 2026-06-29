@@ -20,12 +20,12 @@
     <button type="button" data-tab="security" class="hpg-tab px-3 py-2 -mb-px border-b-2 border-transparent text-[rgb(var(--muted))] hover:text-[rgb(var(--text))] t-small cursor-pointer">Security (CIDR)</button>
   </nav>
 
-  <!-- Experimental features notice -->
-  <div class="flex items-start gap-2.5 r-card border border-[rgb(var(--warning,245_158_11)/.3)] bg-[rgb(var(--warning,245_158_11)/.06)] px-3.5 py-3">
-    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
-      <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+  <!-- Module requirement notice -->
+  <div class="flex items-start gap-2.5 r-card border border-[rgb(var(--border))] bg-[rgb(var(--surface-2)/.5)] px-3.5 py-3">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5 text-[rgb(var(--muted))]" viewBox="0 0 20 20" fill="currentColor">
+      <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
     </svg>
-    <span class="t-small text-amber-800 dark:text-amber-300">Some L4 stream options are experimental and require a custom Caddy build with <code class="font-mono">caddy-l4</code> module. They are marked <span class="r-pill r-pill-warning">Experimental</span>.</span>
+    <span class="t-small text-[rgb(var(--muted))]">SNI / HTTP-host matching, load balancing, PROXY protocol and CIDR access control require the <code class="font-mono">caddy-l4</code> module (included in the bundled Caddy image). Their generated config is validated against caddy-l4 on every release.</span>
   </div>
 
   <form method="POST" action="/admin/streams/{{.Stream.ID}}/edit" class="space-y-4 text-sm" id="hpg-edit-form">
@@ -38,7 +38,7 @@
         <p class="t-eyebrow">Match mode</p>
         <p class="t-caption text-[rgb(var(--muted))] mt-0.5">
           Controls which connections on this port are routed. "Any" is plain TCP/UDP forward.
-          SNI and HTTP host require the caddy-l4 match modules (experimental - see gating list).
+          SNI and HTTP host require the caddy-l4 match modules (bundled in the Caddy image).
         </p>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -46,8 +46,8 @@
           <label class="t-eyebrow block mb-1">Match mode</label>
           <select name="match_mode" id="hpg-match-mode" class="r-select w-full cursor-pointer">
             <option value="any"       {{if eq .Stream.MatchMode "any"}}selected{{end}}>Any (plain forward) [stable]</option>
-            <option value="sni"       {{if eq .Stream.MatchMode "sni"}}selected{{end}}>SNI (TLS server name) [experimental]</option>
-            <option value="http_host" {{if eq .Stream.MatchMode "http_host"}}selected{{end}}>HTTP Host header [experimental]</option>
+            <option value="sni"       {{if eq .Stream.MatchMode "sni"}}selected{{end}}>SNI (TLS server name)</option>
+            <option value="http_host" {{if eq .Stream.MatchMode "http_host"}}selected{{end}}>HTTP Host header</option>
           </select>
         </div>
         <div id="hpg-match-values-wrap" class="{{if eq .Stream.MatchMode "any"}}hidden{{end}}">
@@ -59,8 +59,7 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <div>
           <label class="t-eyebrow block mb-1">
-            PROXY protocol in (listener wrapper)
-            <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
+            PROXY protocol in (accept from client)
           </label>
           <select name="proxy_proto_in" class="r-select w-full cursor-pointer">
             <option value="none" {{if eq .Stream.ProxyProtoIn "none"}}selected{{end}}>None</option>
@@ -71,7 +70,6 @@
         <div>
           <label class="t-eyebrow block mb-1">
             PROXY protocol out (upstream)
-            <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
           </label>
           <select name="proxy_proto_out" class="r-select w-full cursor-pointer">
             <option value="none" {{if eq .Stream.ProxyProtoOut "none"}}selected{{end}}>None</option>
@@ -108,9 +106,7 @@
       </div>
       <div>
         <label class="t-eyebrow block mb-1">
-          LB policy (used when multiple upstreams)
-          <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
-        </label>
+          LB policy (used when multiple upstreams)        </label>
         <select name="lb_policy" class="r-select w-full sm:w-64 cursor-pointer">
           <option value="round_robin" {{if eq .Stream.LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
           <option value="random"      {{if eq .Stream.LBPolicy "random"}}selected{{end}}>Random</option>
@@ -124,12 +120,10 @@
     <section data-pane="security" class="hpg-pane hidden r-card space-y-4">
       <div>
         <p class="t-eyebrow">
-          CIDR access control
-          <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
-        </p>
+          CIDR access control        </p>
         <p class="t-caption text-[rgb(var(--muted))] mt-0.5">
           Deny is evaluated first and short-circuits. Allow (if non-empty) permits only matching sources.
-          Empty allow = allow all not denied. Uses caddy-l4 remote_ip handler.
+          Empty allow = allow all not denied. Uses the caddy-l4 remote_ip matcher.
         </p>
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">

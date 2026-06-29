@@ -112,5 +112,45 @@
     </form>
     {{end}}
   </section>
+
+  <!-- Geo-block response page -->
+  <section class="r-card space-y-3 text-sm">
+    <h2 class="t-h2">Geo-block page</h2>
+    <p style="color:rgb(var(--muted))">What visitors see when one of your hosts blocks them by country or IP. Applies to all your hosts. Leave on <strong>Inherit</strong> to use the panel default.</p>
+    <form method="POST" action="/app/geo-block" class="space-y-3">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div>
+        <label class="block font-medium mb-1">Action</label>
+        <select name="geo_block_action" class="r-select w-full cursor-pointer">
+          <option value=""        {{if eq .GeoBlock.Action ""}}selected{{end}}>Inherit panel default</option>
+          <option value="page"     {{if eq .GeoBlock.Action "page"}}selected{{end}}>Show a branded block page</option>
+          <option value="redirect" {{if eq .GeoBlock.Action "redirect"}}selected{{end}}>Redirect to another URL</option>
+        </select>
+      </div>
+      <div>
+        <label class="block font-medium mb-1">Redirect URL <span style="color:rgb(var(--muted))">(used when action = Redirect)</span></label>
+        <input type="url" name="geo_block_redirect_url" value="{{.GeoBlock.RedirectURL}}" placeholder="https://example.com/not-available" class="r-input w-full">
+      </div>
+      <div class="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block font-medium mb-1">Page title</label>
+          <input name="geo_block_title" value="{{.GeoBlock.Title}}" maxlength="128" placeholder="Access denied" class="r-input w-full">
+        </div>
+        <div>
+          <label class="block font-medium mb-1">Background colour</label>
+          <input name="geo_block_bg_color" value="{{.GeoBlock.BgColor}}" placeholder="#1f2937" class="r-input w-full font-mono text-xs">
+        </div>
+      </div>
+      <div>
+        <label class="block font-medium mb-1">Message</label>
+        <textarea name="geo_block_message" rows="2" maxlength="1000" placeholder="Access from your region is not allowed." class="r-input w-full">{{.GeoBlock.Message}}</textarea>
+      </div>
+      <div>
+        <label class="block font-medium mb-1">Logo URL <span style="color:rgb(var(--muted))">(optional)</span></label>
+        <input type="url" name="geo_block_logo_url" value="{{.GeoBlock.LogoURL}}" placeholder="https://example.com/logo.svg" class="r-input w-full font-mono text-xs">
+      </div>
+      <button class="r-btn-primary">Save block page</button>
+    </form>
+  </section>
 </div>
 {{end}}

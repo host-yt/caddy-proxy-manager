@@ -606,6 +606,44 @@ func geoJSON(t *testing.T, r Route) string {
 	return string(b)
 }
 
+// The block response body must match the chosen code (was hardcoded to
+// "Forbidden"), and 444 must abort the connection rather than emit a body.
+func TestGeoBlockResponse(t *testing.T) {
+	if got := geoBlockResponse(Route{GeoResponseCode: 0}); got["status_code"] != 403 || got["body"] != "Forbidden\n" {
+		t.Errorf("default: want 403/Forbidden, got %v", got)
+	}
+	if got := geoBlockResponse(Route{GeoResponseCode: 503}); got["status_code"] != 503 || got["body"] != "Service Unavailable\n" {
+		t.Errorf("503: want Service Unavailable body, got %v", got)
+	}
+	got := geoBlockResponse(Route{GeoResponseCode: 444})
+	if got["abort"] != true || got["status_code"] != nil || got["body"] != nil {
+		t.Errorf("444: want connection abort with no body/status, got %v", got)
+	}
+}
+
+// Redirect action must emit a 302 with a Location header (and override the
+// status code), so blocked visitors are sent elsewhere instead of an error.
+func TestGeoBlockResponseRedirect(t *testing.T) {
+	got := geoBlockResponse(Route{GeoBlockAction: "redirect", GeoRedirectURL: "https://example.com/blocked", GeoResponseCode: 403})
+	if got["status_code"] != 302 {
+		t.Errorf("redirect must be 302, got %v", got["status_code"])
+	}
+	hdr, _ := got["headers"].(map[string]any)
+	loc, _ := hdr["Location"].([]string)
+	if len(loc) != 1 || loc[0] != "https://example.com/blocked" {
+		t.Errorf("redirect Location wrong: %v", hdr)
+	}
+}
+
+// Page action must serve a branded HTML body carrying the client's title.
+func TestGeoBlockResponsePage(t *testing.T) {
+	got := geoBlockResponse(Route{GeoBlockAction: "page", GeoBlockTitle: "Region blocked", GeoBlockMessage: "Sorry", GeoResponseCode: 403})
+	body, _ := got["body"].(string)
+	if !strings.Contains(body, "Region blocked") || !strings.Contains(body, "<!doctype html>") {
+		t.Errorf("page action must render branded HTML with the title, got %q", body)
+	}
+}
+
 // Deny mode must wrap the matcher in `not` so the terminal-deny fires for the
 // listed country - not for everyone except it (the previously inverted bug).
 func TestBuildGeoBlockDenyNotInverted(t *testing.T) {

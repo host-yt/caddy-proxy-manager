@@ -400,6 +400,15 @@
         value="{{if not .Filter.To.IsZero}}{{.Filter.To.Format "2006-01-02"}}{{end}}"
         class="r-input">
     </div>
+    <!-- Sort -->
+    <div class="flex flex-col gap-1">
+      <label class="t-caption font-medium">Sort</label>
+      <select name="sort" class="r-select cursor-pointer">
+        <option value=""            {{if eq .Sort ""}}selected{{end}}>Newest first</option>
+        <option value="status_desc" {{if eq .Sort "status_desc"}}selected{{end}}>Errors first (status &#8595;)</option>
+        <option value="status_asc"  {{if eq .Sort "status_asc"}}selected{{end}}>Status &#8593;</option>
+      </select>
+    </div>
     <!-- Actions -->
     <div class="flex items-center gap-2 ml-auto">
       <button type="submit" class="r-btn-primary px-3 py-1.5 t-caption cursor-pointer">
@@ -461,12 +470,9 @@
         </tbody>
       </table>
     </div>
-    {{if .Entries}}
-    <div class="px-4 py-2 t-caption" style="border-top:1px solid rgb(var(--border));color:rgb(var(--muted))">
-      Showing {{len .Entries}} entries.
-      <a href="?" class="ml-1 hover:underline" style="color:rgb(var(--accent))">Refresh</a>
+    <div class="px-4 py-2" style="border-top:1px solid rgb(var(--border))">
+      {{template "pagination" (dict "Total" .TotalRows "TotalPgs" .TotalPages "Page" .Page "PrevURL" .PrevURL "NextURL" .NextURL "Size" .PageSize)}}
     </div>
-    {{end}}
   </section>
 </div>
 

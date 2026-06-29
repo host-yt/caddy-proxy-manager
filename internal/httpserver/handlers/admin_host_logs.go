@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -23,24 +24,79 @@ var logsExportLimiter sync.Map
 // hostLogsData drives the host_logs template.
 type hostLogsData struct {
 	baseAdminData
-	RouteID         int64
-	Domain          string
-	Entries         []accesslog.Entry
-	Filter          accesslog.Filter
-	StatusBuckets   []accesslog.StatusBucket
-	TopPaths        []accesslog.PathHit
-	TopRemoteIPs    []accesslog.RemoteIPHit
-	TopUserAgents   []accesslog.UserAgentHit
-	TopMethods      []accesslog.MethodHit
-	TopCountries    []accesslog.CountryHit
-	TopASNOrgs      []accesslog.ASNOrgHit
-	Latency         accesslog.LatencyStats
-	ErrorRateSeries []accesslog.ErrorRatePoint
-	TrafficPoints   []accesslog.TrafficPoint
-	AnalyticsTotal  int64
+	RouteID          int64
+	Domain           string
+	Entries          []accesslog.Entry
+	Filter           accesslog.Filter
+	StatusBuckets    []accesslog.StatusBucket
+	TopPaths         []accesslog.PathHit
+	TopRemoteIPs     []accesslog.RemoteIPHit
+	TopUserAgents    []accesslog.UserAgentHit
+	TopMethods       []accesslog.MethodHit
+	TopCountries     []accesslog.CountryHit
+	TopASNOrgs       []accesslog.ASNOrgHit
+	Latency          accesslog.LatencyStats
+	ErrorRateSeries  []accesslog.ErrorRatePoint
+	TrafficPoints    []accesslog.TrafficPoint
+	AnalyticsTotal   int64
 	ProtoBreakdown   []accesslog.ProtoHit
 	BytesSummary     accesslog.BytesSummary
 	TotalBandwidth7d int64
+
+	// Log-table pagination + sort.
+	Page       int
+	PageSize   int
+	TotalRows  int64
+	TotalPages int
+	Sort       string
+	PrevURL    string
+	NextURL    string
+}
+
+// PageURL builds the logs URL for a given page, preserving all active filters
+// and the sort order. Used by the pagination controls in the template.
+func (d hostLogsData) PageURL(page int) string {
+	v := url.Values{}
+	f := d.Filter
+	if f.StatusMin > 0 {
+		v.Set("status_min", strconv.Itoa(f.StatusMin))
+	}
+	if f.StatusMax > 0 {
+		v.Set("status_max", strconv.Itoa(f.StatusMax))
+	}
+	if f.Method != "" {
+		v.Set("method", f.Method)
+	}
+	if f.RemoteIP != "" {
+		v.Set("remote_ip", f.RemoteIP)
+	}
+	if f.URIPattern != "" {
+		v.Set("uri", f.URIPattern)
+	}
+	if f.Country != "" {
+		v.Set("country", f.Country)
+	}
+	if f.ASNOrg != "" {
+		v.Set("asn_org", f.ASNOrg)
+	}
+	// Preserve the date window too (parseLogsFilter reads from/to as YYYY-MM-DD),
+	// else paging out of a date-filtered view silently widens to all time.
+	if !f.From.IsZero() {
+		v.Set("from", f.From.Format("2006-01-02"))
+	}
+	if !f.To.IsZero() {
+		v.Set("to", f.To.Format("2006-01-02"))
+	}
+	if d.Sort != "" {
+		v.Set("sort", d.Sort)
+	}
+	if page > 1 {
+		v.Set("page", strconv.Itoa(page))
+	}
+	if len(v) == 0 {
+		return "?"
+	}
+	return "?" + v.Encode()
 }
 
 // parseLogsFilter reads filter query params from r.
@@ -56,6 +112,12 @@ func parseLogsFilter(r *http.Request) accesslog.Filter {
 		f.Country = cc
 	}
 	f.ASNOrg = strings.TrimSpace(q.Get("asn_org"))
+	switch q.Get("sort") {
+	case "status_desc":
+		f.Sort = "status_desc"
+	case "status_asc":
+		f.Sort = "status_asc"
+	}
 	if s := q.Get("from"); s != "" {
 		f.From, _ = time.Parse("2006-01-02", s)
 	}
@@ -66,12 +128,6 @@ func parseLogsFilter(r *http.Request) accesslog.Filter {
 		}
 	}
 	return f
-}
-
-// hasFilter reports whether any filter field is set.
-func hasFilter(f accesslog.Filter) bool {
-	return f.StatusMin > 0 || f.StatusMax > 0 || f.Method != "" ||
-		f.RemoteIP != "" || f.URIPattern != "" || f.Country != "" || f.ASNOrg != "" || !f.From.IsZero() || !f.To.IsZero()
 }
 
 // HostsLogs renders GET /admin/hosts/{id}/logs as an HTML page.
@@ -93,18 +149,41 @@ func (h *AdminHandlers) HostsLogs(w http.ResponseWriter, r *http.Request) {
 
 	f := parseLogsFilter(r)
 	d.Filter = f
+	d.Sort = f.Sort
+
+	const pageSize = 50
+	page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+	if page < 1 {
+		page = 1
+	}
+	d.Page = page
+	d.PageSize = pageSize
 
 	if h.AccessLogs != nil {
-		var (
-			entries []accesslog.Entry
-			err     error
-		)
-		if hasFilter(f) {
-			f.Limit = 200
-			entries, err = h.AccessLogs.Filtered(ctx, id, f)
-		} else {
-			entries, err = h.AccessLogs.Recent(ctx, id, 100)
+		// Paginate the table for every view (filtered or not) so large logs
+		// stay navigable. Sort honours the chosen order (e.g. errors first).
+		total, cerr := h.AccessLogs.FilteredCount(ctx, id, f)
+		if cerr != nil {
+			h.Logger.Warn("host logs count", "id", id, "err", cerr)
 		}
+		d.TotalRows = total
+		d.TotalPages = int((total + int64(pageSize) - 1) / int64(pageSize))
+		if d.TotalPages < 1 {
+			d.TotalPages = 1
+		}
+		if page > d.TotalPages {
+			page = d.TotalPages
+			d.Page = page
+		}
+		if page > 1 {
+			d.PrevURL = d.PageURL(page - 1)
+		}
+		if page < d.TotalPages {
+			d.NextURL = d.PageURL(page + 1)
+		}
+		f.Limit = pageSize
+		f.Offset = (page - 1) * pageSize
+		entries, err := h.AccessLogs.Filtered(ctx, id, f)
 		if err != nil {
 			h.Logger.Warn("host logs query", "id", id, "err", err)
 		}

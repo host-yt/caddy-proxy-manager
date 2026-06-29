@@ -671,6 +671,7 @@ func (s *Server) routes() {
 		r.Post("/contact", s.deps.Client.ContactSubmit)
 		r.Get("/account", s.deps.Client.AccountPage)
 		r.Post("/account", s.deps.Client.AccountUpdate)
+		r.Post("/geo-block", s.deps.Client.GeoBlockUpdate)
 		if s.deps.OAuthIdentity != nil {
 			r.Route("/oauth-identities", func(r chi.Router) {
 				r.Get("/", s.deps.OAuthIdentity.List)

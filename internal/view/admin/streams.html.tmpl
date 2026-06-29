@@ -41,9 +41,6 @@
             <td class="font-mono text-[rgb(var(--muted))]">{{.BackendIP}}:{{.UpstreamPort}}</td>
             <td class="t-small">
               {{if .MatchMode}}{{.MatchMode}}{{else}}any{{end}}
-              {{if or (eq .MatchMode "sni") (eq .MatchMode "http_host")}}
-              <span class="r-pill r-pill-warning ml-1">exp</span>
-              {{end}}
             </td>
             <td class="t-small text-[rgb(var(--muted))]">{{if .LBPolicy}}{{.LBPolicy}}{{else}}round_robin{{end}}</td>
             <td>{{.NodeName}}</td>
@@ -74,12 +71,12 @@
   <section class="r-card">
     <h3 class="t-h3 mb-4">Add stream forward</h3>
 
-    <!-- Experimental features notice -->
-    <div class="flex items-start gap-2.5 r-card border border-[rgb(var(--warning,245_158_11)/.3)] bg-[rgb(var(--warning,245_158_11)/.06)] px-3.5 py-3 mb-4">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5 text-amber-500" viewBox="0 0 20 20" fill="currentColor">
-        <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+    <!-- Module requirement notice -->
+    <div class="flex items-start gap-2.5 r-card border border-[rgb(var(--border))] bg-[rgb(var(--surface-2)/.5)] px-3.5 py-3 mb-4">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0 mt-0.5 text-[rgb(var(--muted))]" viewBox="0 0 20 20" fill="currentColor">
+        <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
       </svg>
-      <span class="t-small text-amber-800 dark:text-amber-300">Plain TCP/UDP port forwarding is production-ready. Only the advanced options marked <span class="r-pill r-pill-warning">Experimental</span> (SNI / HTTP-host matching, load balancing, PROXY protocol, CIDR allowlist) are not yet fixture-validated and need a custom Caddy build with the <code class="font-mono">caddy-l4</code> module.</span>
+      <span class="t-small text-[rgb(var(--muted))]">Plain TCP/UDP forwarding plus the advanced options (SNI / HTTP-host matching, load balancing, PROXY protocol, CIDR access control) all run on the <code class="font-mono">caddy-l4</code> module bundled in the Caddy image. Generated configs are validated against caddy-l4 on every release.</span>
     </div>
 
     <!-- Tab strip for create form -->
@@ -134,8 +131,8 @@
           <label class="t-eyebrow block mb-1">Match mode</label>
           <select name="match_mode" id="hpg-create-match-mode" class="r-select w-full cursor-pointer">
             <option value="any"       {{if eq .Form.MatchMode "any"}}selected{{end}}>Any (plain forward) [stable]</option>
-            <option value="sni"       {{if eq .Form.MatchMode "sni"}}selected{{end}}>SNI (TLS server name) [experimental]</option>
-            <option value="http_host" {{if eq .Form.MatchMode "http_host"}}selected{{end}}>HTTP Host header [experimental]</option>
+            <option value="sni"       {{if eq .Form.MatchMode "sni"}}selected{{end}}>SNI (TLS server name)</option>
+            <option value="http_host" {{if eq .Form.MatchMode "http_host"}}selected{{end}}>HTTP Host header</option>
           </select>
         </div>
         <div id="hpg-create-match-values-wrap" class="{{if eq .Form.MatchMode "any"}}hidden{{end}}">
@@ -145,9 +142,7 @@
         </div>
         <div>
           <label class="t-eyebrow block mb-1">
-            PROXY protocol in
-            <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
-          </label>
+            PROXY protocol in          </label>
           <select name="proxy_proto_in" class="r-select w-full cursor-pointer">
             <option value="none" {{if eq .Form.ProxyProtoIn "none"}}selected{{end}}>None</option>
             <option value="v1"   {{if eq .Form.ProxyProtoIn "v1"}}selected{{end}}>PROXY v1</option>
@@ -156,9 +151,7 @@
         </div>
         <div>
           <label class="t-eyebrow block mb-1">
-            PROXY protocol out
-            <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
-          </label>
+            PROXY protocol out          </label>
           <select name="proxy_proto_out" class="r-select w-full cursor-pointer">
             <option value="none" {{if eq .Form.ProxyProtoOut "none"}}selected{{end}}>None</option>
             <option value="v1"   {{if eq .Form.ProxyProtoOut "v1"}}selected{{end}}>PROXY v1</option>
@@ -171,18 +164,14 @@
       <div data-cpane="upstreams" class="hpg-cpane hidden space-y-3">
         <div>
           <label class="t-eyebrow block mb-1">
-            Additional upstreams (one per line: host:port or host:port weight)
-            <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
-          </label>
+            Additional upstreams (one per line: host:port or host:port weight)          </label>
           <textarea name="upstreams_raw" rows="4" placeholder="10.0.0.2:3306 2&#10;10.0.0.3:3306 1"
                     class="r-input w-full font-mono text-xs">{{.Form.UpstreamsRaw}}</textarea>
           <p class="t-caption text-[rgb(var(--muted))] mt-1">Leave blank to use only the primary backend above.</p>
         </div>
         <div>
           <label class="t-eyebrow block mb-1">
-            LB policy
-            <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
-          </label>
+            LB policy          </label>
           <select name="lb_policy" class="r-select w-full sm:w-56 cursor-pointer">
             <option value="round_robin" {{if eq .Form.LBPolicy "round_robin"}}selected{{end}}>Round robin</option>
             <option value="random"      {{if eq .Form.LBPolicy "random"}}selected{{end}}>Random</option>
@@ -199,9 +188,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3.5 w-3.5 text-rose-500 mr-1" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524L13.477 14.89zm1.414-1.414L6.524 5.11A6 6 0 0114.89 13.476zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clip-rule="evenodd"/>
             </svg>
-            Deny CIDRs (comma or newline)
-            <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
-          </label>
+            Deny CIDRs (comma or newline)          </label>
           <textarea name="cidr_deny" rows="3" placeholder="10.99.0.0/16"
                     class="r-input w-full font-mono text-xs">{{.Form.CIDRDeny}}</textarea>
         </div>
@@ -210,9 +197,7 @@
             <svg xmlns="http://www.w3.org/2000/svg" class="inline h-3.5 w-3.5 text-emerald-500 mr-1" viewBox="0 0 20 20" fill="currentColor">
               <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
             </svg>
-            Allow CIDRs (empty = allow all)
-            <span class="r-pill r-pill-warning ml-1.5">Experimental</span>
-          </label>
+            Allow CIDRs (empty = allow all)          </label>
           <textarea name="cidr_allow" rows="3" placeholder="10.0.0.0/8"
                     class="r-input w-full font-mono text-xs">{{.Form.CIDRAllow}}</textarea>
         </div>
@@ -228,7 +213,7 @@
       <svg class="w-4 h-4 flex-shrink-0 mt-0.5 text-[rgb(var(--muted))]" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor">
         <path stroke-linecap="round" stroke-linejoin="round" d="m11.25 11.25.041-.02a.75.75 0 0 1 1.063.852l-.708 2.836a.75.75 0 0 0 1.063.853l.041-.021M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9-3.75h.008v.008H12V8.25Z"/>
       </svg>
-      <p class="t-caption text-[rgb(var(--muted))]">Ports 80, 443, 2019 are reserved (HTTPS + admin). The Caddy container must publish the listen port on the host (edit <code class="text-xs">deploy/docker-compose.yml</code> and add the port mapping before saving). SNI/http_host matchers, LB, proxy-protocol, and CIDR ACL are experimental - not fixture-validated against real Caddy.</p>
+      <p class="t-caption text-[rgb(var(--muted))]">Ports 80, 443, 2019 are reserved (HTTPS + admin). The Caddy container must publish the listen port on the host (edit <code class="text-xs">deploy/docker-compose.yml</code> and add the port mapping before saving). SNI/http_host matchers, LB, proxy-protocol, and CIDR access control require the bundled <code class="text-xs">caddy-l4</code> module.</p>
     </div>
   </section>
 </div>

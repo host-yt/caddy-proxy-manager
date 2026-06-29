@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -228,6 +229,14 @@ type Route struct {
 	GeoAllowCIDRs      string // comma-separated CIDRs/IPs that bypass country block
 	GeoContinents      string // comma-sep continent codes (ISO: AF AN AS EU NA OC SA)
 	GeoBlockCIDRs      string // comma-sep CIDRs/IPs to always block, independent of geo mode
+	// Geo-block response customisation (resolved per-host from the owning
+	// client, else the panel default). GeoBlockAction is "" (plain status
+	// body) | "page" (branded HTML) | "redirect" (302 to GeoRedirectURL).
+	GeoBlockAction   string
+	GeoRedirectURL   string
+	GeoBlockTitle    string
+	GeoBlockMessage  string
+	GeoBlockBranding ErrorBranding // logo + bg + brand for the "page" action
 
 	// OutboundIPMode: "default" = OS picks; "fixed"/"random" = bind transport
 	// local_addr to OutboundIP so the connection leaves via a specific NIC IP.
@@ -1410,6 +1419,64 @@ func splitCIDRList(s string, dropInvalid bool) []string {
 	return out
 }
 
+// geoBlockResponse builds the handler returned to a geo/CIDR-blocked request.
+// 444 maps to Caddy's connection abort (Nginx-style "no response"); other codes
+// return that status with a reason body that matches the chosen code (the body
+// was previously hardcoded to "Forbidden" regardless of the selected code).
+func geoBlockResponse(r Route) map[string]any {
+	code := r.GeoResponseCode
+	if code == 0 {
+		code = 403
+	}
+	action := strings.ToLower(strings.TrimSpace(r.GeoBlockAction))
+
+	// Redirect: send blocked visitors to another URL instead of an error.
+	if action == "redirect" && strings.TrimSpace(r.GeoRedirectURL) != "" {
+		return map[string]any{
+			"handler":     "static_response",
+			"status_code": 302,
+			"headers":     map[string]any{"Location": []string{r.GeoRedirectURL}},
+		}
+	}
+
+	// 444 is not a real HTTP status: drop the connection with no response.
+	if code == 444 {
+		return map[string]any{"handler": "static_response", "abort": true}
+	}
+
+	// Branded HTML page with the client's title/message/logo/background.
+	if action == "page" {
+		title := strings.TrimSpace(r.GeoBlockTitle)
+		if title == "" {
+			title = "Access denied"
+		}
+		msg := strings.TrimSpace(r.GeoBlockMessage)
+		if msg == "" {
+			msg = "Access from your region is not allowed."
+		}
+		return map[string]any{
+			"handler":     "static_response",
+			"status_code": code,
+			"headers": map[string]any{
+				"Content-Type":  []string{"text/html; charset=utf-8"},
+				"Cache-Control": []string{"no-store"},
+			},
+			"body": renderErrorPage(code, title, msg, r.GeoBlockBranding),
+		}
+	}
+
+	// Default: plain reason body matching the chosen status code.
+	body := http.StatusText(code)
+	if body == "" {
+		body = "Forbidden"
+	}
+	return map[string]any{
+		"handler":     "static_response",
+		"status_code": code,
+		"body":        body + "\n",
+	}
+}
+
 // GeoAllowCIDRs: IPs/CIDRs added as a NOT remote_ip condition, bypassing the block.
 // GeoFailClosed: when module unavailable, block all traffic instead of passing through.
 func buildGeoBlock(r Route) map[string]any {
@@ -1418,15 +1485,7 @@ func buildGeoBlock(r Route) map[string]any {
 		return nil
 	}
 
-	code := r.GeoResponseCode
-	if code == 0 {
-		code = 403
-	}
-	denyResp := map[string]any{
-		"handler":     "static_response",
-		"status_code": code,
-		"body":        "Forbidden\n",
-	}
+	denyResp := geoBlockResponse(r)
 
 	if !r.GeoModuleAvailable {
 		if !r.GeoFailClosed {
@@ -1516,21 +1575,13 @@ func buildCIDRBlock(r Route) map[string]any {
 	if len(ranges) == 0 {
 		return nil
 	}
-	code := r.GeoResponseCode
-	if code == 0 {
-		code = 403
-	}
 	return map[string]any{
 		"handler": "subroute",
 		"routes": []any{map[string]any{
 			"match": []any{map[string]any{
 				"remote_ip": map[string]any{"ranges": ranges},
 			}},
-			"handle": []any{map[string]any{
-				"handler":     "static_response",
-				"status_code": code,
-				"body":        "Forbidden\n",
-			}},
+			"handle":   []any{geoBlockResponse(r)},
 			"terminal": true,
 		}},
 	}

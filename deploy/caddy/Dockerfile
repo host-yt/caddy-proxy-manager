@@ -24,7 +24,7 @@ FROM caddy:2.11.3-builder AS builder
 # /load, so the two MUST match exactly (DNSProviderModules()).
 RUN xcaddy build \
       --with github.com/caddyserver/cache-handler@v0.16.0 \
-      --with github.com/mholt/caddy-l4 \
+      --with github.com/mholt/caddy-l4@v0.1.1 \
       --with github.com/mholt/caddy-ratelimit \
       --with github.com/corazawaf/coraza-caddy/v2 \
       --with github.com/porech/caddy-maxmind-geolocation \

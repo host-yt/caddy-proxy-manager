@@ -261,6 +261,50 @@ func (s *Service) schedulePush(nodeID int64) {
 // change but don't want to import the full push path directly.
 func (s *Service) SchedulePush(nodeID int64) { s.schedulePush(nodeID) }
 
+// SchedulePushAllNodes re-pushes every node that hosts a route. Used when a
+// panel-wide setting baked into generated config (geo-block default, error-page
+// branding) changes and must reach all nodes, not just one client's.
+func (s *Service) SchedulePushAllNodes(ctx context.Context) {
+	if s.DB == nil {
+		return
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT DISTINCT caddy_node_id FROM routes WHERE caddy_node_id IS NOT NULL`)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var nid int64
+		if rows.Scan(&nid) == nil && nid != 0 {
+			s.schedulePush(nid)
+		}
+	}
+}
+
+// SchedulePushForClient re-pushes every node hosting a route owned by the given
+// client. Used when a client-level setting (e.g. geo-block page) changes and
+// must propagate to all of that client's routes.
+func (s *Service) SchedulePushForClient(ctx context.Context, clientID int64) {
+	if s.DB == nil || clientID == 0 {
+		return
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT DISTINCT r.caddy_node_id FROM routes r
+		   JOIN services sv ON sv.id = r.service_id
+		  WHERE sv.client_id = ? AND r.caddy_node_id IS NOT NULL`, clientID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var nid int64
+		if rows.Scan(&nid) == nil && nid != 0 {
+			s.schedulePush(nid)
+		}
+	}
+}
+
 // BackgroundCtx returns the app background context (cancelled after shutdown),
 // or context.Background() when unset (tests/dev). Exported so handlers in other
 // packages can scope their fire-and-forget pushes to the app lifecycle.
@@ -1690,6 +1734,52 @@ func (s *Service) loadErrorBranding(ctx context.Context) caddyapi.ErrorBranding 
 	return b
 }
 
+// geoBlockCfg is the resolved geo-block response config for a route: either the
+// owning client's customisation or the panel-wide default.
+type geoBlockCfg struct {
+	action, redirectURL, title, message, logoURL, bgColor string
+}
+
+// loadGeoBlockDefault reads the panel-wide geo-block response default from the
+// settings KV table. Used as the fallback when a client has not customised it.
+func (s *Service) loadGeoBlockDefault(ctx context.Context) geoBlockCfg {
+	var g geoBlockCfg
+	if s.DB == nil {
+		return g
+	}
+	c, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	rows, err := s.DB.QueryContext(c,
+		"SELECT `key`, value FROM settings WHERE `key` IN ("+
+			"'geoblock.action','geoblock.redirect_url','geoblock.title',"+
+			"'geoblock.message','geoblock.logo_url','geoblock.bg_color')")
+	if err != nil {
+		return g
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			continue
+		}
+		switch k {
+		case "geoblock.action":
+			g.action = v
+		case "geoblock.redirect_url":
+			g.redirectURL = v
+		case "geoblock.title":
+			g.title = v
+		case "geoblock.message":
+			g.message = v
+		case "geoblock.logo_url":
+			g.logoURL = v
+		case "geoblock.bg_color":
+			g.bgColor = v
+		}
+	}
+	return g
+}
+
 // loadMTLSFailOpen reads the global mtls.fail_open setting (default false = fail closed).
 func (s *Service) loadMTLSFailOpen(ctx context.Context) bool {
 	if s.DB == nil {
@@ -1723,6 +1813,10 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	if nodeOutboundIPsJSON.Valid && nodeOutboundIPsJSON.String != "" {
 		_ = json.Unmarshal([]byte(nodeOutboundIPsJSON.String), &nodeOutboundIPs)
 	}
+	// Panel-wide geo-block default + brand name, used when a client has not
+	// customised its own geo-block response. Loaded once per build.
+	geoDefault := s.loadGeoBlockDefault(ctx)
+	geoBrand := s.loadErrorBranding(ctx).Brand
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT r.id, r.domain, COALESCE(r.aliases,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
 		        r.websocket, r.force_https,
@@ -1769,9 +1863,13 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(dns_peer.assigned_ip,''),
 	        COALESCE(r.dns_address_family,'any'),
 	        COALESCE(r.require_client_cert,0), COALESCE(mca.cert_pem,''),
-	        COALESCE(r.dial_timeout_ms,0), COALESCE(r.response_header_timeout_ms,0)
+	        COALESCE(r.dial_timeout_ms,0), COALESCE(r.response_header_timeout_ms,0),
+	        COALESCE(cl.geo_block_action,''), COALESCE(cl.geo_block_redirect_url,''),
+	        COALESCE(cl.geo_block_title,''), COALESCE(cl.geo_block_message,''),
+	        COALESCE(cl.geo_block_logo_url,''), COALESCE(cl.geo_block_bg_color,'')
 		 FROM routes r
 		 JOIN services sv ON sv.id = r.service_id
+		 LEFT JOIN clients cl ON cl.id = sv.client_id
 		 LEFT JOIN plans pl ON pl.id = sv.plan_id
 		 LEFT JOIN mtls_cas mca ON mca.id = r.mtls_ca_id AND mca.status = 'active'
 		 LEFT JOIN customer_wg_peer p_base
@@ -1863,6 +1961,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var requireClientCert bool
 		var mtlsCACertPEM string
 		var dialTimeoutMs, responseHeaderTimeoutMs int
+		var clGeoAction, clGeoRedirect, clGeoTitle, clGeoMessage, clGeoLogo, clGeoBg string
 		if err := rows.Scan(&id, &domain, &aliases, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
 			&tunnelResolverIP,
 			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &headersJSON,
@@ -1890,7 +1989,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&outboundIPMode, &outboundIP, &planAllowEgress,
 			&dnsResolverIP, &dnsResolverPeerIP, &dnsAddressFamily,
 			&requireClientCert, &mtlsCACertPEM,
-			&dialTimeoutMs, &responseHeaderTimeoutMs); err != nil {
+			&dialTimeoutMs, &responseHeaderTimeoutMs,
+			&clGeoAction, &clGeoRedirect, &clGeoTitle, &clGeoMessage, &clGeoLogo, &clGeoBg); err != nil {
 			return nil, nil, err
 		}
 		// Re-check plan entitlement at build time so revoking the flag takes effect immediately.
@@ -1999,6 +2099,12 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			ip = tunnelResolverIP
 		}
 		backendResolver := ""
+		// Resolve geo-block response: a client's own customisation wins over the
+		// panel-wide default (empty client action = inherit the default).
+		gb := geoDefault
+		if strings.TrimSpace(clGeoAction) != "" {
+			gb = geoBlockCfg{clGeoAction, clGeoRedirect, clGeoTitle, clGeoMessage, clGeoLogo, clGeoBg}
+		}
 		built = append(built, caddyapi.Route{
 			ID:                    fmt.Sprintf("%d", id),
 			Hosts:                 hosts,
@@ -2048,28 +2154,28 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 
 			// External HTTPS upstream: SNI + Host both use the stored header
 			// (falls back to the FQDN in the builder); ProxySecret gates inbound.
-			External:               external,
-			UpstreamSNI:            upstreamHostHeader,
-			UpstreamHostHeader:     upstreamHostHeader,
-			ProxySecret:            proxySecret,
-			CompressDisabled:       compressDisabled,
-			LBPolicy:               lbPolicy,
-			LBHeaderField:          lbHeaderField,
-			LBCookieName:           lbCookieName,
-			LBCookieSecret:         lbCookieSecret,
-			WeightedLBAvailable:    s.WeightedLBAvailable,
+			External:                external,
+			UpstreamSNI:             upstreamHostHeader,
+			UpstreamHostHeader:      upstreamHostHeader,
+			ProxySecret:             proxySecret,
+			CompressDisabled:        compressDisabled,
+			LBPolicy:                lbPolicy,
+			LBHeaderField:           lbHeaderField,
+			LBCookieName:            lbCookieName,
+			LBCookieSecret:          lbCookieSecret,
+			WeightedLBAvailable:     s.WeightedLBAvailable,
 			LBTryDurationMs:         lbTryDurationMs,
 			LBTryIntervalMs:         lbTryIntervalMs,
 			DialTimeoutMs:           dialTimeoutMs,
 			ResponseHeaderTimeoutMs: responseHeaderTimeoutMs,
 			HealthURI:               hActiveURI,
-			HealthIntervalSecs:     hActiveInterval,
-			HealthTimeoutSecs:      hActiveTimeout,
-			HealthExpectStatus:     hActiveStatus,
-			HealthFails:            hActiveFails,
-			HealthPassive:          hPassiveEnabled,
-			HealthFailDurationSecs: hPassiveFailDur,
-			HealthMaxFails:         hPassiveMaxFail,
+			HealthIntervalSecs:      hActiveInterval,
+			HealthTimeoutSecs:       hActiveTimeout,
+			HealthExpectStatus:      hActiveStatus,
+			HealthFails:             hActiveFails,
+			HealthPassive:           hPassiveEnabled,
+			HealthFailDurationSecs:  hPassiveFailDur,
+			HealthMaxFails:          hPassiveMaxFail,
 
 			RateLimitEnabled:         rateEnabled,
 			RateLimitWindow:          rateWindow,
@@ -2088,6 +2194,11 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			GeoAllowCIDRs:            geoAllowCIDRs,
 			GeoContinents:            geoContinents,
 			GeoBlockCIDRs:            geoBlockCIDRs.String,
+			GeoBlockAction:           gb.action,
+			GeoRedirectURL:           gb.redirectURL,
+			GeoBlockTitle:            gb.title,
+			GeoBlockMessage:          gb.message,
+			GeoBlockBranding:         caddyapi.ErrorBranding{Brand: geoBrand, LogoURL: gb.logoURL, BgColor: gb.bgColor},
 
 			// Per-route error/maintenance page override (else node-wide branding).
 			CustomErrorOverride: errOverride,

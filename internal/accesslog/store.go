@@ -202,26 +202,15 @@ type Filter struct {
 	From       time.Time
 	To         time.Time
 	Limit      int
+	Offset     int    // pagination offset (rows to skip), 0 = first page
+	Sort       string // "" | "time" newest first; "status_desc"; "status_asc"
 	Country    string // ISO2 code filter, empty = no filter
 	ASNOrg     string // LIKE substring on asn_org, empty = no filter
 }
 
-// MaxExportRows is the hard cap for Filtered when Limit exceeds maxPerHost.
-const MaxExportRows = 50_000
-
-// Filtered returns entries for a route matching f, newest first.
-func (s *Store) Filtered(ctx context.Context, routeID int64, f Filter) ([]Entry, error) {
-	db := s.db()
-	if db == nil {
-		return nil, nil
-	}
-	limit := f.Limit
-	if limit <= 0 {
-		limit = 200
-	} else if limit > MaxExportRows {
-		limit = MaxExportRows
-	}
-
+// where builds the shared WHERE conditions + args for Filtered/FilteredCount so
+// the row query and the count query can never drift apart.
+func (f Filter) where(routeID int64) ([]string, []any) {
 	var conds []string
 	var args []any
 	conds = append(conds, "route_id = ?")
@@ -290,13 +279,50 @@ func (s *Store) Filtered(ctx context.Context, routeID int64, f Filter) ([]Entry,
 		conds = append(conds, "ts <= ?")
 		args = append(args, f.To)
 	}
+	return conds, args
+}
+
+// orderBy maps the Sort field to a safe ORDER BY clause (never interpolates
+// user input - only fixed column lists).
+func (f Filter) orderBy() string {
+	switch f.Sort {
+	case "status_desc":
+		return "status DESC, ts DESC, id DESC"
+	case "status_asc":
+		return "status ASC, ts DESC, id DESC"
+	default:
+		return "ts DESC, id DESC"
+	}
+}
+
+// MaxExportRows is the hard cap for Filtered when Limit exceeds maxPerHost.
+const MaxExportRows = 50_000
+
+// Filtered returns entries for a route matching f, newest first.
+func (s *Store) Filtered(ctx context.Context, routeID int64, f Filter) ([]Entry, error) {
+	db := s.db()
+	if db == nil {
+		return nil, nil
+	}
+	limit := f.Limit
+	if limit <= 0 {
+		limit = 200
+	} else if limit > MaxExportRows {
+		limit = MaxExportRows
+	}
+
+	conds, args := f.where(routeID)
 
 	q := `SELECT id,route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country,asn_org
 	      FROM host_access_log
 	      WHERE ` + strings.Join(conds, " AND ") + `
-	      ORDER BY ts DESC, id DESC
+	      ORDER BY ` + f.orderBy() + `
 	      LIMIT ?`
 	args = append(args, limit)
+	if f.Offset > 0 {
+		q += ` OFFSET ?`
+		args = append(args, f.Offset)
+	}
 
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -314,4 +340,18 @@ func (s *Store) Filtered(ctx context.Context, routeID int64, f Filter) ([]Entry,
 		}
 	}
 	return out, rows.Err()
+}
+
+// FilteredCount returns the total rows matching f (ignoring limit/offset), for
+// paginating the host-logs table.
+func (s *Store) FilteredCount(ctx context.Context, routeID int64, f Filter) (int64, error) {
+	db := s.db()
+	if db == nil {
+		return 0, nil
+	}
+	conds, args := f.where(routeID)
+	q := `SELECT COUNT(*) FROM host_access_log WHERE ` + strings.Join(conds, " AND ")
+	var n int64
+	err := db.QueryRowContext(ctx, q, args...).Scan(&n)
+	return n, err
 }

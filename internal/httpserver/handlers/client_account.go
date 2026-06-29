@@ -26,6 +26,9 @@ type clientAccountData struct {
 	OIDCEnabled     bool               // true when admin has OIDC configured
 	GitHubEnabled   bool               // GitHub social-login configured + enabled
 	GoogleEnabled   bool               // Google social-login configured + enabled
+
+	GeoBlock        clientGeoBlock // this client's geo-block page customisation
+	GeoBlockDefault clientGeoBlock // panel default shown when the client inherits
 }
 
 // AccountPage renders /app/account - user-editable profile fields.
@@ -48,14 +51,18 @@ func (h *ClientHandlers) AccountPage(w http.ResponseWriter, r *http.Request) {
 			d.Phone = phone.String
 		}
 	}
-	// Public status page state (slug present = enabled).
+	// Public status page state (slug present = enabled) + client id for the
+	// geo-block customisation form.
 	var statusSlug sql.NullString
+	var clientID int64
 	_ = db.QueryRowContext(ctx,
-		`SELECT c.status_slug FROM clients c WHERE c.user_id = ?`, sess.UserID).Scan(&statusSlug)
+		`SELECT c.id, c.status_slug FROM clients c WHERE c.user_id = ?`, sess.UserID).Scan(&clientID, &statusSlug)
 	if statusSlug.Valid && statusSlug.String != "" {
 		d.StatusPageSlug = statusSlug.String
 		d.StatusPageURL = "/status/" + statusSlug.String
 	}
+	d.GeoBlock = loadClientGeoBlock(ctx, db, clientID)
+	d.GeoBlockDefault = loadGeoBlockDefaults(ctx, db)
 	// Linked OAuth providers.
 	identities, _ := listIdentities(ctx, db, sess.UserID)
 	d.OAuthIdentities = identities

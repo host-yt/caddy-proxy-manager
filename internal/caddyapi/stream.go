@@ -10,20 +10,20 @@ package caddyapi
 // is required. NodeSettings.Layer4ModuleAvailable gates emission so a
 // fleet that hasn't upgraded yet doesn't get its config rejected.
 //
-// NOT fixture-validated against a real Caddy instance (see gating list
-// below). All caddy-l4 JSON fields are emitted per the module's documented
-// schema but must be verified before flipping to stable.
-//
-// GATING LIST - fields NOT yet fixture-validated against a running Caddy:
-//   - proxy_protocol listener wrapper ("handler":"proxy_protocol", "versions")
-//   - proxy_protocol upstream handler ("handler":"proxy_protocol", "version")
-//   - SNI matcher ("matcher":"tls","sni")
-//   - http_host matcher ("matcher":"http","host")
-//   - lb_policy on proxy handler ("load_balancing":{"selection_policy":...})
-//   - remote_ip handler for CIDR allow/deny ("handler":"remote_ip",...)
-//
-// The "any" match mode with single upstream and no proxy-protocol is the
-// only path that has been validated end-to-end (WSS tunnel, 2026-06-24).
+// JSON shapes follow the caddy-l4 module schema (verified against the module
+// source) and are exercised by TestBuildLayer4* and the /load fixture test in
+// internal/integration (layer4_load_test.go):
+//   - proxy handler:    {"handler":"proxy","upstreams":[{"dial":[...]}],
+//                        "load_balancing":{"selection_policy":{"policy":...}},
+//                        "proxy_protocol":"v1"|"v2"}            (string, not object)
+//   - proxy_protocol in: {"handler":"proxy_protocol"} prepended to the handle
+//                        chain (it is a handler, not a listener wrapper; the
+//                        receiver auto-detects v1/v2)
+//   - SNI matcher:      {"tls":{"sni":[...]}}
+//   - http_host matcher: {"http":[{"host":[...]}]}
+//   - CIDR ACL:         remote_ip is a MATCHER, not a handler - deny/allow are
+//                        terminal "close" routes gated by {"remote_ip":{"ranges"}}
+//                        (allow uses {"not":[{"remote_ip":...}]}) before proxy.
 
 // StreamUpstream is one entry in the upstream pool for a StreamRoute.
 type StreamUpstream struct {
@@ -76,34 +76,63 @@ func buildLayer4App(routes []StreamRoute) map[string]any {
 func buildL4Server(proto string, r StreamRoute) map[string]any {
 	listenAddr := proto + "/:" + itoa(r.ListenPort)
 
-	// Build the chain of handlers for the route.
-	handlers := buildL4Handlers(r)
-
-	route := map[string]any{"handle": handlers}
-
-	// Inject matchers when not "any" (unset / explicit any = no matcher block).
-	// NOT fixture-validated: SNI and http_host matchers.
+	// Inner routes: CIDR ACL (terminal "close") first so denied/non-allowed
+	// sources never reach an upstream, then the proxy route.
+	inner := buildL4ACLRoutes(r)
+	proxyRoute := map[string]any{"handle": []any{buildProxyHandler(r)}}
 	if m := buildL4Matcher(r); m != nil {
-		route["match"] = []any{m}
+		proxyRoute["match"] = []any{m}
+	}
+	inner = append(inner, proxyRoute)
+
+	var routes []any
+	if r.ProxyProtoIn == "v1" || r.ProxyProtoIn == "v2" {
+		// Decode the PROXY header BEFORE any ACL/matcher runs, so remote_ip and
+		// SNI see the real client - not the upstream LB's socket peer. The
+		// decoded connection is handed to a subroute carrying the ACL + proxy
+		// routes. (Matchers on sibling routes would see the raw, pre-decode
+		// connection, which is the access-control bypass we are avoiding.)
+		routes = []any{map[string]any{
+			"handle": []any{
+				map[string]any{"handler": "proxy_protocol", "timeout": "5s"},
+				map[string]any{"handler": "subroute", "routes": inner},
+			},
+		}}
+	} else {
+		routes = inner
 	}
 
-	srv := map[string]any{
+	return map[string]any{
 		"listen": []string{listenAddr},
-		"routes": []any{route},
+		"routes": routes,
 	}
+}
 
-	// Wrap listener with proxy-protocol decoder when requested.
-	// NOT fixture-validated against real Caddy.
-	if r.ProxyProtoIn != "none" && r.ProxyProtoIn != "" {
-		srv["listener_wrappers"] = buildProxyProtoListenerWrapper(r.ProxyProtoIn)
+// buildL4ACLRoutes emits terminal "close" routes implementing the CIDR ACL.
+// remote_ip is a matcher (not a handler): deny ranges close directly; an
+// allow-list closes everyone NOT in it via the "not" matcher.
+func buildL4ACLRoutes(r StreamRoute) []any {
+	var routes []any
+	closeHandle := []any{map[string]any{"handler": "close"}}
+	if len(r.CIDRDeny) > 0 {
+		routes = append(routes, map[string]any{
+			"match":  []any{map[string]any{"remote_ip": map[string]any{"ranges": r.CIDRDeny}}},
+			"handle": closeHandle,
+		})
 	}
-
-	return srv
+	if len(r.CIDRAllow) > 0 {
+		routes = append(routes, map[string]any{
+			"match": []any{map[string]any{
+				"not": []any{map[string]any{"remote_ip": map[string]any{"ranges": r.CIDRAllow}}},
+			}},
+			"handle": closeHandle,
+		})
+	}
+	return routes
 }
 
 // buildL4Matcher returns the match block for SNI or http_host modes, nil for "any".
 // Falls back to nil (any) when MatchValues is empty to avoid null arrays in Caddy JSON.
-// NOT fixture-validated against real Caddy.
 func buildL4Matcher(r StreamRoute) map[string]any {
 	if len(r.MatchValues) == 0 {
 		// Never emit {"tls":{"sni":null}} or {"http":[{"host":null}]}.
@@ -124,36 +153,6 @@ func buildL4Matcher(r StreamRoute) map[string]any {
 	return nil
 }
 
-// buildL4Handlers assembles the ordered handler chain for one route.
-func buildL4Handlers(r StreamRoute) []any {
-	var handlers []any
-
-	// CIDR deny runs before allow and before proxy - drops forbidden sources.
-	// NOT fixture-validated against real Caddy.
-	if len(r.CIDRDeny) > 0 || len(r.CIDRAllow) > 0 {
-		handlers = append(handlers, buildRemoteIPHandler(r.CIDRAllow, r.CIDRDeny))
-	}
-
-	// Proxy handler: routes connections to upstreams.
-	handlers = append(handlers, buildProxyHandler(r))
-
-	return handlers
-}
-
-// buildRemoteIPHandler emits the remote_ip handler for CIDR ACL.
-// Deny is checked first; allow (if non-empty) gates the remainder.
-// NOT fixture-validated against real Caddy.
-func buildRemoteIPHandler(allow, deny []string) map[string]any {
-	h := map[string]any{"handler": "remote_ip"}
-	if len(deny) > 0 {
-		h["deny"] = deny
-	}
-	if len(allow) > 0 {
-		h["allow"] = allow
-	}
-	return h
-}
-
 // buildProxyHandler emits the proxy handler with upstreams and optional LB.
 func buildProxyHandler(r StreamRoute) map[string]any {
 	upstreams := buildUpstreamList(r)
@@ -163,19 +162,15 @@ func buildProxyHandler(r StreamRoute) map[string]any {
 	}
 
 	// LB policy when more than one upstream or explicitly set.
-	// NOT fixture-validated against real Caddy.
 	if policy := normLBPolicy(r.LBPolicy); len(upstreams) > 1 || (policy != "" && policy != "round_robin") {
 		h["load_balancing"] = map[string]any{
 			"selection_policy": map[string]any{"policy": policy},
 		}
 	}
 
-	// Per-upstream proxy-protocol version for outgoing connections.
-	// NOT fixture-validated against real Caddy.
-	if r.ProxyProtoOut != "none" && r.ProxyProtoOut != "" {
-		h["proxy_protocol"] = map[string]any{
-			"version": proxyProtoVersion(r.ProxyProtoOut),
-		}
+	// PROXY protocol to the upstream: a plain "v1"/"v2" string on the handler.
+	if r.ProxyProtoOut == "v1" || r.ProxyProtoOut == "v2" {
+		h["proxy_protocol"] = r.ProxyProtoOut
 	}
 
 	return h
@@ -202,18 +197,6 @@ func buildUpstreamList(r StreamRoute) []any {
 	return []any{map[string]any{"dial": []string{dial(r.UpstreamIP, r.UpstreamPort)}}}
 }
 
-// buildProxyProtoListenerWrapper emits the listener_wrappers block for PROXY protocol.
-// NOT fixture-validated against real Caddy.
-func buildProxyProtoListenerWrapper(mode string) []any {
-	return []any{
-		map[string]any{
-			"wrapper":  "proxy_protocol",
-			"timeout":  "5s",
-			"versions": []string{proxyProtoVersion(mode)},
-		},
-	}
-}
-
 // normLBPolicy normalises empty / unknown values to the caddy-l4 default.
 func normLBPolicy(p string) string {
 	switch p {
@@ -221,14 +204,6 @@ func normLBPolicy(p string) string {
 		return p
 	}
 	return "round_robin"
-}
-
-// proxyProtoVersion maps our enum values to PROXY protocol version strings.
-func proxyProtoVersion(mode string) string {
-	if mode == "v2" {
-		return "2"
-	}
-	return "1"
 }
 
 func protoList(p string) []string {
