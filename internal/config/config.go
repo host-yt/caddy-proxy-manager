@@ -265,7 +265,10 @@ func (d DBConfig) BuildDSN() string {
 	if d.TLS {
 		tls = "&tls=true"
 	}
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC&charset=utf8mb4%s",
+	// time_zone='+00:00' pins the session to UTC so UNIX_TIMESTAMP()/NOW() agree
+	// with the UTC values Go writes (loc=UTC); otherwise time-bucketed analytics
+	// queries key on the server's local TZ and render empty.
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC&time_zone=%%27%%2B00%%3A00%%27&charset=utf8mb4%s",
 		d.User, d.Password, d.Host, d.Port, d.Name, tls)
 }
 

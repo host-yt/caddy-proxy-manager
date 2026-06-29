@@ -9,7 +9,11 @@ func BuildDSN(db DBState, password string) string {
 	if db.TLS {
 		tls = "&tls=true"
 	}
-	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC&charset=utf8mb4&multiStatements=true%s",
+	// time_zone='+00:00' pins the session to UTC so UNIX_TIMESTAMP()/NOW() agree
+	// with the UTC values Go writes (loc=UTC). Without it, time-bucketed queries
+	// (traffic trend, error-rate series) compute keys in the server's local TZ
+	// and never match Go's UTC bucket keys -> empty/zeroed charts.
+	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC&time_zone=%%27%%2B00%%3A00%%27&charset=utf8mb4&multiStatements=true%s",
 		db.User, password, db.Host, db.Port, db.Name, tls)
 }
 
