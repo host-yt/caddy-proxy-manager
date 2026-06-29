@@ -11,6 +11,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // extAllowRow is one DB-managed external-upstream allowlist entry.
@@ -79,10 +80,13 @@ func (h *AdminHandlers) ExternalAllowlistCreate(w http.ResponseWriter, r *http.R
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO external_upstream_allowlist (host, note) VALUES (?, ?)
-		 ON DUPLICATE KEY UPDATE note = VALUES(note)`,
-		host, note); err != nil {
+	var allowQ string
+	if store.Driver() == "sqlite3" {
+		allowQ = `INSERT INTO external_upstream_allowlist (host, note) VALUES (?, ?) ON CONFLICT(host) DO UPDATE SET note=excluded.note`
+	} else {
+		allowQ = `INSERT INTO external_upstream_allowlist (host, note) VALUES (?, ?) ON DUPLICATE KEY UPDATE note=VALUES(note)`
+	}
+	if _, err := db.ExecContext(ctx, allowQ, host, note); err != nil {
 		redirectWithFlash(w, r, page, "", "save failed: "+sanitizeErr(err))
 		return
 	}

@@ -28,6 +28,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // bcryptHash returns a bcrypt hash of pw with the default cost (Caddy's
@@ -4233,11 +4234,13 @@ func (h *AdminHandlers) BasicAuthAddUser(w http.ResponseWriter, r *http.Request)
 		redirectWithFlash(w, r, editURL, "", "hash error: "+sanitizeErr(herr))
 		return
 	}
-	_, dbErr := h.DB().ExecContext(ctx,
-		`INSERT INTO route_basic_auth_users (route_id, username, bcrypt_hash)
-		 VALUES (?, ?, ?)
-		 ON DUPLICATE KEY UPDATE bcrypt_hash = VALUES(bcrypt_hash)`,
-		routeID, username, string(hash))
+	var basicAuthQ string
+	if store.Driver() == "sqlite3" {
+		basicAuthQ = `INSERT INTO route_basic_auth_users (route_id, username, bcrypt_hash) VALUES (?, ?, ?) ON CONFLICT(route_id, username) DO UPDATE SET bcrypt_hash=excluded.bcrypt_hash`
+	} else {
+		basicAuthQ = `INSERT INTO route_basic_auth_users (route_id, username, bcrypt_hash) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE bcrypt_hash=VALUES(bcrypt_hash)`
+	}
+	_, dbErr := h.DB().ExecContext(ctx, basicAuthQ, routeID, username, string(hash))
 	if dbErr != nil {
 		redirectWithFlash(w, r, editURL, "", "save failed: "+sanitizeErr(dbErr))
 		return

@@ -13,6 +13,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/backup"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // Backups page + actions live on AdminHandlers; the field is wired from main.go.
@@ -406,9 +407,7 @@ func (h *AdminHandlers) BackupsSaveSchedule(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	set := func(k, v string) {
-		_, _ = db.ExecContext(ctx,
-			"INSERT INTO settings (`key`, value, is_encrypted) VALUES (?, ?, 0) ON DUPLICATE KEY UPDATE value=VALUES(value)",
-			k, v)
+		_, _ = db.ExecContext(ctx, store.UpsertSettingSQL(), k, v, 0)
 	}
 	set("backup.schedule_interval_hours", strconv.Itoa(intervalH))
 	set("backup.retention_days", strconv.Itoa(retentionD))

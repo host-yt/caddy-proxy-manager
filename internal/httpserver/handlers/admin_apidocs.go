@@ -7,6 +7,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // SettingsAPIDocs handles POST /admin/settings/apidocs.
@@ -25,9 +26,7 @@ func (h *AdminHandlers) SettingsAPIDocs(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	if _, err := db.ExecContext(ctx,
-		"INSERT INTO settings (`key`, value) VALUES ('apidocs.public_enabled', ?) "+
-			"ON DUPLICATE KEY UPDATE value = VALUES(value)", val); err != nil {
+	if _, err := db.ExecContext(ctx, store.UpsertSettingSQL(), "apidocs.public_enabled", val, 0); err != nil {
 		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
 		return
 	}

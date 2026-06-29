@@ -14,6 +14,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/nodejoin"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // NodeJoinHandler is wired separately from APIHandlers because it MUST
@@ -115,10 +116,8 @@ func (h *NodeJoinHandler) Join(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Stash the peer block so the admin UI can show it on /admin/nodes.
-	_, _ = h.DB().ExecContext(ctx,
-		`INSERT INTO settings (`+"`key`"+`, value, is_encrypted) VALUES (?, ?, 0)
-		 ON DUPLICATE KEY UPDATE value=VALUES(value)`,
-		"wireguard.pending_peer.node_"+itoa64(resp.NodeID), managerPeer)
+	_, _ = h.DB().ExecContext(ctx, store.UpsertSettingSQL(),
+		"wireguard.pending_peer.node_"+itoa64(resp.NodeID), managerPeer, 0)
 
 	apiJSON(w, http.StatusOK, resp)
 }

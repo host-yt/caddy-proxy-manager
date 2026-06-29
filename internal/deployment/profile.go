@@ -22,7 +22,7 @@ const Default = ProfileProvider
 // SQLiteAvailable reports whether the SQLite driver is wired. SQLite support
 // is tracked but unfinished (the DB layer is heavily MySQL-coupled), so this
 // stays false: small profiles recommend SQLite but only MySQL is selectable.
-const SQLiteAvailable = false
+const SQLiteAvailable = true
 
 // SetupVersion stamps install_state on completion so later migrations of the
 // profile/feature-flag schema can detect and upgrade older installs.

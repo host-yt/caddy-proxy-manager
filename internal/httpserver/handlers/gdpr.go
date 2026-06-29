@@ -14,6 +14,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // GDPRExport returns a JSON dump of every personally-identifiable row for
@@ -262,10 +263,13 @@ func (h *AdminHandlers) LegalDocAdmin(w http.ResponseWriter, r *http.Request) {
 	if sess != nil {
 		updatedBy = sql.NullInt64{Int64: sess.UserID, Valid: true}
 	}
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO legal_documents (slug, title, body, updated_by) VALUES (?, ?, ?, ?)
-		 ON DUPLICATE KEY UPDATE title=VALUES(title), body=VALUES(body), updated_by=VALUES(updated_by)`,
-		slug, title, body, updatedBy); err != nil {
+	var legalQ string
+	if store.Driver() == "sqlite3" {
+		legalQ = `INSERT INTO legal_documents (slug, title, body, updated_by) VALUES (?, ?, ?, ?) ON CONFLICT(slug) DO UPDATE SET title=excluded.title, body=excluded.body, updated_by=excluded.updated_by`
+	} else {
+		legalQ = `INSERT INTO legal_documents (slug, title, body, updated_by) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE title=VALUES(title), body=VALUES(body), updated_by=VALUES(updated_by)`
+	}
+	if _, err := db.ExecContext(ctx, legalQ, slug, title, body, updatedBy); err != nil {
 		redirectWithFlash(w, r, "/admin/legal", "", "save failed: "+err.Error())
 		return
 	}

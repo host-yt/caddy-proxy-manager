@@ -8,6 +8,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 type Service struct {
@@ -185,7 +187,7 @@ func (s *Service) AddMemberByEmail(ctx context.Context, groupID int64, email str
 		return false, err
 	}
 	_, err = db.ExecContext(ctx,
-		`INSERT IGNORE INTO access_group_members (group_id, user_id) VALUES (?, ?)`, groupID, uid)
+		store.InsertOrIgnore()+` INTO access_group_members (group_id, user_id) VALUES (?, ?)`, groupID, uid)
 	return err == nil, err
 }
 
@@ -244,7 +246,7 @@ func (s *Service) SetRouteGrants(ctx context.Context, routeID int64, groupIDs []
 			continue // skip groups the caller is not allowed to reference
 		}
 		if _, err := tx.ExecContext(ctx,
-			`INSERT IGNORE INTO route_access_grants (route_id, group_id) VALUES (?, ?)`, routeID, gid); err != nil {
+			store.InsertOrIgnore()+` INTO route_access_grants (route_id, group_id) VALUES (?, ?)`, routeID, gid); err != nil {
 			_ = tx.Rollback()
 			return err
 		}

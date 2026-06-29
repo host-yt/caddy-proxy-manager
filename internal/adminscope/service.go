@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 type Service struct {
@@ -101,7 +103,7 @@ func (s *Service) Assign(ctx context.Context, adminUserID, clientID int64) error
 		return nil
 	}
 	_, err := db.ExecContext(ctx,
-		`INSERT IGNORE INTO admin_client_scope (admin_user_id, client_id) VALUES (?, ?)`,
+		store.InsertOrIgnore()+` INTO admin_client_scope (admin_user_id, client_id) VALUES (?, ?)`,
 		adminUserID, clientID,
 	)
 	if err != nil {

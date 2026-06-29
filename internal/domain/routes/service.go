@@ -25,6 +25,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/dns"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // recoverBg logs and swallows a panic in a fire-and-forget goroutine.
@@ -655,7 +656,7 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 	if groupMode != "single" && len(allNodes) > 1 {
 		for _, n := range allNodes {
 			if _, err := tx.ExecContext(ctx,
-				"INSERT IGNORE INTO route_node_assignments (route_id, node_id) VALUES (?, ?)",
+				store.InsertOrIgnore()+" INTO route_node_assignments (route_id, node_id) VALUES (?, ?)",
 				routeID, n); err != nil {
 				return 0, fmt.Errorf("fan-out assign: %w", err)
 			}

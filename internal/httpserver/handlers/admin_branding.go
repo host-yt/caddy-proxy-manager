@@ -11,6 +11,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // Branding (panel logo / brand name / favicon / tagline) is stored in
@@ -190,10 +191,7 @@ func (h *AdminHandlers) BrandingSave(w http.ResponseWriter, r *http.Request) {
 		{"branding.error_logo_link", errLogoLink},
 		{"branding.error_bg_color", errBg},
 	} {
-		if _, err := db.ExecContext(ctx,
-			"INSERT INTO settings (`key`, value, is_encrypted) VALUES (?, ?, 0) "+
-				"ON DUPLICATE KEY UPDATE value = VALUES(value)",
-			kv.k, kv.v); err != nil {
+		if _, err := db.ExecContext(ctx, store.UpsertSettingSQL(), kv.k, kv.v, 0); err != nil {
 			h.Logger.Warn("branding save", "key", kv.k, "err", err)
 		}
 	}

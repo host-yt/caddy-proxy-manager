@@ -14,6 +14,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // OAuthIdentityHandlers manages the link/unlink UI for oauth_identities.
@@ -259,13 +260,13 @@ func (h *OAuthIdentityHandlers) LinkOIDC(w http.ResponseWriter, r *http.Request)
 // so a foreign link attempt cannot mutate the real owner's stored email before
 // the ownership check below rejects it (cross-account data corruption).
 func SaveIdentity(ctx context.Context, db *sql.DB, userID int64, provider, subject, email, issuer string) error {
-	res, err := db.ExecContext(ctx,
-		`INSERT INTO oauth_identities (user_id, provider, subject, email, issuer)
-		 VALUES (?, ?, ?, NULLIF(?, ''), ?)
-		 ON DUPLICATE KEY UPDATE
-		   email = IF(user_id = VALUES(user_id), COALESCE(VALUES(email), email), email)`,
-		userID, provider, subject, email, issuer,
-	)
+	var oauthIdentQ string
+	if store.Driver() == "sqlite3" {
+		oauthIdentQ = `INSERT INTO oauth_identities (user_id, provider, subject, email, issuer) VALUES (?, ?, ?, NULLIF(?, ''), ?) ON CONFLICT(provider, issuer, subject) DO UPDATE SET email=CASE WHEN user_id=excluded.user_id THEN COALESCE(excluded.email, email) ELSE email END`
+	} else {
+		oauthIdentQ = `INSERT INTO oauth_identities (user_id, provider, subject, email, issuer) VALUES (?, ?, ?, NULLIF(?, ''), ?) ON DUPLICATE KEY UPDATE email=IF(user_id=VALUES(user_id), COALESCE(VALUES(email), email), email)`
+	}
+	res, err := db.ExecContext(ctx, oauthIdentQ, userID, provider, subject, email, issuer)
 	if err != nil {
 		return err
 	}

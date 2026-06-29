@@ -14,6 +14,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // dnsProviderRow is the sanitized list shape: the encrypted api_token is
@@ -122,10 +123,13 @@ func (h *AdminHandlers) DNSProvidersCreate(w http.ResponseWriter, r *http.Reques
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	// Upsert on the unique zone so re-saving a zone rotates its credential.
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO dns_providers (name, provider, api_token_enc) VALUES (?, ?, ?)
-		 ON DUPLICATE KEY UPDATE provider = VALUES(provider), api_token_enc = VALUES(api_token_enc)`,
-		name, provider, enc); err != nil {
+	var dnsQ string
+	if store.Driver() == "sqlite3" {
+		dnsQ = `INSERT INTO dns_providers (name, provider, api_token_enc) VALUES (?, ?, ?) ON CONFLICT(name) DO UPDATE SET provider=excluded.provider, api_token_enc=excluded.api_token_enc`
+	} else {
+		dnsQ = `INSERT INTO dns_providers (name, provider, api_token_enc) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE provider=VALUES(provider), api_token_enc=VALUES(api_token_enc)`
+	}
+	if _, err := db.ExecContext(ctx, dnsQ, name, provider, enc); err != nil {
 		redirectWithFlash(w, r, page, "", "save failed: "+sanitizeErr(err))
 		return
 	}

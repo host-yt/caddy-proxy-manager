@@ -53,19 +53,28 @@ func (w *Wizard) DB() *sql.DB {
 	return w.db
 }
 
-// Connect (re)opens the DB pool using a saved DBState + decrypted password.
+// Connect (re)opens the DB pool using saved credentials.
 // Used at boot if state already has DB credentials.
 func (w *Wizard) Connect(ctx context.Context) error {
 	s := w.State.Get()
 	if s.DB == nil {
 		return errors.New("no DB credentials saved")
 	}
-	password, err := w.State.Decrypt(s.DB.PasswordCipher)
-	if err != nil {
-		return err
+	driver := s.DBDriver
+	if driver == "" {
+		driver = "mysql"
 	}
-	dsn := installstate.BuildDSN(*s.DB, password)
-	db, err := store.Open(ctx, dsn, 15*time.Second)
+	var dsn string
+	if driver == "sqlite3" {
+		dsn = installstate.BuildSQLiteDSN(s.DB.SQLitePath)
+	} else {
+		password, err := w.State.Decrypt(s.DB.PasswordCipher)
+		if err != nil {
+			return err
+		}
+		dsn = installstate.BuildDSN(*s.DB, password)
+	}
+	db, err := store.Open(ctx, driver, dsn, 15*time.Second)
 	if err != nil {
 		return err
 	}
@@ -163,9 +172,12 @@ func (w *Wizard) Index(rw http.ResponseWriter, r *http.Request) {
 	case installstate.StepProfile:
 		w.renderR(rw, r, step, w.view(step, profileViewData(s.Profile), ""))
 	case installstate.StepDB:
-		f := dbForm{Host: "mariadb", Port: 3306, Name: "hostyt_proxy", User: "hostyt"}
+		f := dbForm{Host: "mariadb", Port: 3306, Name: "hostyt_proxy", User: "hostyt", SQLitePath: "./data/hpg.db"}
 		if s.DB != nil {
-			f = dbForm{Host: s.DB.Host, Port: s.DB.Port, Name: s.DB.Name, User: s.DB.User, TLS: s.DB.TLS}
+			f = dbForm{Host: s.DB.Host, Port: s.DB.Port, Name: s.DB.Name, User: s.DB.User, TLS: s.DB.TLS, SQLitePath: s.DB.SQLitePath}
+			if f.SQLitePath == "" {
+				f.SQLitePath = "./data/hpg.db"
+			}
 		}
 		f = dbFormWithProfile(f, s.Profile)
 		w.renderR(rw, r, step, w.view(step, f, ""))
@@ -319,12 +331,13 @@ func (w *Wizard) ProfileSubmit(rw http.ResponseWriter, r *http.Request) {
 // --- POST /install/db -----------------------------------------------------
 
 type dbForm struct {
-	Host     string
-	Port     int
-	Name     string
-	User     string
-	Password string
-	TLS      bool
+	Host       string
+	Port       int
+	Name       string
+	User       string
+	Password   string
+	TLS        bool
+	SQLitePath string // used when db_driver=sqlite3
 	// Profile context surfaced to the template for recommendation display.
 	ProfileName  string
 	RecommendDB  string // sqlite|either|mysql
@@ -349,7 +362,6 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 	}
 	form = dbFormWithProfile(form, st.Profile)
 
-	// Defensive: provider profile hard-requires MySQL; SQLite is not wired anyway.
 	driver := r.FormValue("db_driver")
 	if driver == "" {
 		driver = "mysql"
@@ -360,6 +372,53 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse SQLite path from form.
+	form.SQLitePath = strings.TrimSpace(r.FormValue("sqlite_path"))
+	if form.SQLitePath == "" {
+		form.SQLitePath = "./data/hpg.db"
+	}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	if driver == "sqlite3" {
+		sqliteDSN := installstate.BuildSQLiteDSN(form.SQLitePath)
+		if err := store.Ping(ctx, "sqlite3", sqliteDSN); err != nil {
+			w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "SQLite open failed: "+sanitizeErr(err)))
+			return
+		}
+		pool, err := store.Open(ctx, "sqlite3", sqliteDSN, 10*time.Second)
+		if err != nil {
+			w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "SQLite pool open failed: "+sanitizeErr(err)))
+			return
+		}
+		if err := store.RunMigrations(ctx, pool, w.Migrations, w.MigDir); err != nil {
+			_ = pool.Close()
+			w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "Migrations failed: "+sanitizeErr(err)))
+			return
+		}
+		w.mu.Lock()
+		if w.db != nil {
+			_ = w.db.Close()
+		}
+		w.db = pool
+		w.mu.Unlock()
+		if w.OnDBReady != nil {
+			w.OnDBReady(pool)
+		}
+		s := w.State.Get()
+		s.DB = &installstate.DBState{SQLitePath: form.SQLitePath}
+		s.DBDriver = "sqlite3"
+		s.CurrentStep = installstate.StepAdmin
+		if err := w.State.Save(&s); err != nil {
+			w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "Save failed."))
+			return
+		}
+		w.redirectTo(rw, r, installstate.StepAdmin)
+		return
+	}
+
+	// MySQL path.
 	if form.Host == "" || form.Port == 0 || form.Name == "" || form.User == "" || form.Password == "" {
 		w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "All fields are required."))
 		return
@@ -371,9 +430,7 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 	}
 	dsn := installstate.BuildDSN(dbState, form.Password)
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-	if err := store.Ping(ctx, dsn); err != nil {
+	if err := store.Ping(ctx, "mysql", dsn); err != nil {
 		w.Logger.Warn("install: db ping failed", "host", form.Host, "err", err)
 		w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "Connection failed: "+sanitizeErr(err)))
 		return
@@ -387,7 +444,7 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 	dbState.PasswordCipher = pwCipher
 
 	// Open pool + run migrations.
-	pool, err := store.Open(ctx, dsn, 10*time.Second)
+	pool, err := store.Open(ctx, "mysql", dsn, 10*time.Second)
 	if err != nil {
 		w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "Pool open failed: "+sanitizeErr(err)))
 		return
@@ -413,7 +470,7 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 
 	s := w.State.Get()
 	s.DB = &dbState
-	s.DBDriver = driver // persist driver seam; always "mysql" for now
+	s.DBDriver = driver
 
 	// DR/migration: if the target DB already holds a finished installation
 	// (>=1 admin), hydrate state from it instead of forcing wizard re-entry.

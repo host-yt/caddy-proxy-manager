@@ -2,77 +2,132 @@
 <p class="t-eyebrow" style="margin-bottom:0.25rem;">Step 3</p>
 <h2 class="t-h2" style="margin-bottom:0.375rem;">Database</h2>
 <p class="t-small" style="color:rgb(var(--muted));margin-bottom:1rem;">
-  Local bundled <code>mariadb</code> or any external MariaDB/MySQL. We'll test
-  the connection and run migrations.
+  Choose where HPG stores its data. SQLite is zero-config for homelab; MySQL for production.
 </p>
 
 {{if .Form.ProfileName}}
 <div style="margin-bottom:1rem;padding:0.625rem 0.875rem;border-radius:0.5rem;background:rgb(var(--surface-2));border:1px solid rgb(var(--border));" class="t-small">
   <span style="font-weight:600;">Profile:</span>
   <span style="color:rgb(var(--muted));margin-left:0.25rem;text-transform:capitalize;">{{.Form.ProfileName}}</span>
+  {{if .Form.RecommendDB}}
   <span style="margin:0 0.5rem;color:rgb(var(--border));">&middot;</span>
-  <span style="font-weight:600;">Recommended DB:</span>
+  <span style="font-weight:600;">Recommended:</span>
   <span style="color:rgb(var(--muted));margin-left:0.25rem;">{{.Form.RecommendDB}}</span>
+  {{end}}
 </div>
 {{end}}
 
 {{if .Form.RequireMySQL}}
 <div style="margin-bottom:1rem;padding:0.625rem 0.875rem;border-radius:0.5rem;background:rgb(var(--warning) / .08);border:1px solid rgb(var(--warning) / .3);color:rgb(var(--warning));" class="t-small">
-  Provider mode requires MySQL/MariaDB. SQLite is not available for this profile.
+  Provider / Advanced profile requires MySQL/MariaDB.
 </div>
 {{end}}
 
-<div style="margin-bottom:1rem;">
-  <p class="t-caption" style="font-weight:600;margin-bottom:0.5rem;">Driver</p>
-  <div style="display:flex;flex-direction:column;gap:0.375rem;">
-    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;" class="t-small">
-      <input type="radio" name="db_driver" value="mysql" checked
-             style="accent-color:rgb(var(--accent));cursor:pointer;">
-      MySQL / MariaDB
-    </label>
-    <label style="display:flex;align-items:center;gap:0.5rem;cursor:not-allowed;opacity:.5;" class="t-small" title="SQLite support is not yet available">
-      <input type="radio" name="db_driver" value="sqlite" disabled
-             style="cursor:not-allowed;">
-      SQLite <span style="margin-left:0.25rem;font-style:italic;">(planned - not yet available)</span>
-    </label>
-  </div>
-</div>
-
 <form method="POST" action="/install/db" style="display:flex;flex-direction:column;gap:0.875rem;">
-  <input type="hidden" name="db_driver" value="mysql">
-  <div style="display:grid;grid-template-columns:2fr 1fr;gap:0.75rem;">
-    <div>
-      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Host</label>
-      <input name="host" value="{{.Form.Host}}" required class="r-input">
-    </div>
-    <div>
-      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Port</label>
-      <input name="port" value="{{.Form.Port}}" type="number" min="1" max="65535" required class="r-input" style="font-variant-numeric:tabular-nums;">
+  {{/* --- DB driver radio cards --- */}}
+  <div style="margin-bottom:0.5rem;">
+    <p class="t-caption" style="font-weight:600;margin-bottom:0.5rem;">Database engine</p>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.625rem;">
+      {{/* MySQL card */}}
+      <label id="card-mysql" data-card="mysql"
+             style="display:flex;flex-direction:column;gap:0.25rem;padding:0.875rem;border-radius:0.625rem;border:2px solid rgb(var(--accent));background:rgb(var(--surface-2));cursor:pointer;transition:border-color .15s,background .15s;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <input type="radio" name="db_driver" value="mysql" id="drv-mysql"
+                 {{if ne .Form.RecommendDB "sqlite"}}checked{{end}}
+                 style="accent-color:rgb(var(--accent));cursor:pointer;">
+          <span class="t-small" style="font-weight:600;">MySQL / MariaDB</span>
+        </div>
+        <span class="t-caption" style="color:rgb(var(--muted));margin-left:1.25rem;">External server &bull; Production</span>
+      </label>
+      {{/* SQLite card */}}
+      <label id="card-sqlite" data-card="sqlite3"
+             style="display:flex;flex-direction:column;gap:0.25rem;padding:0.875rem;border-radius:0.625rem;border:2px solid rgb(var(--border));background:rgb(var(--surface-2));{{if .Form.RequireMySQL}}opacity:.45;cursor:not-allowed;{{else}}cursor:pointer;{{end}}transition:border-color .15s,background .15s;">
+        <div style="display:flex;align-items:center;gap:0.5rem;">
+          <input type="radio" name="db_driver" value="sqlite3" id="drv-sqlite"
+                 {{if eq .Form.RecommendDB "sqlite"}}checked{{end}}
+                 {{if .Form.RequireMySQL}}disabled{{end}}
+                 style="accent-color:rgb(var(--accent));cursor:pointer;">
+          <span class="t-small" style="font-weight:600;">SQLite</span>
+        </div>
+        <span class="t-caption" style="color:rgb(var(--muted));margin-left:1.25rem;">Embedded &bull; Homelab / dev</span>
+      </label>
     </div>
   </div>
-  <div>
-    <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Database name</label>
-    <input name="name" value="{{.Form.Name}}" required class="r-input">
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">
-    <div>
-      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">User</label>
-      <input name="user" value="{{.Form.User}}" required class="r-input">
+
+  {{/* --- MySQL fields --- */}}
+  <div id="mysql-fields">
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+      <div>
+        <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Host</label>
+        <input name="host" value="{{.Form.Host}}" class="r-input">
+      </div>
+      <div>
+        <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Port</label>
+        <input name="port" value="{{.Form.Port}}" type="number" min="1" max="65535" class="r-input" style="font-variant-numeric:tabular-nums;">
+      </div>
     </div>
+    <div style="margin-bottom:0.75rem;">
+      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Database name</label>
+      <input name="name" value="{{.Form.Name}}" class="r-input">
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:0.75rem;">
+      <div>
+        <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">User</label>
+        <input name="user" value="{{.Form.User}}" class="r-input">
+      </div>
+      <div>
+        <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Password</label>
+        <input name="password" type="password" class="r-input">
+      </div>
+    </div>
+    <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;" class="t-small">
+      <input name="tls" type="checkbox" value="1" {{if .Form.TLS}}checked{{end}}
+             style="accent-color:rgb(var(--accent));">
+      Use TLS (for managed cloud DBs)
+    </label>
+  </div>
+
+  {{/* --- SQLite fields --- */}}
+  <div id="sqlite-fields" style="display:none;">
     <div>
-      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Password</label>
-      <input name="password" type="password" required class="r-input">
+      <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Data file path</label>
+      <input name="sqlite_path" value="{{if .Form.SQLitePath}}{{.Form.SQLitePath}}{{else}}./data/hpg.db{{end}}"
+             class="r-input" placeholder="./data/hpg.db">
+      <p class="t-caption" style="color:rgb(var(--muted));margin-top:0.25rem;">
+        Relative to the container working directory. The directory must be writable.
+      </p>
     </div>
   </div>
-  <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;" class="t-small">
-    <input name="tls" type="checkbox" value="1" {{if .Form.TLS}}checked{{end}}
-           style="accent-color:rgb(var(--accent));">
-    Use TLS to connect (for managed DBs)
-  </label>
+
   <div style="display:flex;justify-content:flex-end;padding-top:0.375rem;">
     <button class="r-btn-primary" type="submit" style="cursor:pointer;">
       Test &amp; run migrations &rarr;
     </button>
   </div>
 </form>
+
+<script nonce="{{.CSPNonce}}">
+(function() {
+  var drvMysql = document.getElementById('drv-mysql');
+  var drvSqlite = document.getElementById('drv-sqlite');
+  var mysqlFields = document.getElementById('mysql-fields');
+  var sqliteFields = document.getElementById('sqlite-fields');
+  var cardMysql = document.getElementById('card-mysql');
+  var cardSqlite = document.getElementById('card-sqlite');
+
+  function updateUI() {
+    var isSqlite = drvSqlite && drvSqlite.checked;
+    mysqlFields.style.display = isSqlite ? 'none' : '';
+    sqliteFields.style.display = isSqlite ? '' : 'none';
+    if (cardMysql) cardMysql.style.borderColor = isSqlite ? 'rgb(var(--border))' : 'rgb(var(--accent))';
+    if (cardSqlite) cardSqlite.style.borderColor = isSqlite ? 'rgb(var(--accent))' : 'rgb(var(--border))';
+  }
+
+  if (drvMysql) drvMysql.addEventListener('change', updateUI);
+  if (drvSqlite) drvSqlite.addEventListener('change', updateUI);
+
+  // Init: show correct fields based on initial radio state.
+  updateUI();
+})();
+</script>
 {{end}}

@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // mtlsRoleRow is one named role in the UI.
@@ -52,7 +53,7 @@ func (h *AdminHandlers) MTLSRoleCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, err = db.ExecContext(ctx,
-		"INSERT IGNORE INTO mtls_roles (ca_id, name) VALUES (?, ?)", caID, name)
+		store.InsertOrIgnore()+" INTO mtls_roles (ca_id, name) VALUES (?, ?)", caID, name)
 	if err != nil {
 		redirectWithFlash(w, r, page, "", "create role failed: "+sanitizeErr(err))
 		return
@@ -113,7 +114,7 @@ func (h *AdminHandlers) MTLSCertRoleAssign(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	_, err = db.ExecContext(ctx,
-		"INSERT IGNORE INTO mtls_cert_roles (cert_id, role_id) VALUES (?, ?)", certID, roleID)
+		store.InsertOrIgnore()+" INTO mtls_cert_roles (cert_id, role_id) VALUES (?, ?)", certID, roleID)
 	if err != nil {
 		redirectWithFlash(w, r, page, "", "assign role failed: "+sanitizeErr(err))
 		return

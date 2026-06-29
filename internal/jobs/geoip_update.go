@@ -9,6 +9,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 const geoipDefaultInterval = 24 * time.Hour
@@ -145,11 +146,13 @@ func (j *GeoIPUpdateJob) loadCreds(ctx context.Context, db *sql.DB) (accountID, 
 // writeMeta upserts the single geoip_db_meta row.
 func (j *GeoIPUpdateJob) writeMeta(ctx context.Context, db *sql.DB, sha string, size int) {
 	now := time.Now().UTC().Format("2006-01-02 15:04:05")
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO geoip_db_meta (id, sha256, size_bytes, fetched_at, source)
-		 VALUES (1, ?, ?, ?, 'maxmind')
-		 ON DUPLICATE KEY UPDATE sha256=VALUES(sha256), size_bytes=VALUES(size_bytes), fetched_at=VALUES(fetched_at)`,
-		sha, size, now); err != nil {
+	var geoQ string
+	if store.Driver() == "sqlite3" {
+		geoQ = `INSERT INTO geoip_db_meta (id, sha256, size_bytes, fetched_at, source) VALUES (1, ?, ?, ?, 'maxmind') ON CONFLICT(id) DO UPDATE SET sha256=excluded.sha256, size_bytes=excluded.size_bytes, fetched_at=excluded.fetched_at`
+	} else {
+		geoQ = `INSERT INTO geoip_db_meta (id, sha256, size_bytes, fetched_at, source) VALUES (1, ?, ?, ?, 'maxmind') ON DUPLICATE KEY UPDATE sha256=VALUES(sha256), size_bytes=VALUES(size_bytes), fetched_at=VALUES(fetched_at)`
+	}
+	if _, err := db.ExecContext(ctx, geoQ, sha, size, now); err != nil {
 		j.Logger.Warn("geoip: persist meta failed", "err", err)
 	}
 }
@@ -165,11 +168,13 @@ func (j *GeoIPUpdateJob) recordOutcome(ctx context.Context, db *sql.DB, err erro
 		}
 	}
 	now := time.Now().UTC().Format("2006-01-02 15:04:05")
-	if _, e := db.ExecContext(ctx,
-		`INSERT INTO geoip_db_meta (id, last_error, last_attempt_at)
-		 VALUES (1, ?, ?)
-		 ON DUPLICATE KEY UPDATE last_error=VALUES(last_error), last_attempt_at=VALUES(last_attempt_at)`,
-		msg, now); e != nil {
+	var outQ string
+	if store.Driver() == "sqlite3" {
+		outQ = `INSERT INTO geoip_db_meta (id, last_error, last_attempt_at) VALUES (1, ?, ?) ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error, last_attempt_at=excluded.last_attempt_at`
+	} else {
+		outQ = `INSERT INTO geoip_db_meta (id, last_error, last_attempt_at) VALUES (1, ?, ?) ON DUPLICATE KEY UPDATE last_error=VALUES(last_error), last_attempt_at=VALUES(last_attempt_at)`
+	}
+	if _, e := db.ExecContext(ctx, outQ, msg, now); e != nil {
 		j.Logger.Warn("geoip: persist outcome failed", "err", e)
 	}
 }

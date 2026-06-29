@@ -13,6 +13,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // TwoFARequired renders the "you must enroll 2FA" interstitial shown by the
@@ -94,7 +95,7 @@ func (h *AdminHandlers) AdminSMSOTPStart(w http.ResponseWriter, r *http.Request)
 	}
 	hash := auth.SMSOTPHash(code)
 	if _, err := db.ExecContext(ctx,
-		"UPDATE users SET sms_otp_pending_hash = ?, sms_otp_pending_exp = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE id = ?",
+		"UPDATE users SET sms_otp_pending_hash = ?, sms_otp_pending_exp = "+store.DateAddMinutes(5)+" WHERE id = ?",
 		hash, sess.UserID); err != nil {
 		redirectWithFlash(w, r, "/admin/2fa", "", "internal error")
 		return
@@ -220,7 +221,7 @@ func (h *AdminHandlers) AdminEmailOTPStart(w http.ResponseWriter, r *http.Reques
 	}
 	hash := auth.EmailOTPHash(code)
 	if _, err := db.ExecContext(ctx,
-		"UPDATE users SET email_otp_pending_hash = ?, email_otp_pending_exp = DATE_ADD(NOW(), INTERVAL 10 MINUTE) WHERE id = ?",
+		"UPDATE users SET email_otp_pending_hash = ?, email_otp_pending_exp = "+store.DateAddMinutes(10)+" WHERE id = ?",
 		hash, sess.UserID); err != nil {
 		redirectWithFlash(w, r, "/admin/2fa", "", "internal error")
 		return

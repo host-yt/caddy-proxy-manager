@@ -15,11 +15,12 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
 	"github.com/host-yt/caddy-proxy-manager/internal/backup"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 const drillDefaultInterval = 72 * time.Hour
@@ -53,10 +54,21 @@ func (j *BackupDrillJob) interval() time.Duration {
 // advisoryLockName is the MySQL advisory lock name used to serialize drills cluster-wide.
 const advisoryLockName = "hpg_restore_drill"
 
-// acquireAdvisoryLock tries to get a MySQL GET_LOCK on a dedicated connection.
-// Returns the conn (must be closed by caller) and true if the lock was acquired.
-// Returns nil, false if the lock is held elsewhere or on any error.
+// drillMu serializes restore drills on SQLite (single-process, no advisory lock available).
+var drillMu sync.Mutex
+
+// acquireAdvisoryLock tries to acquire a drill lock.
+// For SQLite: uses package mutex (returns conn=nil on success).
+// For MySQL: uses GET_LOCK on a dedicated connection.
+// Returns nil, false if the lock is held or on any error.
 func (j *BackupDrillJob) acquireAdvisoryLock(ctx context.Context) (*sql.Conn, bool) {
+	if store.Driver() == "sqlite3" {
+		if !drillMu.TryLock() {
+			j.Logger.Info("backup-drill: advisory lock already held, skipping run")
+			return nil, false
+		}
+		return nil, true // conn=nil signals SQLite path to releaseAdvisoryLock
+	}
 	db := j.DB()
 	if db == nil {
 		return nil, false
@@ -81,8 +93,15 @@ func (j *BackupDrillJob) acquireAdvisoryLock(ctx context.Context) (*sql.Conn, bo
 	return conn, true
 }
 
-// releaseAdvisoryLock releases the GET_LOCK on the provided connection and closes it.
+// releaseAdvisoryLock releases the drill lock.
+// For SQLite (conn==nil): releases the package mutex.
+// For MySQL: releases GET_LOCK and closes the connection.
 func (j *BackupDrillJob) releaseAdvisoryLock(conn *sql.Conn) {
+	if conn == nil {
+		// SQLite path: release package mutex.
+		drillMu.Unlock()
+		return
+	}
 	releaseCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if _, err := conn.ExecContext(releaseCtx, "SELECT RELEASE_LOCK(?)", advisoryLockName); err != nil {
@@ -421,11 +440,7 @@ func (j *BackupDrillJob) writeResult(ctx context.Context, status string) {
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	upsert := func(key, val string) {
-		if _, err := db.ExecContext(ctx,
-			"INSERT INTO settings (`key`, value, is_encrypted) VALUES (?, ?, 0) "+
-				"ON DUPLICATE KEY UPDATE value=VALUES(value)",
-			key, val,
-		); err != nil {
+		if _, err := db.ExecContext(ctx, store.UpsertSettingSQL(), key, val, 0); err != nil {
 			j.Logger.Warn("backup-drill: write setting", "key", key, "err", err)
 		}
 	}

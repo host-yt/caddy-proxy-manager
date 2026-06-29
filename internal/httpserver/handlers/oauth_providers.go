@@ -21,6 +21,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/oauth2x"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // oauth2StateTTL bounds how long a started social-login flow stays valid.
@@ -514,25 +515,26 @@ func (h *AdminHandlers) SettingsOAuthProvider(w http.ResponseWriter, r *http.Req
 	}
 
 	if secretVal.Valid {
-		_, err := db.ExecContext(ctx,
-			`INSERT INTO oauth_providers (provider, enabled, client_id, client_secret, is_encrypted, scopes, auto_provision, default_role)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-			 ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), client_id=VALUES(client_id),
-			   client_secret=VALUES(client_secret), is_encrypted=VALUES(is_encrypted),
-			   scopes=VALUES(scopes), auto_provision=VALUES(auto_provision), default_role=VALUES(default_role)`,
-			provider, enabledInt, clientID, secretVal.String, isEnc, scopes, autoInt, defaultRole)
+		var oauthQ string
+		if store.Driver() == "sqlite3" {
+			oauthQ = `INSERT INTO oauth_providers (provider, enabled, client_id, client_secret, is_encrypted, scopes, auto_provision, default_role) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(provider) DO UPDATE SET enabled=excluded.enabled, client_id=excluded.client_id, client_secret=excluded.client_secret, is_encrypted=excluded.is_encrypted, scopes=excluded.scopes, auto_provision=excluded.auto_provision, default_role=excluded.default_role`
+		} else {
+			oauthQ = `INSERT INTO oauth_providers (provider, enabled, client_id, client_secret, is_encrypted, scopes, auto_provision, default_role) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), client_id=VALUES(client_id), client_secret=VALUES(client_secret), is_encrypted=VALUES(is_encrypted), scopes=VALUES(scopes), auto_provision=VALUES(auto_provision), default_role=VALUES(default_role)`
+		}
+		_, err := db.ExecContext(ctx, oauthQ, provider, enabledInt, clientID, secretVal.String, isEnc, scopes, autoInt, defaultRole)
 		if err != nil {
 			redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
 			return
 		}
 	} else {
 		// No secret change: leave client_secret/is_encrypted as-is.
-		_, err := db.ExecContext(ctx,
-			`INSERT INTO oauth_providers (provider, enabled, client_id, scopes, auto_provision, default_role)
-			 VALUES (?, ?, ?, ?, ?, ?)
-			 ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), client_id=VALUES(client_id),
-			   scopes=VALUES(scopes), auto_provision=VALUES(auto_provision), default_role=VALUES(default_role)`,
-			provider, enabledInt, clientID, scopes, autoInt, defaultRole)
+		var oauthQ string
+		if store.Driver() == "sqlite3" {
+			oauthQ = `INSERT INTO oauth_providers (provider, enabled, client_id, scopes, auto_provision, default_role) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(provider) DO UPDATE SET enabled=excluded.enabled, client_id=excluded.client_id, scopes=excluded.scopes, auto_provision=excluded.auto_provision, default_role=excluded.default_role`
+		} else {
+			oauthQ = `INSERT INTO oauth_providers (provider, enabled, client_id, scopes, auto_provision, default_role) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE enabled=VALUES(enabled), client_id=VALUES(client_id), scopes=VALUES(scopes), auto_provision=VALUES(auto_provision), default_role=VALUES(default_role)`
+		}
+		_, err := db.ExecContext(ctx, oauthQ, provider, enabledInt, clientID, scopes, autoInt, defaultRole)
 		if err != nil {
 			redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
 			return

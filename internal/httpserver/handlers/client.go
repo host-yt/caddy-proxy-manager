@@ -30,6 +30,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/mail"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
@@ -1086,7 +1087,7 @@ func (h *ClientHandlers) TwoFAStart(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if _, err := db.ExecContext(ctx,
-		"UPDATE users SET totp_pending_secret = ?, totp_pending_exp = DATE_ADD(NOW(), INTERVAL 10 MINUTE), totp_pending_attempts = 0 WHERE id = ?",
+		"UPDATE users SET totp_pending_secret = ?, totp_pending_exp = "+store.DateAddMinutes(10)+", totp_pending_attempts = 0 WHERE id = ?",
 		stash, sess.UserID,
 	); err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
@@ -1278,7 +1279,7 @@ func (h *ClientHandlers) SMSOTPStart(w http.ResponseWriter, r *http.Request) {
 	// Store hash + expiry directly in DB (avoids redis dependency in ClientHandlers).
 	hash := auth.SMSOTPHash(code)
 	_, err = db.ExecContext(ctx,
-		"UPDATE users SET sms_otp_pending_hash = ?, sms_otp_pending_exp = DATE_ADD(NOW(), INTERVAL 5 MINUTE) WHERE id = ?",
+		"UPDATE users SET sms_otp_pending_hash = ?, sms_otp_pending_exp = "+store.DateAddMinutes(5)+" WHERE id = ?",
 		hash, sess.UserID)
 	if err != nil {
 		redirectWithFlash(w, r, "/app/2fa", "", "Internal error.")
@@ -1437,7 +1438,7 @@ func (h *ClientHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if expiresDays > 0 {
 		_, _ = db.ExecContext(ctx,
-			"UPDATE api_keys SET expires_at = (NOW() + INTERVAL ? DAY) WHERE id = ?",
+			"UPDATE api_keys SET expires_at = ("+store.DateAddDaysParam()+") WHERE id = ?",
 			expiresDays, id)
 	}
 	uid := sess.UserID

@@ -21,6 +21,7 @@ import (
 	"golang.org/x/crypto/curve25519"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // Keypair is a base64-encoded WireGuard keypair.
@@ -170,9 +171,7 @@ func (s *Service) EnsureKeypair(ctx context.Context) (ControlPlane, error) {
 		"wireguard.private_key": {encPriv, 1},
 	}
 	for k, val := range upserts {
-		if _, err := db.ExecContext(ctx,
-			"INSERT INTO settings (`key`, value, is_encrypted) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE value=VALUES(value), is_encrypted=VALUES(is_encrypted)",
-			k, val.v, val.enc); err != nil {
+		if _, err := db.ExecContext(ctx, store.UpsertSettingSQL(), k, val.v, val.enc); err != nil {
 			return c, err
 		}
 	}

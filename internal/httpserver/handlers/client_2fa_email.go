@@ -11,6 +11,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // EmailOTPStart sends an enrollment code to the customer's email.
@@ -43,7 +44,7 @@ func (h *ClientHandlers) EmailOTPStart(w http.ResponseWriter, r *http.Request) {
 	}
 	hash := auth.EmailOTPHash(code)
 	if _, err := db.ExecContext(ctx,
-		"UPDATE users SET email_otp_pending_hash = ?, email_otp_pending_exp = DATE_ADD(NOW(), INTERVAL 10 MINUTE) WHERE id = ?",
+		"UPDATE users SET email_otp_pending_hash = ?, email_otp_pending_exp = "+store.DateAddMinutes(10)+" WHERE id = ?",
 		hash, sess.UserID); err != nil {
 		redirectWithFlash(w, r, "/app/2fa", "", "internal error")
 		return

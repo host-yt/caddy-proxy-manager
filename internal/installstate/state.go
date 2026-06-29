@@ -53,6 +53,7 @@ type DBState struct {
 	User           string `json:"user"`
 	PasswordCipher string `json:"password_cipher"` // AES-GCM encrypted
 	TLS            bool   `json:"tls"`
+	SQLitePath     string `json:"sqlite_path,omitempty"`
 }
 
 type AdminState struct {

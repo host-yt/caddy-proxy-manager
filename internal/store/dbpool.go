@@ -7,25 +7,44 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	_ "modernc.org/sqlite"
 )
 
-// Open opens a MySQL/MariaDB pool with sensible defaults and pings until
+// sqlDriverName maps our driver name to the sql.Open driver name.
+func sqlDriverName(driver string) string {
+	if driver == "sqlite3" {
+		// modernc.org/sqlite registers as "sqlite".
+		return "sqlite"
+	}
+	return "mysql"
+}
+
+// Open opens a DB pool for the given driver with sensible defaults and pings until
 // timeout. Returns the *sql.DB ready to use.
-func Open(ctx context.Context, dsn string, timeout time.Duration) (*sql.DB, error) {
-	db, err := sql.Open("mysql", dsn)
+func Open(ctx context.Context, driver, dsn string, timeout time.Duration) (*sql.DB, error) {
+	db, err := sql.Open(sqlDriverName(driver), dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sql open: %w", err)
 	}
-	// Sized for: 6 leader-only background workers + burst logins (each may
-	// hold a conn through an Argon2 verify) + concurrent admin/client page
-	// loads + Prometheus gauge callbacks. 25 saturated under modest login
-	// bursts and starved the background sweeps (they appeared hung).
-	db.SetMaxOpenConns(50)
-	db.SetMaxIdleConns(15)
-	// Shorter lifetime detects stale conns (failovered DB, restarted proxy)
-	// faster and recycles idle ones sooner.
-	db.SetConnMaxLifetime(15 * time.Minute)
-	db.SetConnMaxIdleTime(3 * time.Minute)
+
+	if driver == "sqlite3" {
+		// SQLite is single-writer; one open conn avoids SQLITE_BUSY races.
+		db.SetMaxOpenConns(1)
+		db.SetMaxIdleConns(1)
+	} else {
+		// Sized for: 6 leader-only background workers + burst logins (each may
+		// hold a conn through an Argon2 verify) + concurrent admin/client page
+		// loads + Prometheus gauge callbacks. 25 saturated under modest login
+		// bursts and starved the background sweeps (they appeared hung).
+		db.SetMaxOpenConns(50)
+		db.SetMaxIdleConns(15)
+		// Shorter lifetime detects stale conns (failovered DB, restarted proxy)
+		// faster and recycles idle ones sooner.
+		db.SetConnMaxLifetime(15 * time.Minute)
+		db.SetConnMaxIdleTime(3 * time.Minute)
+	}
+
+	SetDriver(driver)
 
 	pingCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
@@ -45,8 +64,8 @@ func Open(ctx context.Context, dsn string, timeout time.Duration) (*sql.DB, erro
 
 // Ping is a one-shot connectivity test without holding the pool.
 // Used by the install wizard to validate a DSN before saving.
-func Ping(ctx context.Context, dsn string) error {
-	db, err := sql.Open("mysql", dsn)
+func Ping(ctx context.Context, driver, dsn string) error {
+	db, err := sql.Open(sqlDriverName(driver), dsn)
 	if err != nil {
 		return fmt.Errorf("sql open: %w", err)
 	}

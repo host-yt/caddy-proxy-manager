@@ -48,6 +48,7 @@ import (
 	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 	"github.com/host-yt/caddy-proxy-manager/internal/webhook"
@@ -1404,9 +1405,7 @@ func (h *AdminHandlers) NodesRekey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	key := fmt.Sprintf("wireguard.pending_privkey.node_%d", id)
-	_, _ = db.ExecContext(ctx,
-		"INSERT INTO settings (`key`, value, is_encrypted) VALUES (?, ?, 1) ON DUPLICATE KEY UPDATE value=VALUES(value), is_encrypted=1",
-		key, enc)
+	_, _ = db.ExecContext(ctx, store.UpsertSettingSQL(), key, enc, 1)
 	if h.WriteWGConfig != nil {
 		_ = h.WriteWGConfig(ctx)
 	}
@@ -4045,9 +4044,7 @@ func (h *AdminHandlers) SettingsAlert(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	upsert := func(key, val string) {
-		_, _ = db.ExecContext(ctx,
-			"INSERT INTO settings (`key`,value) VALUES (?,?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
-			key, val)
+		_, _ = db.ExecContext(ctx, store.UpsertSettingSQL(), key, val, 0)
 	}
 
 	nodeOfflineMin, err1 := strconv.Atoi(strings.TrimSpace(r.FormValue("node_offline_min")))
@@ -4252,10 +4249,7 @@ func (h *AdminHandlers) saveSettings(ctx context.Context, db *sql.DB, kv map[str
 		encFlag = 1
 	}
 	for k, v := range kv {
-		_, err := db.ExecContext(ctx,
-			"INSERT INTO settings (`key`, value, is_encrypted) VALUES (?, ?, ?) "+
-				"ON DUPLICATE KEY UPDATE value = VALUES(value), is_encrypted = VALUES(is_encrypted)",
-			k, v, encFlag)
+		_, err := db.ExecContext(ctx, store.UpsertSettingSQL(), k, v, encFlag)
 		if err != nil {
 			return err
 		}
@@ -5313,9 +5307,7 @@ func (h *AdminHandlers) SettingsBanner(w http.ResponseWriter, r *http.Request) {
 		btype = "info"
 	}
 	upsert := func(key, val string) {
-		_, _ = db.ExecContext(ctx,
-			"INSERT INTO settings (`key`,value) VALUES (?,?) ON DUPLICATE KEY UPDATE value=VALUES(value)",
-			key, val)
+		_, _ = db.ExecContext(ctx, store.UpsertSettingSQL(), key, val, 0)
 	}
 	upsert("system.banner_text", text)
 	upsert("system.banner_type", btype)

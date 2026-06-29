@@ -52,8 +52,11 @@ type DBConfig struct {
 	Password string
 	TLS      bool
 	DSN      string // optional override
-	// Driver is the database driver seam; only "mysql" is active today.
+	// Driver is the database driver: "mysql" or "sqlite3".
 	Driver string
+	// SQLitePath is the file path for the SQLite database (driver=sqlite3).
+	// Env: DB_SQLITE_PATH. Default: ./data/hpg.db
+	SQLitePath string
 }
 
 type RedisConfig struct {
@@ -167,14 +170,15 @@ func Load() (*Config, error) {
 			Token:     os.Getenv("INSTALL_TOKEN"),
 		},
 		DB: DBConfig{
-			Host:     envOr("DB_HOST", "mariadb"),
-			Port:     envInt("DB_PORT", 3306),
-			Name:     envOr("DB_NAME", "hostyt_proxy"),
-			User:     os.Getenv("DB_USER"),
-			Password: os.Getenv("DB_PASSWORD"),
-			TLS:      envBool("DB_TLS", false),
-			DSN:      os.Getenv("DB_DSN"),
-			Driver:   envOr("DB_DRIVER", "mysql"),
+			Host:       envOr("DB_HOST", "mariadb"),
+			Port:       envInt("DB_PORT", 3306),
+			Name:       envOr("DB_NAME", "hostyt_proxy"),
+			User:       os.Getenv("DB_USER"),
+			Password:   os.Getenv("DB_PASSWORD"),
+			TLS:        envBool("DB_TLS", false),
+			DSN:        os.Getenv("DB_DSN"),
+			Driver:     envOr("DB_DRIVER", "mysql"),
+			SQLitePath: envOr("DB_SQLITE_PATH", "./data/hpg.db"),
 		},
 		Redis: RedisConfig{
 			Addr:     envOr("REDIS_ADDR", "redis:6379"),
@@ -244,7 +248,7 @@ func (c *Config) validate() error {
 	if c.App.URL == "" {
 		return errors.New("APP_URL is required")
 	}
-	if c.Install.Installed {
+	if c.Install.Installed && c.DB.Driver != "sqlite3" {
 		if c.DB.DSN == "" && (c.DB.User == "" || c.DB.Password == "") {
 			return errors.New("DB credentials missing (DB_USER/DB_PASSWORD or DB_DSN)")
 		}
@@ -263,6 +267,16 @@ func (d DBConfig) BuildDSN() string {
 	}
 	return fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC&charset=utf8mb4%s",
 		d.User, d.Password, d.Host, d.Port, d.Name, tls)
+}
+
+// BuildSQLiteDSN returns the modernc.org/sqlite DSN for the configured path.
+func (d DBConfig) BuildSQLiteDSN() string {
+	path := d.SQLitePath
+	if path == "" {
+		path = "./data/hpg.db"
+	}
+	// WAL mode for better concurrent reads; foreign_keys on; busy_timeout for write lock.
+	return "file:" + path + "?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000"
 }
 
 // --- helpers --------------------------------------------------------------

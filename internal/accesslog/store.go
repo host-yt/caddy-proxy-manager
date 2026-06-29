@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 const defaultMaxPerRoute = 500
@@ -94,18 +96,15 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 		e5xx = 1
 	}
 	bucket := e.TS.UTC().Truncate(time.Hour)
-	_, _ = db.ExecContext(ctx,
-		`INSERT INTO log_rollups
-		     (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp,bytes_req)
-		 VALUES (?,?,1,?,?,?,?,?,?)
-		 ON DUPLICATE KEY UPDATE
-		     requests=requests+1,
-		     errors_4xx=errors_4xx+VALUES(errors_4xx),
-		     errors_5xx=errors_5xx+VALUES(errors_5xx),
-		     latency_sum_ms=latency_sum_ms+VALUES(latency_sum_ms),
-		     latency_max_ms=GREATEST(latency_max_ms,VALUES(latency_max_ms)),
-		     bytes_resp=bytes_resp+VALUES(bytes_resp),
-		     bytes_req=bytes_req+VALUES(bytes_req)`,
+	var rollupQ string
+	if store.Driver() == "sqlite3" {
+		rollupQ = `INSERT INTO log_rollups (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp,bytes_req) VALUES (?,?,1,?,?,?,?,?,?)
+ ON CONFLICT(route_id,bucket_start) DO UPDATE SET requests=requests+1,errors_4xx=errors_4xx+excluded.errors_4xx,errors_5xx=errors_5xx+excluded.errors_5xx,latency_sum_ms=latency_sum_ms+excluded.latency_sum_ms,latency_max_ms=MAX(latency_max_ms,excluded.latency_max_ms),bytes_resp=bytes_resp+excluded.bytes_resp,bytes_req=bytes_req+excluded.bytes_req`
+	} else {
+		rollupQ = `INSERT INTO log_rollups (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp,bytes_req) VALUES (?,?,1,?,?,?,?,?,?)
+ ON DUPLICATE KEY UPDATE requests=requests+1,errors_4xx=errors_4xx+VALUES(errors_4xx),errors_5xx=errors_5xx+VALUES(errors_5xx),latency_sum_ms=latency_sum_ms+VALUES(latency_sum_ms),latency_max_ms=GREATEST(latency_max_ms,VALUES(latency_max_ms)),bytes_resp=bytes_resp+VALUES(bytes_resp),bytes_req=bytes_req+VALUES(bytes_req)`
+	}
+	_, _ = db.ExecContext(ctx, rollupQ,
 		e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS, e.BytesResp, e.BytesReq,
 	)
 	return nil

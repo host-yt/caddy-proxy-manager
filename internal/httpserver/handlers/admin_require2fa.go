@@ -7,6 +7,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // SettingsRequire2FA handles POST /admin/settings/require-2fa.
@@ -25,9 +26,7 @@ func (h *AdminHandlers) SettingsRequire2FA(w http.ResponseWriter, r *http.Reques
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	if _, err := db.ExecContext(ctx,
-		"INSERT INTO settings (`key`, value) VALUES ('security.require_admin_2fa', ?) "+
-			"ON DUPLICATE KEY UPDATE value = VALUES(value)", val); err != nil {
+	if _, err := db.ExecContext(ctx, store.UpsertSettingSQL(), "security.require_admin_2fa", val, 0); err != nil {
 		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
 		return
 	}

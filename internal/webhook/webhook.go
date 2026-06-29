@@ -29,6 +29,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // Event types the panel emits.
@@ -238,10 +239,10 @@ func (s *Service) markFail(ctx context.Context, deliveryID int64, attempts, http
 		backoff = time.Minute
 	}
 	_, _ = db.ExecContext(ctx,
-		`UPDATE webhook_deliveries
-		 SET status='pending', attempts=?, http_code=?, last_error=?,
-		     next_retry_at = NOW() + INTERVAL ? SECOND
-		 WHERE id = ?`,
+		"UPDATE webhook_deliveries"+
+			" SET status='pending', attempts=?, http_code=?, last_error=?,"+
+			"     next_retry_at = "+store.DateAddSecondsParam()+
+			" WHERE id = ?",
 		nextAttempts, httpCode, truncateErr(msg), int(backoff.Seconds()), deliveryID)
 }
 
@@ -278,12 +279,13 @@ func (s *Service) SaveEndpoint(ctx context.Context, name, urlStr, secret, events
 	if enabled {
 		enabledInt = 1
 	}
-	res, err := db.ExecContext(ctx,
-		`INSERT INTO webhook_endpoints (name, url, secret_enc, events, is_enabled, created_by)
-		 VALUES (?, ?, ?, ?, ?, ?)
-		 ON DUPLICATE KEY UPDATE url=VALUES(url), secret_enc=VALUES(secret_enc),
-		   events=VALUES(events), is_enabled=VALUES(is_enabled)`,
-		name, urlStr, secretEnc, events, enabledInt, createdByVal)
+	var whQ string
+	if store.Driver() == "sqlite3" {
+		whQ = `INSERT INTO webhook_endpoints (name, url, secret_enc, events, is_enabled, created_by) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT(name) DO UPDATE SET url=excluded.url, secret_enc=excluded.secret_enc, events=excluded.events, is_enabled=excluded.is_enabled`
+	} else {
+		whQ = `INSERT INTO webhook_endpoints (name, url, secret_enc, events, is_enabled, created_by) VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE url=VALUES(url), secret_enc=VALUES(secret_enc), events=VALUES(events), is_enabled=VALUES(is_enabled)`
+	}
+	res, err := db.ExecContext(ctx, whQ, name, urlStr, secretEnc, events, enabledInt, createdByVal)
 	if err != nil {
 		return 0, err
 	}
