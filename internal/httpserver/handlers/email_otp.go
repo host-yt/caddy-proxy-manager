@@ -10,10 +10,10 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
-// otpLogoURL is the default Hostyt logo used in OTP emails. Overridden by
-// branding.email_logo_url setting when present. Black on transparent - the
-// template inverts on dark mode via CSS filter.
-const otpLogoURL = "https://files.example.com/graphics/logos/hostyt_logo_black.svg"
+// otpLogoURL is the default logo for OTP emails. Empty by default (the template
+// then falls back to the brand name as text); set a real URL via the
+// branding.LogoURLDark / email_logo_url setting to show a logo image.
+const otpLogoURL = ""
 
 // sendOTPEmail renders + sends the otp_code template. `purpose` is the H1
 // (e.g. "Sign-in verification code"); `intro` is one sentence shown above
