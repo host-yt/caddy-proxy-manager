@@ -792,12 +792,12 @@ func (w *Wizard) CaddySubmit(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// approved_at = NOW(): operator entered node manually in wizard, so trust it
+	// approved_at bound as param: operator entered node manually in wizard, so trust it
 	// (vs auto-join flow which leaves approved_at NULL until explicit Approve).
 	res, err := w.DB().ExecContext(ctx,
 		`INSERT INTO caddy_nodes (name, api_url, public_hostname, public_ip, node_group_id, max_routes, is_enabled, health_status, approved_at)
-		 VALUES (?, ?, ?, ?, ?, 1000, 1, 'unknown', NOW())`,
-		form.Name, form.APIURL, form.PublicHostname, form.PublicIP, groupID,
+		 VALUES (?, ?, ?, ?, ?, 1000, 1, 'unknown', ?)`,
+		form.Name, form.APIURL, form.PublicHostname, form.PublicIP, groupID, time.Now().UTC(),
 	)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {

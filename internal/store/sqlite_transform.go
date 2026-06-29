@@ -12,6 +12,9 @@ func TransformForSQLite(input string) string {
 	if containsProcedure(input) {
 		input = unwrapProcedures(input)
 	}
+	// Strip precision args: DATETIME(3) → DATETIME, CURRENT_TIMESTAMP(3) → CURRENT_TIMESTAMP.
+	input = reDatetimePrecision.ReplaceAllString(input, "$1")
+	input = reCurrentTimestampPrec.ReplaceAllString(input, "CURRENT_TIMESTAMP")
 	// Convert inline CREATE TABLE indexes.
 	input = convertCreateTableIndexes(input)
 	// Strip MySQL table options from CREATE TABLE endings.
@@ -35,8 +38,11 @@ func TransformForSQLite(input string) string {
 }
 
 var (
-	reOnUpdate = regexp.MustCompile(`(?i)\s+ON\s+UPDATE\s+CURRENT_TIMESTAMP`)
-	reEnum     = regexp.MustCompile(`(?i)ENUM\s*\([^)]+\)`)
+	reOnUpdate              = regexp.MustCompile(`(?i)\s+ON\s+UPDATE\s+CURRENT_TIMESTAMP`)
+	reEnum                  = regexp.MustCompile(`(?i)ENUM\s*\([^)]+\)`)
+	// SQLite doesn't support precision args: DATETIME(3) → DATETIME, CURRENT_TIMESTAMP(3) → CURRENT_TIMESTAMP.
+	reDatetimePrecision     = regexp.MustCompile(`(?i)\b(DATETIME|TIMESTAMP|TIME|DATE)\s*\(\d+\)`)
+	reCurrentTimestampPrec  = regexp.MustCompile(`(?i)\bCURRENT_TIMESTAMP\s*\(\d+\)`)
 )
 
 // containsProcedure returns true if the SQL contains a stored procedure.
@@ -266,11 +272,13 @@ func convertValuesToExcluded(updateClause string) string {
 }
 
 var (
-	// reAutoPK matches MySQL integer PK columns with AUTO_INCREMENT.
-	reAutoPK = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)\s+UNSIGNED\s+AUTO_INCREMENT\s+(PRIMARY\s+KEY)`)
-	reAutoPK2 = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)\s+AUTO_INCREMENT\s+(PRIMARY\s+KEY)`)
-	reUnsigned    = regexp.MustCompile(`(?i)\s+UNSIGNED\b`)
-	reAutoInc     = regexp.MustCompile(`(?i)\s+AUTO_INCREMENT\b`)
+	// reAutoPK matches inline AUTO_INCREMENT PRIMARY KEY in various forms.
+	reAutoPK        = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)(?:\s+UNSIGNED)?(?:\s+NOT\s+NULL)?\s+AUTO_INCREMENT\s+(PRIMARY\s+KEY)`)
+	reAutoPK2       = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)\s+AUTO_INCREMENT\s+(PRIMARY\s+KEY)`)
+	reAutoPKReversed = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)(?:\s+UNSIGNED)?\s+(PRIMARY\s+KEY)\s+AUTO_INCREMENT`)
+	reColName       = regexp.MustCompile(`^\s*\x60?(\w+)\x60?\s+`)
+	reUnsigned      = regexp.MustCompile(`(?i)\s+UNSIGNED\b`)
+	reAutoInc       = regexp.MustCompile(`(?i)\s+AUTO_INCREMENT\b`)
 	reAlterStmt   = regexp.MustCompile(`(?is)ALTER\s+TABLE\s+(\x60?\w+\x60?)\s+(.*?);`)
 	reAddUniqueKey = regexp.MustCompile(`(?i)ADD\s+UNIQUE\s+(?:KEY|INDEX)\s+(\x60?\w+\x60?)\s*\(([^)]+)\)`)
 	reAddKey       = regexp.MustCompile(`(?i)ADD\s+(?:KEY|INDEX)\s+(\x60?\w+\x60?)\s*\(([^)]+)\)`)
@@ -281,11 +289,64 @@ var (
 // fixAutoIncrementPK converts MySQL AUTO_INCREMENT primary keys to SQLite INTEGER PRIMARY KEY
 // and strips UNSIGNED from all column definitions.
 func fixAutoIncrementPK(input string) string {
+	// Inline: TYPE [UNSIGNED] [NOT NULL] AUTO_INCREMENT PRIMARY KEY.
 	input = reAutoPK.ReplaceAllString(input, "INTEGER $1")
 	input = reAutoPK2.ReplaceAllString(input, "INTEGER $1")
+	// Reversed: TYPE [UNSIGNED] PRIMARY KEY AUTO_INCREMENT (some migrations swap order).
+	input = reAutoPKReversed.ReplaceAllString(input, "INTEGER $1")
+	// Table-level: col ... AUTO_INCREMENT + separate PRIMARY KEY (col) constraint.
+	input = fixTableLevelAutoIncrementPK(input)
 	input = reUnsigned.ReplaceAllString(input, "")
 	input = reAutoInc.ReplaceAllString(input, "")
 	return input
+}
+
+// fixTableLevelAutoIncrementPK handles CREATE TABLE blocks where a column has
+// AUTO_INCREMENT but PRIMARY KEY is a separate table constraint.
+// Converts `id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT, ... PRIMARY KEY (id)`
+// to `id INTEGER PRIMARY KEY, ...` (no separate PK constraint).
+func fixTableLevelAutoIncrementPK(input string) string {
+	return reCreateTable.ReplaceAllStringFunc(input, func(m string) string {
+		sub := reCreateTable.FindStringSubmatch(m)
+		if sub == nil {
+			return m
+		}
+		body := sub[2]
+
+		// Find any AUTO_INCREMENT column that does NOT have an inline PRIMARY KEY.
+		lines := strings.Split(body, "\n")
+		autoIncCol := ""
+		for _, line := range lines {
+			upper := strings.ToUpper(strings.TrimSpace(line))
+			if !strings.Contains(upper, "AUTO_INCREMENT") || strings.Contains(upper, "PRIMARY KEY") {
+				continue
+			}
+			if nm := reColName.FindStringSubmatch(line); nm != nil {
+				autoIncCol = nm[1]
+				break
+			}
+		}
+		if autoIncCol == "" {
+			return m
+		}
+
+		// Verify there is a separate PRIMARY KEY (col) constraint.
+		reSepPK := regexp.MustCompile(`(?i)\bPRIMARY\s+KEY\s*\(\s*\x60?` + regexp.QuoteMeta(autoIncCol) + `\x60?\s*\)`)
+		if !reSepPK.MatchString(m) {
+			return m
+		}
+
+		// Rewrite the AUTO_INCREMENT column: TYPE ... AUTO_INCREMENT → INTEGER PRIMARY KEY.
+		// Use ${1} not $1 to avoid Go treating "$1INTEGER" as group name "1INTEGER".
+		reColDef := regexp.MustCompile(`(?i)\x60?` + regexp.QuoteMeta(autoIncCol) + `\x60?(\s+)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)(?:\s+UNSIGNED)?(?:\s+NOT\s+NULL|\s+NULL)?\s+AUTO_INCREMENT\b`)
+		m = reColDef.ReplaceAllString(m, autoIncCol+"${1}INTEGER PRIMARY KEY")
+
+		// Remove separate PRIMARY KEY (col) constraint, including preceding comma+newline.
+		reRemovePK := regexp.MustCompile(`(?i),?\s*\n\s*PRIMARY\s+KEY\s*\(\s*\x60?` + regexp.QuoteMeta(autoIncCol) + `\x60?\s*\)\s*,?`)
+		m = reRemovePK.ReplaceAllString(m, "")
+
+		return m
+	})
 }
 
 // fixAlterTable rewrites MySQL ALTER TABLE statements for SQLite compatibility:
