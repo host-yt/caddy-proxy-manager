@@ -71,6 +71,32 @@ globally or per-route in `waf_rule_suppressions` (Admin → Security → WAF Sup
 
 Export: the WAF Events page has an "Export CSV" button.
 
+### Event forwarding (how events reach the panel)
+
+Coraza writes a JSON audit log on each node (`/var/log/caddy/waf-audit.log`). The
+`hpg-node-agent` sidecar tails it and POSTs new lines to `/api/node/waf/events`.
+The agent records its read position in a `.hpgpos` sidecar so a restart resumes
+instead of re-shipping the whole log.
+
+Relevant node-agent environment variables:
+
+| Variable | Purpose |
+|----------|---------|
+| `HPG_CADDY_WAF_AUDIT_LOG` | Path to the Coraza audit log to tail (e.g. `/var/log/caddy/waf-audit.log`). Empty disables WAF forwarding. |
+| `HPG_CADDY_ACCESS_LOG` | Same, for the access log forwarded to `/internal/access-log`. |
+| `HPG_AGENT_STATE_DIR` | Writable dir for the read-offset sidecars. **Required** when the log volume is mounted read-only (the default) - otherwise the offset cannot persist and every restart replays the log. |
+| `HPG_FORWARD_TAIL_ONLY` | `1` = on first run skip the existing backlog and forward only new lines. Default forwards the backlog once. |
+
+The panel ingest is idempotent: a `waf_seen_events` ledger fingerprints every
+event it has stored, so a replayed line is dropped rather than duplicated.
+**"Clear events" never touches that ledger**, so cleared events stay cleared even
+if a node re-ships its log; genuinely new attacks (a new fingerprint) still
+appear. The ledger is capped to its newest 100k entries and pruned automatically.
+
+> If cleared events keep reappearing, the node-agent cannot persist its read
+> offset (read-only log volume + no `HPG_AGENT_STATE_DIR`). Set the env to a
+> writable volume and redeploy the agent. See `docs/MULTI_NODE.md` troubleshooting.
+
 ## Limitations
 
 - Requires a non-stock Caddy build on every fleet node; deploying it to a mixed fleet

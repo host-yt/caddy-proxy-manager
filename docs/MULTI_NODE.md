@@ -632,3 +632,33 @@ by the `hpg-node-agent` stats POST. If they stay at 0:
    ```
 3. Verify `HPG_NODE_TOKEN` and `HPG_PANEL_URL` are set correctly in the
    node-agent environment (from `deploy/node-agent/docker-compose.example.yml`).
+
+### Cleared WAF / access events keep reappearing
+
+After clearing events in the panel, old events flood back on the next
+node-agent restart.
+
+Cause: the agent persists its log read offset to a `.hpgpos` sidecar, but the
+Caddy log volume is mounted read-only, so the write fails silently and every
+restart re-reads the whole log from the start and re-ships it.
+
+Fix (per node):
+
+1. Give the agent a writable state dir and point it there:
+   ```yaml
+   hpg-node-agent:
+     environment:
+       HPG_AGENT_STATE_DIR: /var/lib/hpg-node-agent
+     volumes:
+       - caddy_logs:/var/log/caddy:ro          # keep logs read-only
+       - node_agent_state:/var/lib/hpg-node-agent   # writable offset store
+   # ...
+   volumes:
+     node_agent_state:
+   ```
+2. Redeploy the node-agent, then clear events once - they stay cleared.
+
+The bundled composes (`deploy/docker-compose.yml`, `deploy/portainer-external-db.yml`,
+`deploy/node-agent/docker-compose.example.yml`) already include this; only custom
+stacks need the manual edit. The panel side is also idempotent (a `waf_seen_events`
+ledger drops replays), so this only affects efficiency once the offset persists.
