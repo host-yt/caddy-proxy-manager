@@ -166,9 +166,15 @@ services:
       HPG_WSTUNNEL_PORT: ${HPG_WSTUNNEL_PORT:-51823}
       HPG_CADDY_ACCESS_LOG: /var/log/caddy/access.log
       HPG_CADDY_WAF_AUDIT_LOG: /var/log/caddy/waf-audit.log
+      # Writable dir for the forwarders' read-offset sidecars. The log volume is
+      # mounted read-only, so without this every restart replays the whole log
+      # and resurrects cleared WAF events.
+      HPG_AGENT_STATE_DIR: /var/lib/hpg-node-agent
     volumes:
       # Same named volume caddy writes to; agent reads it (:ro).
       - caddy_logs:/var/log/caddy:ro
+      # Persists forward offsets across restarts (must be writable).
+      - node_agent_state:/var/lib/hpg-node-agent
     healthcheck:
       test: ["CMD", "pgrep", "hpg-node-agent"]
       interval: 30s
@@ -211,6 +217,7 @@ volumes:
   caddy_data:
   caddy_config:
   caddy_logs:
+  node_agent_state:
   wg_config:
   geoip_data:
 

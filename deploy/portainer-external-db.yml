@@ -120,8 +120,12 @@ services:
       HPG_WSTUNNEL_PORT: ${HPG_WSTUNNEL_PORT:-51823}
       HPG_CADDY_ACCESS_LOG: /var/log/caddy/access.log
       HPG_CADDY_WAF_AUDIT_LOG: /var/log/caddy/waf-audit.log
+      # Writable offset store; without it restarts replay the log and cleared
+      # WAF events reappear (log volume below is read-only).
+      HPG_AGENT_STATE_DIR: /var/lib/hpg-node-agent
     volumes:
       - caddy_logs:/var/log/caddy:ro
+      - node_agent_state:/var/lib/hpg-node-agent
     healthcheck:
       test: ["CMD", "pgrep", "hpg-node-agent"]
       interval: 30s
@@ -134,6 +138,7 @@ volumes:
   caddy_data:
   caddy_config:
   caddy_logs:
+  node_agent_state:
   wg_config:
   geoip_data:
 

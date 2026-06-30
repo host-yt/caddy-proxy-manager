@@ -60,6 +60,11 @@ type config struct {
 	WstunnelBindAddr string // host IP wstunnel listens on; never 0.0.0.0
 	AccessLogPath    string // Caddy access-log file to tail+forward; "" = disabled
 	WAFAuditLogPath  string // Coraza audit-log to tail and forward; "" = disabled
+	// StateDir (HPG_AGENT_STATE_DIR) is a writable directory where forwarders
+	// persist their read offset (.hpgpos). The log volume is usually mounted
+	// read-only, so the sidecar must live elsewhere or every restart replays the
+	// whole log. Empty falls back to <log>.hpgpos next to the log (legacy).
+	StateDir string
 	// ForwardTailOnly (HPG_FORWARD_TAIL_ONLY=1): on first run with no saved
 	// position, skip the existing log backlog (start at EOF) instead of forwarding
 	// it once. Default false so an upgrade/first start never silently drops
@@ -136,6 +141,7 @@ func loadConfig() (config, error) {
 		// Empty disables forwarding. Set to the shared Caddy access-log file.
 		AccessLogPath:   os.Getenv("HPG_CADDY_ACCESS_LOG"),
 		WAFAuditLogPath: os.Getenv("HPG_CADDY_WAF_AUDIT_LOG"),
+		StateDir:        os.Getenv("HPG_AGENT_STATE_DIR"),
 		ForwardTailOnly: os.Getenv("HPG_FORWARD_TAIL_ONLY") == "1",
 	}
 	if d := os.Getenv("HPG_POLL_INTERVAL"); d != "" {
@@ -414,6 +420,13 @@ func main() {
 	log.Info("agent up", "iface", cfg.Interface, "panel", cfg.PanelURL, "poll", cfg.PollInterval.String(),
 		"wstunnel_bind", cfg.WstunnelBindAddr)
 
+	// State dir holds the forwarders' read-offset sidecars. Create it eagerly so
+	// the first writeForwardPos succeeds (the log volume itself is usually :ro).
+	if cfg.StateDir != "" && !*dry {
+		if err := os.MkdirAll(cfg.StateDir, 0o755); err != nil {
+			log.Warn("cannot create state dir; forward offsets won't persist", "dir", cfg.StateDir, "err", err)
+		}
+	}
 	// Access-log forwarder: tail the shared Caddy access-log file and POST new
 	// lines to the panel. Opt-in via HPG_CADDY_ACCESS_LOG; off by default.
 	if cfg.AccessLogPath != "" && !*dry {
@@ -973,10 +986,11 @@ type peerStat struct {
 func forwardAccessLogs(ctx context.Context, log *slog.Logger, c config) {
 	endpoint := strings.TrimRight(c.PanelURL, "/") + "/internal/access-log"
 	const maxBatch = 8 << 20 // matches the panel ingest body cap
-	posPath := c.AccessLogPath + ".hpgpos"
+	posPath := forwardPosPath(c.StateDir, c.AccessLogPath)
 	var offset int64
 	inited := false
 	warnedMissing := false
+	warnedPos := false
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
 	for {
@@ -1031,7 +1045,11 @@ func forwardAccessLogs(ctx context.Context, log *slog.Logger, c config) {
 		batch := buf[:nl+1]
 		if postAccessLogBatch(ctx, c, endpoint, batch) {
 			offset += int64(len(batch)) // advance only on successful delivery
-			writeForwardPos(posPath, offset)
+			if err := writeForwardPos(posPath, offset); err != nil && !warnedPos {
+				log.Warn("cannot persist forward offset; a restart will replay the log. "+
+					"Set HPG_AGENT_STATE_DIR to a writable volume", "path", posPath, "err", err)
+				warnedPos = true
+			}
 		} else {
 			log.Warn("access-log forward failed, will retry", "bytes", len(batch))
 		}
@@ -1055,13 +1073,25 @@ func readForwardPos(path string) int64 {
 // writeForwardPos persists the tail offset so a restart resumes where it left
 // off instead of re-reading the whole log from byte 0. Without this a node-agent
 // restart replays the entire accumulated log and re-ships every historical
-// event, which is why "Clear events" in the panel never stuck.
-func writeForwardPos(path string, off int64) {
+// event, which is why "Clear events" in the panel never stuck. Returns an error
+// so the caller can warn when the target is unwritable (the common cause: the
+// log dir is mounted read-only and HPG_AGENT_STATE_DIR was not set).
+func writeForwardPos(path string, off int64) error {
 	tmp := path + ".tmp"
 	if err := os.WriteFile(tmp, []byte(strconv.FormatInt(off, 10)), 0o644); err != nil {
-		return
+		return err
 	}
-	_ = os.Rename(tmp, path)
+	return os.Rename(tmp, path)
+}
+
+// forwardPosPath returns where a forwarder persists its read offset. When a
+// writable state dir is configured the sidecar lives there (the log volume is
+// typically read-only); otherwise it falls back next to the log file (legacy).
+func forwardPosPath(stateDir, logPath string) string {
+	if stateDir == "" {
+		return logPath + ".hpgpos"
+	}
+	return filepath.Join(stateDir, filepath.Base(logPath)+".hpgpos")
 }
 
 // initForwardOffset decides where a forwarder starts on its first tick:
@@ -1312,10 +1342,11 @@ func wafBatchBounds(buf []byte, atCap bool) (batchLen int, skip bool) {
 func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
 	const maxBatch = 500
 	const maxRead = 8 << 20
-	posPath := c.WAFAuditLogPath + ".hpgpos"
+	posPath := forwardPosPath(c.StateDir, c.WAFAuditLogPath)
 	var offset int64
 	inited := false
 	warnedMissing := false
+	warnedPos := false
 	t := time.NewTicker(2 * time.Second)
 	defer t.Stop()
 	for {
@@ -1389,7 +1420,12 @@ func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
 		}
 		if ok {
 			offset += int64(len(batch))
-			writeForwardPos(posPath, offset)
+			if err := writeForwardPos(posPath, offset); err != nil && !warnedPos {
+				log.Warn("cannot persist WAF forward offset; a restart will replay the log "+
+					"and resurrect cleared events. Set HPG_AGENT_STATE_DIR to a writable volume",
+					"path", posPath, "err", err)
+				warnedPos = true
+			}
 		} else {
 			log.Warn("WAF event forward failed, will retry", "bytes", len(batch))
 		}

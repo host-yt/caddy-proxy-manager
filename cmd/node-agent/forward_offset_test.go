@@ -58,8 +58,27 @@ func TestForwardPosRoundTrip(t *testing.T) {
 	if got := readForwardPos(pos); got != -1 {
 		t.Errorf("absent sidecar: want -1, got %d", got)
 	}
-	writeForwardPos(pos, 4096)
+	if err := writeForwardPos(pos, 4096); err != nil {
+		t.Fatalf("writeForwardPos: %v", err)
+	}
 	if got := readForwardPos(pos); got != 4096 {
 		t.Errorf("round-trip: want 4096, got %d", got)
+	}
+}
+
+// forwardPosPath must keep the sidecar out of the (read-only) log dir when a
+// writable state dir is configured, and fall back beside the log otherwise.
+func TestForwardPosPath(t *testing.T) {
+	if got := forwardPosPath("", "/var/log/caddy/waf-audit.log"); got != "/var/log/caddy/waf-audit.log.hpgpos" {
+		t.Errorf("legacy fallback: got %q", got)
+	}
+	if got := forwardPosPath("/var/lib/hpg", "/var/log/caddy/waf-audit.log"); got != "/var/lib/hpg/waf-audit.log.hpgpos" {
+		t.Errorf("state dir: got %q", got)
+	}
+	// Distinct logs must not collide inside the state dir.
+	a := forwardPosPath("/state", "/var/log/caddy/access.log")
+	b := forwardPosPath("/state", "/var/log/caddy/waf-audit.log")
+	if a == b {
+		t.Errorf("offset paths collided: %q", a)
 	}
 }

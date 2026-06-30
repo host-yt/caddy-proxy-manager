@@ -27,12 +27,16 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -41,6 +45,18 @@ import (
 )
 
 const maxWAFBatchSize = 500
+
+// wafSeenKeep caps the dedup ledger to its newest N rows. Chosen well above the
+// visible event ceiling (maxPerRoute=10k per route) so a replay can never re-show
+// a still-visible event, yet bounded (~8MB). The durable offset
+// (HPG_AGENT_STATE_DIR) is the primary replay guard; this ledger is the backstop.
+const wafSeenKeep = 100_000
+
+// wafSeenPruneEvery throttles the ledger prune so it runs ~hourly, not per batch.
+const wafSeenPruneEvery = time.Hour
+
+// wafSeenLastPrune is the unix-seconds timestamp of the last ledger prune.
+var wafSeenLastPrune atomic.Int64
 
 // validSeverities and validActions constrain free-text fields to known values.
 var (
@@ -145,9 +161,15 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		} else {
 			e.RouteID = sql.NullInt64{}
 		}
-		if err := h.WAFEvents.Insert(ctx, e); err != nil {
+		// Idempotent insert: a replay of an already-ingested line (or one cleared
+		// by an operator) is silently dropped, never re-created.
+		inserted, err := h.WAFEvents.InsertIfNew(ctx, e, wafEventKey(nodeID, e))
+		if err != nil {
 			h.Logger.Warn("waf ingest insert", "err", err)
 			continue
+		}
+		if !inserted {
+			continue // duplicate / replay / already cleared
 		}
 		if h.Metrics != nil {
 			h.Metrics.WAFEvent(e.Severity, e.Action)
@@ -155,10 +177,50 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		accepted++
 	}
 
+	h.maybePruneSeen()
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	// Intentionally minimal response - caller only needs the accepted count.
 	_, _ = w.Write([]byte(`{"accepted":` + itoa(int64(accepted)) + `}`))
+}
+
+// wafEventKey is the stable dedup identity of one event from one node. It must be
+// deterministic across re-deliveries of the same Coraza audit line so the panel
+// can drop replays. route_id is excluded on purpose: it is resolved server-side
+// and may change over time, but the same line is still the same event.
+func wafEventKey(nodeID int64, e wafevents.Event) string {
+	const sep = "\x1f" // unit separator: cannot appear in the parsed fields
+	parts := []string{
+		strconv.FormatInt(nodeID, 10),
+		e.TS.UTC().Format(time.RFC3339),
+		e.RuleID, e.Action, e.RemoteIP, e.Host, e.URI, e.Message,
+	}
+	sum := sha256.Sum256([]byte(strings.Join(parts, sep)))
+	return hex.EncodeToString(sum[:])
+}
+
+// maybePruneSeen prunes the dedup ledger at most once per wafSeenPruneEvery,
+// off the request path. The CAS guard means concurrent ingests never double-run.
+func (h *NodeWAFIngestHandler) maybePruneSeen() {
+	if h.WAFEvents == nil {
+		return
+	}
+	now := time.Now()
+	last := wafSeenLastPrune.Load()
+	if last != 0 && now.Unix()-last < int64(wafSeenPruneEvery/time.Second) {
+		return
+	}
+	if !wafSeenLastPrune.CompareAndSwap(last, now.Unix()) {
+		return // another request is pruning
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := h.WAFEvents.PruneSeen(ctx, wafSeenKeep); err != nil {
+			h.Logger.Warn("waf seen-ledger prune", "err", err)
+		}
+	}()
 }
 
 // resolveRoute maps a WAF event to a route served by nodeID, using the event's

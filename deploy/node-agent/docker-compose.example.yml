@@ -39,14 +39,20 @@ services:
       # panel's /api/node/waf/events. The panel emits SecAuditLog to this path
       # when WAF is enabled on a route.
       HPG_CADDY_WAF_AUDIT_LOG: "/var/log/caddy/waf-audit.log"
-      # Forwarders persist their read position to <log>.hpgpos so a restart
-      # resumes instead of replaying. On first run (no position file) the
-      # existing backlog is forwarded once. Set HPG_FORWARD_TAIL_ONLY=1 to skip
-      # any pre-existing backlog and only forward new lines from startup.
+      # Forwarders persist their read position (<log>.hpgpos) into this writable
+      # dir so a restart resumes instead of replaying. REQUIRED when the log
+      # volume below is read-only (the default) - otherwise every restart
+      # re-ships the whole log and cleared WAF events reappear in the panel.
+      HPG_AGENT_STATE_DIR: "/var/lib/hpg-node-agent"
+      # On first run (no position file) the existing backlog is forwarded once.
+      # Set HPG_FORWARD_TAIL_ONLY=1 to skip any pre-existing backlog and only
+      # forward new lines from startup.
       # HPG_FORWARD_TAIL_ONLY: "1"
     volumes:
       # Shared with caddy: agent reads the rolling access log Caddy writes.
       - /opt/hostyt-node/caddy-logs:/var/log/caddy:ro
+      # Writable state: keeps forward offsets across restarts.
+      - /opt/hostyt-node/agent-state:/var/lib/hpg-node-agent
     # Healthcheck: agent prints reconcile JSON every poll; if no log
     # for 90s, container is wedged. Pair with restart policy above.
     healthcheck:

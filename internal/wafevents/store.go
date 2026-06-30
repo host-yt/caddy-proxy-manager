@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 const maxPerRoute = 10_000
@@ -81,6 +83,84 @@ func (s *Store) Insert(ctx context.Context, e Event) error {
 		)
 	}
 	return nil
+}
+
+// InsertIfNew stores an event only when its dedup key has not been seen before.
+// The key is recorded in waf_seen_events (which "Clear events" never deletes),
+// so a node-agent that re-ships its whole audit log - the cause of WAF events
+// reappearing after a manual clear - can never resurrect cleared or pruned rows.
+// Insert + ledger write share one transaction: a failed event insert rolls the
+// ledger row back so the event is retried, not silently swallowed. Returns true
+// when the event was newly stored.
+func (s *Store) InsertIfNew(ctx context.Context, e Event, key string) (bool, error) {
+	db := s.db()
+	if db == nil {
+		return false, nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	res, err := tx.ExecContext(ctx,
+		store.InsertOrIgnore()+" INTO waf_seen_events (event_hash) VALUES (?)", key)
+	if err != nil {
+		return false, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return false, nil // already ingested: drop the replay
+	}
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO waf_events (route_id,ts,severity,rule_id,action,remote_ip,host,uri,message)
+		 VALUES (?,?,?,?,?,?,?,?,?)`,
+		e.RouteID, e.TS, e.Severity, e.RuleID, e.Action, e.RemoteIP, e.Host, e.URI, e.Message,
+	); err != nil {
+		return false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	if e.RouteID.Valid {
+		// Keep only maxPerRoute most recent rows per route. Best-effort and
+		// outside the tx: a prune failure must never discard the new event.
+		_, _ = db.ExecContext(ctx,
+			`DELETE FROM waf_events
+			 WHERE route_id = ?
+			   AND id NOT IN (
+			       SELECT id FROM (
+			           SELECT id FROM waf_events
+			           WHERE route_id = ?
+			           ORDER BY ts DESC, id DESC
+			           LIMIT ?
+			       ) sub
+			   )`,
+			e.RouteID, e.RouteID, maxPerRoute,
+		)
+	}
+	return true, nil
+}
+
+// PruneSeen caps the dedup ledger to its keep newest rows so waf_seen_events
+// stays bounded regardless of traffic. keep must comfortably exceed the visible
+// event count (maxPerRoute per route) or a replay could re-show a still-visible
+// event. The double-nested subquery is required: MySQL rejects both a self-
+// referencing DELETE target and LIMIT directly inside IN. Best-effort; the
+// ingest path throttles how often it runs.
+func (s *Store) PruneSeen(ctx context.Context, keep int) error {
+	db := s.db()
+	if db == nil || keep <= 0 {
+		return nil
+	}
+	_, err := db.ExecContext(ctx,
+		`DELETE FROM waf_seen_events
+		 WHERE event_hash NOT IN (
+		     SELECT event_hash FROM (
+		         SELECT event_hash FROM waf_seen_events
+		         ORDER BY first_seen DESC, event_hash DESC
+		         LIMIT ?
+		     ) sub
+		 )`, keep)
+	return err
 }
 
 // Recent returns the last n events for a route, newest first.
