@@ -95,6 +95,11 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
+	// Scoped admins may only view clients they are assigned to.
+	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	d := clientDetailData{baseAdminData: h.base(r, "Client detail")}
 	var slug sql.NullString
@@ -325,6 +330,11 @@ func (h *AdminHandlers) ClientsUpdateNotes(w http.ResponseWriter, r *http.Reques
 	db := h.DB()
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
+	// Scoped admins may only edit clients they are assigned to.
+	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	_, err := db.ExecContext(ctx, "UPDATE clients SET notes=? WHERE id=?",
 		sql.NullString{String: notes, Valid: notes != ""}, id)
 	if err != nil {
@@ -406,6 +416,11 @@ func (h *AdminHandlers) ClientChangePlan(w http.ResponseWriter, r *http.Request)
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Scoped admins may only change plans for clients they are assigned to.
+	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	// Verify plan exists.
 	var planName string

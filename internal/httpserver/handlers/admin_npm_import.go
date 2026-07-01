@@ -137,6 +137,12 @@ func (h *AdminHandlers) runNpmImport(r *http.Request, hosts []npmProxyHost) npmI
 			result.Skipped++
 			continue
 		}
+		// SSRF: refuse forward hosts that resolve to loopback/link-local/metadata.
+		if err := screenBackendHost(ctx, ph.ForwardHost); err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("%s: %s", ph.ForwardHost, err))
+			result.Skipped++
+			continue
+		}
 
 		scheme := ph.ForwardScheme
 		if scheme != "https" {

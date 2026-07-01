@@ -217,6 +217,21 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 		where = append(where, "r.group_id = ?")
 		args = append(args, d.GroupFilter)
 	}
+	// Scope: non-super_admins see only routes owned by their assigned clients.
+	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); ok && !all {
+		if len(allowed) == 0 {
+			where = append(where, "1=0")
+		} else {
+			ids := make([]int64, 0, len(allowed))
+			for id := range allowed {
+				ids = append(ids, id)
+			}
+			where = append(where, "c.id IN ("+placeholders(len(ids))+")")
+			for _, id := range ids {
+				args = append(args, id)
+			}
+		}
+	}
 	whereSQL := strings.Join(where, " AND ")
 
 	// Aggregate counts per status across ALL non-deleted routes (no filter).
@@ -712,6 +727,16 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	// SSRF screen: proxy backends and external upstreams must not target
+	// loopback/link-local/metadata (169.254.169.254). Redirect routes use a
+	// sentinel backend (0.0.0.0) that is never dialed, so skip them.
+	if form.Kind == "proxy" || form.External {
+		if err := screenBackendHost(ctx, form.BackendIP); err != nil {
+			h.renderHostsNewErr(w, r, form, err.Error())
+			return
+		}
+	}
+
 	// Resolve node's group so the plan + service line up.
 	var nodeGroupID int64
 	if err := db.QueryRowContext(ctx,
@@ -894,6 +919,11 @@ func (h *AdminHandlers) HostsDelete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Scoped admins may only act on routes within their assigned clients.
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	var domain string
 	_ = h.DB().QueryRowContext(ctx, "SELECT domain FROM routes WHERE id = ?", id).Scan(&domain)
 	if err := h.Routes.Delete(ctx, 0, id); err != nil {
@@ -932,6 +962,11 @@ func (h *AdminHandlers) HostsToggle(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Scoped admins may only act on routes within their assigned clients.
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	var (
 		status string
 		nodeID int64
@@ -980,6 +1015,11 @@ func (h *AdminHandlers) HostsClone(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	// Scoped admins may only clone routes within their assigned clients.
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	// Verify route exists and fetch its domain for the audit entry.
 	var domain string
@@ -1054,6 +1094,11 @@ func (h *AdminHandlers) HostsToggleMaintenance(w http.ResponseWriter, r *http.Re
 	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Scoped admins may only act on routes within their assigned clients.
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	var current int
 	var nodeID int64
 	if err := h.DB().QueryRowContext(ctx,
@@ -1104,6 +1149,11 @@ func (h *AdminHandlers) HostsPurgeCache(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	// Scoped admins may only purge cache for routes within their assigned clients.
+	if !h.scopeCheckRoute(ctx, middleware.SessionFromContext(r.Context()), id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	var apiURL, domain string
 	if err := h.DB().QueryRowContext(ctx,
@@ -1694,6 +1744,11 @@ func (h *AdminHandlers) HostsRetry(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	// Scoped admins may only retry routes within their assigned clients.
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if err := h.Routes.VerifyDNS(ctx, 0, id); err != nil {
 		redirectWithFlash(w, r, "/admin/hosts", "", "retry failed: "+sanitizeErr(err))
 		return
@@ -2970,6 +3025,20 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "aliases: "+sanitizeErr(errAli))
 		return
 	}
+	// Reject aliases that shadow another route's domain or alias (cross-tenant hijack).
+	if aliases != "" {
+		acx, acancel := context.WithTimeout(r.Context(), 3*time.Second)
+		clash, cerr := aliasCollision(acx, h.DB(), aliases, id)
+		acancel()
+		if cerr != nil {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "aliases: collision check failed")
+			return
+		}
+		if clash != "" {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "alias "+clash+" is already used by another route")
+			return
+		}
+	}
 	// Basic auth: empty user/pass disables the gate; non-empty user + new
 	// password triggers fresh bcrypt + base64 (Caddy http_basic format).
 	// User can change just the username (keep password) by leaving the
@@ -3083,6 +3152,22 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		if extHostHeader == "" {
 			extHostHeader = externalHost
 		}
+	}
+	// SSRF screen: the effective backend (proxy IP/host or external FQDN) must
+	// not resolve to loopback/link-local/metadata. Redirect routes never dial a
+	// backend, so only screen proxy/external saves. Empty backend is a no-op.
+	if kind == "proxy" {
+		screenHost := backendIP
+		if external {
+			screenHost = externalHost
+		}
+		sctx, scancel := context.WithTimeout(r.Context(), 5*time.Second)
+		if err := screenBackendHost(sctx, screenHost); err != nil {
+			scancel()
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", err.Error())
+			return
+		}
+		scancel()
 	}
 	// Cross-tenant + node-topology guard: tunnel must belong to the same
 	// client that owns the route's service AND live on the same Caddy
@@ -3570,6 +3655,11 @@ func (h *AdminHandlers) HostsRegenerateSecret(w http.ResponseWriter, r *http.Req
 	edit := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Scoped admins may only rotate secrets for routes within their assigned clients.
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	var external bool
 	var nodeID int64
@@ -3629,6 +3719,12 @@ func (h *AdminHandlers) HostsRevealSecret(w http.ResponseWriter, r *http.Request
 	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Scoped admins may only reveal secrets for routes within their assigned
+	// clients; without this a scoped admin could disclose a foreign tenant's bearer.
+	if !h.scopeCheckRoute(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	var external bool
 	var enc string
@@ -3854,6 +3950,34 @@ func sanitizeAliases(raw, primary string) (string, error) {
 	return strings.Join(out, ","), nil
 }
 
+// aliasCollision returns the first alias that already belongs to another route
+// (as its primary domain or in that route's alias list), or "" when none clash.
+// Prevents one route from shadowing another tenant's domain via aliases.
+func aliasCollision(ctx context.Context, db *sql.DB, aliasCSV string, excludeRouteID int64) (string, error) {
+	if db == nil || strings.TrimSpace(aliasCSV) == "" {
+		return "", nil
+	}
+	for _, a := range strings.Split(aliasCSV, ",") {
+		a = strings.TrimSpace(a)
+		if a == "" {
+			continue
+		}
+		var hit int
+		err := db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM routes
+			 WHERE id <> ? AND status <> 'deleted'
+			   AND (domain = ? OR FIND_IN_SET(?, aliases) > 0)`,
+			excludeRouteID, a, a).Scan(&hit)
+		if err != nil {
+			return "", err
+		}
+		if hit > 0 {
+			return a, nil
+		}
+	}
+	return "", nil
+}
+
 // sanitizeHeaderList accepts an operator-supplied comma- or whitespace-
 // separated header name list (e.g. "Accept-Encoding, Accept-Language")
 // and returns a canonical comma-joined form with invalid chars stripped.
@@ -4048,6 +4172,33 @@ func clampInt(n, lo, hi int) int {
 		return hi
 	}
 	return n
+}
+
+// screenBackendHost SSRF-screens a reverse-proxy backend the same way the
+// self-service client path does: IP literals go through IsDangerousProxyBackend
+// (RFC1918/CGNAT allowed for the WG mesh, loopback/metadata blocked), hostnames
+// resolve and every A/AAAA must pass ValidateOutboundHost. Empty host is a no-op.
+func screenBackendHost(ctx context.Context, host string) error {
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if security.IsDangerousProxyBackend(ip) {
+			return fmt.Errorf("backend address %s is not allowed", host)
+		}
+		return nil
+	}
+	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+	if err != nil || len(addrs) == 0 {
+		return fmt.Errorf("backend host %s did not resolve", host)
+	}
+	for _, a := range addrs {
+		if security.IsDangerousProxyBackend(net.IP(a.AsSlice())) {
+			return fmt.Errorf("backend host %s resolves to a blocked address", host)
+		}
+	}
+	return nil
 }
 
 func isValidUpstreamHost(h string) bool {

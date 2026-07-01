@@ -1445,6 +1445,10 @@ func (h *AdminHandlers) NodesApprove(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/nodes", "", "approve failed")
 		return
 	}
+	// Node only joins the WG mesh once approved - re-render so its peer is added now.
+	if h.WriteWGConfig != nil {
+		_ = h.WriteWGConfig(ctx)
+	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess),
 		Action: "node.approve", Entity: "node", EntityID: fmt.Sprintf("%d", id),
@@ -1524,6 +1528,10 @@ func (h *AdminHandlers) NodesBulk(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		ok++
+	}
+	// Mesh membership changed for approve/disable - re-render so peers match DB.
+	if ok > 0 && (action == "approve" || action == "disable") && h.WriteWGConfig != nil {
+		_ = h.WriteWGConfig(ctx)
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.node.bulk", Entity: "node",
@@ -1979,6 +1987,21 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 		where = append(where, "c.category = ?")
 		args = append(args, d.CategoryFilter)
 	}
+	// Scope: non-super_admins see only their assigned clients (empty scope = none).
+	if allowed, all, ok := h.adminClientScope(ctx, sess); ok && !all {
+		if len(allowed) == 0 {
+			where = append(where, "1=0")
+		} else {
+			ids := make([]int64, 0, len(allowed))
+			for id := range allowed {
+				ids = append(ids, id)
+			}
+			where = append(where, "c.id IN ("+placeholders(len(ids))+")")
+			for _, id := range ids {
+				args = append(args, id)
+			}
+		}
+	}
 
 	orderCol := clientsSortCol(lp.Sort)
 	dir := lp.Dir
@@ -2117,6 +2140,11 @@ func (h *AdminHandlers) ClientsUpdate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	// Scoped admins may only edit clients they are assigned to.
+	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	var userID int64
 	if err := db.QueryRowContext(ctx, "SELECT user_id FROM clients WHERE id = ?", id).Scan(&userID); err != nil {
@@ -2272,6 +2300,11 @@ func (h *AdminHandlers) ClientsDelete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	// Scoped admins may only delete clients they are assigned to.
+	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	var userID int64
 	if err := db.QueryRowContext(ctx, "SELECT user_id FROM clients WHERE id = ?", id).Scan(&userID); err != nil {
@@ -2346,6 +2379,17 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 	d.Q = q
 	d.StatusFilter = statusFilter
 
+	// Scope: non-super_admins see only services/clients they are assigned to.
+	sess := middleware.SessionFromContext(r.Context())
+	scopeIDs, scopeAll, scopeOK := h.adminClientScope(ctx, sess)
+	scoped := scopeOK && !scopeAll
+	var scopeArgs []any
+	if scoped {
+		for id := range scopeIDs {
+			scopeArgs = append(scopeArgs, id)
+		}
+	}
+
 	// build WHERE clause from active filters
 	var where []string
 	var args []any
@@ -2357,6 +2401,14 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 	if statusFilter != "" {
 		where = append(where, "s.status = ?")
 		args = append(args, statusFilter)
+	}
+	if scoped {
+		if len(scopeArgs) == 0 {
+			where = append(where, "1=0")
+		} else {
+			where = append(where, "s.client_id IN ("+placeholders(len(scopeArgs))+")")
+			args = append(args, scopeArgs...)
+		}
 	}
 	whereSQL := ""
 	if len(where) > 0 {
@@ -2382,9 +2434,19 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	crows, err := db.QueryContext(ctx,
-		`SELECT c.id, COALESCE(c.display_name, u.full_name, u.email), u.email
-		 FROM clients c JOIN users u ON u.id = c.user_id ORDER BY c.id DESC`)
+	clientQ := `SELECT c.id, COALESCE(c.display_name, u.full_name, u.email), u.email
+		 FROM clients c JOIN users u ON u.id = c.user_id`
+	var clientArgs []any
+	if scoped {
+		if len(scopeArgs) == 0 {
+			clientQ += " WHERE 1=0"
+		} else {
+			clientQ += " WHERE c.id IN (" + placeholders(len(scopeArgs)) + ")"
+			clientArgs = append(clientArgs, scopeArgs...)
+		}
+	}
+	clientQ += " ORDER BY c.id DESC"
+	crows, err := db.QueryContext(ctx, clientQ, clientArgs...)
 	if err == nil {
 		defer crows.Close()
 		for crows.Next() {

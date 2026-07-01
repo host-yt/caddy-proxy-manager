@@ -43,10 +43,13 @@ func (cw *ConfigWriter) Render(ctx context.Context, db *sql.DB, cp ControlPlane)
 	fmt.Fprintf(&b, "PrivateKey = %s\n", cp.PrivateKey)
 	b.WriteString("\n")
 
+	// Only approved + enabled nodes join the mesh - unapproved nodes must not
+	// be added as peers just because they generated a keypair at join time.
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, name, wg_public_key, wg_ip
 		 FROM caddy_nodes
 		 WHERE wg_public_key IS NOT NULL AND wg_public_key <> '' AND wg_ip IS NOT NULL
+		   AND approved_at IS NOT NULL AND is_enabled = 1
 		 ORDER BY id ASC`)
 	if err != nil {
 		return "", fmt.Errorf("list peers: %w", err)

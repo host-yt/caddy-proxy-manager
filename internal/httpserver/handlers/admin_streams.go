@@ -14,6 +14,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // Streams admin: CRUD on stream_routes (TCP/UDP L4 forwards via the
@@ -254,8 +255,12 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams", "", "node and backend IP are required")
 		return
 	}
-	if net.ParseIP(form.BackendIP) == nil {
+	if ip := net.ParseIP(form.BackendIP); ip == nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "backend IP is not a valid address")
+		return
+	} else if security.IsDangerousProxyBackend(ip) {
+		// SSRF: block loopback/link-local/metadata backends (RFC1918 stays allowed).
+		redirectWithFlash(w, r, "/admin/streams", "", "backend address is not allowed")
 		return
 	}
 	// Block listen ports that would clash with Caddy's HTTPS listeners on
@@ -289,6 +294,16 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+
+	// SSRF: screen every extra upstream (host:port) - IPs go through the
+	// dangerous-backend check, hostnames resolve and each result is screened.
+	for _, u := range extraUpstreams {
+		host, _, _ := net.SplitHostPort(u.Address)
+		if err := screenBackendHost(ctx, host); err != nil {
+			redirectWithFlash(w, r, "/admin/streams", "", "upstream "+u.Address+": "+err.Error())
+			return
+		}
+	}
 
 	var nodeGroupID int64
 	if err := db.QueryRowContext(ctx,
