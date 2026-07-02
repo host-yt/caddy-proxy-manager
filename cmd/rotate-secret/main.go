@@ -5,11 +5,19 @@
 // Touches:
 //   - install_state.json: db.password_cipher, smtp.password_cipher
 //   - users.totp_secret_enc (per-user)
+//   - users.totp_pending_secret (transient enrollment; nulled, not re-encrypted)
 //   - api_keys.key_hmac (recomputed from no plaintext — we cannot rotate
 //     without re-issuing the keys, so we null these out and the operator
 //     must distribute fresh tokens to integrators after rotation)
 //   - settings.value WHERE is_encrypted = 1 (OIDC client_secret, Cloudflare
 //     token, captcha secret, WG private key, …)
+//   - every dedicated `_enc` column that stores installstate-encrypted
+//     ciphertext: routes.proxy_secret_enc, backup_destinations.config_enc,
+//     dns_providers.api_token_enc, webhook_endpoints.secret_enc,
+//     oauth_providers.client_secret (is_encrypted=1), sync_slaves.token_enc,
+//     customer_wg_peer.server_privkey_e2, mtls_cas.key_pem_enc,
+//     manual_certs.key_pem_enc. Missing any of these silently orphans the
+//     secret under the old key after rotation (security review CRYPTO-01).
 //
 // Usage:
 //
@@ -92,8 +100,8 @@ func main() {
 	if err != nil {
 		fail("db rotate: " + err.Error())
 	}
-	fmt.Printf("settings_rows: %d  totp_users: %d  api_keys_nulled: %d\n",
-		stats.settings, stats.totp, stats.apikeys)
+	fmt.Printf("settings_rows: %d  totp_users: %d  enc_columns: %d  totp_pending_nulled: %d  api_keys_nulled: %d\n",
+		stats.settings, stats.totp, stats.enc, stats.pending, stats.apikeys)
 	if !*apply {
 		fmt.Println("DRY RUN — pass --apply to commit.")
 	} else {
@@ -205,7 +213,31 @@ func rotateStateFile(path string, oldKey, newKey []byte, apply bool) error {
 	return os.Rename(tmp, path)
 }
 
-type dbStats struct{ settings, totp, apikeys int }
+type dbStats struct{ settings, totp, enc, pending, apikeys int }
+
+// encColumn describes one id-keyed column holding installstate-encrypted
+// ciphertext that rotate-secret must re-seal under the new key.
+type encColumn struct {
+	table  string // table name
+	idCol  string // primary key column used to target the UPDATE
+	col    string // encrypted column
+	where  string // extra filter ANDed onto the non-empty guard, e.g. "is_encrypted = 1"
+	prefix string // storage prefix stripped before decrypt / re-added after, "" if none
+}
+
+// encColumns is every dedicated at-rest secret column outside settings/totp.
+// Missing one here means an APP_SECRET rotation orphans it (CRYPTO-01).
+var encColumns = []encColumn{
+	{"routes", "id", "proxy_secret_enc", "", ""},
+	{"backup_destinations", "id", "config_enc", "", "enc:"},
+	{"dns_providers", "id", "api_token_enc", "", ""},
+	{"webhook_endpoints", "id", "secret_enc", "", ""},
+	{"oauth_providers", "provider", "client_secret", "is_encrypted = 1", ""},
+	{"sync_slaves", "id", "token_enc", "", ""},
+	{"customer_wg_peer", "id", "server_privkey_e2", "", ""},
+	{"mtls_cas", "id", "key_pem_enc", "", ""},
+	{"manual_certs", "id", "key_pem_enc", "", ""},
+}
 
 func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 	var s dbStats
@@ -296,6 +328,72 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		}
 		s.totp++
 	}
+	// Dedicated `_enc` columns: same installstate key, so they must be
+	// re-sealed too. Fail hard on a row we cannot decrypt (a skip would
+	// leave a forever-broken secret) — matches the settings/totp posture.
+	for _, c := range encColumns {
+		q := fmt.Sprintf("SELECT `%s`, `%s` FROM `%s` WHERE `%s` IS NOT NULL AND `%s` <> ''",
+			c.idCol, c.col, c.table, c.col, c.col)
+		if c.where != "" {
+			q += " AND " + c.where
+		}
+		crows, qerr := db.Query(q)
+		if qerr != nil {
+			return s, fmt.Errorf("%s.%s select: %w", c.table, c.col, qerr)
+		}
+		type ent struct {
+			id  string
+			val string
+		}
+		var ents []ent
+		for crows.Next() {
+			var e ent
+			if err := crows.Scan(&e.id, &e.val); err == nil {
+				ents = append(ents, e)
+			}
+		}
+		crows.Close()
+		for _, e := range ents {
+			b64 := e.val
+			if c.prefix != "" {
+				if !strings.HasPrefix(e.val, c.prefix) {
+					// plain:/legacy blob — not encrypted under any key, leave as-is.
+					continue
+				}
+				b64 = strings.TrimPrefix(e.val, c.prefix)
+			}
+			pt, derr := decrypt(b64, oldKey)
+			if derr != nil {
+				return s, fmt.Errorf("%s.%s id=%s decrypt: %w", c.table, c.col, e.id, derr)
+			}
+			ne, eerr := encrypt(pt, newKey)
+			if eerr != nil {
+				return s, eerr
+			}
+			upd := fmt.Sprintf("UPDATE `%s` SET `%s` = ? WHERE `%s` = ?", c.table, c.col, c.idCol)
+			if _, err := execTX(upd, c.prefix+ne, e.id); err != nil {
+				return s, err
+			}
+			s.enc++
+		}
+	}
+
+	// Pending TOTP secrets are transient (10-min enrollment TTL) and may be
+	// plaintext when the state manager was absent at write time. Rather than
+	// risk a decrypt mismatch, null them — the user simply re-enrolls.
+	if apply {
+		res, perr := execTX("UPDATE users SET totp_pending_secret = NULL, totp_pending_exp = NULL WHERE totp_pending_secret IS NOT NULL")
+		if perr != nil {
+			return s, perr
+		}
+		n, _ := res.RowsAffected()
+		s.pending = int(n)
+	} else {
+		var n int
+		_ = db.QueryRow("SELECT COUNT(*) FROM users WHERE totp_pending_secret IS NOT NULL").Scan(&n)
+		s.pending = n
+	}
+
 	// API keys: HMAC is keyed off APP_SECRET, so rotation invalidates the
 	// fast path. Null out — but only rows that actually had a non-NULL
 	// hmac, so we don't silently re-touch keys created without HMAC

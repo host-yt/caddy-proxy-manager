@@ -258,6 +258,19 @@ func (s *Service) Run(ctx context.Context, o RunOptions) (int64, error) {
 		return 0, errors.New("destination disabled")
 	}
 
+	// Fail-safe: the artifact bundles the full DB dump, install_state.json
+	// and WG private keys, so it must never leave the host in cleartext.
+	// Force encryption for any non-local destination regardless of the
+	// caller's toggle (security review SECRET-01). A local on-host target
+	// may stay plaintext.
+	if !o.Encrypt && dest.Kind != KindLocal {
+		if s.State == nil {
+			return 0, fmt.Errorf("refusing unencrypted backup to %s destination %q: encryption unavailable (installstate not wired)", dest.Kind, dest.Name)
+		}
+		s.Logger.Warn("backup: forcing encryption for remote destination", "dest", dest.Name, "kind", dest.Kind)
+		o.Encrypt = true
+	}
+
 	db := s.DB()
 	if db == nil {
 		return 0, errors.New("db not ready")

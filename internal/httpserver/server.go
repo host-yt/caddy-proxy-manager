@@ -740,6 +740,7 @@ func (s *Server) routes() {
 			// Idempotency replay for POST provisioning calls.
 			r.Use(mw.Idempotency(s.deps.Wizard.DB))
 			r.Route("/services", func(r chi.Router) {
+				r.Use(mw.RequireScope("services"))
 				r.Get("/", s.deps.API.ServicesList)
 				r.Post("/", s.deps.API.ServiceCreate)
 				r.Get("/{id}", s.deps.API.ServiceGet)
@@ -749,6 +750,7 @@ func (s *Server) routes() {
 				r.Get("/{id}/routes", s.deps.API.ServiceRoutes)
 			})
 			r.Route("/routes", func(r chi.Router) {
+				r.Use(mw.RequireScope("routes"))
 				r.Get("/", s.deps.API.RoutesList)
 				r.Post("/", s.deps.API.RouteCreate)
 				r.Get("/{id}", s.deps.API.RouteGet)
@@ -758,6 +760,7 @@ func (s *Server) routes() {
 				r.Post("/{id}/retry-ssl", s.deps.API.RouteRetrySSL)
 			})
 			r.Route("/nodes", func(r chi.Router) {
+				r.Use(mw.RequireScope("nodes"))
 				r.Get("/", s.deps.API.NodesList)
 				r.Post("/", s.deps.API.NodeCreate)
 				r.Get("/{id}", s.deps.API.NodeGet)
@@ -766,6 +769,7 @@ func (s *Server) routes() {
 				r.Post("/{id}/resync", s.deps.API.NodeResync)
 			})
 			r.Route("/node-pools", func(r chi.Router) {
+				r.Use(mw.RequireScope("nodes"))
 				r.Get("/", s.deps.API.NodePoolsList)
 				r.Post("/", s.deps.API.NodePoolCreate)
 				r.Get("/{id}", s.deps.API.NodePoolGet)
@@ -773,6 +777,7 @@ func (s *Server) routes() {
 				r.Delete("/{id}", s.deps.API.NodePoolDelete)
 			})
 			r.Route("/plans", func(r chi.Router) {
+				r.Use(mw.RequireAdminScope())
 				r.Get("/", s.deps.API.PlansList)
 				r.Post("/", s.deps.API.PlanCreate)
 				r.Get("/{id}", s.deps.API.PlanGet)
@@ -780,6 +785,7 @@ func (s *Server) routes() {
 				r.Delete("/{id}", s.deps.API.PlanDelete)
 			})
 			r.Route("/clients", func(r chi.Router) {
+				r.Use(mw.RequireAdminScope())
 				r.Get("/", s.deps.API.ClientsList)
 				r.Post("/", s.deps.API.ClientCreate)
 				r.Get("/{id}", s.deps.API.ClientGet)
@@ -788,6 +794,7 @@ func (s *Server) routes() {
 			})
 			if s.deps.FOSSBilling != nil {
 				r.Route("/provisioning", func(r chi.Router) {
+					r.Use(mw.RequireAdminScope())
 					r.Post("/client", s.deps.FOSSBilling.ProvisionClient)
 					r.Post("/service", s.deps.FOSSBilling.ProvisionService)
 					r.Post("/route", s.deps.FOSSBilling.ProvisionRoute)

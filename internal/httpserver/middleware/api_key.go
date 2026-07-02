@@ -20,6 +20,28 @@ const apiCallerKey apiKeyCtxKey = 1
 type APICaller struct {
 	UserID int64
 	Role   string
+	// Scopes carried by the API key. Empty means the key is unscoped and has
+	// full access (back-compat: keys issued before scope enforcement).
+	Scopes []string
+}
+
+// HasScope reports whether the caller may use the given scope. An unscoped
+// key (no scopes recorded) is treated as full access for back-compat.
+func (c *APICaller) HasScope(want ...string) bool {
+	if c == nil {
+		return false
+	}
+	if len(c.Scopes) == 0 {
+		return true
+	}
+	for _, s := range c.Scopes {
+		for _, w := range want {
+			if s == w {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // APIKeyAuth verifies the `Authorization: Bearer hpg_...` header and
@@ -48,7 +70,7 @@ func APIKeyAuth(db func() *sql.DB) func(http.Handler) http.Handler {
 			authCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 			defer cancel()
 			clientIP := security.ClientIP(r)
-			uid, role, err := auth.VerifyAPIKey(authCtx, d, token, clientIP)
+			uid, role, scopes, err := auth.VerifyAPIKey(authCtx, d, token, clientIP)
 			if err != nil {
 				// Audit failed attempts for hpg_-prefixed tokens only; garbage
 				// or absent headers are too noisy to be actionable.
@@ -81,7 +103,7 @@ func APIKeyAuth(db func() *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 			role = freshRole
-			ctx := context.WithValue(r.Context(), apiCallerKey, &APICaller{UserID: uid, Role: role})
+			ctx := context.WithValue(r.Context(), apiCallerKey, &APICaller{UserID: uid, Role: role, Scopes: parseScopes(scopes)})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
@@ -91,6 +113,58 @@ func APIKeyAuth(db func() *sql.DB) func(http.Handler) http.Handler {
 func CallerFromContext(ctx context.Context) *APICaller {
 	v, _ := ctx.Value(apiCallerKey).(*APICaller)
 	return v
+}
+
+// parseScopes splits the stored comma-separated scope list, trimming blanks.
+func parseScopes(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// RequireScope enforces that the API key carries at least one of the given
+// scopes (security review API-01: scopes were stored but never enforced).
+// Must sit behind APIKeyAuth. An unscoped key passes (see APICaller.HasScope).
+func RequireScope(want ...string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !CallerFromContext(r.Context()).HasScope(want...) {
+				writeJSONErr(w, http.StatusForbidden, "api key missing required scope")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// RequireAdminScope gates admin-domain resources (clients, plans,
+// provisioning): safe methods need admin:read or admin:write, mutations need
+// admin:write.
+func RequireAdminScope() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c := CallerFromContext(r.Context())
+			ok := false
+			switch r.Method {
+			case http.MethodGet, http.MethodHead, http.MethodOptions:
+				ok = c.HasScope("admin:read", "admin:write")
+			default:
+				ok = c.HasScope("admin:write")
+			}
+			if !ok {
+				writeJSONErr(w, http.StatusForbidden, "api key missing required scope")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
 }
 
 func writeJSONErr(w http.ResponseWriter, status int, msg string) {
