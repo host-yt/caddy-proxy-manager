@@ -14,8 +14,9 @@ OpenAPI spec served at:
 GET /api-docs/openapi.json
 ```
 
-Implemented resources: `hpg_node_pool`, `hpg_plan`, `hpg_client`, `hpg_service`,
-`hpg_route`. (`hpg_node` follows the same shape against `/nodes`.)
+Implemented resources: `hpg_node_pool`, `hpg_node`, `hpg_plan`, `hpg_client`,
+`hpg_service`, `hpg_route`. Ships with a GoReleaser config + release workflow so
+publishing is just a repo-split + tag (see the provider README).
 
 ## Provider configuration
 

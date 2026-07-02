@@ -81,6 +81,7 @@ func (p *hpgProvider) Configure(ctx context.Context, req provider.ConfigureReque
 func (p *hpgProvider) Resources(_ context.Context) []func() resource.Resource {
 	return []func() resource.Resource{
 		NewNodePoolResource,
+		NewNodeResource,
 		NewPlanResource,
 		NewClientResource,
 		NewServiceResource,
