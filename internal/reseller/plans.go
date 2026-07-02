@@ -188,6 +188,70 @@ func (s *Store) PlanDelete(ctx context.Context, id int64) error {
 	return nil
 }
 
+// ErrPlanBounds carries a user-facing reason a reseller plan exceeds its package.
+type ErrPlanBounds struct{ Reason string }
+
+func (e ErrPlanBounds) Error() string { return "plan outside package: " + e.Reason }
+
+// ValidatePlanBounds enforces F5: a reseller may only author service plans
+// within its package grants - allowed node pool, granted features, and the
+// package RPM cap - and only when can_create_plans is on. Fail closed: no
+// package = no plan authoring (a super_admin must grant one first).
+func (s *Store) ValidatePlanBounds(ctx context.Context, resellerID, nodeGroupID int64, features []string, rateLimitRPM int) error {
+	db := s.db()
+	if db == nil {
+		return errors.New("reseller: no db")
+	}
+	pol, err := s.PolicyFor(ctx, resellerID)
+	if err != nil {
+		return err
+	}
+	if !pol.CanCreatePlans {
+		return ErrPlanBounds{Reason: "plan authoring is not enabled for this reseller"}
+	}
+	if pol.PlanID == 0 {
+		return ErrPlanBounds{Reason: "no package assigned"}
+	}
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM reseller_plan_node_groups WHERE reseller_plan_id=? AND node_group_id=?`,
+		pol.PlanID, nodeGroupID).Scan(&n); err != nil {
+		return fmt.Errorf("reseller: pool grant: %w", err)
+	}
+	if n == 0 {
+		return ErrPlanBounds{Reason: "node pool not granted by package"}
+	}
+	granted := map[string]bool{}
+	rows, err := db.QueryContext(ctx,
+		`SELECT feature FROM reseller_plan_features WHERE reseller_plan_id=?`, pol.PlanID)
+	if err != nil {
+		return fmt.Errorf("reseller: feature grants: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var f string
+		if rows.Scan(&f) == nil {
+			granted[f] = true
+		}
+	}
+	for _, f := range features {
+		if !granted[f] {
+			return ErrPlanBounds{Reason: "feature not granted by package: " + f}
+		}
+	}
+	if rateLimitRPM > 0 {
+		var cap int
+		if err := db.QueryRowContext(ctx,
+			`SELECT rate_limit_rpm_cap FROM reseller_plans WHERE id=?`, pol.PlanID).Scan(&cap); err != nil {
+			return fmt.Errorf("reseller: rpm cap: %w", err)
+		}
+		if cap > 0 && rateLimitRPM > cap {
+			return ErrPlanBounds{Reason: fmt.Sprintf("rate limit %d exceeds package cap %d", rateLimitRPM, cap)}
+		}
+	}
+	return nil
+}
+
 // Policy mirrors the per-reseller policy columns (super_admin sets them).
 type Policy struct {
 	PlanID         int64 // 0 = none (unlimited)

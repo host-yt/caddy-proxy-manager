@@ -1832,6 +1832,14 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	// F5: a reseller editing its own plan stays inside the package bounds.
+	if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 && h.Resellers != nil {
+		feats := planFeatureTokens(ssl, pathRouting, websocket, wildcard, externalProxy, rateLimit)
+		if err := h.Resellers.ValidatePlanBounds(ctx, sess.ResellerID, groupID, feats, rateLimit); err != nil {
+			redirectWithFlash(w, r, "/admin/plans", "", err.Error())
+			return
+		}
+	}
 	var rateLimitVal sql.NullInt32
 	if rateLimit > 0 {
 		rateLimitVal = sql.NullInt32{Int32: int32(rateLimit), Valid: true}
@@ -1924,6 +1932,15 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 	var resellerCol any
 	if !planAll {
 		resellerCol = planReseller
+		// F5: the plan must fit the reseller's package (pool grant, feature
+		// grants, RPM cap) and plan authoring must be enabled.
+		feats := planFeatureTokens(ssl, pathRouting, websocket, wildcard, externalProxy, rateLimit)
+		if h.Resellers != nil {
+			if err := h.Resellers.ValidatePlanBounds(ctx, planReseller, groupID, feats, rateLimit); err != nil {
+				redirectWithFlash(w, r, "/admin/plans", "", err.Error())
+				return
+			}
+		}
 	}
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO plans (name, kind, max_domains, max_ports, ssl_enabled, path_routing_enabled,
@@ -5564,4 +5581,29 @@ func (h *AdminHandlers) Stub(title string) http.HandlerFunc {
 			Path:          r.URL.Path,
 		})
 	}
+}
+
+
+// planFeatureTokens maps plan flag fields to package feature tokens (F5).
+func planFeatureTokens(ssl, path, websocket, wildcard, external bool, rateLimitRPM int) []string {
+	var f []string
+	if ssl {
+		f = append(f, "ssl")
+	}
+	if path {
+		f = append(f, "path")
+	}
+	if websocket {
+		f = append(f, "websocket")
+	}
+	if wildcard {
+		f = append(f, "wildcard")
+	}
+	if external {
+		f = append(f, "external")
+	}
+	if rateLimitRPM > 0 {
+		f = append(f, "rate_limit")
+	}
+	return f
 }

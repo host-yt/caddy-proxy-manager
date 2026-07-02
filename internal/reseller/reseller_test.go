@@ -153,3 +153,43 @@ func TestDeleteResetsOwnership(t *testing.T) {
 		t.Fatalf("reseller should be gone: %v", err)
 	}
 }
+
+func TestValidatePlanBounds(t *testing.T) {
+	dbf := openDB(t)
+	db := dbf()
+	for _, q := range []string{
+		`CREATE TABLE reseller_plan_node_groups (reseller_plan_id INTEGER, node_group_id INTEGER)`,
+		`CREATE TABLE reseller_plan_features (reseller_plan_id INTEGER, feature TEXT)`,
+		`ALTER TABLE reseller_plans ADD COLUMN rate_limit_rpm_cap INTEGER DEFAULT 0`,
+		`UPDATE reseller_plans SET rate_limit_rpm_cap=100`,
+		`INSERT INTO reseller_plan_node_groups VALUES (1, 5)`,
+		`INSERT INTO reseller_plan_features VALUES (1, 'ssl'), (1, 'rate_limit')`,
+		`INSERT INTO resellers (name, slug, status, reseller_plan_id, can_create_plans) VALUES ('a','a','active',1,1)`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+	}
+	s := New(dbf)
+	ctx := context.Background()
+	var rid int64
+	db.QueryRow(`SELECT id FROM resellers WHERE slug='a'`).Scan(&rid)
+
+	if err := s.ValidatePlanBounds(ctx, rid, 5, []string{"ssl"}, 50); err != nil {
+		t.Fatalf("in-bounds plan rejected: %v", err)
+	}
+	if err := s.ValidatePlanBounds(ctx, rid, 6, nil, 0); err == nil {
+		t.Fatal("foreign pool must be rejected")
+	}
+	if err := s.ValidatePlanBounds(ctx, rid, 5, []string{"waf"}, 0); err == nil {
+		t.Fatal("ungranted feature must be rejected")
+	}
+	if err := s.ValidatePlanBounds(ctx, rid, 5, []string{"rate_limit"}, 500); err == nil {
+		t.Fatal("rpm above cap must be rejected")
+	}
+	// can_create_plans off -> everything rejected.
+	db.Exec(`UPDATE resellers SET can_create_plans=0 WHERE id=?`, rid)
+	if err := s.ValidatePlanBounds(ctx, rid, 5, []string{"ssl"}, 0); err == nil {
+		t.Fatal("authoring disabled must be rejected")
+	}
+}
