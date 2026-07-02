@@ -1,5 +1,9 @@
 # Hostyt Proxy Gateway - REST API v1 Reference
 
+> Infrastructure-as-code: see [TERRAFORM.md](TERRAFORM.md) for the Terraform
+> provider resource mapping. The machine-readable spec is served at
+> `GET /api-docs/openapi.json`.
+
 ## Base URL
 
 ```
@@ -20,6 +24,22 @@ Authorization: Bearer hpg_live_xxxxxxxxxxxx
 **Client keys** - issued at `App → API Keys`.
 
 Role enforcement is per-endpoint. Keys that belong to a disabled or demoted user are rejected on every request (roles are re-checked live, not cached in the token).
+
+### Key scope (multi-tenant)
+
+An admin key's reach is derived from the owning user, not the token:
+
+| Owner | Data reach | Global infra (nodes / node-pools / client provisioning) |
+|-------|-----------|----------------------------------------------------------|
+| `super_admin` / unrestricted `admin` | all clients | allowed |
+| Reseller-admin (`users.reseller_id` set) | only that reseller's clients | denied (`403 global admin scope required`) |
+| Client-scoped admin (`admin_client_scope` rows) | only assigned clients | denied |
+| `client` | only its own client | n/a |
+
+List endpoints return only in-scope rows; single-resource reads and mutations
+return `403` for out-of-scope ids. A reseller-admin key may create clients
+(owned by its reseller) and manage its own reseller's plans, but never touches
+shared node infrastructure. Global plans stay platform-only.
 
 ---
 
