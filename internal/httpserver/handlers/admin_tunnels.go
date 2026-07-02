@@ -789,6 +789,59 @@ func (h *AdminHandlers) requireGlobalAdmin(w http.ResponseWriter, r *http.Reques
 	return false
 }
 
+// planScope decides how a caller may manage plans:
+//   - all=true: platform admin - manages every plan, creates global (NULL) plans.
+//   - resellerID>0: reseller-admin - manages only own-reseller plans, creates them.
+//   - ok=false: not permitted (client-scoped admin without a reseller).
+func (h *AdminHandlers) planScope(ctx context.Context, sess *auth.Session) (resellerID int64, all, ok bool) {
+	if sess == nil {
+		return 0, false, false
+	}
+	if sess.ResellerID > 0 {
+		return sess.ResellerID, false, true
+	}
+	if _, sAll, sOk := h.adminClientScope(ctx, sess); sOk && sAll {
+		return 0, true, true
+	}
+	return 0, false, false
+}
+
+// planManageable reports whether the caller (per planScope) may edit/delete a
+// specific plan: platform admins any plan, reseller-admins only their own.
+func (h *AdminHandlers) planManageable(ctx context.Context, sess *auth.Session, planID int64) bool {
+	rid, all, ok := h.planScope(ctx, sess)
+	if !ok {
+		return false
+	}
+	if all {
+		return true
+	}
+	var pr sql.NullInt64
+	if err := h.DB().QueryRowContext(ctx, "SELECT reseller_id FROM plans WHERE id=?", planID).Scan(&pr); err != nil {
+		return false
+	}
+	return pr.Valid && pr.Int64 == rid
+}
+
+// planAccessible reports whether a caller may attach a service to a plan:
+// platform admins any plan; reseller-admins only global plans or their own.
+func (h *AdminHandlers) planAccessible(ctx context.Context, sess *auth.Session, planID int64) bool {
+	rid, all, ok := h.planScope(ctx, sess)
+	if !ok {
+		// Non-plan-scoped admins (e.g. plain scoped-admin) keep prior behaviour:
+		// service scoping is enforced separately by scopeCheckClient.
+		return true
+	}
+	if all {
+		return true
+	}
+	var pr sql.NullInt64
+	if err := h.DB().QueryRowContext(ctx, "SELECT reseller_id FROM plans WHERE id=?", planID).Scan(&pr); err != nil {
+		return false
+	}
+	return !pr.Valid || pr.Int64 == rid
+}
+
 // scopeCheckService resolves a service's owning client and defers to
 // scopeCheckClient. Fail-closed if the service is missing.
 func (h *AdminHandlers) scopeCheckService(ctx context.Context, sess *auth.Session, serviceID int64) bool {

@@ -374,6 +374,9 @@ func (s *Server) routes() {
 			// Streams (L4): list filtered by client scope; every {id} op gated by
 			// scopeCheckStream (resolves service -> client ownership).
 			"/admin/streams*",
+			// Plans: reseller-admin sees global + own plans; create makes an
+			// own-reseller plan; edit/delete gated by planManageable.
+			"/admin/plans*",
 			// /admin/search NOT allow-listed: AdminSearch unscoped (F3 to scope).
 		}))
 		// Enforce 2FA enrollment for admins when REQUIRE_ADMIN_2FA (env) or the

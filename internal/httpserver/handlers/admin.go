@@ -1573,6 +1573,7 @@ type planRow struct {
 	ServiceCount      int
 	RouteCount        int
 	ClientCount       int
+	Owned             bool // caller may edit/delete (own reseller plan, or platform admin)
 }
 
 type nodeGroup struct {
@@ -1681,6 +1682,11 @@ type plansData struct {
 	baseAdminData
 	Plans  []planRow
 	Groups []nodeGroup
+	// CanManage is true when the caller may create plans (platform admin creates
+	// global plans; reseller-admin creates plans owned by their reseller).
+	CanManage bool
+	// ResellerScoped marks a reseller-admin view (create form makes reseller plans).
+	ResellerScoped bool
 }
 
 func (h *AdminHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
@@ -1693,27 +1699,42 @@ func (h *AdminHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3_000_000_000)
 	defer cancel()
 
+	// Plan visibility: platform admins see every plan; a reseller-admin sees
+	// global plans (reseller_id NULL) plus its own reseller's plans.
+	rid, all, ok := h.planScope(ctx, middleware.SessionFromContext(r.Context()))
+	d.CanManage = ok
+	d.ResellerScoped = ok && !all
+	planWhere := ""
+	var planArgs []any
+	if d.ResellerScoped {
+		planWhere = " WHERE (p.reseller_id IS NULL OR p.reseller_id = ?)"
+		planArgs = append(planArgs, rid)
+	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT p.id, p.name, p.kind, p.max_domains, p.max_ports, p.ssl_enabled,
 		        p.path_routing_enabled, p.websocket_enabled, p.wildcard_enabled,
 		        p.external_proxy_enabled, COALESCE(p.allow_egress_ip,0), p.rate_limit_rpm,
-		        p.wg_key_rotation_days, p.node_group_id, ng.name
-		 FROM plans p JOIN node_groups ng ON ng.id = p.node_group_id
-		 ORDER BY p.id DESC`)
+		        p.wg_key_rotation_days, p.node_group_id, ng.name, COALESCE(p.reseller_id,0)
+		 FROM plans p JOIN node_groups ng ON ng.id = p.node_group_id`+planWhere+`
+		 ORDER BY p.id DESC`, planArgs...)
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
 			var p planRow
 			var rl, wgDays sql.NullInt32
+			var planReseller int64
 			if err := rows.Scan(&p.ID, &p.Name, &p.Kind, &p.MaxDomains, &p.MaxPorts,
 				&p.SSL, &p.PathRouting, &p.WebSocket, &p.Wildcard, &p.ExternalProxy,
-				&p.AllowEgressIP, &rl, &wgDays, &p.NodeGroupID, &p.NodeGroupName); err == nil {
+				&p.AllowEgressIP, &rl, &wgDays, &p.NodeGroupID, &p.NodeGroupName, &planReseller); err == nil {
 				if rl.Valid {
 					p.RateLimitRPM = int(rl.Int32)
 				}
 				if wgDays.Valid {
 					p.WGKeyRotationDays = int(wgDays.Int32)
 				}
+				// Editable when platform admin, or the plan is owned by the
+				// reseller-admin's own reseller (never global plans for resellers).
+				p.Owned = all || (d.ResellerScoped && planReseller == rid)
 				d.Plans = append(d.Plans, p)
 			}
 		}
@@ -1761,15 +1782,20 @@ func (h *AdminHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 // PlansUpdate edits a plan in place. Mirrors PlansCreate parsing,
 // validation, and the same field invariants (caps > 0, kind, node group).
 func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAdmin(w, r) {
-		return
-	}
 	db := h.DB()
 	if db == nil {
 		http.Error(w, "no db", http.StatusServiceUnavailable)
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	// Reseller-admins may edit only their own reseller's plans; platform admins any.
+	mctx, mcancel := context.WithTimeout(r.Context(), 3*time.Second)
+	manage := h.planManageable(mctx, middleware.SessionFromContext(r.Context()), id)
+	mcancel()
+	if !manage {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	_ = r.ParseForm()
 	name := strings.TrimSpace(r.FormValue("name"))
 	kind := strings.TrimSpace(r.FormValue("kind"))
@@ -1837,7 +1863,11 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAdmin(w, r) {
+	pctx, pcancel := context.WithTimeout(r.Context(), 3*time.Second)
+	planReseller, planAll, planOK := h.planScope(pctx, middleware.SessionFromContext(r.Context()))
+	pcancel()
+	if !planOK {
+		http.Error(w, "forbidden: platform admins only", http.StatusForbidden)
 		return
 	}
 	db := h.DB()
@@ -1878,11 +1908,17 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 	if wgKeyRotDays > 0 {
 		wgRotDaysVal = sql.NullInt32{Int32: int32(wgKeyRotDays), Valid: true}
 	}
+	// A reseller-admin's plans are owned by their reseller; platform admins
+	// create global plans (reseller_id NULL).
+	var resellerCol any
+	if !planAll {
+		resellerCol = planReseller
+	}
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO plans (name, kind, max_domains, max_ports, ssl_enabled, path_routing_enabled,
-		   wildcard_enabled, websocket_enabled, external_proxy_enabled, allow_egress_ip, rate_limit_rpm, wg_key_rotation_days, node_group_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		name, kind, maxDomains, maxPorts, ssl, pathRouting, wildcard, websocket, externalProxy, allowEgressIP, rateLimitVal, wgRotDaysVal, groupID)
+		   wildcard_enabled, websocket_enabled, external_proxy_enabled, allow_egress_ip, rate_limit_rpm, wg_key_rotation_days, node_group_id, reseller_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		name, kind, maxDomains, maxPorts, ssl, pathRouting, wildcard, websocket, externalProxy, allowEgressIP, rateLimitVal, wgRotDaysVal, groupID, resellerCol)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			redirectWithFlash(w, r, "/admin/plans", "", "plan name already exists")
@@ -1902,15 +1938,20 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandlers) PlansDelete(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAdmin(w, r) {
-		return
-	}
 	db := h.DB()
 	if db == nil {
 		http.Error(w, "no db", http.StatusServiceUnavailable)
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	// Reseller-admins may delete only their own reseller's plans.
+	mctx, mcancel := context.WithTimeout(r.Context(), 3*time.Second)
+	manage := h.planManageable(mctx, middleware.SessionFromContext(r.Context()), id)
+	mcancel()
+	if !manage {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
 	if _, err := db.ExecContext(ctx, "DELETE FROM plans WHERE id = ?", id); err != nil {
@@ -2474,7 +2515,15 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	prows, err := db.QueryContext(ctx, "SELECT id, name FROM plans ORDER BY id DESC")
+	// Plan dropdown: reseller-admins see global plans plus their own reseller's.
+	planQ := "SELECT id, name FROM plans"
+	var planArgs []any
+	if prid, pall, pok := h.planScope(ctx, middleware.SessionFromContext(r.Context())); pok && !pall {
+		planQ += " WHERE (reseller_id IS NULL OR reseller_id = ?)"
+		planArgs = append(planArgs, prid)
+	}
+	planQ += " ORDER BY id DESC"
+	prows, err := db.QueryContext(ctx, planQ, planArgs...)
 	if err == nil {
 		defer prows.Close()
 		for prows.Next() {
@@ -2525,6 +2574,11 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	// IDOR guard: a restricted admin may only create services for its own tenants.
 	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), clientID) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden: client outside your scope")
+		return
+	}
+	// A reseller-admin may only use global plans or its own reseller's plans.
+	if !h.planAccessible(ctx, middleware.SessionFromContext(r.Context()), planID) {
+		redirectWithFlash(w, r, "/admin/services", "", "forbidden: plan outside your scope")
 		return
 	}
 
@@ -2605,6 +2659,10 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 	sess := middleware.SessionFromContext(r.Context())
 	if !h.scopeCheckService(ctx, sess, id) || !h.scopeCheckClient(ctx, sess, clientID) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden: outside your scope")
+		return
+	}
+	if !h.planAccessible(ctx, sess, planID) {
+		redirectWithFlash(w, r, "/admin/services", "", "forbidden: plan outside your scope")
 		return
 	}
 
