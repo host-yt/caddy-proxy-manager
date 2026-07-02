@@ -240,6 +240,10 @@ func (h *AdminHandlers) base(r *http.Request, title string) baseAdminData {
 		d.AdminName = greetingName(sess.Email)
 		d.Role = sess.Role
 		d.CSRF = sess.CSRFToken
+		// Reseller-admin sees their reseller's brand overlaid on global.
+		if sess.ResellerID > 0 {
+			d.Brand = LoadBrandingFor(r.Context(), h.DB(), sess.ResellerID)
+		}
 	}
 	if msg := r.URL.Query().Get("flash"); msg != "" {
 		d.Flash = msg

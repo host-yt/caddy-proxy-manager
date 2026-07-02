@@ -139,6 +139,29 @@ func LoadBranding(ctx context.Context, db *sql.DB) Branding {
 	return out
 }
 
+// LoadBrandingFor overlays a reseller's brand fields on the global branding.
+// resellerID<=0 (incl. the poison scope) returns global unchanged.
+func LoadBrandingFor(ctx context.Context, db *sql.DB, resellerID int64) Branding {
+	b := LoadBranding(ctx, db)
+	if db == nil || resellerID <= 0 {
+		return b
+	}
+	c, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var name, logo sql.NullString
+	if err := db.QueryRowContext(c,
+		"SELECT brand_name, logo_url FROM resellers WHERE id = ?", resellerID).Scan(&name, &logo); err != nil {
+		return b // global fallback
+	}
+	if name.Valid && name.String != "" {
+		b.BrandName = name.String
+	}
+	if logo.Valid && logo.String != "" {
+		b.LogoURLLight, b.LogoURLDark = logo.String, logo.String
+	}
+	return b
+}
+
 // invalidateBranding forces the next LoadBranding to re-read the DB -
 // called from the save handler so admins see their change immediately.
 func invalidateBranding() {
