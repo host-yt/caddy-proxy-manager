@@ -416,9 +416,24 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 // `via` is the entry path ("password", "oidc"). `mfa` is the second-factor
 // used ("none", "totp", "recovery", "sms", "email"); SSO logins report "none"
 // with via="oidc" so the dashboard can distinguish them.
+// lookupResellerID returns the reseller a user belongs to, or 0. Best-effort:
+// called at login on a DB that just authenticated the user, so a NULL/miss maps
+// to 0 (platform admin) rather than failing the login.
+func lookupResellerID(ctx context.Context, db *sql.DB, userID int64) int64 {
+	if db == nil {
+		return 0
+	}
+	var rid sql.NullInt64
+	_ = db.QueryRowContext(ctx, "SELECT reseller_id FROM users WHERE id = ?", userID).Scan(&rid)
+	if rid.Valid {
+		return rid.Int64
+	}
+	return 0
+}
+
 func (h *AuthHandlers) finalizeLogin(ctx context.Context, w http.ResponseWriter, r *http.Request,
 	userID int64, email, role string, clientID int64, via, mfa string) {
-	if _, err := h.Sessions.Create(ctx, w, userID, email, role, clientID); err != nil {
+	if _, err := h.Sessions.Create(ctx, w, userID, email, role, clientID, lookupResellerID(ctx, h.DB(), userID)); err != nil {
 		h.Logger.Error("session create", "err", err)
 		h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: email, Error: "Could not create session."}))
 		return
@@ -973,7 +988,7 @@ func (h *AuthHandlers) EndImpersonation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.Sessions.Destroy(ctx, w, r)
-	if _, err := h.Sessions.Create(ctx, w, sess.ImpersonatorUserID, adminEmail, adminRole, 0); err != nil {
+	if _, err := h.Sessions.Create(ctx, w, sess.ImpersonatorUserID, adminEmail, adminRole, 0, lookupResellerID(ctx, db, sess.ImpersonatorUserID)); err != nil {
 		h.Logger.Error("end impersonation: create admin session", "err", err)
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 		return
@@ -1968,7 +1983,7 @@ func (h *AuthHandlers) SSOJump(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// No second factor enrolled - create session and redirect.
-	if _, err := h.Sessions.Create(ctx, w, userID, email, role, clientID); err != nil {
+	if _, err := h.Sessions.Create(ctx, w, userID, email, role, clientID, lookupResellerID(ctx, h.DB(), userID)); err != nil {
 		h.Logger.Error("sso_jump: session create", "err", err)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return

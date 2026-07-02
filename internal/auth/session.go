@@ -26,6 +26,10 @@ type Session struct {
 	Email              string    `json:"email"`
 	Role               string    `json:"role"`
 	ClientID           int64     `json:"client_id,omitempty"`
+	// ResellerID is set for a reseller-admin (a role=admin user tied to a
+	// reseller); 0 = platform admin / non-reseller. Stamped at login so the
+	// reseller-admin route boundary needs no per-request DB lookup.
+	ResellerID         int64     `json:"reseller_id,omitempty"`
 	CSRFToken          string    `json:"csrf"`
 	CreatedAt          time.Time `json:"created_at"`
 	ExpiresAt          time.Time `json:"expires_at"`
@@ -62,16 +66,17 @@ const sessionKeyPrefix = "hpg:sess:"
 // short-lived cookies (e.g. pending-2fa).
 func (m *Manager) CookieSecure() bool { return m.secure }
 
-// Create stores a new session in Redis and writes the cookie.
-func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, userID int64, email, role string, clientID int64) (*Session, error) {
-	return m.CreateImpersonated(ctx, w, userID, email, role, clientID, 0, "")
+// Create stores a new session in Redis and writes the cookie. resellerID is
+// non-zero only for a reseller-admin.
+func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, userID int64, email, role string, clientID, resellerID int64) (*Session, error) {
+	return m.CreateImpersonated(ctx, w, userID, email, role, clientID, resellerID, 0, "")
 }
 
 // CreateImpersonated mints a session whose effective identity is the
 // target client (userID/email/role/clientID) but which carries the
 // admin's id/email in ImpersonatorUserID for audit accountability.
 // Pass impersonatorID=0 for a normal login.
-func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter, userID int64, email, role string, clientID, impersonatorID int64, impersonatorEmail string) (*Session, error) {
+func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter, userID int64, email, role string, clientID, resellerID, impersonatorID int64, impersonatorEmail string) (*Session, error) {
 	id, err := randomID(32)
 	if err != nil {
 		return nil, err
@@ -86,6 +91,7 @@ func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter,
 		Email:              email,
 		Role:               role,
 		ClientID:           clientID,
+		ResellerID:         resellerID,
 		CSRFToken:          csrf,
 		CreatedAt:          now,
 		ExpiresAt:          now.Add(m.ttl),

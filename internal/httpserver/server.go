@@ -349,6 +349,21 @@ func (s *Server) routes() {
 			"/admin/ai/chat/sessions/*",
 			"/admin/ai/chat/sessions/*/message",
 		}))
+		// Reseller-admin boundary (default-deny): a reseller-admin sees only the
+		// client-scoped surface below; global infra returns 403. Inert until a
+		// user carries a reseller_id. Allow-list expands with the reseller panel.
+		r.Use(mw.ResellerAdminBoundary([]string{
+			"/admin",              // dashboard
+			"/admin/2fa/required", // 2FA enrollment gate
+			"/admin/2fa*",         // self-service 2FA
+			"/admin/account",      // own account
+			"/admin/passkeys*",    // own passkeys
+			"/admin/oauth-identities*",
+			"/admin/map",      // scoped by ScopeFilter to owned clients
+			"/admin/worldmap", // scoped
+			"/admin/ai/chat*", // scoped (tools filter to owned clients)
+			"/admin/search",   // scoped result set
+		}))
 		// Enforce 2FA enrollment for admins when REQUIRE_ADMIN_2FA (env) or the
 		// security.require_admin_2fa settings row is on. Bypasses enrollment +
 		// logout routes internally; grace window avoids an instant lock-out.

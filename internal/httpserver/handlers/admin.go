@@ -3357,7 +3357,8 @@ func (h *AdminHandlers) UsersImpersonate(w http.ResponseWriter, r *http.Request)
 	adminID := sess.UserID
 	adminEmail := sess.Email
 	h.Sessions.Destroy(ctx, w, r)
-	if _, err := h.Sessions.CreateImpersonated(ctx, w, id, email, role, clientID, adminID, adminEmail); err != nil {
+	// resellerID=0: the impersonated identity is a client, never a reseller-admin.
+	if _, err := h.Sessions.CreateImpersonated(ctx, w, id, email, role, clientID, 0, adminID, adminEmail); err != nil {
 		h.Logger.Error("impersonate: session create", "err", err)
 		http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
 		return
