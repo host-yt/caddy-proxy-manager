@@ -758,6 +758,13 @@ func (h *APIHandlers) ClientCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resellerCol = rid.Int64
+		// Reseller aggregate quota: cap the number of clients.
+		if h.Quota != nil {
+			if qerr := h.Quota.CanCreateClient(ctx, rid.Int64); qerr != nil {
+				apiErr(w, http.StatusForbidden, qerr.Error())
+				return
+			}
+		}
 	}
 	tx, err := h.DB().BeginTx(ctx, nil)
 	if err != nil {

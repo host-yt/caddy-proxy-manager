@@ -26,6 +26,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/dns"
+	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
@@ -98,6 +99,10 @@ type Service struct {
 	// Empty = "0.0.0.0:2019" (docker-bridge-scoped default). From env
 	// HPG_CADDY_ADMIN_LISTEN.
 	CaddyAdminListen string
+
+	// Quota is optional. When set, route creation is bounded by the owning
+	// reseller's aggregate package (domains, overselling mode). Nil = no limits.
+	Quota *quota.Service
 
 	// Metrics is optional. When set, push/drift counters tick into Prometheus.
 	Metrics PushMetrics
@@ -572,6 +577,21 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 			"SELECT COUNT(*) FROM routes WHERE service_id = ?", in.ServiceID,
 		).Scan(&currentCount); err == nil && currentCount >= planMaxDom {
 			return 0, ErrMaxDomains
+		}
+	}
+	// Reseller aggregate quota. Single choke point: panel, client portal and
+	// API route creation all pass through here. Lookup errors log + allow
+	// (business limit, must not brick creates on a transient).
+	if s.Quota != nil {
+		rid, qerr := s.Quota.ResellerOfClient(ctx, ownerClient)
+		if qerr == nil && rid != 0 {
+			qerr = s.Quota.CanCreateRoute(ctx, rid, in.ServiceID)
+		}
+		if errors.Is(qerr, quota.ErrDomainQuota) {
+			return 0, qerr
+		}
+		if qerr != nil {
+			s.Logger.Warn("reseller quota check skipped", "client", ownerClient, "err", qerr)
 		}
 	}
 

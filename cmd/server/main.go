@@ -46,6 +46,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/mail"
 	"github.com/host-yt/caddy-proxy-manager/internal/metrics"
 	"github.com/host-yt/caddy-proxy-manager/internal/nodejoin"
+	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/notify"
 	"github.com/host-yt/caddy-proxy-manager/internal/oauth2x"
 	"github.com/host-yt/caddy-proxy-manager/internal/obs"
@@ -165,6 +166,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 
 	routesSvc := &routes.Service{
 		DB:                       wizard.DB(),
+		Quota:                    &quota.Service{DB: wizard.DB},
 		Logger:                   logger,
 		AskURL:                   buildAskURL(cfg),
 		ACMEEmail:                cfg.Caddy.ACMEEmail,
@@ -405,6 +407,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		SIEMForwarder:   siemFwd,
 		Enforce2FAEnv:   cfg.Security.RequireAdmin2FA,
 		AdminScope:      adminscope.New(wizard.DB),
+		Quota:           &quota.Service{DB: wizard.DB},
 		Resellers:       reseller.New(wizard.DB),
 		AccessLogs:      alStore,
 		AccessLogBroker: alBroker,
@@ -491,6 +494,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Logger:     logger,
 		Routes:     routesSvc,
 		AdminScope: adminscope.New(wizard.DB),
+		Quota:      &quota.Service{DB: wizard.DB},
 	}
 
 	// Customer-WG bootstrap + node-agent endpoints.

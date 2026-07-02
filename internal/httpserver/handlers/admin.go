@@ -39,6 +39,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/instasync"
@@ -82,6 +83,8 @@ type AdminHandlers struct {
 	GeoIPJob geoipRefresher
 	// AdminScope enforces per-client visibility for non-super_admin roles. nil = no enforcement.
 	AdminScope *adminscope.Service
+	// Quota enforces reseller aggregate package limits at create surfaces. nil-safe.
+	Quota *quota.Service
 	// Resellers is the reseller-ownership store (super_admin management UI). nil-safe.
 	Resellers *reseller.Store
 	// WriteWGConfig rebuilds /app/wg/wg0.conf from DB peers (sidecar
@@ -2295,6 +2298,15 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	// Reseller aggregate quota: cap the number of clients under the reseller.
+	if h.Quota != nil {
+		if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 {
+			if qerr := h.Quota.CanCreateClient(ctx, sess.ResellerID); qerr != nil {
+				redirectWithFlash(w, r, "/admin/clients", "", qerr.Error())
+				return
+			}
+		}
+	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/clients", "", "tx begin failed")
@@ -2586,6 +2598,16 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	if !h.planAccessible(ctx, middleware.SessionFromContext(r.Context()), planID) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden: plan outside your scope")
 		return
+	}
+	// Reseller aggregate quota: subscriptions + (without overselling) the
+	// allocated domain capacity of the attached plan.
+	if h.Quota != nil {
+		if rid, qerr := h.Quota.ResellerOfClient(ctx, clientID); qerr == nil && rid != 0 {
+			if qerr = h.Quota.CanCreateService(ctx, rid, planID); qerr != nil {
+				redirectWithFlash(w, r, "/admin/services", "", qerr.Error())
+				return
+			}
+		}
 	}
 
 	var nodeGroupID int64

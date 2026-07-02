@@ -19,6 +19,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
@@ -31,6 +32,8 @@ type APIHandlers struct {
 	// nil = no enforcement (a bare admin key stays unrestricted). A reseller-admin
 	// key is scoped to its reseller's clients; global infra is denied.
 	AdminScope *adminscope.Service
+	// Quota enforces reseller aggregate package limits at create surfaces. nil-safe.
+	Quota *quota.Service
 }
 
 // apiScope returns the client ids an admin-role caller may act on. all=true means
@@ -280,6 +283,15 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Reseller aggregate quota (subscriptions + allocated domain capacity).
+	if h.Quota != nil {
+		if rid, qerr := h.Quota.ResellerOfClient(ctx, in.ClientID); qerr == nil && rid != 0 {
+			if qerr = h.Quota.CanCreateService(ctx, rid, in.PlanID); qerr != nil {
+				apiErr(w, http.StatusForbidden, qerr.Error())
+				return
+			}
+		}
+	}
 	var nodeGroupID int64
 	if err := db.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", in.PlanID).Scan(&nodeGroupID); err != nil {
 		apiErr(w, http.StatusBadRequest, "plan not found")
