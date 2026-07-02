@@ -155,6 +155,21 @@ docker-down:
 docker-logs:
 	docker compose -f deploy/docker-compose.yml logs -f --tail=200
 
+# --- Edge Caddy image (WAF / cache / L4 / geoip / rate-limit) ---------------
+# Standalone build+push of the custom Caddy image so it can be rolled to EVERY
+# node (central + remote joins) BEFORE flipping WAF_MODULE_AVAILABLE=1. Stock
+# Caddy rejects the WAF/cache config on /load and the node goes offline, so all
+# nodes must run this image first. See docs/WAF.md enablement runbook.
+EDGE_IMAGE ?= ghcr.io/host-yt/caddy-proxy-manager-edge:latest
+
+.PHONY: edge-image
+edge-image:
+	docker build -t $(EDGE_IMAGE) deploy/caddy
+
+.PHONY: edge-push
+edge-push: edge-image
+	docker push $(EDGE_IMAGE)
+
 # --- Clean ------------------------------------------------------------------
 
 .PHONY: clean

@@ -15,6 +15,30 @@ saved but no WAF block is pushed to Caddy (routes still work normally).
 
 Use the provided `deploy/caddy/Dockerfile` as the base; it already includes the module.
 
+## Enablement runbook
+
+WAF is code-complete; turning it on is a deploy operation. Order matters - do NOT
+flip the flag before every node runs the edge image.
+
+1. **Build + roll the edge image to ALL nodes** (central panel node + every remote
+   join node):
+   ```bash
+   make edge-push EDGE_IMAGE=ghcr.io/host-yt/caddy-proxy-manager-edge:latest
+   ```
+   Then redeploy each node onto that image. **Trap:** stock Caddy rejects the WAF
+   (and cache/L4) config on `/load` and the node drops offline - identical to the
+   `CACHE_HANDLER_AVAILABLE` gotcha. A node that has been capability-probed
+   (`modules_probed_at` set, `has_waf=1/0`) is protected: the panel emits WAF
+   config only to nodes whose probe reports coraza (`probedOr` in
+   `internal/domain/routes/service.go`). The risk window is an **un-probed** node
+   while the global flag is on - so probe/roll first.
+2. **Flip the flag** on the HPG app process and redeploy the app:
+   ```
+   WAF_MODULE_AVAILABLE=1
+   ```
+3. **Start in detection-only** per route (default). Watch `Admin → WAF` events for
+   false positives before switching any route to blocking mode.
+
 ## Configuration
 
 ### Per-route toggle
