@@ -858,6 +858,23 @@ func (s *Server) routes() {
 				r.Patch("/{id}", s.deps.API.ClientUpdate)
 				r.Delete("/{id}", s.deps.API.ClientDelete)
 			})
+			// Reseller layer management: platform-admin keys only (enforced by
+			// requireGlobalAPIAdmin inside every handler).
+			r.Route("/resellers", func(r chi.Router) {
+				r.Use(mw.RequireAdminScope())
+				r.Get("/", s.deps.API.ResellersList)
+				r.Post("/", s.deps.API.ResellerCreate)
+				r.Get("/{id}", s.deps.API.ResellerGet)
+				r.Patch("/{id}", s.deps.API.ResellerUpdate)
+				r.Delete("/{id}", s.deps.API.ResellerDelete)
+			})
+			r.Route("/reseller-plans", func(r chi.Router) {
+				r.Use(mw.RequireAdminScope())
+				r.Get("/", s.deps.API.ResellerPlansList)
+				r.Post("/", s.deps.API.ResellerPlanCreate)
+				r.Patch("/{id}", s.deps.API.ResellerPlanUpdate)
+				r.Delete("/{id}", s.deps.API.ResellerPlanDelete)
+			})
 			if s.deps.FOSSBilling != nil {
 				r.Route("/provisioning", func(r chi.Router) {
 					r.Use(mw.RequireAdminScope())

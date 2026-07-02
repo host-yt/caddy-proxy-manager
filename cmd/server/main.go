@@ -495,6 +495,8 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Routes:     routesSvc,
 		AdminScope: adminscope.New(wizard.DB),
 		Quota:      &quota.Service{DB: wizard.DB},
+		Resellers:  reseller.New(wizard.DB),
+		Sessions:   sessions,
 	}
 
 	// Customer-WG bootstrap + node-agent endpoints.

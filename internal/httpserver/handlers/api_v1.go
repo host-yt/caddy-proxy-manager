@@ -16,10 +16,12 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
+	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
@@ -34,6 +36,10 @@ type APIHandlers struct {
 	AdminScope *adminscope.Service
 	// Quota enforces reseller aggregate package limits at create surfaces. nil-safe.
 	Quota *quota.Service
+	// Resellers backs the /api/v1/resellers + /reseller-plans endpoints. nil-safe.
+	Resellers *reseller.Store
+	// Sessions is used to revoke reseller users on suspend/delete via API. nil-safe.
+	Sessions *auth.Manager
 }
 
 // apiScope returns the client ids an admin-role caller may act on. all=true means
