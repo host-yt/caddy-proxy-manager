@@ -371,6 +371,9 @@ func (s *Server) routes() {
 			// Services: list filtered by adminClientScope; create/update/delete/
 			// suspend/resume gated by scopeCheckClient/scopeCheckService.
 			"/admin/services*",
+			// Streams (L4): list filtered by client scope; every {id} op gated by
+			// scopeCheckStream (resolves service -> client ownership).
+			"/admin/streams*",
 			// /admin/search NOT allow-listed: AdminSearch unscoped (F3 to scope).
 		}))
 		// Enforce 2FA enrollment for admins when REQUIRE_ADMIN_2FA (env) or the

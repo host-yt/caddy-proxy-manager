@@ -13,9 +13,27 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
+
+// scopeCheckStream verifies the caller may act on a stream by resolving its
+// service and deferring to scopeCheckService. True for super_admin / no scope.
+func (h *AdminHandlers) scopeCheckStream(ctx context.Context, sess *auth.Session, streamID int64) bool {
+	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+		return true
+	}
+	db := h.DB()
+	if db == nil {
+		return false
+	}
+	var svcID int64
+	if err := db.QueryRowContext(ctx, "SELECT service_id FROM stream_routes WHERE id = ?", streamID).Scan(&svcID); err != nil {
+		return false
+	}
+	return h.scopeCheckService(ctx, sess, svcID)
+}
 
 // Streams admin: CRUD on stream_routes (TCP/UDP L4 forwards via the
 // caddy-l4 module embedded in the custom Caddy build). Admin-only;
@@ -157,6 +175,24 @@ func (h *AdminHandlers) StreamsList(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	d.Nodes = h.loadNodeOptions(ctx)
+	// Scope: non-super_admins see only streams whose service belongs to an
+	// assigned client (streams are self-provisioned per client like hosts).
+	streamWhere := ""
+	var streamArgs []any
+	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); ok && !all {
+		if len(allowed) == 0 {
+			streamWhere = " WHERE 1=0"
+		} else {
+			ids := make([]int64, 0, len(allowed))
+			for id := range allowed {
+				ids = append(ids, id)
+			}
+			streamWhere = " WHERE sv.client_id IN (" + placeholders(len(ids)) + ")"
+			for _, id := range ids {
+				streamArgs = append(streamArgs, id)
+			}
+		}
+	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port,
 		        sv.backend_ip, n.name, n.public_hostname, sr.status,
@@ -168,8 +204,8 @@ func (h *AdminHandlers) StreamsList(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(sr.proxy_proto_out,'none')
 		 FROM stream_routes sr
 		 JOIN services sv     ON sv.id = sr.service_id
-		 JOIN caddy_nodes n   ON n.id = sr.caddy_node_id
-		 ORDER BY sr.listen_port ASC, sr.id ASC`)
+		 JOIN caddy_nodes n   ON n.id = sr.caddy_node_id`+streamWhere+`
+		 ORDER BY sr.listen_port ASC, sr.id ASC`, streamArgs...)
 	if err != nil {
 		h.Logger.Warn("streams list", "err", err)
 		d.Error = "query failed"
@@ -395,6 +431,10 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
+	if !h.scopeCheckStream(ctx, middleware.SessionFromContext(r.Context()), id) {
+		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
+		return
+	}
 
 	d := streamEditData{baseAdminData: h.base(r, "Edit stream")}
 	if err := db.QueryRowContext(ctx,
@@ -455,6 +495,10 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
 	if id == 0 {
 		http.Redirect(w, r, "/admin/streams", http.StatusSeeOther)
+		return
+	}
+	if !h.scopeCheckStream(r.Context(), sess, id) {
+		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
 		return
 	}
 	_ = r.ParseForm()
@@ -577,6 +621,10 @@ func (h *AdminHandlers) StreamsDelete(w http.ResponseWriter, r *http.Request) {
 	sess := middleware.SessionFromContext(r.Context())
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	if !h.scopeCheckStream(ctx, sess, id) {
+		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
+		return
+	}
 	var nodeID int64
 	if err := db.QueryRowContext(ctx, "SELECT caddy_node_id FROM stream_routes WHERE id = ?", id).Scan(&nodeID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
