@@ -26,6 +26,10 @@ func (h *AdminHandlers) ClientsStatusSlugGenerate(w http.ResponseWriter, r *http
 	db := h.DB()
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
+	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), id) {
+		redirectWithFlash(w, r, "/admin/clients", "", "forbidden")
+		return
+	}
 	_, err := db.ExecContext(ctx,
 		"UPDATE clients SET status_slug=? WHERE id=?", slug, id)
 	if err != nil {
@@ -45,6 +49,10 @@ func (h *AdminHandlers) ClientsStatusSlugRevoke(w http.ResponseWriter, r *http.R
 	db := h.DB()
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
+	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), id) {
+		redirectWithFlash(w, r, "/admin/clients", "", "forbidden")
+		return
+	}
 	_, err := db.ExecContext(ctx,
 		"UPDATE clients SET status_slug=NULL WHERE id=?", id)
 	if err != nil {
