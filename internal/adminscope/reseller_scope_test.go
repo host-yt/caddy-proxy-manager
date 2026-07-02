@@ -22,8 +22,9 @@ func openResellerDB(t *testing.T) *sql.DB {
 		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
-		// user 1 = reseller-admin of reseller 7; user 2 = plain scoped admin.
-		`INSERT INTO users (id, reseller_id) VALUES (1, 7), (2, NULL)`,
+		// user 1 = reseller-admin (reseller 7); user 2 = client-scoped admin
+		// (has admin_client_scope rows); user 3 = bare/unrestricted admin.
+		`INSERT INTO users (id, reseller_id) VALUES (1, 7), (2, NULL), (3, NULL)`,
 		// reseller 7 owns clients 100,101; client 200 belongs to another reseller;
 		// client 300 is platform-direct (reseller_id NULL).
 		`INSERT INTO clients (id, reseller_id) VALUES (100, 7), (101, 7), (200, 9), (300, NULL)`,
@@ -78,6 +79,30 @@ func TestScopeFilterPlainAdminUnchanged(t *testing.T) {
 	}
 	if got := idSet(ids); len(got) != 1 || !got[300] {
 		t.Fatalf("plain admin scope = %v, want {300} from admin_client_scope", ids)
+	}
+}
+
+// TestScopeFilterBareAdmin: an admin with no reseller and no admin_client_scope
+// rows is unrestricted (all=true) - restriction is opt-in.
+func TestScopeFilterBareAdmin(t *testing.T) {
+	db := openResellerDB(t)
+	svc := New(func() *sql.DB { return db })
+	ctx := context.Background()
+
+	_, all, err := svc.ScopeFilter(ctx, 3)
+	if err != nil {
+		t.Fatalf("ScopeFilter(bare admin): %v", err)
+	}
+	if !all {
+		t.Fatal("bare admin (no reseller, no scope rows) must be unrestricted (all=true)")
+	}
+	// And per-resource checks allow anything for a bare admin.
+	ok, err := svc.CanAccessClient(ctx, 3, 200) // client of another reseller
+	if err != nil {
+		t.Fatalf("CanAccessClient(bare): %v", err)
+	}
+	if !ok {
+		t.Fatal("bare admin must access any client")
 	}
 }
 

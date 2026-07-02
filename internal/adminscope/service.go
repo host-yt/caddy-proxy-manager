@@ -38,19 +38,54 @@ func (s *Service) userResellerID(ctx context.Context, adminUserID int64) (int64,
 	return 0, nil
 }
 
+// scopeMode classifies an admin. Restriction is OPT-IN: an admin with no
+// reseller and no admin_client_scope rows is unrestricted (full platform).
+type scopeMode struct {
+	all        bool  // unrestricted platform admin
+	resellerID int64 // >0 = reseller-scoped
+}
+
+// resolveMode determines whether an admin is unrestricted, reseller-scoped, or
+// client-scoped (admin_client_scope rows present).
+func (s *Service) resolveMode(ctx context.Context, adminUserID int64) (scopeMode, error) {
+	rid, err := s.userResellerID(ctx, adminUserID)
+	if err != nil {
+		return scopeMode{}, err
+	}
+	if rid != 0 {
+		return scopeMode{resellerID: rid}, nil
+	}
+	db := s.db()
+	if db == nil {
+		return scopeMode{}, nil
+	}
+	var n int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM admin_client_scope WHERE admin_user_id=?`, adminUserID).Scan(&n); err != nil {
+		return scopeMode{}, fmt.Errorf("adminscope: mode: %w", err)
+	}
+	if n == 0 {
+		return scopeMode{all: true}, nil // no restriction on file
+	}
+	return scopeMode{}, nil // client-scoped
+}
+
 func (s *Service) CanAccessClient(ctx context.Context, adminUserID, clientID int64) (bool, error) {
 	db := s.db()
 	if db == nil {
 		return false, nil
 	}
-	rid, err := s.userResellerID(ctx, adminUserID)
+	m, err := s.resolveMode(ctx, adminUserID)
 	if err != nil {
 		return false, err
 	}
+	if m.all {
+		return true, nil
+	}
 	var count int
-	if rid != 0 {
+	if m.resellerID != 0 {
 		err = db.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM clients WHERE id=? AND reseller_id=?`, clientID, rid).Scan(&count)
+			`SELECT COUNT(*) FROM clients WHERE id=? AND reseller_id=?`, clientID, m.resellerID).Scan(&count)
 	} else {
 		err = db.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM admin_client_scope WHERE admin_user_id=? AND client_id=?`,
@@ -67,16 +102,19 @@ func (s *Service) CanAccessPeer(ctx context.Context, adminUserID, peerID int64) 
 	if db == nil {
 		return false, nil
 	}
-	rid, err := s.userResellerID(ctx, adminUserID)
+	m, err := s.resolveMode(ctx, adminUserID)
 	if err != nil {
 		return false, err
 	}
+	if m.all {
+		return true, nil
+	}
 	var count int
-	if rid != 0 {
+	if m.resellerID != 0 {
 		err = db.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM customer_wg_peer p
 			 JOIN clients c ON c.id = p.client_id
-			 WHERE p.id=? AND c.reseller_id=?`, peerID, rid).Scan(&count)
+			 WHERE p.id=? AND c.reseller_id=?`, peerID, m.resellerID).Scan(&count)
 	} else {
 		err = db.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM admin_client_scope acs
@@ -95,17 +133,20 @@ func (s *Service) CanAccessRoute(ctx context.Context, adminUserID, routeID int64
 	if db == nil {
 		return false, nil
 	}
-	rid, err := s.userResellerID(ctx, adminUserID)
+	m, err := s.resolveMode(ctx, adminUserID)
 	if err != nil {
 		return false, err
 	}
+	if m.all {
+		return true, nil
+	}
 	var count int
-	if rid != 0 {
+	if m.resellerID != 0 {
 		err = db.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM routes r
 			 JOIN services sv ON sv.id = r.service_id
 			 JOIN clients c ON c.id = sv.client_id
-			 WHERE r.id=? AND c.reseller_id=?`, routeID, rid).Scan(&count)
+			 WHERE r.id=? AND c.reseller_id=?`, routeID, m.resellerID).Scan(&count)
 	} else {
 		err = db.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM admin_client_scope acs
@@ -178,37 +219,27 @@ func (s *Service) Unassign(ctx context.Context, adminUserID, clientID int64) err
 	return nil
 }
 
-// ScopeFilter returns the set of client ids an admin may act on. super_admin
-// (adminUserID=0) gets (nil, true) so callers skip WHERE filtering. A
-// reseller-admin (users.reseller_id set) is scoped to that reseller's owned
-// clients - dynamic ownership, never "all" and never the manual
-// admin_client_scope assignment. Any other admin gets its assigned client list.
+// ScopeFilter returns the client ids an admin may act on. super_admin
+// (adminUserID=0) and an unrestricted platform admin get (nil, true) so callers
+// skip WHERE filtering. A reseller-admin is scoped to its reseller's owned
+// clients; a client-scoped admin to its admin_client_scope assignment.
 func (s *Service) ScopeFilter(ctx context.Context, adminUserID int64) (clientIDs []int64, all bool, err error) {
 	if adminUserID == 0 {
 		return nil, true, nil
 	}
-	db := s.db()
-	if db == nil {
-		return nil, false, nil
-	}
-	// Reseller-admin ownership takes precedence over manual scope assignment.
-	var rid sql.NullInt64
-	e := db.QueryRowContext(ctx, `SELECT reseller_id FROM users WHERE id = ?`, adminUserID).Scan(&rid)
-	if e != nil && !errors.Is(e, sql.ErrNoRows) {
-		return nil, false, fmt.Errorf("adminscope: reseller lookup: %w", e)
-	}
-	if rid.Valid {
-		ids, err := s.resellerClientIDs(ctx, rid.Int64)
-		if err != nil {
-			return nil, false, err
-		}
-		return ids, false, nil
-	}
-	ids, err := s.AssignedClientIDs(ctx, adminUserID)
+	m, err := s.resolveMode(ctx, adminUserID)
 	if err != nil {
 		return nil, false, err
 	}
-	return ids, false, nil
+	if m.all {
+		return nil, true, nil
+	}
+	if m.resellerID != 0 {
+		ids, err := s.resellerClientIDs(ctx, m.resellerID)
+		return ids, false, err
+	}
+	ids, err := s.AssignedClientIDs(ctx, adminUserID)
+	return ids, false, err
 }
 
 // resellerClientIDs lists the clients owned by a reseller (a reseller-admin's
