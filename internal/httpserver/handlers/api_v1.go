@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
@@ -26,6 +27,62 @@ type APIHandlers struct {
 	DB     func() *sql.DB
 	Logger *slog.Logger
 	Routes *routes.Service
+	// AdminScope resolves an admin caller's client visibility (reseller-aware).
+	// nil = no enforcement (a bare admin key stays unrestricted). A reseller-admin
+	// key is scoped to its reseller's clients; global infra is denied.
+	AdminScope *adminscope.Service
+}
+
+// apiScope returns the client ids an admin-role caller may act on. all=true means
+// unrestricted (super_admin, api role, or a bare admin). A reseller-admin or a
+// client-scoped admin gets all=false plus the exhaustive id allow-list.
+func (h *APIHandlers) apiScope(ctx context.Context, c *middleware.APICaller) (ids []int64, all bool, err error) {
+	if c == nil {
+		return nil, false, errors.New("no caller")
+	}
+	// super_admin and machine (api) keys are platform-wide by design.
+	if c.Role == "super_admin" || c.Role == "api" {
+		return nil, true, nil
+	}
+	if h.AdminScope == nil {
+		return nil, true, nil
+	}
+	return h.AdminScope.ScopeFilter(ctx, c.UserID)
+}
+
+// apiAllowClient reports whether an admin caller may act on clientID. Fails
+// closed on scope-resolution error.
+func (h *APIHandlers) apiAllowClient(ctx context.Context, c *middleware.APICaller, clientID int64) bool {
+	ids, all, err := h.apiScope(ctx, c)
+	if err != nil {
+		return false
+	}
+	if all {
+		return true
+	}
+	for _, id := range ids {
+		if id == clientID {
+			return true
+		}
+	}
+	return false
+}
+
+// requireGlobalAPIAdmin gates platform-global resources (plans, nodes, node
+// pools, client provisioning): only an unrestricted admin passes. A reseller- or
+// client-scoped admin key is denied - it must never touch shared infra.
+func (h *APIHandlers) requireGlobalAPIAdmin(w http.ResponseWriter, r *http.Request) bool {
+	if !requireAdmin(r) {
+		apiErr(w, http.StatusForbidden, "admin role required")
+		return false
+	}
+	c := middleware.CallerFromContext(r.Context())
+	_, all, err := h.apiScope(r.Context(), c)
+	if err != nil || !all {
+		apiErr(w, http.StatusForbidden, "global admin scope required")
+		return false
+	}
+	return true
 }
 
 // ---- helpers -----------------------------------------------------------
@@ -76,6 +133,61 @@ func clientIDForUserStrict(ctx context.Context, db *sql.DB, userID int64) (int64
 	return id, nil
 }
 
+// serviceClientID resolves a service's owning client_id.
+func (h *APIHandlers) serviceClientID(ctx context.Context, id int64) (int64, error) {
+	var cid int64
+	err := h.DB().QueryRowContext(ctx, "SELECT client_id FROM services WHERE id = ?", id).Scan(&cid)
+	return cid, err
+}
+
+// routeClientID resolves a route's owning client_id via its service.
+func (h *APIHandlers) routeClientID(ctx context.Context, routeID int64) (int64, error) {
+	var cid int64
+	err := h.DB().QueryRowContext(ctx,
+		"SELECT s.client_id FROM routes r JOIN services s ON s.id=r.service_id WHERE r.id = ?",
+		routeID).Scan(&cid)
+	return cid, err
+}
+
+// serviceInScope resolves a service's client and verifies the admin caller may
+// act on it, writing 404/403 itself. Returns false when the caller should stop.
+func (h *APIHandlers) serviceInScope(ctx context.Context, w http.ResponseWriter, r *http.Request, serviceID int64) bool {
+	cid, err := h.serviceClientID(ctx, serviceID)
+	if err != nil {
+		apiErr(w, http.StatusNotFound, "not found")
+		return false
+	}
+	if !h.apiAllowClient(ctx, middleware.CallerFromContext(r.Context()), cid) {
+		apiErr(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	return true
+}
+
+// containsID reports membership in an id slice.
+func containsID(ids []int64, x int64) bool {
+	for _, id := range ids {
+		if id == x {
+			return true
+		}
+	}
+	return false
+}
+
+// routeInScope is the route-level twin of serviceInScope.
+func (h *APIHandlers) routeInScope(ctx context.Context, w http.ResponseWriter, r *http.Request, routeID int64) bool {
+	cid, err := h.routeClientID(ctx, routeID)
+	if err != nil {
+		apiErr(w, http.StatusNotFound, "not found")
+		return false
+	}
+	if !h.apiAllowClient(ctx, middleware.CallerFromContext(r.Context()), cid) {
+		apiErr(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	return true
+}
+
 // ---- Services ----------------------------------------------------------
 
 type apiService struct {
@@ -111,6 +223,11 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Name == "" || in.BackendIP == "" || in.ClientID == 0 || in.PlanID == 0 {
 		apiErr(w, http.StatusBadRequest, "required fields missing")
+		return
+	}
+	// Scope: a reseller/scoped admin may only create services for its own clients.
+	if !h.apiAllowClient(r.Context(), middleware.CallerFromContext(r.Context()), in.ClientID) {
+		apiErr(w, http.StatusForbidden, "client outside your scope")
 		return
 	}
 	backendIP := net.ParseIP(in.BackendIP)
@@ -191,6 +308,10 @@ func (h *APIHandlers) ServiceGet(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusForbidden, "forbidden")
 			return
 		}
+	} else if !h.apiAllowClient(ctx, c, s.ClientID) {
+		// Reseller/scoped admin: service must belong to an owned client.
+		apiErr(w, http.StatusForbidden, "forbidden")
+		return
 	}
 	apiJSON(w, http.StatusOK, s)
 }
@@ -212,6 +333,9 @@ func (h *APIHandlers) ServiceUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	if !h.serviceInScope(ctx, w, r, id) {
+		return
+	}
 	parts := []string{}
 	args := []any{}
 	if in.Status != nil {
@@ -269,6 +393,9 @@ func (h *APIHandlers) ServicePorts(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	if !h.serviceInScope(ctx, w, r, id) {
+		return
+	}
 	if _, err := h.DB().ExecContext(ctx,
 		"UPDATE services SET allowed_port_start = ?, allowed_port_end = ? WHERE id = ?",
 		in.AllowedPortStart, in.AllowedPortEnd, id); err != nil {
@@ -314,6 +441,9 @@ func (h *APIHandlers) ServiceRoutes(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusForbidden, "service not yours")
 			return
 		}
+	} else if !h.serviceInScope(ctx, w, r, id) {
+		// Reseller/scoped admin: only routes of an owned service.
+		return
 	}
 	rows, err := h.DB().QueryContext(ctx,
 		`SELECT id, domain, COALESCE(path_prefix,''), upstream_port, status
@@ -374,6 +504,22 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		clientID = cid
+	} else if ids, all, serr := h.apiScope(ctx, c); serr != nil {
+		apiErr(w, http.StatusForbidden, "scope unresolved")
+		return
+	} else if !all {
+		// Scoped/reseller admin: bind to the target service's client so the
+		// domain layer enforces ownership; deny a service outside scope.
+		svcClient, cerr := h.serviceClientID(ctx, in.ServiceID)
+		if cerr != nil {
+			apiErr(w, http.StatusNotFound, "service not found")
+			return
+		}
+		if !containsID(ids, svcClient) {
+			apiErr(w, http.StatusForbidden, "service outside your scope")
+			return
+		}
+		clientID = svcClient
 	}
 	id, err := h.Routes.Create(ctx, clientID, routes.CreateInput{
 		ServiceID:    in.ServiceID,
@@ -429,6 +575,20 @@ func (h *APIHandlers) RouteDelete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		clientID = cid
+	} else if ids, all, serr := h.apiScope(ctx, c); serr != nil {
+		apiErr(w, http.StatusForbidden, "scope unresolved")
+		return
+	} else if !all {
+		rc, rerr := h.routeClientID(ctx, id)
+		if rerr != nil {
+			apiErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		if !containsID(ids, rc) {
+			apiErr(w, http.StatusForbidden, "route outside your scope")
+			return
+		}
+		clientID = rc
 	}
 	if err := h.Routes.Delete(ctx, clientID, id); err != nil {
 		apiErr(w, http.StatusInternalServerError, "delete failed")
@@ -459,6 +619,20 @@ func (h *APIHandlers) RouteVerifyDNS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		clientID = cid
+	} else if ids, all, serr := h.apiScope(ctx, c); serr != nil {
+		apiErr(w, http.StatusForbidden, "scope unresolved")
+		return
+	} else if !all {
+		rc, rerr := h.routeClientID(ctx, id)
+		if rerr != nil {
+			apiErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		if !containsID(ids, rc) {
+			apiErr(w, http.StatusForbidden, "route outside your scope")
+			return
+		}
+		clientID = rc
 	}
 	if err := h.Routes.VerifyDNS(ctx, clientID, id); err != nil {
 		apiErr(w, http.StatusInternalServerError, "verify failed")
@@ -474,8 +648,7 @@ func (h *APIHandlers) RouteRetrySSL(w http.ResponseWriter, r *http.Request) {
 // ---- Nodes -------------------------------------------------------------
 
 func (h *APIHandlers) NodesList(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -513,8 +686,7 @@ func (h *APIHandlers) NodesList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) NodeCreate(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	var in struct {
@@ -570,8 +742,7 @@ func (h *APIHandlers) NodeCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) NodeResync(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)

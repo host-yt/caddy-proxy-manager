@@ -487,9 +487,10 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		PerIPPerMin: cfg.Security.RateLimitAskPerMin,
 	}
 	apiH := &handlers.APIHandlers{
-		DB:     wizard.DB,
-		Logger: logger,
-		Routes: routesSvc,
+		DB:         wizard.DB,
+		Logger:     logger,
+		Routes:     routesSvc,
+		AdminScope: adminscope.New(wizard.DB),
 	}
 
 	// Customer-WG bootstrap + node-agent endpoints.

@@ -29,10 +29,28 @@ func (h *APIHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	rows, err := h.DB().QueryContext(ctx,
-		`SELECT id, client_id, name, backend_ip, allowed_port_start, allowed_port_end,
-		        plan_id, status, COALESCE(external_reference,''), created_at
-		 FROM services ORDER BY id DESC`)
+	ids, all, serr := h.apiScope(ctx, middleware.CallerFromContext(r.Context()))
+	if serr != nil {
+		apiErr(w, http.StatusForbidden, "scope unresolved")
+		return
+	}
+	query := `SELECT id, client_id, name, backend_ip, allowed_port_start, allowed_port_end,
+	        plan_id, status, COALESCE(external_reference,''), created_at
+	 FROM services`
+	var args []any
+	if !all {
+		// Reseller/scoped admin: only services of owned clients.
+		if len(ids) == 0 {
+			apiJSON(w, http.StatusOK, map[string]any{"services": []apiService{}})
+			return
+		}
+		query += " WHERE client_id IN (" + adminMapPlaceholders(len(ids)) + ")"
+		for _, id := range ids {
+			args = append(args, id)
+		}
+	}
+	query += " ORDER BY id DESC"
+	rows, err := h.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "query failed")
 		return
@@ -136,12 +154,34 @@ func (h *APIHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 			args = []any{clientID}
 		}
 	} else {
-		if svcIDFilter > 0 {
-			query = "SELECT " + routeSelectCols + " FROM routes r WHERE r.service_id=? ORDER BY r.id DESC"
-			args = []any{svcIDFilter}
-		} else {
-			query = "SELECT " + routeSelectCols + " FROM routes r ORDER BY r.id DESC"
+		// Admin: bare admin sees all; reseller/scoped admin is limited to routes
+		// whose service belongs to an owned client.
+		ids, all, serr := h.apiScope(ctx, c)
+		if serr != nil {
+			apiErr(w, http.StatusForbidden, "scope unresolved")
+			return
 		}
+		base := "SELECT " + routeSelectCols + " FROM routes r"
+		var where []string
+		if !all {
+			if len(ids) == 0 {
+				apiJSON(w, http.StatusOK, map[string]any{"routes": []apiRoute{}})
+				return
+			}
+			base += " JOIN services s ON s.id=r.service_id"
+			where = append(where, "s.client_id IN ("+adminMapPlaceholders(len(ids))+")")
+			for _, id := range ids {
+				args = append(args, id)
+			}
+		}
+		if svcIDFilter > 0 {
+			where = append(where, "r.service_id=?")
+			args = append(args, svcIDFilter)
+		}
+		if len(where) > 0 {
+			base += " WHERE " + strings.Join(where, " AND ")
+		}
+		query = base + " ORDER BY r.id DESC"
 	}
 
 	rows, err := h.DB().QueryContext(ctx, query, args...)
@@ -193,6 +233,9 @@ func (h *APIHandlers) RouteGet(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusForbidden, "forbidden")
 			return
 		}
+	} else if c != nil && !h.routeInScope(ctx, w, r, id) {
+		// Reseller/scoped admin: route's service must belong to an owned client.
+		return
 	}
 	apiJSON(w, http.StatusOK, rt)
 }
@@ -251,6 +294,9 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 	args = append(args, id)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	if !h.routeInScope(ctx, w, r, id) {
+		return
+	}
 	res, err := h.DB().ExecContext(ctx,
 		"UPDATE routes SET "+strings.Join(parts, ", ")+" WHERE id=?", args...)
 	if err != nil {
@@ -315,8 +361,7 @@ const planSelectCols = `id, name, kind, max_domains, max_ports, ssl_enabled,
 	rate_limit_rpm, wg_key_rotation_days, node_group_id, created_at`
 
 func (h *APIHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
@@ -338,8 +383,7 @@ func (h *APIHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) PlanGet(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -365,8 +409,7 @@ func (h *APIHandlers) PlanGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) PlanCreate(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	var in struct {
@@ -431,8 +474,7 @@ func (h *APIHandlers) PlanCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) PlanUpdate(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -551,8 +593,7 @@ func (h *APIHandlers) PlanUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) PlanDelete(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -597,10 +638,28 @@ func (h *APIHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	rows, err := h.DB().QueryContext(ctx,
-		`SELECT c.id, c.user_id, COALESCE(c.display_name,''), u.email,
-		        COALESCE(c.external_ref,''), c.created_at
-		 FROM clients c JOIN users u ON u.id=c.user_id ORDER BY c.id DESC`)
+	ids, all, serr := h.apiScope(ctx, middleware.CallerFromContext(r.Context()))
+	if serr != nil {
+		apiErr(w, http.StatusForbidden, "scope unresolved")
+		return
+	}
+	query := `SELECT c.id, c.user_id, COALESCE(c.display_name,''), u.email,
+	        COALESCE(c.external_ref,''), c.created_at
+	 FROM clients c JOIN users u ON u.id=c.user_id`
+	var args []any
+	if !all {
+		// Reseller/scoped admin: only owned clients.
+		if len(ids) == 0 {
+			apiJSON(w, http.StatusOK, map[string]any{"clients": []apiClient{}})
+			return
+		}
+		query += " WHERE c.id IN (" + adminMapPlaceholders(len(ids)) + ")"
+		for _, id := range ids {
+			args = append(args, id)
+		}
+	}
+	query += " ORDER BY c.id DESC"
+	rows, err := h.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "query failed")
 		return
@@ -639,12 +698,15 @@ func (h *APIHandlers) ClientGet(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusInternalServerError, "query failed")
 		return
 	}
+	if !h.apiAllowClient(ctx, middleware.CallerFromContext(r.Context()), c.ID) {
+		apiErr(w, http.StatusForbidden, "forbidden")
+		return
+	}
 	apiJSON(w, http.StatusOK, c)
 }
 
 func (h *APIHandlers) ClientCreate(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	var in struct {
@@ -734,6 +796,10 @@ func (h *APIHandlers) ClientUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	if !h.apiAllowClient(ctx, middleware.CallerFromContext(r.Context()), id) {
+		apiErr(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	var userID int64
 	if err := h.DB().QueryRowContext(ctx,
@@ -816,8 +882,7 @@ func (h *APIHandlers) ClientUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) ClientDelete(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -858,8 +923,7 @@ type apiNodePool struct {
 }
 
 func (h *APIHandlers) NodePoolsList(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -882,8 +946,7 @@ func (h *APIHandlers) NodePoolsList(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) NodePoolGet(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -905,8 +968,7 @@ func (h *APIHandlers) NodePoolGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) NodePoolCreate(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	var in struct {
@@ -949,8 +1011,7 @@ func (h *APIHandlers) NodePoolCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) NodePoolUpdate(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -1009,8 +1070,7 @@ func (h *APIHandlers) NodePoolUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) NodePoolDelete(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -1058,8 +1118,7 @@ type apiNode struct {
 }
 
 func (h *APIHandlers) NodeGet(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -1094,8 +1153,7 @@ func (h *APIHandlers) NodeGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) NodeUpdate(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -1147,8 +1205,7 @@ func (h *APIHandlers) NodeUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) NodeDelete(w http.ResponseWriter, r *http.Request) {
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
