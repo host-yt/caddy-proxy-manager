@@ -94,6 +94,52 @@ func TestScopeFilterSuperAdmin(t *testing.T) {
 	}
 }
 
+// TestCanAccessResellerOwnership: a reseller-admin reaches resources under its
+// reseller's clients and is denied cross-reseller ones, without any
+// admin_client_scope rows.
+func TestCanAccessResellerOwnership(t *testing.T) {
+	db := openResellerDB(t)
+	// Resources: service+route+peer under client 100 (reseller 7) and client 200
+	// (reseller 9).
+	for _, s := range []string{
+		`CREATE TABLE services (id INTEGER PRIMARY KEY, client_id INTEGER)`,
+		`CREATE TABLE routes (id INTEGER PRIMARY KEY, service_id INTEGER)`,
+		`CREATE TABLE customer_wg_peer (id INTEGER PRIMARY KEY, client_id INTEGER)`,
+		`INSERT INTO services (id, client_id) VALUES (10, 100), (20, 200)`,
+		`INSERT INTO routes (id, service_id) VALUES (1000, 10), (2000, 20)`,
+		`INSERT INTO customer_wg_peer (id, client_id) VALUES (500, 100), (600, 200)`,
+	} {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("exec %q: %v", s, err)
+		}
+	}
+	svc := New(func() *sql.DB { return db })
+	ctx := context.Background()
+	const resellerAdmin = int64(1) // reseller 7
+
+	checks := []struct {
+		name string
+		fn   func() (bool, error)
+		want bool
+	}{
+		{"own client", func() (bool, error) { return svc.CanAccessClient(ctx, resellerAdmin, 100) }, true},
+		{"foreign client", func() (bool, error) { return svc.CanAccessClient(ctx, resellerAdmin, 200) }, false},
+		{"own route", func() (bool, error) { return svc.CanAccessRoute(ctx, resellerAdmin, 1000) }, true},
+		{"foreign route", func() (bool, error) { return svc.CanAccessRoute(ctx, resellerAdmin, 2000) }, false},
+		{"own peer", func() (bool, error) { return svc.CanAccessPeer(ctx, resellerAdmin, 500) }, true},
+		{"foreign peer", func() (bool, error) { return svc.CanAccessPeer(ctx, resellerAdmin, 600) }, false},
+	}
+	for _, c := range checks {
+		got, err := c.fn()
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Fatalf("%s = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
 func idSet(ids []int64) map[int64]bool {
 	m := make(map[int64]bool, len(ids))
 	for _, id := range ids {

@@ -17,16 +17,45 @@ func New(db func() *sql.DB) *Service {
 	return &Service{db: db}
 }
 
+// userResellerID resolves a user's reseller (0 = none). Reseller-admins are
+// scoped by ownership, not admin_client_scope rows.
+func (s *Service) userResellerID(ctx context.Context, adminUserID int64) (int64, error) {
+	db := s.db()
+	if db == nil {
+		return 0, nil
+	}
+	var rid sql.NullInt64
+	err := db.QueryRowContext(ctx, `SELECT reseller_id FROM users WHERE id=?`, adminUserID).Scan(&rid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, nil
+		}
+		return 0, fmt.Errorf("adminscope: reseller lookup: %w", err)
+	}
+	if rid.Valid {
+		return rid.Int64, nil
+	}
+	return 0, nil
+}
+
 func (s *Service) CanAccessClient(ctx context.Context, adminUserID, clientID int64) (bool, error) {
 	db := s.db()
 	if db == nil {
 		return false, nil
 	}
+	rid, err := s.userResellerID(ctx, adminUserID)
+	if err != nil {
+		return false, err
+	}
 	var count int
-	err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM admin_client_scope WHERE admin_user_id=? AND client_id=?`,
-		adminUserID, clientID,
-	).Scan(&count)
+	if rid != 0 {
+		err = db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM clients WHERE id=? AND reseller_id=?`, clientID, rid).Scan(&count)
+	} else {
+		err = db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM admin_client_scope WHERE admin_user_id=? AND client_id=?`,
+			adminUserID, clientID).Scan(&count)
+	}
 	if err != nil {
 		return false, fmt.Errorf("adminscope: %w", err)
 	}
@@ -38,13 +67,23 @@ func (s *Service) CanAccessPeer(ctx context.Context, adminUserID, peerID int64) 
 	if db == nil {
 		return false, nil
 	}
+	rid, err := s.userResellerID(ctx, adminUserID)
+	if err != nil {
+		return false, err
+	}
 	var count int
-	err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM admin_client_scope acs
-		 JOIN customer_wg_peer p ON p.client_id = acs.client_id
-		 WHERE acs.admin_user_id=? AND p.id=?`,
-		adminUserID, peerID,
-	).Scan(&count)
+	if rid != 0 {
+		err = db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM customer_wg_peer p
+			 JOIN clients c ON c.id = p.client_id
+			 WHERE p.id=? AND c.reseller_id=?`, peerID, rid).Scan(&count)
+	} else {
+		err = db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM admin_client_scope acs
+			 JOIN customer_wg_peer p ON p.client_id = acs.client_id
+			 WHERE acs.admin_user_id=? AND p.id=?`,
+			adminUserID, peerID).Scan(&count)
+	}
 	if err != nil {
 		return false, fmt.Errorf("adminscope: %w", err)
 	}
@@ -56,14 +95,25 @@ func (s *Service) CanAccessRoute(ctx context.Context, adminUserID, routeID int64
 	if db == nil {
 		return false, nil
 	}
+	rid, err := s.userResellerID(ctx, adminUserID)
+	if err != nil {
+		return false, err
+	}
 	var count int
-	err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM admin_client_scope acs
-		 JOIN services sv ON sv.client_id = acs.client_id
-		 JOIN routes r ON r.service_id = sv.id
-		 WHERE acs.admin_user_id=? AND r.id=?`,
-		adminUserID, routeID,
-	).Scan(&count)
+	if rid != 0 {
+		err = db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM routes r
+			 JOIN services sv ON sv.id = r.service_id
+			 JOIN clients c ON c.id = sv.client_id
+			 WHERE r.id=? AND c.reseller_id=?`, routeID, rid).Scan(&count)
+	} else {
+		err = db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM admin_client_scope acs
+			 JOIN services sv ON sv.client_id = acs.client_id
+			 JOIN routes r ON r.service_id = sv.id
+			 WHERE acs.admin_user_id=? AND r.id=?`,
+			adminUserID, routeID).Scan(&count)
+	}
 	if err != nil {
 		return false, fmt.Errorf("adminscope: %w", err)
 	}
