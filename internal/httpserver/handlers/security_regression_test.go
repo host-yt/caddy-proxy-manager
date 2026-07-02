@@ -2,6 +2,9 @@ package handlers
 
 import (
 	"bytes"
+	"context"
+	"database/sql"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -9,9 +12,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
+
+	_ "modernc.org/sqlite"
 )
 
 // TestClientTwofaEnrollNoHiddenSecret verifies that the client TOTP enrollment
@@ -52,6 +58,68 @@ func TestClientTwofaEnrollNoHiddenSecret(t *testing.T) {
 	}
 	if strings.Contains(html, `name="secret" value=`) {
 		t.Fatal("'secret' value attribute in form - secret must not round-trip through the browser")
+	}
+}
+
+// scopedAdminSchemaDB builds a hermetic in-memory scope DB: adminUserID=1 is
+// assigned client 100 (route 1000) only; client 200 (route 2000) is another
+// tenant. Mirrors the fixture in internal/adminscope/service_test.go.
+func scopedAdminSchemaDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	stmts := []string{
+		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
+		`CREATE TABLE services (id INTEGER PRIMARY KEY, client_id INTEGER)`,
+		`CREATE TABLE routes (id INTEGER PRIMARY KEY, service_id INTEGER)`,
+		`INSERT INTO admin_client_scope (admin_user_id, client_id) VALUES (1, 100)`,
+		`INSERT INTO services (id, client_id) VALUES (10, 100), (20, 200)`,
+		`INSERT INTO routes (id, service_id) VALUES (1000, 10), (2000, 20)`,
+	}
+	for _, s := range stmts {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("exec %q: %v", s, err)
+		}
+	}
+	return db
+}
+
+// TestClientCannotAccessOtherTenantResource is an IDOR/BOLA regression at the
+// handler-glue layer: scopeCheckRoute/scopeCheckClient (called from
+// admin_host_logs.go and admin_tunnels.go before touching a route/client)
+// must deny a scoped admin reaching another tenant's route or client.
+func TestClientCannotAccessOtherTenantResource(t *testing.T) {
+	db := scopedAdminSchemaDB(t)
+	h := &AdminHandlers{
+		AdminScope: adminscope.New(func() *sql.DB { return db }),
+		Logger:     slog.Default(),
+	}
+	ctx := context.Background()
+	scoped := &auth.Session{UserID: 1, Role: "admin"} // scoped to client 100 only
+
+	if !h.scopeCheckRoute(ctx, scoped, 1000) {
+		t.Error("scoped admin must access a route under its own client")
+	}
+	if h.scopeCheckRoute(ctx, scoped, 2000) {
+		t.Error("IDOR: scoped admin reached a route belonging to another tenant")
+	}
+	if !h.scopeCheckClient(ctx, scoped, 100) {
+		t.Error("scoped admin must access its own assigned client")
+	}
+	if h.scopeCheckClient(ctx, scoped, 200) {
+		t.Error("IDOR: scoped admin reached a client outside its scope")
+	}
+
+	// super_admin bypasses scoping entirely regardless of assignment rows.
+	super := &auth.Session{UserID: 99, Role: "super_admin"}
+	if !h.scopeCheckRoute(ctx, super, 2000) {
+		t.Error("super_admin must not be scope-blocked")
+	}
+	if !h.scopeCheckClient(ctx, super, 200) {
+		t.Error("super_admin must not be scope-blocked")
 	}
 }
 

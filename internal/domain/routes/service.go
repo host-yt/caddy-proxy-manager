@@ -94,6 +94,11 @@ type Service struct {
 	// network. Empty = logs stay on Caddy stderr.
 	AccessLogURL string
 
+	// CaddyAdminListen overrides the node Caddy Admin API bind (CADDY-03).
+	// Empty = "0.0.0.0:2019" (docker-bridge-scoped default). From env
+	// HPG_CADDY_ADMIN_LISTEN.
+	CaddyAdminListen string
+
 	// Metrics is optional. When set, push/drift counters tick into Prometheus.
 	Metrics PushMetrics
 
@@ -1604,6 +1609,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		WstunnelRoute:            wstunnelRoute,
 		AccessLogURL:             s.AccessLogURL,
 		MTLSFailOpen:             mtlsFailOpen,
+		AdminListen:              s.CaddyAdminListen,
 	})
 	return &nodePush{cfg: cfg, built: built, routeIDs: routeIDs, apiURL: apiURL}, nil
 }

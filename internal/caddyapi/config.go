@@ -27,6 +27,13 @@ type NodeSettings struct {
 	AskURL      string // e.g. http://app:8080/internal/ask
 	PanelRoute  *Route
 
+	// AdminListen sets the node Caddy Admin API bind address. Default (empty)
+	// = "0.0.0.0:2019" (docker-bridge-scoped; compose never publishes 2019).
+	// Deployments where the panel shares the node's network namespace can set
+	// "127.0.0.1:2019" to lock the Admin API to loopback (CADDY-03). Driven by
+	// panel env HPG_CADDY_ADMIN_LISTEN.
+	AdminListen string
+
 	// CacheModuleAvailable gates emission of the Souin cache-handler
 	// blocks (apps.cache + per-route handler). Stock caddy:2.8 returns
 	// "unknown app" / "unknown handler" and rejects the entire config,
@@ -162,6 +169,15 @@ func applyACMECA(issuer map[string]any, s NodeSettings) {
 	default:
 		issuer["ca"] = s.ACMECaURL
 	}
+}
+
+// adminListenOr returns the configured Caddy Admin API bind or the safe
+// bridge-scoped default when unset (CADDY-03).
+func adminListenOr(listen string) string {
+	if listen == "" {
+		return "0.0.0.0:2019"
+	}
+	return listen
 }
 
 // BuildNodeConfig renders the full Caddy JSON config for one node from
@@ -374,10 +390,11 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 			// Caddy's own loopback. Binding to 127.0.0.1 here would make the
 			// Admin API unreachable from the panel and break every config push.
 			// Real fix needs either a shared network namespace, a per-deployment
-			// admin bind IP, or auth on the Admin API itself - out of scope for
-			// a config.go-only change; left as 0.0.0.0 (bridge-scoped) with the
-			// existing "never publish 2019" defense.
-			"listen": "0.0.0.0:2019",
+			// admin bind IP, or auth on the Admin API itself. Now configurable
+			// via HPG_CADDY_ADMIN_LISTEN (AdminListen); default stays 0.0.0.0
+			// (bridge-scoped) with the "never publish 2019" defense. A shared-
+			// namespace deployment can set 127.0.0.1:2019 to bind loopback.
+			"listen": adminListenOr(s.AdminListen),
 		},
 		"apps": apps,
 	}

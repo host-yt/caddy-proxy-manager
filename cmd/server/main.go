@@ -195,6 +195,10 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		// block that POSTs per-request JSON to HPG's ingest endpoint.
 		// Env: ACCESS_LOG_URL (e.g. "http://app:8080/internal/access-log").
 		AccessLogURL: os.Getenv("ACCESS_LOG_URL"),
+		// CADDY-03: optional node Caddy Admin API bind override. Default empty
+		// = 0.0.0.0:2019 (bridge-scoped). Set 127.0.0.1:2019 on shared-namespace
+		// deployments to lock the Admin API to loopback.
+		CaddyAdminListen: os.Getenv("HPG_CADDY_ADMIN_LISTEN"),
 	}
 	// bindDBWhenReady binds the live pool to a service. If the pool already
 	// exists (already-installed boot) it binds now; otherwise it queues the
