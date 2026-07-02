@@ -1,0 +1,116 @@
+{{define "resellers"}}
+<div class="space-y-6">
+
+  <!-- Create reseller -->
+  <div class="r-card space-y-3 text-sm max-w-2xl">
+    <h2 class="font-medium" style="color:rgb(var(--text))">New reseller</h2>
+    <form method="POST" action="/admin/resellers" class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <div>
+        <label class="block t-small font-medium mb-1" style="color:rgb(var(--text))">Name</label>
+        <input name="name" maxlength="64" required placeholder="Acme Hosting" class="r-input w-full">
+      </div>
+      <div>
+        <label class="block t-small font-medium mb-1" style="color:rgb(var(--text))">Slug</label>
+        <input name="slug" maxlength="63" required placeholder="acme" class="r-input w-full">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Lowercase, alphanumeric + dashes. Unique.</p>
+      </div>
+      <div>
+        <label class="block t-small font-medium mb-1" style="color:rgb(var(--text))">Brand name (optional)</label>
+        <input name="brand_name" maxlength="64" placeholder="Acme" class="r-input w-full">
+      </div>
+      <div>
+        <label class="block t-small font-medium mb-1" style="color:rgb(var(--text))">Support email (optional)</label>
+        <input name="support_email" type="email" maxlength="128" placeholder="help@acme.tld" class="r-input w-full">
+      </div>
+      <div class="md:col-span-2">
+        <button type="submit" class="r-btn r-btn-primary">Create reseller</button>
+      </div>
+    </form>
+  </div>
+
+  {{if not .Resellers}}
+  <p class="t-small" style="color:rgb(var(--muted))">No resellers yet. Create one above, then assign clients and provision a reseller-admin.</p>
+  {{end}}
+
+  {{range .Resellers}}
+  <div class="r-card space-y-4 text-sm">
+    <div class="flex items-center justify-between flex-wrap gap-2">
+      <div>
+        <span class="font-medium" style="color:rgb(var(--text))">{{.Name}}</span>
+        <span class="t-caption ml-2" style="color:rgb(var(--muted))">{{.Slug}}</span>
+        {{if eq .Status "suspended"}}<span class="r-pill r-pill-danger ml-2">suspended</span>{{else}}<span class="r-pill r-pill-success ml-2">active</span>{{end}}
+        <span class="t-caption ml-2" style="color:rgb(var(--muted))">{{.ClientCount}} clients / {{.AdminCount}} admins</span>
+      </div>
+      <form method="POST" action="/admin/resellers/{{.ID}}/delete" onsubmit="return confirm('Delete reseller? Owned clients/admins return to platform-direct and their sessions are revoked.')">
+        <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+        <button type="submit" class="r-btn r-btn-danger-ghost">Delete</button>
+      </form>
+    </div>
+
+    <!-- Edit reseller -->
+    <form method="POST" action="/admin/resellers/{{.ID}}" class="grid grid-cols-1 md:grid-cols-3 gap-3">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <div>
+        <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Name</label>
+        <input name="name" value="{{.Name}}" maxlength="64" required class="r-input w-full">
+      </div>
+      <div>
+        <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Status</label>
+        <select name="status" class="r-input w-full">
+          <option value="active" {{if eq .Status "active"}}selected{{end}}>active</option>
+          <option value="suspended" {{if eq .Status "suspended"}}selected{{end}}>suspended</option>
+        </select>
+      </div>
+      <div>
+        <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Brand name</label>
+        <input name="brand_name" value="{{.BrandName}}" maxlength="64" class="r-input w-full">
+      </div>
+      <div>
+        <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Logo URL</label>
+        <input name="logo_url" value="{{.LogoURL}}" class="r-input w-full">
+      </div>
+      <div>
+        <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Support email</label>
+        <input name="support_email" value="{{.SupportEmail}}" maxlength="128" class="r-input w-full">
+      </div>
+      <div>
+        <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Primary color</label>
+        <input name="primary_color" value="{{.PrimaryColor}}" placeholder="#3b82f6" class="r-input w-full">
+      </div>
+      <div class="md:col-span-3">
+        <button type="submit" class="r-btn r-btn-secondary">Save</button>
+      </div>
+    </form>
+
+    <!-- Assign a client -->
+    <form method="POST" action="/admin/resellers/{{.ID}}/clients" class="flex items-end gap-2 flex-wrap">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <div class="grow">
+        <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Assign client to this reseller</label>
+        <select name="client_id" class="r-input w-full">
+          {{range $.Clients}}<option value="{{.ID}}">#{{.ID}} {{.Name}}{{if .ResellerID}} (currently: {{.ResellerNam}}){{end}}</option>{{end}}
+        </select>
+      </div>
+      <button type="submit" class="r-btn r-btn-secondary">Assign</button>
+      <button type="submit" name="action" value="release" class="r-btn r-btn-ghost">Release</button>
+    </form>
+
+    <!-- Provision a reseller-admin -->
+    <form method="POST" action="/admin/resellers/{{.ID}}/admins" class="flex items-end gap-2 flex-wrap"
+          onsubmit="return confirm('This revokes the user active sessions so the new scope takes effect. Continue?')">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <div class="grow">
+        <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Provision reseller-admin (revokes their sessions)</label>
+        <select name="user_id" class="r-input w-full">
+          {{range $.Admins}}<option value="{{.ID}}">{{.Email}} ({{.Role}}){{if .ResellerID}} - scoped{{end}}</option>{{end}}
+        </select>
+      </div>
+      <button type="submit" class="r-btn r-btn-secondary">Assign</button>
+      <button type="submit" name="action" value="release" class="r-btn r-btn-ghost">Release</button>
+    </form>
+  </div>
+  {{end}}
+
+</div>
+{{end}}

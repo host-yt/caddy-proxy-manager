@@ -430,6 +430,17 @@ func (s *Server) routes() {
 		})
 		r.Get("/branding", s.deps.Admin.BrandingPage)
 		r.Post("/branding", s.deps.Admin.BrandingSave)
+		// Reseller management: super_admin only, enforced inside each handler.
+		// NOT in the reseller-admin boundary allow-list - a reseller-admin must
+		// never reach the surface that provisions resellers.
+		r.Route("/resellers", func(r chi.Router) {
+			r.Get("/", s.deps.Admin.ResellersList)
+			r.Post("/", s.deps.Admin.ResellersCreate)
+			r.Post("/{id}", s.deps.Admin.ResellersUpdate)
+			r.Post("/{id}/delete", s.deps.Admin.ResellersDelete)
+			r.Post("/{id}/clients", s.deps.Admin.ResellerAssignClient)
+			r.Post("/{id}/admins", s.deps.Admin.ResellerProvisionAdmin)
+		})
 		r.Route("/hosts", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.HostsList)
 			r.Get("/export.csv", s.deps.Admin.HostsExport)

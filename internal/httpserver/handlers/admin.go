@@ -46,6 +46,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/nodejoin"
 	"github.com/host-yt/caddy-proxy-manager/internal/obs"
 	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
+	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -81,6 +82,8 @@ type AdminHandlers struct {
 	GeoIPJob geoipRefresher
 	// AdminScope enforces per-client visibility for non-super_admin roles. nil = no enforcement.
 	AdminScope *adminscope.Service
+	// Resellers is the reseller-ownership store (super_admin management UI). nil-safe.
+	Resellers *reseller.Store
 	// WriteWGConfig rebuilds /app/wg/wg0.conf from DB peers (sidecar
 	// applies via `wg syncconf`). Triggered on node delete, WG settings
 	// save, and the manual 'Apply WG config' button. Nil-safe.
@@ -206,6 +209,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"node_detail":        {{Label: "Fleet", URL: ""}, {Label: "Caddy nodes", URL: "/admin/nodes"}, {Label: "Node", URL: ""}},
 	"node_groups":        {{Label: "Fleet", URL: ""}, {Label: "Node groups", URL: ""}},
 	"clients":            {{Label: "Customers", URL: ""}, {Label: "Clients", URL: ""}},
+	"resellers":          {{Label: "Customers", URL: ""}, {Label: "Resellers", URL: ""}},
 	"client_detail":      {{Label: "Customers", URL: ""}, {Label: "Clients", URL: "/admin/clients"}, {Label: "Client", URL: ""}},
 	"plans":              {{Label: "Customers", URL: ""}, {Label: "Plans", URL: ""}},
 	"services":           {{Label: "Customers", URL: ""}, {Label: "Services", URL: ""}},

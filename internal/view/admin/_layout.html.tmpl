@@ -148,6 +148,10 @@
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
           Services
         </a>{{end}}
+        {{if eq .Data.Role "super_admin"}}<a href="/admin/resellers" class="nav-link {{if eq .Page "resellers"}}is-active{{end}}">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0H5m14 0h2M5 21H3m9-14h.01M9 7h.01M15 7h.01M12 11h.01M9 11h.01M15 11h.01M12 15h.01M9 15h.01M15 15h.01"/></svg>
+          Resellers
+        </a>{{end}}
       </div>
       </div>
       {{end}}
@@ -373,6 +377,7 @@
     {{if eq .Page "worldmap"}}{{template "worldmap" .Data}}{{end}}
     {{if eq .Page "plans"}}{{template "plans" .Data}}{{end}}
     {{if eq .Page "clients"}}{{template "clients" .Data}}{{end}}
+    {{if eq .Page "resellers"}}{{template "resellers" .Data}}{{end}}
     {{if eq .Page "services"}}{{template "services" .Data}}{{end}}
     {{if eq .Page "users"}}{{template "users" .Data}}{{end}}
     {{if eq .Page "api_keys"}}{{template "api_keys" .Data}}{{end}}

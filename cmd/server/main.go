@@ -50,6 +50,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/oauth2x"
 	"github.com/host-yt/caddy-proxy-manager/internal/obs"
 	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
+	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
@@ -404,6 +405,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		SIEMForwarder:   siemFwd,
 		Enforce2FAEnv:   cfg.Security.RequireAdmin2FA,
 		AdminScope:      adminscope.New(wizard.DB),
+		Resellers:       reseller.New(wizard.DB),
 		AccessLogs:      alStore,
 		AccessLogBroker: alBroker,
 		WAFEvents:       wafStore,

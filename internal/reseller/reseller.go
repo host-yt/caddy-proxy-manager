@@ -231,6 +231,26 @@ func (s *Store) AssignClient(ctx context.Context, clientID int64, resellerID *in
 	return nil
 }
 
+// AssignAdmin sets (or clears, when resellerID is nil) a user's owning reseller,
+// turning them into (or back from) a reseller-admin. Caller MUST revoke the
+// user's live sessions after this - a cached Session.ResellerID bypasses the
+// route boundary until it expires otherwise.
+func (s *Store) AssignAdmin(ctx context.Context, userID int64, resellerID *int64) error {
+	db := s.db()
+	if db == nil {
+		return errors.New("reseller: no db")
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE users SET reseller_id = ? WHERE id = ?`, resellerID, userID)
+	if err != nil {
+		return fmt.Errorf("reseller: assign admin: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 func nullIfEmpty(s string) any {
 	if s == "" {
 		return nil
