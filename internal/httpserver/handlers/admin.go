@@ -1982,6 +1982,14 @@ func (h *AdminHandlers) PlansDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	// F5: plan authoring (incl. delete) is a package policy - consistent with
+	// create/update, a reseller without can_create_plans manages no plans.
+	if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 && h.Resellers != nil {
+		if pol, err := h.Resellers.PolicyFor(ctx, sess.ResellerID); err != nil || !pol.CanCreatePlans {
+			redirectWithFlash(w, r, "/admin/plans", "", "plan authoring is not enabled for this reseller")
+			return
+		}
+	}
 	if _, err := db.ExecContext(ctx, "DELETE FROM plans WHERE id = ?", id); err != nil {
 		if strings.Contains(err.Error(), "foreign key") {
 			redirectWithFlash(w, r, "/admin/plans", "", "plan is in use by a service")
