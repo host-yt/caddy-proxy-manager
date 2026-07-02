@@ -3,6 +3,7 @@ package adminscope
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -127,15 +128,59 @@ func (s *Service) Unassign(ctx context.Context, adminUserID, clientID int64) err
 	return nil
 }
 
-// ScopeFilter returns (nil, true, nil) for super_admin (adminUserID=0) so callers
-// skip WHERE filtering entirely; otherwise returns the assigned client list.
+// ScopeFilter returns the set of client ids an admin may act on. super_admin
+// (adminUserID=0) gets (nil, true) so callers skip WHERE filtering. A
+// reseller-admin (users.reseller_id set) is scoped to that reseller's owned
+// clients - dynamic ownership, never "all" and never the manual
+// admin_client_scope assignment. Any other admin gets its assigned client list.
 func (s *Service) ScopeFilter(ctx context.Context, adminUserID int64) (clientIDs []int64, all bool, err error) {
 	if adminUserID == 0 {
 		return nil, true, nil
+	}
+	db := s.db()
+	if db == nil {
+		return nil, false, nil
+	}
+	// Reseller-admin ownership takes precedence over manual scope assignment.
+	var rid sql.NullInt64
+	e := db.QueryRowContext(ctx, `SELECT reseller_id FROM users WHERE id = ?`, adminUserID).Scan(&rid)
+	if e != nil && !errors.Is(e, sql.ErrNoRows) {
+		return nil, false, fmt.Errorf("adminscope: reseller lookup: %w", e)
+	}
+	if rid.Valid {
+		ids, err := s.resellerClientIDs(ctx, rid.Int64)
+		if err != nil {
+			return nil, false, err
+		}
+		return ids, false, nil
 	}
 	ids, err := s.AssignedClientIDs(ctx, adminUserID)
 	if err != nil {
 		return nil, false, err
 	}
 	return ids, false, nil
+}
+
+// resellerClientIDs lists the clients owned by a reseller (a reseller-admin's
+// dynamic scope). Empty result -> the admin sees no client data yet, never all.
+func (s *Service) resellerClientIDs(ctx context.Context, resellerID int64) ([]int64, error) {
+	db := s.db()
+	if db == nil {
+		return nil, nil
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id FROM clients WHERE reseller_id = ? ORDER BY id`, resellerID)
+	if err != nil {
+		return nil, fmt.Errorf("adminscope: reseller clients: %w", err)
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("adminscope: reseller clients scan: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
 }
