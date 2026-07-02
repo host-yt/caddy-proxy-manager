@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -98,7 +99,7 @@ func (h *AdminHandlers) SettingsAI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := h.saveSettings(ctx, db, map[string]string{"ai.default_provider": provider}, false); err != nil {
-		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+h.aiProviderErr(err))
 		return
 	}
 
@@ -177,11 +178,11 @@ func (h *AdminHandlers) SettingsAITest(w http.ResponseWriter, r *http.Request) {
 		client, err = factory.For(ctx, provider)
 	}
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": sanitizeErr(err)})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": h.aiProviderErr(err)})
 		return
 	}
 	if err := client.Verify(ctx); err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": sanitizeErr(err)})
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": h.aiProviderErr(err)})
 		return
 	}
 	// Report the model that was actually exercised so the admin can confirm.
@@ -217,15 +218,33 @@ func (h *AdminHandlers) SettingsAIModels(w http.ResponseWriter, r *http.Request)
 	factory := aichat.NewFactory(db, h.State.Decrypt)
 	client, err := factory.For(ctx, provider)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"error": sanitizeErr(err)})
+		writeJSON(w, http.StatusOK, map[string]any{"error": h.aiProviderErr(err)})
 		return
 	}
 	models, err := client.ListModels(ctx)
 	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]any{"error": sanitizeErr(err)})
+		writeJSON(w, http.StatusOK, map[string]any{"error": h.aiProviderErr(err)})
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"models": models})
+}
+
+// aiProviderErr maps a factory/provider error to a browser-safe message and logs
+// the full detail server-side. AI-03: the raw provider response body (statusErr)
+// can echo the submitted key fragment or upstream detail, so it is never surfaced
+// verbatim; only our own config sentinels get a specific message.
+func (h *AdminHandlers) aiProviderErr(err error) string {
+	switch {
+	case errors.Is(err, aichat.ErrNotConfigured):
+		return "AI provider not configured"
+	case errors.Is(err, aichat.ErrUnknownProvider):
+		return "unknown provider"
+	default:
+		if h.Logger != nil {
+			h.Logger.Warn("ai settings provider error", "err", err)
+		}
+		return "provider request failed (check the key/model; details in server log)"
+	}
 }
 
 // aiAdminAllowed restricts AI settings to super_admin/admin (support is

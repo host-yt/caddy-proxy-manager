@@ -91,6 +91,15 @@ func nodeInternalCIDRs(trustedProxies []string) []*net.IPNet {
 	return mw.ParseCIDRList(cidrs)
 }
 
+// aiChatRatePerMin is the per-IP/min cap for AI chat + client bubble endpoints,
+// from RATE_LIMIT_ASK_PER_MIN (default 120 when unset/invalid).
+func (s *Server) aiChatRatePerMin() int {
+	if s.deps.Config != nil && s.deps.Config.Security.RateLimitAskPerMin > 0 {
+		return s.deps.Config.Security.RateLimitAskPerMin
+	}
+	return 120
+}
+
 func New(d Deps) *Server {
 	s := &Server{deps: d, mux: chi.NewRouter()}
 	s.routes()
@@ -598,6 +607,13 @@ func (s *Server) routes() {
 			r.Post("/npm-import", s.deps.Admin.NpmImportSubmit)
 		})
 		r.Route("/ai", func(r chi.Router) {
+			// AI-05: cap admin chat per IP too - an admin/support session driving
+			// the tool loop is otherwise unbounded LLM spend / tool-query DoS.
+			r.Use(mw.RateLimit(mw.RateLimitConfig{
+				RDB:         s.deps.RDB,
+				PerIPPerMin: s.aiChatRatePerMin(),
+				KeyPrefix:   "hpg:rl:admin-ai",
+			}))
 			r.Get("/chat", s.deps.Admin.AIChatPage)
 			r.Get("/chat/sessions", s.deps.Admin.AIChatListSessions)
 			r.Post("/chat/sessions", s.deps.Admin.AIChatCreateSession)
@@ -717,7 +733,7 @@ func (s *Server) routes() {
 		r.Route("/ai", func(r chi.Router) {
 			r.Use(mw.RateLimit(mw.RateLimitConfig{
 				RDB:         s.deps.RDB,
-				PerIPPerMin: 30,
+				PerIPPerMin: s.aiChatRatePerMin(), // AI-06: config-driven, was hardcoded 30
 				KeyPrefix:   "hpg:rl:client-ai",
 			}))
 			r.Get("/chat/sessions", s.deps.Admin.AIChatListSessions)

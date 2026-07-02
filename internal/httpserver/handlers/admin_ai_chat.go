@@ -13,6 +13,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/aichat"
 	"github.com/host-yt/caddy-proxy-manager/internal/aitools"
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/chatstore"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
@@ -266,8 +267,10 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 	defer streamCancel()
 
 	var reply string
+	var toolsUsed []string
 	if toolsAvailable {
-		answer, err := h.runToolLoop(streamCtx, client, msgs, scope)
+		answer, used, err := h.runToolLoop(streamCtx, client, msgs, scope)
+		toolsUsed = used
 		if err != nil && !errors.Is(err, aichat.ErrToolsUnsupported) {
 			h.Logger.Warn("ai chat tool loop", "err", err)
 			sseError(w, rc, "stream error")
@@ -319,9 +322,32 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 		}
 	}
 
+	// AI-02: audit every AI tool query (the actions that read tenant data) so a
+	// cross-tenant fetch via the assistant leaves a trail. Background ctx: record
+	// even if the client already disconnected.
+	if len(toolsUsed) > 0 {
+		actor := uid
+		auditCtx, auditCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		audit.Write(auditCtx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: &actor, ActorType: audit.ActorUser,
+			Action: "ai.tool_query", Entity: "ai_chat", EntityID: strconv.FormatInt(id, 10),
+			Meta: map[string]any{"tools": toolsUsed, "scope": scopeSummary(scope)},
+		})
+		auditCancel()
+	}
+
 	donePayload, _ := json.Marshal(map[string]any{"id": assistantID})
 	_, _ = w.Write([]byte("event: done\ndata: " + string(donePayload) + "\n\n"))
 	rc.Flush()
+}
+
+// scopeSummary renders an AI tool scope for the audit meta: "all" for an
+// unscoped admin, otherwise the concrete client-id list the query was bound to.
+func scopeSummary(s aitools.Scope) any {
+	if s.AllClients {
+		return "all"
+	}
+	return s.ClientIDs
 }
 
 // aiChatAutoTitleAt is the combined message count at which a still-default
@@ -432,20 +458,22 @@ func providerSupportsTools(provider string) bool {
 // results, and call again until the model returns a final text answer or the
 // iteration cap is hit. Returns ErrToolsUnsupported when the provider has no
 // tool path so the caller can fall back to plain streaming.
-func (h *AdminHandlers) runToolLoop(ctx context.Context, client aichat.Client, msgs []aichat.Message, scope aitools.Scope) (string, error) {
+func (h *AdminHandlers) runToolLoop(ctx context.Context, client aichat.Client, msgs []aichat.Message, scope aitools.Scope) (string, []string, error) {
 	specs := h.AITools.SpecsFor(scope)
+	var used []string // AI-02: tool names actually executed, for the audit trail
 	for i := 0; i < aiToolLoopCap; i++ {
 		turn, err := client.ChatWithTools(ctx, msgs, aichat.Options{Temperature: -1}, specs)
 		if err != nil {
-			return "", err
+			return "", used, err
 		}
 		if len(turn.ToolCalls) == 0 {
-			return turn.Text, nil // final answer
+			return turn.Text, used, nil // final answer
 		}
 		// Record the assistant tool-call turn, then run each tool and feed the
 		// results back as RoleTool messages.
 		msgs = append(msgs, aichat.Message{Role: aichat.RoleAssistant, Content: turn.Text, ToolCalls: turn.ToolCalls})
 		for _, call := range turn.ToolCalls {
+			used = append(used, call.Name)
 			callCtx, cancel := context.WithTimeout(ctx, 8*time.Second)
 			result, cerr := h.AITools.CallScoped(callCtx, scope, call.Name, call.Arguments)
 			cancel()
@@ -459,9 +487,9 @@ func (h *AdminHandlers) runToolLoop(ctx context.Context, client aichat.Client, m
 	// Cap hit: make one last plain call so the user still gets an answer.
 	turn, err := client.ChatWithTools(ctx, msgs, aichat.Options{Temperature: -1}, nil)
 	if err != nil {
-		return "", err
+		return "", used, err
 	}
-	return turn.Text, nil
+	return turn.Text, used, nil
 }
 
 // streamReply runs a plain StreamChat and pumps deltas to the client. It returns
