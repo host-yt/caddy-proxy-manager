@@ -76,6 +76,10 @@ func (h *APIHandlers) ServiceDelete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Ownership: a reseller/scoped admin may only delete its own services.
+	if !h.serviceInScope(ctx, w, r, id) {
+		return
+	}
 	res, err := h.DB().ExecContext(ctx, "DELETE FROM services WHERE id = ?", id)
 	if err != nil {
 		if strings.Contains(err.Error(), "foreign key") {

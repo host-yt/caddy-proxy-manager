@@ -68,6 +68,31 @@ func (h *APIHandlers) apiAllowClient(ctx context.Context, c *middleware.APICalle
 	return false
 }
 
+// apiPlanAccessible reports whether an admin caller may attach a service to a
+// plan: unrestricted admins any plan; a reseller/scoped admin only a global
+// plan (reseller_id NULL) or one owned by its own reseller. Fails closed.
+func (h *APIHandlers) apiPlanAccessible(ctx context.Context, c *middleware.APICaller, planID int64) bool {
+	_, all, err := h.apiScope(ctx, c)
+	if err != nil {
+		return false
+	}
+	if all {
+		return true
+	}
+	var planReseller sql.NullInt64
+	if err := h.DB().QueryRowContext(ctx, "SELECT reseller_id FROM plans WHERE id=?", planID).Scan(&planReseller); err != nil {
+		return false
+	}
+	if !planReseller.Valid {
+		return true // global plan, available to everyone
+	}
+	var callerReseller sql.NullInt64
+	if err := h.DB().QueryRowContext(ctx, "SELECT reseller_id FROM users WHERE id=?", c.UserID).Scan(&callerReseller); err != nil {
+		return false
+	}
+	return callerReseller.Valid && callerReseller.Int64 == planReseller.Int64
+}
+
 // requireGlobalAPIAdmin gates platform-global resources (plans, nodes, node
 // pools, client provisioning): only an unrestricted admin passes. A reseller- or
 // client-scoped admin key is denied - it must never touch shared infra.
@@ -225,9 +250,15 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "required fields missing")
 		return
 	}
-	// Scope: a reseller/scoped admin may only create services for its own clients.
+	// Scope: a reseller/scoped admin may only create services for its own clients
+	// and only with a global plan or one owned by its reseller (else it could
+	// attach a foreign reseller's private/high-limit plan by guessing the id).
 	if !h.apiAllowClient(r.Context(), middleware.CallerFromContext(r.Context()), in.ClientID) {
 		apiErr(w, http.StatusForbidden, "client outside your scope")
+		return
+	}
+	if !h.apiPlanAccessible(r.Context(), middleware.CallerFromContext(r.Context()), in.PlanID) {
+		apiErr(w, http.StatusForbidden, "plan outside your scope")
 		return
 	}
 	backendIP := net.ParseIP(in.BackendIP)

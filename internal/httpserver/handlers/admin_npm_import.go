@@ -106,7 +106,7 @@ func (h *AdminHandlers) runNpmImport(r *http.Request, hosts []npmProxyHost) npmI
 	defer cancel()
 
 	// Resolve the caller's admin client once; shared across all imports.
-	clientID, err := ensureAdminClient(ctx, db, sess.UserID)
+	clientID, err := ensureAdminClient(ctx, db, sess.UserID, sess.ResellerID)
 	if err != nil {
 		result.Errors = append(result.Errors, "admin client setup: "+err.Error())
 		return result

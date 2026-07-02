@@ -348,7 +348,7 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams", "", "node not found or not approved")
 		return
 	}
-	clientID, err := ensureAdminClient(ctx, db, sess.UserID)
+	clientID, err := ensureAdminClient(ctx, db, sess.UserID, sess.ResellerID)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "could not provision admin client")
 		return

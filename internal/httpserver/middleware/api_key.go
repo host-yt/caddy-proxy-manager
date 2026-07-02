@@ -115,6 +115,12 @@ func CallerFromContext(ctx context.Context) *APICaller {
 	return v
 }
 
+// ContextWithAPICaller attaches an APICaller (used by tests and any handler that
+// needs to synthesize a caller). Production requests get theirs from APIKeyAuth.
+func ContextWithAPICaller(ctx context.Context, c *APICaller) context.Context {
+	return context.WithValue(ctx, apiCallerKey, c)
+}
+
 // parseScopes splits the stored comma-separated scope list, trimming blanks.
 func parseScopes(s string) []string {
 	if strings.TrimSpace(s) == "" {

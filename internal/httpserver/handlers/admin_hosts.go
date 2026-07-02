@@ -768,7 +768,7 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientID, err := ensureAdminClient(ctx, db, sess.UserID)
+	clientID, err := ensureAdminClient(ctx, db, sess.UserID, sess.ResellerID)
 	if err != nil {
 		h.Logger.Error("admin hosts: ensure client", "err", err)
 		h.renderHostsNewErr(w, r, form, "could not provision admin client")
@@ -1931,18 +1931,33 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 
 // ensureAdminClient returns the clients.id for the admin user, creating
 // it on first call. Each user has at most one clients row (uq_clients_user).
-func ensureAdminClient(ctx context.Context, db *sql.DB, userID int64) (int64, error) {
+// ensureAdminClient returns the self-client for an admin, creating it on first
+// use. resellerID is the caller's Session.ResellerID: for a reseller-admin the
+// self-client must carry that reseller_id so hosts/streams they self-provision
+// stay inside their reseller scope (scope is derived from clients.reseller_id).
+// A pre-existing self-client with a mismatched/NULL reseller_id is repaired.
+func ensureAdminClient(ctx context.Context, db *sql.DB, userID, resellerID int64) (int64, error) {
 	var id int64
-	err := db.QueryRowContext(ctx, "SELECT id FROM clients WHERE user_id = ?", userID).Scan(&id)
+	var curReseller sql.NullInt64
+	err := db.QueryRowContext(ctx, "SELECT id, reseller_id FROM clients WHERE user_id = ?", userID).Scan(&id, &curReseller)
 	if err == nil {
+		if resellerID > 0 && (!curReseller.Valid || curReseller.Int64 != resellerID) {
+			if _, uerr := db.ExecContext(ctx, "UPDATE clients SET reseller_id = ? WHERE id = ?", resellerID, id); uerr != nil {
+				return 0, uerr
+			}
+		}
 		return id, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return 0, err
 	}
+	var resellerCol any
+	if resellerID > 0 {
+		resellerCol = resellerID
+	}
 	res, err := db.ExecContext(ctx,
-		"INSERT INTO clients (user_id, display_name) VALUES (?, ?)",
-		userID, "admin (self)")
+		"INSERT INTO clients (user_id, display_name, reseller_id) VALUES (?, ?, ?)",
+		userID, "admin (self)", resellerCol)
 	if err != nil {
 		return 0, err
 	}
