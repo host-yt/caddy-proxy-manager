@@ -367,6 +367,11 @@ func (h *AdminHandlers) ClientsBulk(w http.ResponseWriter, r *http.Request) {
 			fail++
 			continue
 		}
+		// IDOR guard: only act on the caller's own tenants.
+		if !h.scopeCheckClient(ctx, sess, id) {
+			fail++
+			continue
+		}
 		var userID int64
 		if err := h.DB().QueryRowContext(ctx, "SELECT user_id FROM clients WHERE id=?", id).Scan(&userID); err != nil {
 			fail++

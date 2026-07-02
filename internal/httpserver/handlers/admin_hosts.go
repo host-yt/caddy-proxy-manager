@@ -1788,6 +1788,11 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 			fail++
 			continue
 		}
+		// IDOR guard: a scoped admin may only bulk-act on its own tenants' routes.
+		if !h.scopeCheckRoute(ctx, sess, id) {
+			fail++
+			continue
+		}
 		var nodeID int64
 		_ = h.DB().QueryRowContext(ctx,
 			"SELECT caddy_node_id FROM routes WHERE id = ?", id).Scan(&nodeID)

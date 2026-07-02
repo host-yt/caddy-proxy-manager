@@ -2778,6 +2778,7 @@ func (h *AdminHandlers) ServicesBulk(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no db", 503)
 		return
 	}
+	sess := middleware.SessionFromContext(r.Context())
 	_ = r.ParseForm()
 	action := r.FormValue("action")
 	ids := r.Form["ids[]"]
@@ -2791,6 +2792,16 @@ func (h *AdminHandlers) ServicesBulk(w http.ResponseWriter, r *http.Request) {
 	for _, rawID := range ids {
 		svcID, err := strconv.ParseInt(strings.TrimSpace(rawID), 10, 64)
 		if err != nil || svcID <= 0 {
+			fail++
+			continue
+		}
+		// IDOR guard: only act on services under the caller's own tenants.
+		var svcClientID int64
+		if e := db.QueryRowContext(ctx, "SELECT client_id FROM services WHERE id=?", svcID).Scan(&svcClientID); e != nil {
+			fail++
+			continue
+		}
+		if !h.scopeCheckClient(ctx, sess, svcClientID) {
 			fail++
 			continue
 		}
