@@ -1,0 +1,201 @@
+# =========================================================================
+# Hostyt Proxy Gateway - LITE stack (stock Caddy, no custom modules)
+#
+# Runs on the official `caddy:2.11.3` image instead of the custom edge build.
+# Every optional Caddy module is OFF (*_AVAILABLE=0): no WAF, origin cache, L4
+# streams, GeoIP matcher, per-route rate-limit, weighted LB, or DNS-01 wildcard.
+# Core reverse-proxy + ACME HTTP/TLS-ALPN + the whole panel work unchanged.
+#
+# Use this when you want a minimal footprint or can't run the edge image. To
+# enable the advanced modules later, switch to docker-compose.yml (edge image)
+# and flip the flags - see docs/INSTALL.md and docs/WAF.md.
+#
+# The stock Caddy image has no baked Caddyfile, so we mount deploy/caddy/Caddyfile
+# (admin API + on-demand-TLS ask endpoint). It references no custom module, so
+# stock Caddy loads it fine; advanced per-route configs are simply never emitted
+# while the flags are 0.
+# =========================================================================
+
+services:
+  app:
+    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:latest}
+    pull_policy: ${IMAGE_PULL_POLICY:-always}
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      APP_URL: ${APP_URL}
+      APP_BIND: ${APP_BIND:-0.0.0.0:8080}
+      APP_SECRET: ${APP_SECRET}
+      APP_TRUSTED_PROXIES: ${APP_TRUSTED_PROXIES:-172.18.0.0/16}
+      INSTALL_TOKEN: ${INSTALL_TOKEN}
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      DB_HOST: ${DB_HOST:-mariadb}
+      DB_PORT: ${DB_PORT:-3306}
+      DB_NAME: ${DB_NAME}
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
+      CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
+      CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://caddy:2019}
+      APP_INTERNAL_URL: ${APP_INTERNAL_URL:-http://app:8080}
+      ACCESS_LOG_URL: ${ACCESS_LOG_URL:-http://app:8080/internal/access-log}
+      # LITE: every optional module OFF - stock Caddy rejects their config on
+      # /load, so the panel must never emit it. Access logs + core proxy still
+      # work; analytics rollups still populate from the access-log pipeline.
+      CACHE_HANDLER_AVAILABLE: "0"
+      LAYER4_AVAILABLE: "0"
+      WAF_MODULE_AVAILABLE: "0"
+      RATE_LIMIT_AVAILABLE: "0"
+      WEIGHTED_LB_AVAILABLE: "0"
+      DNS01_AVAILABLE: "0"
+      GEOIP_AVAILABLE: "0"
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    ports:
+      - "${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8080}:8080"
+    volumes:
+      - app_data:/app/data
+      - wg_config:/app/wg
+    networks:
+      - internal
+
+  # Bundled MariaDB - comment out if using an external managed DB.
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
+      MARIADB_DATABASE: ${DB_NAME}
+      MARIADB_USER: ${DB_USER}
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    networks:
+      - internal
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # STOCK Caddy - no custom modules. The panel drives it via the admin API;
+  # the mounted Caddyfile only configures the admin listener + on-demand-TLS ask.
+  caddy:
+    image: caddy:2.11.3
+    pull_policy: ${IMAGE_PULL_POLICY:-always}
+    restart: unless-stopped
+    cap_add:
+      - NET_BIND_SERVICE
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy_data:/data
+      - caddy_config:/config
+      - caddy_logs:/var/log/caddy
+      # Required on stock Caddy (no baked Caddyfile): admin API + ask endpoint.
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+    environment:
+      ASK_ENDPOINT_URL: http://app:8080/internal/ask
+      ACME_EMAIL: ${CADDY_ACME_EMAIL}
+    networks:
+      - internal
+    extra_hosts:
+      - "host.docker.internal:172.18.0.1"
+
+  # Central-host node-agent: tails Caddy's access log -> panel (fills the
+  # access-log dashboard + analytics rollups) and runs the customer tunnel.
+  # No WAF audit log in lite (WAF is off); the access log is enough.
+  hpg-node-agent:
+    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:latest}
+    pull_policy: ${IMAGE_PULL_POLICY:-always}
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    environment:
+      HPG_PANEL_URL: ${APP_URL}
+      HPG_NODE_TOKEN: ${HPG_NODE_TOKEN}
+      HPG_WG_PRIVATE_KEY: ${HPG_WG_PRIVATE_KEY}
+      HPG_WG_GATEWAY_IP: ${HPG_WG_GATEWAY_IP:-100.96.0.1/16}
+      HPG_WG_LISTEN_PORT: ${HPG_WG_LISTEN_PORT:-51821}
+      HPG_WG_INTERFACE: ${HPG_WG_INTERFACE:-wg-tun0}
+      HPG_POLL_INTERVAL: ${HPG_POLL_INTERVAL:-30s}
+      HPG_TUNNEL_TRANSPORT: ${HPG_TUNNEL_TRANSPORT:-auto}
+      HPG_WSTUNNEL_PORT: ${HPG_WSTUNNEL_PORT:-51823}
+      HPG_CADDY_ACCESS_LOG: /var/log/caddy/access.log
+      HPG_AGENT_STATE_DIR: /var/lib/hpg-node-agent
+    volumes:
+      - caddy_logs:/var/log/caddy:ro
+      - node_agent_state:/var/lib/hpg-node-agent
+    healthcheck:
+      test: ["CMD", "pgrep", "hpg-node-agent"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    profiles:
+      - node
+
+  wireguard:
+    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:latest}
+    pull_policy: ${IMAGE_PULL_POLICY:-always}
+    restart: unless-stopped
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    sysctls:
+      - net.ipv4.ip_forward=1
+    network_mode: host
+    volumes:
+      - wg_config:/config
+      - /lib/modules:/lib/modules:ro
+    profiles:
+      - mesh
+
+volumes:
+  app_data:
+  mariadb_data:
+  redis_data:
+  caddy_data:
+  caddy_config:
+  caddy_logs:
+  node_agent_state:
+  wg_config:
+
+networks:
+  internal:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.18.0.0/16
+          gateway: 172.18.0.1

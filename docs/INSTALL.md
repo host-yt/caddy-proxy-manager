@@ -74,6 +74,29 @@ Navigate to `http://<your-server-ip>:8080/install` (or the URL set in `APP_URL`)
 
 The wizard is only reachable while `INSTALLED=0`. It flips itself to `1` on completion.
 
+### 2.4 Full vs Lite stack
+
+Two compose files ship. Pick by whether you can run the custom Caddy build.
+
+| | `docker-compose.yml` (full) | `docker-compose.lite.yml` (lite) |
+|---|---|---|
+| Caddy image | `caddy-proxy-manager-edge` (xcaddy build) | stock `caddy:2.11.3` |
+| Core reverse proxy + ACME | yes | yes |
+| Panel, clients, tunnels, access logs, analytics rollups | yes | yes |
+| WAF (coraza) | yes (flag) | **no** |
+| Origin cache, L4 streams, GeoIP matcher, per-route rate-limit, weighted LB, DNS-01 wildcard | yes (flags) | **no** |
+
+Lite runs everything except the advanced Caddy modules; those surfaces stay
+hidden while their `*_AVAILABLE` flags are `0`. Start it with:
+
+```bash
+docker compose -f deploy/docker-compose.lite.yml --env-file .env up -d
+```
+
+To move from lite to full later: switch to `docker-compose.yml` (edge image),
+roll it to every node, then flip the module flags - see [WAF.md](WAF.md) for the
+enablement runbook and the offline trap.
+
 ---
 
 ## 3. Environment variables reference
