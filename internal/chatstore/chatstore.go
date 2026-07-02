@@ -7,6 +7,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -178,4 +180,30 @@ func (s *Store) DeleteSession(ctx context.Context, userID, sessionID int64) erro
 		return ErrNotFound
 	}
 	return nil
+}
+
+// PruneChats deletes ai_chat_sessions (messages cascade via FK) whose last
+// activity is older than the ai.chat_retention_days setting. 0 or unset disables
+// pruning. AI-04: bounds how long AI chat transcripts are retained. Cutoff is
+// computed in Go so the DELETE is portable across MySQL and SQLite.
+func (s *Store) PruneChats(ctx context.Context) (int64, error) {
+	if s == nil || s.db == nil {
+		return 0, nil
+	}
+	var v string
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT value FROM settings WHERE `key` = 'ai.chat_retention_days'").Scan(&v); err != nil {
+		return 0, nil
+	}
+	days, err := strconv.Atoi(strings.TrimSpace(v))
+	if err != nil || days <= 0 {
+		return 0, nil
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -days)
+	res, err := s.db.ExecContext(ctx, "DELETE FROM ai_chat_sessions WHERE updated_at < ?", cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }

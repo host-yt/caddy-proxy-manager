@@ -93,7 +93,7 @@ func (r *Registry) builtins() []Tool {
 		},
 		{
 			Name:           "get_audit_log",
-			Description:    "Return recent audit log entries. Filter by actor email, action name (e.g. 'route.create'), or entity type. Scoped callers see only their own events.",
+			Description:    "Return recent audit log entries. Filter by actor email, action name (e.g. 'route.create'), or entity type. Scoped callers see events for their assigned client accounts only (a client sees just its own).",
 			Schema:         json.RawMessage(`{"type":"object","properties":{"actor":{"type":"string","description":"filter by actor email (partial match)"},"action":{"type":"string","description":"filter by action string (partial match), e.g. 'route.create'"},"entity":{"type":"string","description":"filter by entity type, e.g. 'route', 'client', 'user'"},"limit":{"type":"integer","minimum":1,"maximum":100}},"additionalProperties":false}`),
 			Exec:           r.auditLog,
 			clientRelevant: true,

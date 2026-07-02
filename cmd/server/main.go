@@ -654,6 +654,10 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		if n, err := accesslog.PruneAccessLog(ctx, db); err == nil && n > 0 {
 			logger.Info("access-log retention prune", "rows", n)
 		}
+		// AI-04: bound AI chat transcript retention (ai.chat_retention_days).
+		if n, err := chatstore.New(db).PruneChats(ctx); err == nil && n > 0 {
+			logger.Info("ai chat retention prune", "rows", n)
+		}
 	}))
 
 	// Idempotency key purge — leader-only, daily; run once 30s after boot to

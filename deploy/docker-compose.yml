@@ -19,6 +19,9 @@ services:
     image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:latest}
     pull_policy: ${IMAGE_PULL_POLICY:-always}
     restart: unless-stopped
+    # App runs as distroless nonroot; block any setuid privilege escalation.
+    security_opt:
+      - no-new-privileges:true
     environment:
       APP_ENV: ${APP_ENV:-production}
       APP_URL: ${APP_URL}
@@ -75,6 +78,8 @@ services:
   mariadb:
     image: mariadb:11
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
       MARIADB_DATABASE: ${DB_NAME}
@@ -93,6 +98,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     # No ":-" empty default - empty --requirepass disables auth entirely.
     # Redis holds sessions, rate-limit, 2FA/OTP; must always be authenticated.
     command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]

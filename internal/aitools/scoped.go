@@ -461,7 +461,10 @@ func (r *Registry) serviceDetailScoped(ctx context.Context, scope Scope, raw jso
 	return toJSON(r2)
 }
 
-// auditLogScoped returns audit events for the caller's own user account.
+// auditLogScoped returns audit events for the users owning the caller's in-scope
+// client accounts (scope.ClientIDs) - i.e. the caller's assigned tenants, not
+// just the caller. A client role's scope is its own client id, so it sees only
+// its own events; the query never crosses the scope boundary (AI-07).
 func (r *Registry) auditLogScoped(ctx context.Context, scope Scope, raw json.RawMessage) (string, error) {
 	var a struct {
 		Limit int `json:"limit"`
