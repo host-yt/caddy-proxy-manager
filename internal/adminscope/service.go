@@ -26,13 +26,20 @@ func (s *Service) userReseller(ctx context.Context, adminUserID int64) (rid int6
 		return 0, false, nil
 	}
 	var id sql.NullInt64
-	if err = db.QueryRowContext(ctx, `SELECT reseller_id FROM users WHERE id=?`, adminUserID).Scan(&id); err != nil {
+	var role string
+	if err = db.QueryRowContext(ctx, `SELECT reseller_id, role FROM users WHERE id=?`, adminUserID).Scan(&id, &role); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return 0, false, nil
 		}
 		return 0, false, fmt.Errorf("adminscope: reseller lookup: %w", err)
 	}
 	if !id.Valid {
+		// role=reseller with no reseller binding is a broken row - report a
+		// dangling binding (rid=-1) so resolveMode fails closed instead of
+		// falling through to the unrestricted-platform-admin branch.
+		if role == "reseller" {
+			return -1, false, nil
+		}
 		return 0, false, nil
 	}
 	// Second query only when the user IS a reseller-admin, so DBs without a

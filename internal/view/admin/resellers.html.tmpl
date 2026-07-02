@@ -16,6 +16,16 @@
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Lowercase, alphanumeric + dashes. Unique.</p>
       </div>
       <div>
+        <label class="block t-small font-medium mb-1" style="color:rgb(var(--text))">Owner email</label>
+        <input name="owner_email" type="email" maxlength="128" required placeholder="owner@acme.tld" class="r-input w-full">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Login for the reseller account (role: reseller).</p>
+      </div>
+      <div>
+        <label class="block t-small font-medium mb-1" style="color:rgb(var(--text))">Owner password</label>
+        <input name="owner_password" type="password" minlength="12" required autocomplete="new-password" class="r-input w-full">
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Min 12 characters.</p>
+      </div>
+      <div>
         <label class="block t-small font-medium mb-1" style="color:rgb(var(--text))">Brand name (optional)</label>
         <input name="brand_name" maxlength="64" placeholder="Acme" class="r-input w-full">
       </div>

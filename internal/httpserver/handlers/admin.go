@@ -3099,6 +3099,12 @@ func (h *AdminHandlers) UsersUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/users", "", "edit clients from the Clients page")
 		return
 	}
+	// Reseller accounts are managed on the Resellers page; the users form would
+	// silently strip the reseller role (its role select cannot re-submit it).
+	if curRole == "reseller" {
+		redirectWithFlash(w, r, "/admin/users", "", "manage reseller accounts from the Resellers page")
+		return
+	}
 	// Only super_admin can act on (or grant) super_admin.
 	if (curRole == "super_admin" || role == "super_admin") && (sess == nil || sess.Role != "super_admin") {
 		redirectWithFlash(w, r, "/admin/users", "", "only super_admin can manage super_admin")

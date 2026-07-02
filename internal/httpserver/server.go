@@ -322,9 +322,10 @@ func (s *Server) routes() {
 	}
 
 	// Admin panel. Support is admitted through a strict read-only allow-list
-	// below; admin/super_admin keep the full surface.
+	// below; admin/super_admin keep the full surface. role=reseller enters here
+	// too and is then constrained by ResellerAdminBoundary's allow-list.
 	r.Route("/admin", func(r chi.Router) {
-		r.Use(mw.RequireRole("super_admin", "admin", "support"))
+		r.Use(mw.RequireRole("super_admin", "admin", "support", "reseller"))
 		r.Use(mw.ReadOnlyRoleAllowList("support", []string{
 			"/admin/map",
 			"/admin/worldmap",

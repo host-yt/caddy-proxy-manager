@@ -394,7 +394,8 @@ const aiToolsSystemPrompt = "You are the HPG (Hostyt Proxy Gateway) admin assist
 // tenant only). Support is read-only via the allow-list but must NOT reach any
 // client/service/traffic data, so it gets NO tools.
 func roleCanUseAITools(role string) bool {
-	return role == "super_admin" || role == "admin" || role == "client"
+	// reseller rides the same adminscope-scoped path as a scoped admin.
+	return role == "super_admin" || role == "admin" || role == "reseller" || role == "client"
 }
 
 // aiToolScope derives the caller's tool scope from the session role. The bool is
@@ -412,10 +413,14 @@ func (h *AdminHandlers) aiToolScope(r *http.Request) (aitools.Scope, bool) {
 	switch sess.Role {
 	case "super_admin":
 		return aitools.Scope{AllClients: true}, true
-	case "admin":
+	case "admin", "reseller":
 		// Unscoped admin (no AdminScope wired) sees all; scoped admin is limited
 		// to assigned clients. An admin with zero assignments sees no client data.
+		// A reseller with no AdminScope wired must fail closed, never see all.
 		if h.AdminScope == nil {
+			if sess.Role == "reseller" {
+				return aitools.Scope{}, false
+			}
 			return aitools.Scope{AllClients: true}, true
 		}
 		ids, all, err := h.AdminScope.ScopeFilter(ctx, sess.UserID)

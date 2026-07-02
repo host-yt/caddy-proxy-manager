@@ -18,7 +18,7 @@ func openTestDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	stmts := []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0, role TEXT DEFAULT 'admin')`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
 		`CREATE TABLE services (id INTEGER PRIMARY KEY, client_id INTEGER)`,
 		`CREATE TABLE routes (id INTEGER PRIMARY KEY, service_id INTEGER)`,

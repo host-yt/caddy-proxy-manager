@@ -19,7 +19,7 @@ func TestExplicitRestrictionNoFootgun(t *testing.T) {
 	}
 	defer db.Close()
 	for _, s := range []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0, role TEXT DEFAULT 'admin')`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
 		// user 1 = restricted with ZERO assignments (the footgun case).
 		// user 2 = restricted with one assignment.

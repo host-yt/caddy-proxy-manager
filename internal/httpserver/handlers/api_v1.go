@@ -134,7 +134,8 @@ func requireAdmin(r *http.Request) bool {
 	if c == nil {
 		return false
 	}
-	return c.Role == "admin" || c.Role == "super_admin"
+	// reseller keys pass the role gate; apiScope then narrows their data reach.
+	return c.Role == "admin" || c.Role == "super_admin" || c.Role == "reseller"
 }
 
 // clientIDForUserStrict returns the caller's `clients.id` or an error.

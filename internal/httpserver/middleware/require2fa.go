@@ -31,7 +31,7 @@ func RequireAdmin2FA(db func() *sql.DB, rdb *redis.Client, enabled func() bool, 
 			}
 			sess := SessionFromContext(r.Context())
 			if sess == nil || sess.ImpersonatorUserID > 0 ||
-				(sess.Role != "admin" && sess.Role != "super_admin") {
+				(sess.Role != "admin" && sess.Role != "super_admin" && sess.Role != "reseller") {
 				next.ServeHTTP(w, r)
 				return
 			}

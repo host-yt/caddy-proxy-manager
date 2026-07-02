@@ -19,7 +19,7 @@ func openResellerDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	stmts := []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0, role TEXT DEFAULT 'admin')`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
 		`CREATE TABLE resellers (id INTEGER PRIMARY KEY, status TEXT)`,
@@ -87,6 +87,29 @@ func TestSuspendedResellerFailsClosed(t *testing.T) {
 	}
 	if ok, _ := svc.CanAccessClient(ctx, 1, 100); ok {
 		t.Fatal("suspended reseller-admin must not access its former client")
+	}
+}
+
+// TestResellerRoleWithoutBindingFailsClosed: role='reseller' with a NULL
+// reseller_id is a broken row and must resolve to nothing - never fall through
+// to the unrestricted-platform-admin branch.
+func TestResellerRoleWithoutBindingFailsClosed(t *testing.T) {
+	db := openResellerDB(t)
+	if _, err := db.Exec(`INSERT INTO users (id, reseller_id, is_restricted, role) VALUES (9, NULL, 0, 'reseller')`); err != nil {
+		t.Fatalf("insert: %v", err)
+	}
+	svc := New(func() *sql.DB { return db })
+	ctx := context.Background()
+
+	ids, all, err := svc.ScopeFilter(ctx, 9)
+	if err != nil {
+		t.Fatalf("ScopeFilter(broken reseller): %v", err)
+	}
+	if all || len(ids) != 0 {
+		t.Fatalf("broken reseller row must fail closed, got all=%v ids=%v", all, ids)
+	}
+	if ok, _ := svc.CanAccessClient(ctx, 9, 300); ok {
+		t.Fatal("broken reseller row must not access any client")
 	}
 }
 

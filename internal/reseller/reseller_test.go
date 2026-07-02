@@ -19,9 +19,14 @@ func openDB(t *testing.T) func() *sql.DB {
 	t.Cleanup(func() { db.Close() })
 	stmts := []string{
 		`CREATE TABLE resellers (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, slug TEXT UNIQUE,
-			status TEXT, brand_name TEXT, logo_url TEXT, support_email TEXT, primary_color TEXT)`,
+			status TEXT, brand_name TEXT, logo_url TEXT, support_email TEXT, primary_color TEXT,
+			reseller_plan_id INTEGER, owner_user_id INTEGER,
+			overselling_allowed INTEGER DEFAULT 0, can_create_plans INTEGER DEFAULT 0)`,
+		`CREATE TABLE reseller_plans (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)`,
+		`INSERT INTO reseller_plans (name) VALUES ('Unlimited')`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, password_hash TEXT,
+			password_set INTEGER, role TEXT, full_name TEXT, is_active INTEGER, reseller_id INTEGER)`,
 		`INSERT INTO clients (id, reseller_id) VALUES (100, NULL), (101, NULL)`,
 		`INSERT INTO users (id, reseller_id) VALUES (1, NULL)`,
 	}
@@ -54,6 +59,43 @@ func TestCreateGetList(t *testing.T) {
 	// Duplicate slug must fail.
 	if _, err := s.Create(ctx, Reseller{Name: "Dup", Slug: "acme"}); err == nil {
 		t.Fatal("expected duplicate slug error")
+	}
+}
+
+func TestCreateWithOwnerAtomic(t *testing.T) {
+	dbf := openDB(t)
+	s := New(dbf)
+	ctx := context.Background()
+
+	rid, uid, err := s.CreateWithOwner(ctx, Reseller{Name: "Acme", Slug: "acme"}, "owner@acme.tld", "Acme", "hash")
+	if err != nil {
+		t.Fatalf("create with owner: %v", err)
+	}
+	db := dbf()
+	var role string
+	var userReseller, ownerLink, planID sql.NullInt64
+	db.QueryRow(`SELECT role, reseller_id FROM users WHERE id=?`, uid).Scan(&role, &userReseller)
+	db.QueryRow(`SELECT owner_user_id, reseller_plan_id FROM resellers WHERE id=?`, rid).Scan(&ownerLink, &planID)
+	if role != "reseller" || !userReseller.Valid || userReseller.Int64 != rid {
+		t.Fatalf("owner user wrong: role=%q reseller_id=%v", role, userReseller)
+	}
+	if !ownerLink.Valid || ownerLink.Int64 != uid {
+		t.Fatalf("owner_user_id backlink = %v, want %d", ownerLink, uid)
+	}
+	if !planID.Valid {
+		t.Fatal("reseller not subscribed to the default Unlimited package")
+	}
+
+	// Duplicate owner email must roll the whole thing back - no orphan reseller.
+	var before int
+	db.QueryRow(`SELECT COUNT(*) FROM resellers`).Scan(&before)
+	if _, _, err := s.CreateWithOwner(ctx, Reseller{Name: "B", Slug: "b"}, "owner@acme.tld", "B", "hash"); err != ErrDuplicate {
+		t.Fatalf("expected ErrDuplicate, got %v", err)
+	}
+	var after int
+	db.QueryRow(`SELECT COUNT(*) FROM resellers`).Scan(&after)
+	if after != before {
+		t.Fatalf("orphan reseller left behind: %d -> %d", before, after)
 	}
 }
 

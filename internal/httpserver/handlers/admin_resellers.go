@@ -123,7 +123,7 @@ func (h *AdminHandlers) listAdminOpts(ctx context.Context, db *sql.DB) []adminOp
 	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, email, role, COALESCE(reseller_id,0) FROM users
-		 WHERE role IN ('admin','support') ORDER BY email`)
+		 WHERE role IN ('admin','support','reseller') ORDER BY email`)
 	if err != nil {
 		h.Logger.Error("reseller admin opts", "err", err)
 		return nil
@@ -140,7 +140,9 @@ func (h *AdminHandlers) listAdminOpts(ctx context.Context, db *sql.DB) []adminOp
 	return out
 }
 
-// ResellersCreate handles POST /admin/resellers.
+// ResellersCreate handles POST /admin/resellers. One form creates the whole
+// account atomically: reseller + owner login (role=reseller) + default package,
+// so a reseller is never left half-provisioned across separate steps.
 func (h *AdminHandlers) ResellersCreate(w http.ResponseWriter, r *http.Request) {
 	sess := h.guardSuperAdmin(w, r)
 	if sess == nil {
@@ -157,18 +159,38 @@ func (h *AdminHandlers) ResellersCreate(w http.ResponseWriter, r *http.Request) 
 		redirectWithFlash(w, r, "/admin/resellers", "", "name required and slug must be lowercase alphanumeric/dashes")
 		return
 	}
-	id, err := h.Resellers.Create(r.Context(), reseller.Reseller{
+	ownerEmail := strings.ToLower(strings.TrimSpace(r.FormValue("owner_email")))
+	ownerPass := r.FormValue("owner_password")
+	if ownerEmail == "" || !strings.Contains(ownerEmail, "@") {
+		redirectWithFlash(w, r, "/admin/resellers", "", "owner email required")
+		return
+	}
+	if len(ownerPass) < 12 {
+		redirectWithFlash(w, r, "/admin/resellers", "", "owner password must be >= 12 characters")
+		return
+	}
+	hash, err := auth.HashPassword(ownerPass)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/resellers", "", "could not hash password")
+		return
+	}
+	id, ownerID, err := h.Resellers.CreateWithOwner(r.Context(), reseller.Reseller{
 		Name: name, Slug: slug, Status: reseller.StatusActive,
 		BrandName:    strings.TrimSpace(r.FormValue("brand_name")),
 		SupportEmail: strings.TrimSpace(r.FormValue("support_email")),
-	})
+	}, ownerEmail, name, hash)
 	if err != nil {
+		if errors.Is(err, reseller.ErrDuplicate) {
+			redirectWithFlash(w, r, "/admin/resellers", "", "slug or owner email already exists")
+			return
+		}
 		h.Logger.Error("reseller create", "err", err)
-		redirectWithFlash(w, r, "/admin/resellers", "", "could not create reseller (slug may be taken)")
+		redirectWithFlash(w, r, "/admin/resellers", "", "could not create reseller")
 		return
 	}
-	h.auditReseller(r, sess, "reseller.created", strconv.FormatInt(id, 10), map[string]any{"name": name, "slug": slug})
-	redirectWithFlash(w, r, "/admin/resellers", "Reseller created", "")
+	h.auditReseller(r, sess, "reseller.created", strconv.FormatInt(id, 10),
+		map[string]any{"name": name, "slug": slug, "owner_user_id": ownerID, "owner_email": ownerEmail})
+	redirectWithFlash(w, r, "/admin/resellers", "Reseller created - owner can sign in now", "")
 }
 
 // ResellersUpdate handles POST /admin/resellers/{id} (name/status/branding).
@@ -304,6 +326,18 @@ func (h *AdminHandlers) ResellerProvisionAdmin(w http.ResponseWriter, r *http.Re
 	if err := h.Resellers.AssignAdmin(ctx, userID, rid); err != nil {
 		redirectWithFlash(w, r, "/admin/resellers", "", "could not update reseller-admin")
 		return
+	}
+	// Keep role in sync with the binding. Release lands on a RESTRICTED admin
+	// (is_restricted=1, empty scope) - never silently mint an unrestricted
+	// platform admin out of an ex-reseller account.
+	if db := h.DB(); db != nil {
+		if release {
+			_, _ = db.ExecContext(ctx,
+				`UPDATE users SET role='admin', is_restricted=1 WHERE id=? AND role='reseller'`, userID)
+		} else {
+			_, _ = db.ExecContext(ctx,
+				`UPDATE users SET role='reseller' WHERE id=? AND role IN ('admin','support')`, userID)
+		}
 	}
 	// Keystone: force re-login so the new (or cleared) scope is stamped fresh.
 	h.revokeUsers(ctx, []int64{userID})

@@ -239,7 +239,7 @@ func (h *AuthHandlers) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		// Refuse auto-provisioning straight into a privileged role - mirror the
 		// OIDC settings guard so a provider-side signup cannot mint an admin.
 		role = cfg.DefaultRole
-		if role == "" || role == "admin" || role == "super_admin" {
+		if role == "" || role == "admin" || role == "super_admin" || role == "reseller" {
 			role = "support"
 		}
 		raw := make([]byte, 32)

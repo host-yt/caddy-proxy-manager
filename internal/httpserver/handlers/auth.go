@@ -1949,8 +1949,8 @@ func (h *AuthHandlers) SSOJump(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Admin role failsafe: block unless allow_admin_login=1.
-	if role == "super_admin" || role == "admin" {
+	// Admin-tier role failsafe: block unless allow_admin_login=1.
+	if role == "super_admin" || role == "admin" || role == "reseller" {
 		var allowAdmin string
 		_ = db.QueryRowContext(ctx,
 			"SELECT value FROM settings WHERE `key` = 'sso_jump.allow_admin_login' LIMIT 1",

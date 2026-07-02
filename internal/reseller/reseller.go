@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // ErrNotFound is returned when a reseller row does not exist.
@@ -72,6 +73,73 @@ func (s *Store) Create(ctx context.Context, r Reseller) (int64, error) {
 	}
 	id, _ := res.LastInsertId()
 	return id, nil
+}
+
+// ErrDuplicate is returned when the owner email or slug already exists.
+var ErrDuplicate = errors.New("reseller: duplicate")
+
+// CreateWithOwner atomically creates the reseller, its owner login
+// (role='reseller', bound via users.reseller_id) and the owner backlink, and
+// subscribes the reseller to the default "Unlimited" package. One transaction:
+// a reseller never exists without a working owner account.
+func (s *Store) CreateWithOwner(ctx context.Context, r Reseller, ownerEmail, ownerName, ownerHash string) (resellerID, ownerUserID int64, err error) {
+	db := s.db()
+	if db == nil {
+		return 0, 0, errors.New("reseller: no db")
+	}
+	status := r.Status
+	if status == "" {
+		status = StatusActive
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("reseller: tx: %w", err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var planID sql.NullInt64
+	_ = tx.QueryRowContext(ctx, `SELECT id FROM reseller_plans WHERE name = 'Unlimited'`).Scan(&planID)
+
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO resellers (name, slug, status, brand_name, logo_url, support_email, primary_color, reseller_plan_id)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.Name, r.Slug, status,
+		nullIfEmpty(r.BrandName), nullIfEmpty(r.LogoURL), nullIfEmpty(r.SupportEmail), nullIfEmpty(r.PrimaryColor),
+		planID)
+	if err != nil {
+		if isDuplicate(err) {
+			return 0, 0, ErrDuplicate
+		}
+		return 0, 0, fmt.Errorf("reseller: create: %w", err)
+	}
+	resellerID, _ = res.LastInsertId()
+
+	res, err = tx.ExecContext(ctx,
+		`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active, reseller_id)
+		 VALUES (?, ?, 1, 'reseller', ?, 1, ?)`,
+		ownerEmail, ownerHash, ownerName, resellerID)
+	if err != nil {
+		if isDuplicate(err) {
+			return 0, 0, ErrDuplicate
+		}
+		return 0, 0, fmt.Errorf("reseller: owner insert: %w", err)
+	}
+	ownerUserID, _ = res.LastInsertId()
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE resellers SET owner_user_id = ? WHERE id = ?`, ownerUserID, resellerID); err != nil {
+		return 0, 0, fmt.Errorf("reseller: owner link: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, 0, fmt.Errorf("reseller: commit: %w", err)
+	}
+	return resellerID, ownerUserID, nil
+}
+
+// isDuplicate detects unique-constraint violations across MySQL and SQLite.
+func isDuplicate(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "Duplicate entry") || strings.Contains(msg, "UNIQUE constraint failed")
 }
 
 // Get returns one reseller by id, or ErrNotFound.
