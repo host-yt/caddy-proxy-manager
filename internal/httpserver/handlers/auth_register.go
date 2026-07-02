@@ -3,7 +3,12 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/base64"
+	"encoding/hex"
+	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -106,8 +111,9 @@ func (h *AuthHandlers) RegisterSubmit(w http.ResponseWriter, r *http.Request) {
 		renderErr("Invalid email address.")
 		return
 	}
-	if len(password) < 10 {
-		renderErr("Password must be at least 10 characters.")
+	// AUTH-04: align with the reset flow (>=12), which is the stronger bar.
+	if len(password) < 12 {
+		renderErr("Password must be at least 12 characters.")
 		return
 	}
 	if password != confirm {
@@ -146,9 +152,12 @@ func (h *AuthHandlers) RegisterSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Insert user row.
+	// AUTH-02: self-registered accounts are attacker-chosen and unproven. Insert
+	// email_verified=0 + is_active=0 so they cannot log in and cannot be adopted
+	// by an OAuth/OIDC-by-email path until the double opt-in link is followed.
+	// Existing users were backfilled to email_verified=1 and are unaffected.
 	res, err := db.ExecContext(ctx,
-		"INSERT INTO users (email, password_hash, role, is_active, full_name) VALUES (?, ?, 'client', 1, ?)",
+		"INSERT INTO users (email, password_hash, role, is_active, full_name, email_verified) VALUES (?, ?, 'client', 0, ?, 0)",
 		email, hash, email,
 	)
 	if err != nil {
@@ -186,5 +195,98 @@ func (h *AuthHandlers) RegisterSubmit(w http.ResponseWriter, r *http.Request) {
 		Meta: map[string]any{"ip": ip, "actor": actor, "default_plan_id": defaultPlanID},
 	})
 
-	http.Redirect(w, r, "/auth/login?flash=Account+created+-+you+can+now+log+in", http.StatusSeeOther)
+	// Double opt-in: mint a one-time verify token and email the link. The
+	// account stays email_verified=0/is_active=0 until the link is followed.
+	if token, terr := createEmailVerifyToken(ctx, db, userID); terr == nil && h.Mailer != nil {
+		verifyURL := strings.TrimRight(h.AppURL, "/") + "/auth/verify?token=" + token
+		if serr := h.Mailer.Send(ctx, email, "Verify your Hostyt Proxy email", "notice", map[string]any{
+			"Subject": "Verify your email",
+			"Body":    "Confirm your email to activate your account:\n\n" + verifyURL + "\n\nThis link expires in 30 minutes.",
+		}); serr != nil {
+			h.Logger.Warn("register verify email send", "err", serr, "user_id", userID)
+		}
+	} else if terr != nil {
+		h.Logger.Error("register verify token", "err", terr, "user_id", userID)
+	}
+
+	http.Redirect(w, r, "/auth/login?flash=Check+your+email+to+verify+your+account+before+signing+in", http.StatusSeeOther)
+}
+
+// emailVerifyTokenTTL matches the password-reset link lifetime.
+const emailVerifyTokenTTL = 30 * time.Minute
+
+// createEmailVerifyToken issues a one-time email-verification token. Stores
+// only the sha256 hash (mirrors password_resets); returns the plaintext token.
+func createEmailVerifyToken(ctx context.Context, db *sql.DB, userID int64) (string, error) {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	plain := base64.RawURLEncoding.EncodeToString(b)
+	sum := sha256.Sum256([]byte(plain))
+	hashHex := hex.EncodeToString(sum[:])
+	expires := time.Now().UTC().Add(emailVerifyTokenTTL)
+	if _, err := db.ExecContext(ctx,
+		"INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+		userID, hashHex, expires,
+	); err != nil {
+		return "", err
+	}
+	return plain, nil
+}
+
+// VerifyEmail handles GET /auth/verify?token=... - consumes a one-time token
+// and flips the user's email_verified=1 + is_active=1 so they can sign in.
+// Route wiring (GET /auth/verify -> this handler) lives in server.go, which is
+// outside this task's editable set; add it there to complete the flow.
+func (h *AuthHandlers) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	if token == "" {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	db := h.DB()
+	if db == nil {
+		http.Redirect(w, r, "/auth/login?flash=Server+unavailable", http.StatusSeeOther)
+		return
+	}
+	sum := sha256.Sum256([]byte(token))
+	hashHex := hex.EncodeToString(sum[:])
+
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		http.Redirect(w, r, "/auth/login?flash=Server+error", http.StatusSeeOther)
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var id, userID int64
+	// FOR UPDATE row-locks the token so concurrent hits can't both pass.
+	err = tx.QueryRowContext(ctx,
+		`SELECT id, user_id FROM email_verifications
+		 WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1 FOR UPDATE`,
+		hashHex,
+	).Scan(&id, &userID)
+	if err != nil {
+		http.Redirect(w, r, "/auth/login?flash=Verification+link+invalid+or+expired", http.StatusSeeOther)
+		return
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE email_verifications SET used_at = NOW() WHERE id = ?", id); err != nil {
+		http.Redirect(w, r, "/auth/login?flash=Server+error", http.StatusSeeOther)
+		return
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE users SET email_verified = 1, is_active = 1 WHERE id = ?", userID); err != nil {
+		http.Redirect(w, r, "/auth/login?flash=Server+error", http.StatusSeeOther)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		http.Redirect(w, r, "/auth/login?flash=Server+error", http.StatusSeeOther)
+		return
+	}
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: &userID, Action: "auth.email_verified", Entity: "user", EntityID: fmt.Sprintf("%d", userID),
+	})
+	http.Redirect(w, r, "/auth/login?flash=Email+verified+-+you+can+now+sign+in", http.StatusSeeOther)
 }

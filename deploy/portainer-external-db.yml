@@ -25,6 +25,10 @@ services:
       APP_ENV: ${APP_ENV:-production}
       APP_URL: ${APP_URL}
       APP_SECRET: ${APP_SECRET}
+      # Must match the `internal` network subnet below so TrustedRealIP
+      # accepts X-Forwarded-For from the bundled Caddy container instead of
+      # collapsing every client to Caddy's IP (breaks per-IP rate-limit).
+      APP_TRUSTED_PROXIES: ${APP_TRUSTED_PROXIES:-172.18.0.0/16}
       INSTALL_TOKEN: ${INSTALL_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_HOST: ${DB_HOST}

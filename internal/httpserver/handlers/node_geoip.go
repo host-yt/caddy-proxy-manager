@@ -26,15 +26,14 @@ type NodeGeoIPHandler struct {
 	Logger *slog.Logger
 }
 
-// authNode verifies the node token from ?node_token= or a Bearer header. Returns
-// false (and writes the HTTP error) when the token is missing or unknown.
+// authNode verifies the node token from a Bearer header only - a query-string
+// token would leak into access/proxy logs (NODE_WG-03). Returns false (and
+// writes the HTTP error) when the token is missing or unknown.
 func (h *NodeGeoIPHandler) authNode(w http.ResponseWriter, r *http.Request) bool {
-	token := strings.TrimSpace(r.URL.Query().Get("node_token"))
-	if token == "" {
-		auth := r.Header.Get("Authorization")
-		if strings.HasPrefix(auth, "Bearer ") {
-			token = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-		}
+	token := ""
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		token = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
 	}
 	if token == "" {
 		http.Error(w, "missing node_token", http.StatusUnauthorized)

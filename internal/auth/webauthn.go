@@ -183,9 +183,7 @@ func SaveCredential(ctx context.Context, db *sql.DB, userID int64, cred *webauth
 }
 
 // BumpSignCount updates the stored signature counter + last_used_at after a
-// successful assertion. Mismatch with cred.Authenticator.SignCount can mean
-// the authenticator was cloned - we still accept the assertion but a future
-// audit pass could surface this.
+// successful assertion.
 func BumpSignCount(ctx context.Context, db *sql.DB, credID []byte, newCount uint32) error {
 	_, err := db.ExecContext(ctx,
 		`UPDATE webauthn_credentials
@@ -193,6 +191,28 @@ func BumpSignCount(ctx context.Context, db *sql.DB, credID []byte, newCount uint
 		 WHERE credential_id = ?`,
 		newCount, credID)
 	return err
+}
+
+// SignCountRegressed reports whether a post-assertion counter indicates a
+// cloned authenticator. A regression (new <= stored while stored > 0) or the
+// library's clone warning means two copies of the private key are in use -
+// callers must reject the assertion. A stored/new of 0 is normal for
+// authenticators that don't implement a counter, so it is NOT a regression.
+func SignCountRegressed(stored, newCount uint32, cloneWarning bool) bool {
+	if cloneWarning {
+		return true
+	}
+	return stored > 0 && newCount <= stored
+}
+
+// StoredSignCount returns the currently-persisted counter for a credential so
+// callers can compare it against the assertion's reported counter.
+func StoredSignCount(ctx context.Context, db *sql.DB, credID []byte) (uint32, error) {
+	var n uint32
+	err := db.QueryRowContext(ctx,
+		`SELECT sign_count FROM webauthn_credentials WHERE credential_id = ? LIMIT 1`, credID,
+	).Scan(&n)
+	return n, err
 }
 
 // FindUserByCredentialID returns the owning user for a discoverable login

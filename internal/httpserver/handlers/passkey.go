@@ -324,6 +324,33 @@ func (h *PasskeyHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "assertion rejected", http.StatusUnauthorized)
 		return
 	}
+	// AUTH-05: a non-advancing counter (or the library's clone warning) means a
+	// cloned authenticator - two copies of the private key in use. Reject the
+	// assertion and audit high-severity instead of silently bumping. A 0/0
+	// counter (authenticator without a counter) is not a regression.
+	stored, _ := auth.StoredSignCount(ctx, db, cred.ID)
+	if auth.SignCountRegressed(stored, cred.Authenticator.SignCount, cred.Authenticator.CloneWarning) {
+		// Feed the shared per-user 2FA failure counter (AUTH-01) so a clone
+		// hammering the assertion contributes to the same hard lock.
+		if h.RDB != nil {
+			key := fmt.Sprintf("hpg:2fa:fail:%d", resolvedUser.ID)
+			if n, ierr := h.RDB.Incr(ctx, key).Result(); ierr == nil && n == 1 {
+				_ = h.RDB.Expire(ctx, key, 15*time.Minute).Err()
+			}
+		}
+		audit.Write(ctx, db, h.Logger, r, audit.Entry{
+			UserID: &resolvedUser.ID, Action: "login.fail", Entity: "auth", EntityID: resolvedUser.Email,
+			Meta: map[string]any{
+				"reason": "passkey_clone_detected", "severity": "high", "via": "passkey",
+				"stored_count": stored, "asserted_count": cred.Authenticator.SignCount,
+				"clone_warning": cred.Authenticator.CloneWarning,
+			},
+		})
+		h.Metrics.PasskeyOp("login", "fail")
+		h.Metrics.LoginEvent("fail", "passkey", "passkey")
+		http.Error(w, "assertion rejected", http.StatusUnauthorized)
+		return
+	}
 	if err := auth.BumpSignCount(ctx, db, cred.ID, cred.Authenticator.SignCount); err != nil {
 		h.Logger.Warn("webauthn sign count update", "err", err)
 	}

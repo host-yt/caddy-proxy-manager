@@ -11,15 +11,20 @@
 FROM alpine:3.20 AS tailwind
 ARG TW_VERSION=v3.4.17
 ARG TARGETARCH
+# Pinned sha256 of the v3.4.17 release binaries - verified via `shasum -a 256`
+# against the GitHub release download. Update both when bumping TW_VERSION.
+ARG TW_SHA256_AMD64=7d24f7fa191d2193b78cd5f5a42a6093e14409521908529f42d80b11fde1f1d4
+ARG TW_SHA256_ARM64=69b1378b8133192d7d2feb12a116fa12d035594f58db3eff215879e4ad8cf39b
 # Map docker TARGETARCH to tailwind's release naming (amd64->x64, arm64->arm64).
 RUN apk add --no-cache curl ca-certificates \
  && case "${TARGETARCH}" in \
-      amd64) TW_ARCH=x64 ;; \
-      arm64) TW_ARCH=arm64 ;; \
+      amd64) TW_ARCH=x64; TW_SHA256="${TW_SHA256_AMD64}" ;; \
+      arm64) TW_ARCH=arm64; TW_SHA256="${TW_SHA256_ARM64}" ;; \
       *) echo "unsupported arch: ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
  && curl -sSL -o /usr/local/bin/tailwindcss \
       "https://github.com/tailwindlabs/tailwindcss/releases/download/${TW_VERSION}/tailwindcss-linux-${TW_ARCH}" \
+ && echo "${TW_SHA256}  /usr/local/bin/tailwindcss" | sha256sum -c - \
  && chmod +x /usr/local/bin/tailwindcss
 WORKDIR /src
 COPY tailwind.config.js ./

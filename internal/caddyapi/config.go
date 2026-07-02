@@ -366,6 +366,17 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 			// 0.0.0.0:2019 inside the container = docker bridge only,
 			// not host net. Compose deliberately does NOT publish 2019.
 			// Defense-in-depth: don't `ports: 2019:2019` ever.
+			//
+			// NOTE (CADDY-03): can't default this to 127.0.0.1 - the panel
+			// (`app` container) reaches this Admin API at http://caddy:2019
+			// over the docker "internal" bridge network (deploy/docker-compose.yml
+			// CADDY_ADMIN_URL), a separate container/network namespace from
+			// Caddy's own loopback. Binding to 127.0.0.1 here would make the
+			// Admin API unreachable from the panel and break every config push.
+			// Real fix needs either a shared network namespace, a per-deployment
+			// admin bind IP, or auth on the Admin API itself - out of scope for
+			// a config.go-only change; left as 0.0.0.0 (bridge-scoped) with the
+			// existing "never publish 2019" defense.
 			"listen": "0.0.0.0:2019",
 		},
 		"apps": apps,

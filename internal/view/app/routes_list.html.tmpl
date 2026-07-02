@@ -74,6 +74,14 @@
               <span class="r-pill r-pill-warning text-[10px] font-bold" title="Manual cert expires in {{.CertDaysLeft}} days">cert {{.CertDaysLeft}}d</span>
               {{end}}
               {{end}}{{end}}
+              {{if not .DomainVerified}}
+              <div class="mt-2 text-xs rounded-lg border p-2" style="border-color:rgb(var(--border));background:rgb(var(--accent-weak)/.12)">
+                <div class="font-semibold" style="color:rgb(var(--text))">Verify domain ownership</div>
+                <div class="mt-1" style="color:rgb(var(--muted))">Add this DNS TXT record, then press Re-check. Until verified this route will not serve traffic or get a certificate.</div>
+                <div class="mt-1 font-mono break-all" style="color:rgb(var(--text))">_hpg-verify.{{.Domain}}</div>
+                <div class="font-mono break-all" style="color:rgb(var(--text))">TXT "{{.VerifyToken}}"</div>
+              </div>
+              {{end}}
               {{if .LastError}}<div class="text-xs text-rose-600 dark:text-rose-400 mt-1 max-w-sm truncate" title="{{.LastError}}">{{.LastError}}</div>{{end}}
             </td>
             <td class="px-4 py-3 text-right">

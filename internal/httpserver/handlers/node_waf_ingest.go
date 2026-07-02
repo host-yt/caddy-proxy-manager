@@ -78,14 +78,13 @@ type NodeWAFIngestHandler struct {
 }
 
 // authNode verifies the per-node bearer token against caddy_nodes.agent_token_hash.
+// Header only - a query-string token would leak into access/proxy logs (NODE_WG-03).
 // Returns the validated nodeID (>0) or 0 on failure (HTTP error already written).
 func (h *NodeWAFIngestHandler) authNode(w http.ResponseWriter, r *http.Request) int64 {
-	token := strings.TrimSpace(r.URL.Query().Get("node_token"))
-	if token == "" {
-		auth := r.Header.Get("Authorization")
-		if strings.HasPrefix(auth, "Bearer ") {
-			token = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-		}
+	token := ""
+	auth := r.Header.Get("Authorization")
+	if strings.HasPrefix(auth, "Bearer ") {
+		token = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
 	}
 	if token == "" {
 		http.Error(w, "missing node_token", http.StatusUnauthorized)

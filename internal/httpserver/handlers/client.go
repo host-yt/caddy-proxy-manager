@@ -497,6 +497,8 @@ type clientRouteRow struct {
 	MaintenanceMode bool
 	SvcStatus       string // parent service status
 	CertDaysLeft    int    // -1 = no manual cert, 0+ = days until expiry
+	DomainVerified  bool   // false => needs the _hpg-verify TXT proof before serving/cert
+	VerifyToken     string // TXT value the owner must publish at _hpg-verify.<domain>
 }
 
 type clientRoutesData struct {
@@ -526,7 +528,8 @@ func (h *ClientHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 
 	// build WHERE clause dynamically to support optional search filter
 	query := `SELECT r.id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port, s.name, r.status, COALESCE(r.last_error,''), COALESCE(r.maintenance_mode,0), s.status,
-		        COALESCE(DATEDIFF(mc.not_after, NOW()), -1)
+		        COALESCE(DATEDIFF(mc.not_after, NOW()), -1),
+		        COALESCE(r.domain_verified,0), COALESCE(r.verify_token,'')
 		 FROM routes r JOIN services s ON s.id = r.service_id
 		 LEFT JOIN manual_certs mc ON mc.route_id = r.id
 		 WHERE s.client_id = ?`
@@ -543,7 +546,7 @@ func (h *ClientHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var rr clientRouteRow
-			if err := rows.Scan(&rr.ID, &rr.Domain, &rr.PathPrefix, &rr.UpstreamPort, &rr.ServiceName, &rr.Status, &rr.LastError, &rr.MaintenanceMode, &rr.SvcStatus, &rr.CertDaysLeft); err == nil {
+			if err := rows.Scan(&rr.ID, &rr.Domain, &rr.PathPrefix, &rr.UpstreamPort, &rr.ServiceName, &rr.Status, &rr.LastError, &rr.MaintenanceMode, &rr.SvcStatus, &rr.CertDaysLeft, &rr.DomainVerified, &rr.VerifyToken); err == nil {
 				if rr.SvcStatus == "suspended" {
 					d.HasSuspendedService = true
 				}
@@ -709,7 +712,28 @@ func (h *ClientHandlers) RouteVerifyDNS(w http.ResponseWriter, r *http.Request) 
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 10_000_000_000)
 	defer cancel()
-	clientID, _ := clientIDFor(ctx, db, sess.UserID)
+	// AUTHZ-04: fail closed. On a missing clients row clientID would be 0, which
+	// Routes.VerifyDNS treats as admin scope (skips the ownership check).
+	clientID, err := clientIDFor(ctx, db, sess.UserID)
+	if err != nil {
+		http.Error(w, "no client", http.StatusForbidden)
+		return
+	}
+	// Re-check first attempts DNS-TXT domain-ownership proof (clears the
+	// domain_verified gate). If already verified it falls through to the normal
+	// DNS A/CNAME re-check. Either way the route is re-advanced afterwards.
+	if _, _, verr := h.Routes.VerifyDomainToken(ctx, clientID, id); verr != nil {
+		if errors.Is(verr, routes.ErrVerifyTokenMissing) {
+			redirectWithFlash(w, r, "/app/routes", "",
+				"Domain not verified. Publish the _hpg-verify TXT record shown on the route, then re-check.")
+			return
+		}
+		// Any error other than "already verified" is a real failure.
+		if !errors.Is(verr, routes.ErrAlreadyVerified) {
+			redirectWithFlash(w, r, "/app/routes", "", "re-check failed: "+sanitizeErr(verr))
+			return
+		}
+	}
 	if err := h.Routes.VerifyDNS(ctx, clientID, id); err != nil {
 		redirectWithFlash(w, r, "/app/routes", "", "re-check failed: "+sanitizeErr(err))
 		return

@@ -26,7 +26,8 @@ func CSPNonce(ctx context.Context) string {
 //   - script-src 'self' 'nonce-<n>' (no 'unsafe-inline'; legacy CDN hosts
 //     removed - Tailwind/Alpine/Chart.js must be served from the panel
 //     itself or with a matching nonce)
-//   - style-src 'self' 'nonce-<n>' https://rsms.me
+//   - style-src 'self' 'unsafe-inline' (see strictCSP for why nonce-only
+//     isn't safe to ship yet)
 //   - third-party allowlist stays narrow for Turnstile.
 //
 // Existing templates that still ship inline <script> blocks must include
@@ -59,14 +60,14 @@ func SecurityHeaders(next http.Handler) http.Handler {
 // strictCSP intentionally OMITS 'strict-dynamic' (the v1 audit flagged
 // it as contradicting the host allowlist).
 //
-// style-src keeps 'unsafe-inline' because Tailwind's CDN runtime injects
-// generated CSS via DOM at runtime - those <style> tags have no nonce
-// and CSP would otherwise block all panel styling. style-src unsafe-inline
-// permits CSS manipulation, not script execution; the script-src stays
-// strict (nonce-only inline, explicit host allowlist for CDNs).
-//
-// When a fully static Tailwind build replaces the CDN runtime, drop
-// 'unsafe-inline' from style-src and require nonces only.
+// style-src still keeps 'unsafe-inline'. Tailwind is now self-hosted (the
+// CDN-runtime justification is stale), but ~60+ templates under
+// internal/view use inline style="..." attributes and several ship
+// unnoned <style> blocks (e.g. admin/_layout.html.tmpl, app/_layout.html.tmpl).
+// Dropping unsafe-inline here today would blank-page most of the UI.
+// TODO: migrate those templates to nonce="{{.CSPNonce}}" / static CSS
+// classes, then drop unsafe-inline. unsafe-inline on style-src permits CSS
+// manipulation only, not script execution; script-src stays nonce-strict.
 func strictCSP(nonce string) string {
 	// CAPTCHA vendor origins (login widget): Cloudflare Turnstile, hCaptcha,
 	// Google reCAPTCHA. Only loaded when an admin selects that provider.
@@ -79,7 +80,9 @@ func strictCSP(nonce string) string {
 		"script-src 'self' 'nonce-" + nonce + "'" + captchaScript + "; " +
 		"style-src 'self' 'unsafe-inline'; " +
 		"font-src 'self'; " +
-		// https: lets branding logo/favicon come from any HTTPS CDN.
+		// https: stays: branding.logo_url_* / error_logo_url / geo_block_logo_url
+		// are free-text URL fields (admin_branding.go), not uploaded files, so
+		// logos can legitimately live on an arbitrary external HTTPS host.
 		"img-src 'self' https: data: blob:; " +
 		"connect-src 'self'" + captchaFrame + "; " +
 		"frame-src" + captchaFrame + "; " +

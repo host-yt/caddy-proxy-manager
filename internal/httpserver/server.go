@@ -5,6 +5,7 @@ import (
 	"context"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -71,6 +72,23 @@ type Deps struct {
 type Server struct {
 	deps Deps
 	mux  *chi.Mux
+}
+
+// wgMeshCIDR bounds the /internal/* node-facing endpoints to the WireGuard
+// control-plane network (per-node subnets are 10.66.x.0/24, see
+// internal/wireguard/keys.go ControlPlane defaults) so a header-trusting
+// endpoint can't be reached from the public internet. Remote nodes reach the
+// panel over this mesh; the bundled local Caddy node instead reaches it over
+// the docker "internal" network, whose subnet operators already declare via
+// APP_TRUSTED_PROXIES (default 172.18.0.0/16, see deploy/docker-compose.yml).
+const wgMeshCIDR = "10.66.0.0/16"
+
+// nodeInternalCIDRs is the allow-list for endpoints only Caddy nodes should
+// reach: the WG mesh (remote nodes) plus APP_TRUSTED_PROXIES (the bundled
+// local node's docker subnet).
+func nodeInternalCIDRs(trustedProxies []string) []*net.IPNet {
+	cidrs := append([]string{wgMeshCIDR}, trustedProxies...)
+	return mw.ParseCIDRList(cidrs)
 }
 
 func New(d Deps) *Server {
@@ -146,7 +164,15 @@ func (s *Server) routes() {
 		// endpoint refuses traffic from outside that CIDR list - relying on
 		// a firewall alone is brittle for a self-hosted product.
 		metricsAllow := mw.ParseCIDRList(s.deps.Config.Security.MetricsAllow)
-		r.Handle("/metrics", mw.IPAllowList(metricsAllow, s.deps.Metrics.Handler()))
+		metricsHandler := s.deps.Metrics.Handler()
+		if len(metricsAllow) == 0 && s.deps.Config.App.Env == "production" {
+			// Fail closed: no allow-list configured in prod means the default
+			// 0.0.0.0 bind would otherwise leak metrics to the internet.
+			metricsHandler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.NotFound(w, r)
+			})
+		}
+		r.Handle("/metrics", mw.IPAllowList(metricsAllow, metricsHandler))
 	}
 	r.Get("/favicon.ico", handlers.Favicon)
 
@@ -185,7 +211,10 @@ func (s *Server) routes() {
 	r.Get("/install/node.sh", s.deps.NodeJoin.Script)
 
 	r.Get("/internal/ask", s.deps.Ask.ServeHTTP)
-	r.Get("/internal/mtls-rbac/{route_id}", s.deps.Admin.MTLSRBACCheck)
+	// mTLS RBAC trusts the caller's X-Mtls-Subject header verbatim (see
+	// admin_mtls_rbac.go) - only the node's forward_auth subrequest, which
+	// arrives over the WG control-plane mesh, may reach it.
+	r.Handle("/internal/mtls-rbac/{route_id}", mw.IPAllowList(nodeInternalCIDRs(s.deps.Config.App.TrustedProxies), http.HandlerFunc(s.deps.Admin.MTLSRBACCheck)))
 	r.Post("/internal/sync/push", s.deps.Admin.SyncPushReceive)
 	if s.deps.AccessLogIngest != nil {
 		r.Post("/internal/access-log", s.deps.AccessLogIngest.ServeHTTP)
@@ -234,6 +263,8 @@ func (s *Server) routes() {
 		r.Post("/login", s.deps.Auth.LoginSubmit)
 		r.Get("/register", s.deps.Auth.RegisterPage)
 		r.Post("/register", s.deps.Auth.RegisterSubmit)
+		// Double opt-in: self-registered accounts stay inactive until this link is hit.
+		r.Get("/verify", s.deps.Auth.VerifyEmail)
 		r.Post("/logout", s.deps.Auth.Logout)
 		r.Post("/end-impersonation", s.deps.Auth.EndImpersonation)
 		r.Get("/forgot", s.deps.Auth.ForgotPage)

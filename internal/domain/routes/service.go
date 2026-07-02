@@ -5,6 +5,7 @@ package routes
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -671,18 +672,57 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		wildFlag = 1
 		wildZone = sql.NullString{String: wildcardZone, Valid: true}
 	}
+	// Domain-ownership gate: admin/API context (clientID==0) is trusted and lands
+	// verified; self-service routes land unverified with a token the owner must
+	// publish as a DNS TXT record before the route can advance or get a cert.
+	verified := 0
+	verifyToken := ""
+	if clientID == 0 {
+		verified = 1
+	} else {
+		verifyToken, err = newVerifyToken()
+		if err != nil {
+			return 0, fmt.Errorf("verify token: %w", err)
+		}
+	}
+	// Anti-squat: the UNIQUE(domain,path) constraint would otherwise let a
+	// squatter's first-come UNVERIFIED row permanently block a later claim for the
+	// same domain. If the sole conflicting row is unverified, evict it inside this
+	// tx so the new claim can proceed (both then race to prove ownership via TXT).
+	// A VERIFIED conflicting row is never displaced - that owner proved control.
+	var conflictID, conflictVerified int64
+	var conflictNode sql.NullInt64
+	if e := tx.QueryRowContext(ctx,
+		`SELECT id, domain_verified, caddy_node_id FROM routes
+		 WHERE domain = ? AND COALESCE(path_prefix,'') = ? LIMIT 1`,
+		domain, pathPrefix,
+	).Scan(&conflictID, &conflictVerified, &conflictNode); e == nil {
+		if conflictVerified == 1 {
+			return 0, ErrDomainTaken
+		}
+		if _, e := tx.ExecContext(ctx, "DELETE FROM routes WHERE id = ? AND domain_verified = 0", conflictID); e != nil {
+			return 0, ErrDomainTaken
+		}
+		if conflictNode.Valid && conflictNode.Int64 != 0 {
+			_, _ = tx.ExecContext(ctx,
+				"UPDATE caddy_nodes SET current_routes = GREATEST(current_routes - 1, 0) WHERE id = ?", conflictNode.Int64)
+		}
+		s.Logger.Warn("anti-squat: evicted unverified route on create", "evicted_id", conflictID, "domain", domain)
+	}
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO routes (service_id, caddy_node_id, domain, path_prefix, upstream_port, upstream_scheme,
 		   ssl_enabled, websocket, force_https, http2_enabled, http3_enabled, status,
 		   kind, redirect_url, redirect_code, tag,
 		   backend_ip_override, upstream_external, upstream_host_header, proxy_secret_enc,
-		   wildcard_enabled, wildcard_zone, group_id, custom_fields)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''))`,
+		   wildcard_enabled, wildcard_zone, group_id, custom_fields,
+		   domain_verified, verify_token)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?)`,
 		in.ServiceID, nodeID, domain, pathPrefix, in.UpstreamPort, scheme,
 		in.SSL, in.WebSocket, in.ForceHTTPS,
 		kind, redirURL, redirCode, tagVal,
 		backendOverride, extFlag, hostHeader, secretEnc,
-		wildFlag, wildZone, in.GroupID, in.CustomFields)
+		wildFlag, wildZone, in.GroupID, in.CustomFields,
+		verified, verifyToken)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			return 0, ErrDomainTaken
@@ -751,6 +791,102 @@ func (s *Service) VerifyDNS(ctx context.Context, clientID, routeID int64) error 
 	}
 	s.advanceRoute(ctx, routeID)
 	return nil
+}
+
+// ErrAlreadyVerified: the route's domain is already proven; nothing to do.
+var ErrAlreadyVerified = errors.New("domain already verified")
+
+// ErrVerifyTokenMissing: TXT record at _hpg-verify.<domain> did not contain the
+// route's token (owner hasn't published it yet, or it's wrong).
+var ErrVerifyTokenMissing = errors.New("verification TXT record not found")
+
+// VerifyDomainToken proves the caller controls the route's domain by looking up
+// a DNS TXT record at _hpg-verify.<domain> and matching it against the route's
+// verify_token. On success it marks the route verified, evicts any STALE
+// UNVERIFIED squatter routes on the same domain+path owned by a different tenant
+// (anti-squat takeover), then advances the route. Returns the token+FQDN so the
+// caller can re-surface instructions on failure.
+func (s *Service) VerifyDomainToken(ctx context.Context, clientID, routeID int64) (token, recordName string, err error) {
+	var (
+		ownerClient int64
+		domain      string
+		pathPrefix  sql.NullString
+		verified    int
+		tok         sql.NullString
+	)
+	if err = s.DB.QueryRowContext(ctx,
+		`SELECT sv.client_id, r.domain, r.path_prefix, r.domain_verified, r.verify_token
+		 FROM routes r JOIN services sv ON sv.id = r.service_id WHERE r.id = ?`,
+		routeID,
+	).Scan(&ownerClient, &domain, &pathPrefix, &verified, &tok); err != nil {
+		return "", "", err
+	}
+	if clientID != 0 && ownerClient != clientID {
+		return "", "", ErrServiceNotYours
+	}
+	token = tok.String
+	recordName = "_hpg-verify." + domain
+	if verified == 1 {
+		return token, recordName, ErrAlreadyVerified
+	}
+	if token == "" {
+		// No token on the row (shouldn't happen for self-service creates); refuse
+		// rather than silently verifying.
+		return token, recordName, ErrVerifyTokenMissing
+	}
+	if !dns.TXTContains(ctx, recordName, token) {
+		return token, recordName, ErrVerifyTokenMissing
+	}
+
+	// Anti-squat takeover: now that this tenant PROVED ownership, remove any
+	// still-unverified route rows for the same domain+path held by a DIFFERENT
+	// tenant so their stale first-come claim can't keep blocking the real owner.
+	// Only unverified rows are evicted - a verified conflicting claim is left
+	// intact (that owner also proved control; a genuine dispute is out of scope).
+	rows, derr := s.DB.QueryContext(ctx,
+		`SELECT id, caddy_node_id FROM routes
+		 WHERE domain = ? AND COALESCE(path_prefix,'') = COALESCE(?, '')
+		   AND id <> ? AND domain_verified = 0`,
+		domain, pathPrefix, routeID)
+	if derr == nil {
+		type stale struct{ id, node int64 }
+		var stales []stale
+		for rows.Next() {
+			var st stale
+			var node sql.NullInt64
+			if rows.Scan(&st.id, &node) == nil {
+				st.node = node.Int64
+				stales = append(stales, st)
+			}
+		}
+		rows.Close()
+		for _, st := range stales {
+			if _, e := s.DB.ExecContext(ctx, "DELETE FROM routes WHERE id = ? AND domain_verified = 0", st.id); e == nil {
+				s.Logger.Warn("anti-squat: evicted unverified route", "evicted_id", st.id, "domain", domain, "winner_id", routeID)
+				if st.node != 0 {
+					_, _ = s.DB.ExecContext(ctx,
+						"UPDATE caddy_nodes SET current_routes = GREATEST(current_routes - 1, 0) WHERE id = ?", st.node)
+					// Row already gone: drop it from the squatter's node config.
+					nodeID := st.node
+					evID := st.id
+					go func() {
+						defer recoverBg(s.Logger, "antiSquat.removeRoute")
+						c, cancel := context.WithTimeout(s.BackgroundCtx(), 30*time.Second)
+						defer cancel()
+						_ = s.pushRouteIncremental(c, nodeID, evID, routeRemove)
+					}()
+				}
+			}
+		}
+	}
+
+	if _, err = s.DB.ExecContext(ctx,
+		"UPDATE routes SET domain_verified = 1, last_error = NULL, updated_at = NOW() WHERE id = ?",
+		routeID); err != nil {
+		return token, recordName, err
+	}
+	s.advanceRoute(ctx, routeID)
+	return token, recordName, nil
 }
 
 // Delete removes the route, decrements the node counter, and rebuilds the
@@ -846,13 +982,25 @@ func (s *Service) advanceRoute(ctx context.Context, routeID int64) {
 		domain       string
 		nodeHostname sql.NullString
 		nodeIP       sql.NullString
+		verified     int
 	)
 	if err := s.DB.QueryRowContext(ctx,
-		`SELECT r.caddy_node_id, r.domain, n.public_hostname, n.public_ip
+		`SELECT r.caddy_node_id, r.domain, n.public_hostname, n.public_ip, r.domain_verified
 		 FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id WHERE r.id = ?`,
 		routeID,
-	).Scan(&nodeID, &domain, &nodeHostname, &nodeIP); err != nil {
+	).Scan(&nodeID, &domain, &nodeHostname, &nodeIP, &verified); err != nil {
 		s.Logger.Error("advance: route lookup", "id", routeID, "err", err)
+		return
+	}
+
+	// Domain-ownership gate: an unverified route must not advance past pending_dns
+	// (no serving, no cert). Pin it to pending_dns so Reconcile keeps retrying and
+	// the owner sees the "verify domain" state until the TXT proof clears it.
+	if verified == 0 {
+		_, _ = s.DB.ExecContext(ctx,
+			"UPDATE routes SET status='pending_dns', last_error='domain ownership not verified', updated_at=NOW() WHERE id=?",
+			routeID)
+		s.Logger.Info("route: domain unverified, holding", "id", routeID, "domain", domain)
 		return
 	}
 
@@ -2671,6 +2819,16 @@ func ensureStableHash(rs []caddyapi.Route) string {
 	copy(dup, rs)
 	sort.Slice(dup, func(i, j int) bool { return dup[i].ID < dup[j].ID })
 	return hashRoutes(dup)
+}
+
+// newVerifyToken returns a 32-hex-char (128-bit) random nonce the domain owner
+// publishes as a TXT record to prove control. Hex so it is DNS-TXT-safe.
+func newVerifyToken() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func validDomain(d string) bool {

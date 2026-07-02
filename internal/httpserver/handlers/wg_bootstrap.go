@@ -12,6 +12,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -25,11 +26,15 @@ import (
 //	GET /api/wg/bootstrap?token=<64-hex>      → text/plain WireGuard .conf
 //	GET /api/wg/install.sh?token=<64-hex>     → bash installer (iter 7)
 //	GET /api/wg/qr.png?token=<64-hex>         → QR PNG of .conf (iter 10)
-//	GET /api/node/wg/peers?node_token=<...>   → node-agent pulls peer list
+//	GET /api/node/wg/peers                    → node-agent pulls peer list (Authorization: Bearer only)
 //
 // All endpoints are unauthenticated by session/cookie - they rely on
 // the single-shot bootstrap token (24h TTL) or per-node API token.
 // Rate-limited per IP via Redis to slow brute-force enumeration.
+// Node-to-manager endpoints accept the durable per-node token ONLY via the
+// Authorization header, never a query string, so it can't leak into access
+// logs (NODE_WG-03). The customer bootstrap token stays in the URL - it's
+// single-shot/short-TTL and required for the one-command curl|bash install UX.
 type WGBootstrapHandler struct {
 	DB          func() *sql.DB
 	Logger      *slog.Logger
@@ -259,14 +264,8 @@ func (h *WGBootstrapHandler) InstallScript(w http.ResponseWriter, r *http.Reques
 // every ~30s. Authenticated by per-node token (caddy_nodes.join_secret
 // or a dedicated tunnel_node_token; for now reuse the join secret).
 func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimSpace(r.URL.Query().Get("node_token"))
-	if token == "" {
-		// Allow Bearer for cleaner curl from the agent.
-		auth := r.Header.Get("Authorization")
-		if strings.HasPrefix(auth, "Bearer ") {
-			token = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-		}
-	}
+	// Header only - a query-string token would end up in access/proxy logs.
+	token := bearerHeaderOnly(r)
 	if token == "" {
 		http.Error(w, "missing node_token", http.StatusUnauthorized)
 		return
@@ -358,13 +357,8 @@ func (h *WGBootstrapHandler) PeerStatus(w http.ResponseWriter, r *http.Request) 
 // node-agent: `{"reports":[{"pubkey":"...","last_handshake":"RFC3339"}]}`.
 // Updates last_handshake_at so the UI can show "Connected".
 func (h *WGBootstrapHandler) NodeHandshakeReport(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimSpace(r.URL.Query().Get("node_token"))
-	if token == "" {
-		auth := r.Header.Get("Authorization")
-		if strings.HasPrefix(auth, "Bearer ") {
-			token = strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
-		}
-	}
+	// Header only - a query-string token would end up in access/proxy logs.
+	token := bearerHeaderOnly(r)
 	if token == "" {
 		http.Error(w, "missing node_token", http.StatusUnauthorized)
 		return
@@ -407,12 +401,11 @@ func (h *WGBootstrapHandler) NodeHandshakeReport(w http.ResponseWriter, r *http.
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// bearerToken extracts the node token from ?node_token= or an Authorization
-// Bearer header.
-func bearerToken(r *http.Request) string {
-	if t := strings.TrimSpace(r.URL.Query().Get("node_token")); t != "" {
-		return t
-	}
+// bearerHeaderOnly extracts the node token from the Authorization Bearer
+// header only. Query-string acceptance was removed: durable node tokens
+// in a URL leak into access/proxy logs (NODE_WG-03); the agent always
+// sends the header, so no functional loss.
+func bearerHeaderOnly(r *http.Request) string {
 	auth := r.Header.Get("Authorization")
 	if strings.HasPrefix(auth, "Bearer ") {
 		return strings.TrimSpace(strings.TrimPrefix(auth, "Bearer "))
@@ -420,12 +413,47 @@ func bearerToken(r *http.Request) string {
 	return ""
 }
 
+// maxLinkBytesPerSec bounds the plausible per-peer transfer rate used to clamp
+// reported bandwidth deltas (NODE_WG-02). 100 Gbps is a generous ceiling no
+// realistic customer WG tunnel approaches, so normal traffic is never clamped.
+const maxLinkBytesPerSec = 100_000_000_000 / 8
+
+// bandwidthFirstReportWindow is the assumed elapsed time when no prior report
+// timestamp is known (process just started). Bounded rather than unbounded so
+// even a first report can't claim an arbitrary byte count.
+const bandwidthFirstReportWindow = time.Hour
+
+// lastStatsReport tracks, per node+pubkey, the wall-clock time of the last
+// accepted stats report. In-memory only (resets on restart) - it exists to
+// bound implausible deltas, not as a source of truth; DB counters remain so.
+var lastStatsReport sync.Map // key: "<nodeID>|<pubkey>" -> time.Time
+
+// bandwidthCeiling returns the max plausible byte delta for one peer given
+// the elapsed time since its last report, and records now as the new
+// last-seen time. Unknown elapsed (first report since process start) falls
+// back to bandwidthFirstReportWindow rather than allowing an unbounded value.
+func bandwidthCeiling(nodeID int64, pubkey string, now time.Time) int64 {
+	key := strconv.FormatInt(nodeID, 10) + "|" + pubkey
+	elapsed := bandwidthFirstReportWindow
+	if v, ok := lastStatsReport.Load(key); ok {
+		if last, ok := v.(time.Time); ok && now.After(last) {
+			elapsed = now.Sub(last)
+		}
+	}
+	lastStatsReport.Store(key, now)
+	secs := elapsed.Seconds()
+	if secs < 1 {
+		secs = 1 // floor so back-to-back reports still get a non-zero ceiling
+	}
+	return int64(secs * maxLinkBytesPerSec)
+}
+
 // NodePeerStatsReport receives POST /api/node/wg/stats from the node-agent with
 // per-peer WireGuard stats (last handshake epoch, rx/tx bytes, observed
 // endpoint) parsed from `wg show <iface> dump`. Authenticated by the per-node
 // token. Supersedes /api/node/wg/handshakes (kept live for rolling deploys).
 func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.Request) {
-	token := bearerToken(r)
+	token := bearerHeaderOnly(r)
 	if token == "" {
 		http.Error(w, "missing node_token", http.StatusUnauthorized)
 		return
@@ -528,6 +556,7 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 		id             int64
 		prevRx, prevTx int64
 	}
+	now := time.Now()
 	prev := map[string]prevRow{}
 	if rows, err := db.QueryContext(ctx,
 		`SELECT pubkey, id, prev_rx_bytes, prev_tx_bytes FROM customer_wg_peer WHERE node_id = ? AND pubkey IS NOT NULL`,
@@ -566,6 +595,21 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 			} else {
 				txDelta = s.TxBytes
 			}
+		}
+		// NODE_WG-02: clamp both deltas to what's physically plausible over the
+		// elapsed time since this node+peer last reported, so a compromised or
+		// buggy agent can't inflate cumulative_*_bytes (billing/metering) with
+		// one implausible report.
+		ceiling := bandwidthCeiling(nodeID, s.Pubkey, now)
+		if rxDelta > ceiling {
+			h.Logger.Warn("wg stats: rx delta exceeds plausible ceiling, clamping",
+				"node_id", nodeID, "delta", rxDelta, "ceiling", ceiling)
+			rxDelta = ceiling
+		}
+		if txDelta > ceiling {
+			h.Logger.Warn("wg stats: tx delta exceeds plausible ceiling, clamping",
+				"node_id", nodeID, "delta", txDelta, "ceiling", ceiling)
+			txDelta = ceiling
 		}
 		// Keep handshake columns NULL-safe: when epoch is 0 (never connected)
 		// pass NULL so the SET ... = COALESCE(?, existing) preserves any prior

@@ -871,12 +871,15 @@ func (h *AdminHandlers) lookupNewTunnel(ctx context.Context, db *sql.DB, r *http
 	}
 	base := publicBaseURL(r, appURLFromInstallState(h.State))
 	return &newTunnelView{
-		PeerID:         peerID,
-		Name:           name,
-		ClientEmail:    clientEmail,
-		NodeName:       nodeName,
-		AssignedIP:     assignedIP,
-		Token:          token,
+		PeerID:      peerID,
+		Name:        name,
+		ClientEmail: clientEmail,
+		NodeName:    nodeName,
+		AssignedIP:  assignedIP,
+		Token:       token,
+		// NODE_WG-03: token-in-URL is required for the one-command curl|bash
+		// install UX; token is single-shot + short-TTL, unlike the durable
+		// per-node agent token (which no longer accepts query-string auth).
 		ConfURL:        base + "/api/wg/bootstrap?token=" + token,
 		StatusURL:      base + "/api/wg/status?token=" + token,
 		InstallCommand: "curl -fsSL " + base + "/api/wg/install.sh?token=" + token + " | sudo bash",

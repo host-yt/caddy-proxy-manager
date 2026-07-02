@@ -12,7 +12,7 @@ import (
 //
 //   - If INSTALL_TOKEN env var is set, every state-changing request must
 //     present a matching `install_token` form field, `X-Install-Token`
-//     header, or `?install_token=…` query value. Non-matching → 403.
+//     header, or `hpg_install_token` cookie. Non-matching → 403.
 //   - If INSTALL_TOKEN is empty *and* the request RemoteAddr is loopback,
 //     the request is allowed (operator did `ssh + port-forward + 127.0.0.1`).
 //   - Otherwise (no token, request not loopback) → 403 with instructions.
@@ -71,10 +71,9 @@ func InstallGuard(installed func() bool, expectedToken string) func(http.Handler
 }
 
 func installTokenOK(r *http.Request, expected string) bool {
+	// Query-param channel dropped: query strings land in Caddy access logs
+	// and browser history. Header/form/cookie cover the real flows.
 	got := r.Header.Get("X-Install-Token")
-	if got == "" {
-		got = r.URL.Query().Get("install_token")
-	}
 	if got == "" {
 		_ = r.ParseForm()
 		got = r.FormValue("install_token")

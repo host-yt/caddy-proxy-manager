@@ -17,6 +17,20 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
 
+// isDupKeyErr matches both MySQL ("Duplicate entry") and the SQLite
+// transform's ("UNIQUE constraint") wording for a unique-key violation.
+func isDupKeyErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "Duplicate entry") || strings.Contains(err.Error(), "UNIQUE constraint")
+}
+
+// maxIPAllocAttempts bounds the retry loop for AllocateNodeIP + insert races
+// (NODE_WG-04): AllocateNodeIP does an unlocked read-all-then-pick, so two
+// concurrent joins can pick the same IP and collide on uq_nodes_wg_ip.
+const maxIPAllocAttempts = 5
+
 // TokenTTL — how long a generated join token stays valid.
 const TokenTTL = 30 * time.Minute
 
@@ -103,33 +117,37 @@ type resolved struct {
 	NameHint    string
 }
 
-// consume validates token plaintext, marks it used. Idempotent failure
-// on second use.
-func (s *Service) consume(ctx context.Context, db *sql.DB, plainWithPrefix string) (resolved, error) {
+// parseToken validates format and returns the lookup prefix + hash.
+func parseToken(plainWithPrefix string) (prefix, hashHex string, err error) {
 	if !strings.HasPrefix(plainWithPrefix, "hpg_join_") {
-		return resolved{}, errors.New("invalid token format")
+		return "", "", errors.New("invalid token format")
 	}
 	plain := strings.TrimPrefix(plainWithPrefix, "hpg_join_")
 	if len(plain) < 12 {
-		return resolved{}, errors.New("token too short")
+		return "", "", errors.New("token too short")
 	}
-	prefix := plain[:12]
+	prefix = plain[:12]
 	sum := sha256.Sum256([]byte(plain))
-	hashHex := hex.EncodeToString(sum[:])
+	return prefix, hex.EncodeToString(sum[:]), nil
+}
 
-	tx, err := db.BeginTx(ctx, nil)
+// peekToken validates the token is unused + unexpired and returns its
+// resolved data WITHOUT marking it used. NODE_WG-04: burning the token here
+// (as the old `consume` did) meant a transient IP-allocation/insert failure
+// left the token permanently dead with no retry. Marking used_at is deferred
+// to markTokenUsed, called only after the node row is successfully inserted.
+func (s *Service) peekToken(ctx context.Context, db *sql.DB, plainWithPrefix string) (resolved, error) {
+	prefix, hashHex, err := parseToken(plainWithPrefix)
 	if err != nil {
 		return resolved{}, err
 	}
-	defer tx.Rollback() //nolint:errcheck
-
 	var r resolved
 	var nameHint sql.NullString
-	err = tx.QueryRowContext(ctx,
+	err = db.QueryRowContext(ctx,
 		`SELECT id, node_group_id, max_routes, priority, name_hint
 		 FROM node_join_tokens
 		 WHERE token_prefix = ? AND token_hash = ? AND used_at IS NULL AND expires_at > NOW()
-		 LIMIT 1 FOR UPDATE`,
+		 LIMIT 1`,
 		prefix, hashHex,
 	).Scan(&r.ID, &r.NodeGroupID, &r.MaxRoutes, &r.Priority, &nameHint)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -141,13 +159,32 @@ func (s *Service) consume(ctx context.Context, db *sql.DB, plainWithPrefix strin
 	if nameHint.Valid {
 		r.NameHint = nameHint.String
 	}
-	if _, err := tx.ExecContext(ctx, "UPDATE node_join_tokens SET used_at = NOW() WHERE id = ?", r.ID); err != nil {
-		return resolved{}, err
-	}
-	if err := tx.Commit(); err != nil {
-		return resolved{}, err
-	}
 	return r, nil
+}
+
+// markTokenUsed burns the token, re-checking used_at/expiry under FOR UPDATE
+// so two concurrent redemptions of the same token can't both succeed even
+// though peekToken didn't lock. Called only after node provisioning succeeds.
+func (s *Service) markTokenUsed(ctx context.Context, db *sql.DB, tokenID int64) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	var used sql.NullTime
+	if err := tx.QueryRowContext(ctx,
+		"SELECT used_at FROM node_join_tokens WHERE id = ? FOR UPDATE", tokenID,
+	).Scan(&used); err != nil {
+		return err
+	}
+	if used.Valid {
+		return errors.New("token already used")
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE node_join_tokens SET used_at = NOW() WHERE id = ?", tokenID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // JoinRequest is what the bash bootstrap script sends in.
@@ -189,7 +226,10 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 	if db == nil {
 		return JoinResponse{}, "", errors.New("db not ready")
 	}
-	tk, err := s.consume(ctx, db, req.Token)
+	// NODE_WG-04: validate WITHOUT burning the token yet - it's only marked
+	// used after a node row is successfully inserted, so a transient
+	// IP-allocation/insert failure leaves the token retryable.
+	tk, err := s.peekToken(ctx, db, req.Token)
 	if err != nil {
 		return JoinResponse{}, "", err
 	}
@@ -205,21 +245,8 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 	if err != nil {
 		return JoinResponse{}, "", err
 	}
-	wgIP, err := s.WG.AllocateNodeIP(ctx)
-	if err != nil {
-		return JoinResponse{}, "", err
-	}
 
-	// Insert caddy_nodes row. api_url binds to the WG IP.
-	apiURL := fmt.Sprintf("http://%s:2019", wgIP)
-	nodeName := tk.NameHint
-	if nodeName == "" {
-		nodeName = fmt.Sprintf("node-%s", strings.ReplaceAll(wgIP, ".", "-"))
-	}
 	publicHostname := req.PublicHostname
-	if publicHostname == "" {
-		publicHostname = nodeName
-	}
 	var publicIP sql.NullString
 	if req.PublicIP != "" {
 		publicIP = sql.NullString{String: req.PublicIP, Valid: true}
@@ -234,17 +261,57 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 	if len(fingerprint) > 16 {
 		fingerprint = fingerprint[:16]
 	}
-	res, err := db.ExecContext(ctx,
-		`INSERT INTO caddy_nodes (name, api_url, public_hostname, public_ip, node_group_id,
-		   max_routes, priority, is_enabled, health_status, wg_ip, wg_public_key, fingerprint)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'unknown', ?, ?, ?)`,
-		nodeName, apiURL, publicHostname, publicIP, tk.NodeGroupID,
-		tk.MaxRoutes, tk.Priority, wgIP, nodeKP.PublicKey, fingerprint,
+
+	// AllocateNodeIP does an unlocked read-all-then-pick, so concurrent joins
+	// can race onto the same IP and collide on uq_nodes_wg_ip. Retry the
+	// allocate+insert pair a few times on that specific collision rather than
+	// failing (and burning) the join outright.
+	var (
+		wgIP     string
+		apiURL   string
+		nodeName string
+		nodeID   int64
 	)
-	if err != nil {
-		return JoinResponse{}, "", fmt.Errorf("insert node: %w", err)
+	for attempt := 1; attempt <= maxIPAllocAttempts; attempt++ {
+		wgIP, err = s.WG.AllocateNodeIP(ctx)
+		if err != nil {
+			return JoinResponse{}, "", err
+		}
+		apiURL = fmt.Sprintf("http://%s:2019", wgIP)
+		nodeName = tk.NameHint
+		if nodeName == "" {
+			nodeName = fmt.Sprintf("node-%s", strings.ReplaceAll(wgIP, ".", "-"))
+		}
+		if publicHostname == "" {
+			publicHostname = nodeName
+		}
+
+		var res sql.Result
+		res, err = db.ExecContext(ctx,
+			`INSERT INTO caddy_nodes (name, api_url, public_hostname, public_ip, node_group_id,
+			   max_routes, priority, is_enabled, health_status, wg_ip, wg_public_key, fingerprint)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'unknown', ?, ?, ?)`,
+			nodeName, apiURL, publicHostname, publicIP, tk.NodeGroupID,
+			tk.MaxRoutes, tk.Priority, wgIP, nodeKP.PublicKey, fingerprint,
+		)
+		if err != nil {
+			if isDupKeyErr(err) && attempt < maxIPAllocAttempts {
+				continue // wg_ip (or pubkey) collided with a concurrent join - retry
+			}
+			return JoinResponse{}, "", fmt.Errorf("insert node: %w", err)
+		}
+		nodeID, _ = res.LastInsertId()
+		break
 	}
-	nodeID, _ := res.LastInsertId()
+	if nodeID == 0 {
+		return JoinResponse{}, "", fmt.Errorf("insert node: exhausted %d retries: %w", maxIPAllocAttempts, err)
+	}
+
+	// Node row exists - now safe to burn the token. A failure here just means
+	// the token stays valid for the caller to retry the whole /join call.
+	if err := s.markTokenUsed(ctx, db, tk.ID); err != nil {
+		return JoinResponse{}, "", fmt.Errorf("mark token used: %w", err)
+	}
 	_, _ = db.ExecContext(ctx, "UPDATE node_join_tokens SET used_node_id = ? WHERE id = ?", nodeID, tk.ID)
 
 	resp := JoinResponse{NodeID: nodeID, NodeName: nodeName, Fingerprint: fingerprint}

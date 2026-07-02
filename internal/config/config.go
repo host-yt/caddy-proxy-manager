@@ -241,9 +241,12 @@ func Load() (*Config, error) {
 }
 
 func (c *Config) validate() error {
-	// APP_SECRET required when installed; install wizard generates it pre-lock.
-	if c.Install.Installed && len(c.App.Secret) < 32 {
-		return errors.New("APP_SECRET must be set (>=32 chars) after install completes")
+	// Unconditional: the wizard only flips data/install_state.json, never
+	// INSTALLED env, so gating on Install.Installed never actually ran this
+	// check. APP_SECRET is HKDF input for the install-state AES key, backup
+	// key, and API-key HMAC - must be strong from first boot.
+	if len(c.App.Secret) < 32 {
+		return errors.New("APP_SECRET must be set (>=32 chars)")
 	}
 	if c.App.URL == "" {
 		return errors.New("APP_URL is required")

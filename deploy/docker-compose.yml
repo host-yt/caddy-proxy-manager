@@ -24,6 +24,10 @@ services:
       APP_URL: ${APP_URL}
       APP_BIND: ${APP_BIND:-0.0.0.0:8080}
       APP_SECRET: ${APP_SECRET}
+      # Must match the `internal` network subnet below so TrustedRealIP
+      # accepts X-Forwarded-For from the bundled Caddy container instead of
+      # collapsing every client to Caddy's IP (breaks per-IP rate-limit).
+      APP_TRUSTED_PROXIES: ${APP_TRUSTED_PROXIES:-172.18.0.0/16}
       INSTALL_TOKEN: ${INSTALL_TOKEN}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_HOST: ${DB_HOST:-mariadb}
@@ -55,7 +59,10 @@ services:
       geoip-init:
         condition: service_completed_successfully
     ports:
-      - "${APP_PORT:-8080}:8080"
+      # Loopback-only: Caddy is the public entry point (bootstraps HTTPS via
+      # wizard). Exposing this on 0.0.0.0 lets anyone hit the panel in
+      # cleartext, bypassing edge WAF/rate-limit. Widen only if you know why.
+      - "${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8080}:8080"
     volumes:
       - app_data:/app/data
       - wg_config:/app/wg
@@ -86,9 +93,11 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-}"]
+    # No ":-" empty default - empty --requirepass disables auth entirely.
+    # Redis holds sessions, rate-limit, 2FA/OTP; must always be authenticated.
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     networks:

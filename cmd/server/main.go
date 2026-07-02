@@ -596,6 +596,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		RDB:       rdb,
 		IsLeader:  leaderElec.IsLeader,
 		Installed: state.IsInstalled,
+		Logger:    logger,
 	}
 
 	// Boot push: re-pushes DB config to every enabled node so a Caddy

@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"crypto/subtle"
 	"net/http"
 	"strconv"
 	"strings"
@@ -113,7 +114,9 @@ func (h *AdminHandlers) SyncPushReceive(w http.ResponseWriter, r *http.Request) 
 	}
 	auth := r.Header.Get("Authorization")
 	expectedBearer := "Bearer " + h.SlaveToken
-	if h.SlaveToken == "" || auth != expectedBearer {
+	// Constant-time compare: avoid leaking token bytes via response timing.
+	match := subtle.ConstantTimeCompare([]byte(auth), []byte(expectedBearer)) == 1
+	if h.SlaveToken == "" || !match {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}

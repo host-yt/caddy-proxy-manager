@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"sync/atomic"
 	"time"
@@ -21,6 +22,9 @@ type Health struct {
 	IsLeader  func() bool
 	Installed func() bool
 	ReadySeen atomic.Bool // set true after first successful boot
+	// Logger, when set, receives the raw check error server-side; the
+	// unauthenticated /readyz response only ever gets "ok"/"fail".
+	Logger *slog.Logger
 }
 
 // HealthResponse is the JSON body returned by /healthz/readyz.
@@ -46,13 +50,14 @@ func (h *Health) Ready(w http.ResponseWriter, r *http.Request) {
 	// DB.
 	if db := h.DB(); db != nil {
 		if err := db.PingContext(ctx); err != nil {
-			checks["db"] = "fail: " + err.Error()
+			h.logCheckFail("db", err)
+			checks["db"] = "fail"
 			allOK = false
 		} else {
 			checks["db"] = "ok"
 		}
 	} else if h.Installed != nil && h.Installed() {
-		checks["db"] = "fail: nil pool after install"
+		checks["db"] = "fail"
 		allOK = false
 	} else {
 		checks["db"] = "skip: pre-install"
@@ -61,7 +66,8 @@ func (h *Health) Ready(w http.ResponseWriter, r *http.Request) {
 	// Redis.
 	if h.RDB != nil {
 		if err := h.RDB.Ping(ctx).Err(); err != nil {
-			checks["redis"] = "fail: " + err.Error()
+			h.logCheckFail("redis", err)
+			checks["redis"] = "fail"
 			allOK = false
 		} else {
 			checks["redis"] = "ok"
@@ -95,6 +101,14 @@ func (h *Health) Ready(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusServiceUnavailable, HealthResponse{Status: "degraded", Checks: checks})
+}
+
+// logCheckFail keeps infra error detail (hostnames, ports, driver errors)
+// out of the unauthenticated /readyz body while still surfacing it to ops.
+func (h *Health) logCheckFail(check string, err error) {
+	if h.Logger != nil {
+		h.Logger.Warn("readyz check failed", "check", check, "err", err)
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

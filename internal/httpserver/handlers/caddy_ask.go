@@ -127,9 +127,12 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 //     index). Aliases are rare, so the scan almost never runs.
 func (h *AskHandler) domainAllowed(ctx context.Context, db *sql.DB, domain string) bool {
 	var n int
+	// domain_verified = 1 required: an unverified (unproven-ownership) route must
+	// never get a cert, else a squatter's pre-claim yields a valid LE cert for the
+	// victim host once the real owner points DNS here.
 	if err := db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM routes
-		 WHERE domain = ? AND status IN ('dns_ok','active','pending_ssl') AND ssl_enabled = 1`,
+		 WHERE domain = ? AND status IN ('dns_ok','active','pending_ssl') AND ssl_enabled = 1 AND domain_verified = 1`,
 		domain,
 	).Scan(&n); err != nil {
 		return false
@@ -158,7 +161,7 @@ func (h *AskHandler) domainAllowed(ctx context.Context, db *sql.DB, domain strin
 		`SELECT COUNT(*) FROM routes
 		 WHERE aliases IS NOT NULL AND aliases <> ''
 		   AND FIND_IN_SET(?, REPLACE(aliases, ' ', '')) > 0
-		   AND status IN ('dns_ok','active','pending_ssl') AND ssl_enabled = 1`,
+		   AND status IN ('dns_ok','active','pending_ssl') AND ssl_enabled = 1 AND domain_verified = 1`,
 		domain,
 	).Scan(&n); err != nil {
 		return false

@@ -279,10 +279,21 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if h.Captcha != nil && h.Captcha.Enabled() {
-		if err := h.Captcha.Verify(ctx, captchaToken, clientIPFromReq(r)); err != nil {
-			h.renderLogin(w, http.StatusBadRequest, h.stampLogin(r, loginViewData{Email: email, Error: "Captcha verification failed."}))
-			return
+	// WEB-03: once an email is under a cross-IP horizontal scan (per-email fail
+	// count over threshold), force captcha for THAT email regardless of source
+	// IP - never a hard block (avoids the known-email DoS). If captcha isn't
+	// configured, fall back to a modest delay so the scan can't run at full rate.
+	emailOverThreshold := h.emailFailCount(ctx, email) >= loginFailMaxEmail
+	captchaOn := h.Captcha != nil && h.Captcha.Enabled()
+	if captchaOn || emailOverThreshold {
+		if captchaOn {
+			if err := h.Captcha.Verify(ctx, captchaToken, clientIPFromReq(r)); err != nil {
+				h.renderLogin(w, http.StatusBadRequest, h.stampLogin(r, loginViewData{Email: email, Error: "Captcha verification failed."}))
+				return
+			}
+		} else if emailOverThreshold {
+			// No captcha plumbing available - slow the attacker down instead.
+			time.Sleep(2 * time.Second)
 		}
 	}
 
@@ -539,6 +550,18 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	ticket := pending2FATicket(r)
 
+	// Per-user 2FA hard lock, independent of the ticket. A fresh ticket mints
+	// on every password login, so ticket-only caps let an attacker who knows
+	// the password loop forever; this counter does not reset on new tickets.
+	if h.twoFALocked(ctx, pend.UserID) {
+		audit.Write(ctx, db, h.Logger, r, audit.Entry{
+			UserID: &pend.UserID, Action: "2fa.locked", Entity: "auth", EntityID: pend.Email,
+		})
+		h.consumePending2FA(r)
+		http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
+		return
+	}
+
 	success := false
 	mfaTag := method
 	if mfaTag == "" {
@@ -553,7 +576,9 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 			h.renderTOTPRetry(w, r, http.StatusInternalServerError, "Server error.")
 			return
 		}
-		if err := auth.ValidateTOTP(secret, code); err == nil {
+		// Reject a valid code whose 30s counter was already consumed (replay);
+		// treat it exactly like an invalid code.
+		if err := auth.ValidateTOTP(secret, code); err == nil && h.markTOTPConsumed(ctx, pend.UserID, code) {
 			success = true
 			if needsMigrate {
 				upgradeTOTPSecret(ctx, db, h.State, pend.UserID, secret)
@@ -593,12 +618,14 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if !success {
+		// Per-user counter (survives ticket rotation) + per-ticket cap both bump.
+		h.record2FAFail(ctx, pend.UserID)
 		audit.Write(ctx, db, h.Logger, r, audit.Entry{
 			UserID: &pend.UserID, Action: "2fa.fail", Entity: "auth", EntityID: pend.Email,
 			Meta: map[string]any{"method": mfaTag},
 		})
 		h.Metrics.OTPAttempt(mfaTag, "fail")
-		if h.burnAttempt(ctx, ticket) {
+		if h.burnAttempt(ctx, ticket) || h.twoFALocked(ctx, pend.UserID) {
 			h.consumePending2FA(r)
 			http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
 			http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
@@ -610,6 +637,7 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.clearAttempts(ctx, ticket)
+	h.clear2FAFails(ctx, pend.UserID) // reset per-user counter only on success
 	h.consumePending2FA(r)
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: &pend.UserID, Action: "2fa.success", Entity: "auth", EntityID: pend.Email,
@@ -1125,12 +1153,85 @@ func (h *AuthHandlers) ResetSubmit(w http.ResponseWriter, r *http.Request) {
 
 const (
 	loginFailIPLimit  = 10 // hard lock after 10 fails from one IP for an email
-	loginFailMaxEmail = 50 // soft threshold for global account-warning
+	loginFailMaxEmail = 50 // soft threshold: force captcha cross-IP for the email
 )
+
+// twoFAFailLimit hard-locks a user's 2FA challenge after this many failed
+// codes across ALL tickets, closing the "fresh-ticket-per-login" amplification
+// where an attacker with the password loops login -> 5 guesses -> repeat.
+// Matches the spirit of loginFailIPLimit (per-IP password cap).
+const twoFAFailLimit = 10
 
 func (h *AuthHandlers) failKeyEmail(email string) string { return "hpg:login:fail:email:" + email }
 func (h *AuthHandlers) failKeyEmailIP(email, ip string) string {
 	return "hpg:login:fail:" + ip + ":" + email
+}
+
+// twoFAFailKey is the per-user 2FA failure counter, independent of any ticket.
+func (h *AuthHandlers) twoFAFailKey(userID int64) string {
+	return fmt.Sprintf("hpg:2fa:fail:%d", userID)
+}
+
+// record2FAFail bumps the per-user 2FA failure counter with a rolling window.
+// Called on EVERY 2FA failure (totp/webauthn/backup/sms/email). Best-effort:
+// Redis errors fall open so an outage can't lock everyone out of 2FA.
+func (h *AuthHandlers) record2FAFail(ctx context.Context, userID int64) {
+	if h.RDB == nil {
+		return
+	}
+	key := h.twoFAFailKey(userID)
+	if n, err := h.RDB.Incr(ctx, key).Result(); err == nil && n == 1 {
+		_ = h.RDB.Expire(ctx, key, loginFailWindow).Err()
+	}
+}
+
+// twoFALocked reports whether the user is over the per-user 2FA failure
+// threshold. Checked before accepting any 2FA code, independent of the ticket.
+func (h *AuthHandlers) twoFALocked(ctx context.Context, userID int64) bool {
+	if h.RDB == nil {
+		return false
+	}
+	n, err := h.RDB.Get(ctx, h.twoFAFailKey(userID)).Int()
+	return err == nil && n >= twoFAFailLimit
+}
+
+// clear2FAFails resets the per-user 2FA counter. Called ONLY on a successful
+// 2FA verify - never on a fresh login/ticket, else the amplification returns.
+func (h *AuthHandlers) clear2FAFails(ctx context.Context, userID int64) {
+	if h.RDB == nil {
+		return
+	}
+	_ = h.RDB.Del(ctx, h.twoFAFailKey(userID)).Err()
+}
+
+// emailFailCount returns the per-email failure count (cross-IP). Used to force
+// captcha once an account is under a horizontal scan from many source IPs.
+func (h *AuthHandlers) emailFailCount(ctx context.Context, email string) int {
+	if h.RDB == nil {
+		return 0
+	}
+	n, err := h.RDB.Get(ctx, h.failKeyEmail(email)).Int()
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+// markTOTPConsumed records a successfully-used TOTP counter so the same code
+// can't be replayed within its validity window. Returns false when the counter
+// was already consumed (replay). Best-effort: Redis errors fall open.
+func (h *AuthHandlers) markTOTPConsumed(ctx context.Context, userID int64, code string) bool {
+	if h.RDB == nil {
+		return true
+	}
+	// 30s counter = unix/period; a code is valid for its own counter (+/- skew).
+	counter := time.Now().Unix() / 30
+	key := fmt.Sprintf("hpg:totp:used:%d:%d", userID, counter)
+	ok, err := h.RDB.SetNX(ctx, key, "1", 90*time.Second).Result()
+	if err != nil {
+		return true
+	}
+	return ok
 }
 
 func (h *AuthHandlers) locked(ctx context.Context, email, ip string) bool {
@@ -1444,9 +1545,10 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// login method but can never actually authenticate (it would only match by
 	// email, which a linked second provider need not share).
 	var (
-		userID   int64
-		role     string
-		isActive bool
+		userID        int64
+		role          string
+		isActive      bool
+		emailVerified bool
 	)
 	var linkedUID int64
 	linkLookupErr := db.QueryRowContext(ctx,
@@ -1469,13 +1571,13 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	if linkLookupErr == nil && linkedUID > 0 {
 		// Resolve the owning user by id, not email.
 		queryErr = db.QueryRowContext(ctx,
-			"SELECT id, role, is_active FROM users WHERE id = ? LIMIT 1", linkedUID,
-		).Scan(&userID, &role, &isActive)
+			"SELECT id, role, is_active, email_verified FROM users WHERE id = ? LIMIT 1", linkedUID,
+		).Scan(&userID, &role, &isActive, &emailVerified)
 	} else {
 		// No linked identity. Fall back to email lookup.
 		queryErr = db.QueryRowContext(ctx,
-			"SELECT id, role, is_active FROM users WHERE email = ? LIMIT 1", email,
-		).Scan(&userID, &role, &isActive)
+			"SELECT id, role, is_active, email_verified FROM users WHERE email = ? LIMIT 1", email,
+		).Scan(&userID, &role, &isActive, &emailVerified)
 	}
 	if errors.Is(queryErr, sql.ErrNoRows) {
 		if !cfg.AutoProvision {
@@ -1499,9 +1601,12 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		if full == "" {
 			full = email
 		}
+		// email_verified=1: the IdP already vouched for this email (the
+		// verified-email gate above ran), so a fresh OIDC-provisioned row is
+		// trusted - unlike a self-registered local row.
 		res, ierr := db.ExecContext(ctx,
-			`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active)
-			 VALUES (?, ?, 0, ?, ?, 1)`,
+			`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active, email_verified)
+			 VALUES (?, ?, 0, ?, ?, 1, 1)`,
 			email, dummy, role, full)
 		if ierr != nil {
 			h.Logger.Error("oidc auto-provision", "err", ierr)
@@ -1523,6 +1628,18 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		// User resolved via authoritative oauth_identities row - no further checks needed.
 	} else {
 		// Email-based lookup; this subject+issuer is not yet in oauth_identities.
+		// AUTH-02: refuse to adopt an UNVERIFIED local row via email. A
+		// self-registered account (email_verified=0) is attacker-chosen; adopting
+		// it by email would hand the attacker whatever the OIDC login grants.
+		// Existing users were backfilled to 1, so they are unaffected.
+		if !emailVerified {
+			audit.Write(ctx, db, h.Logger, r, audit.Entry{
+				UserID: &userID, Action: "oidc.login.denied", Entity: "auth", EntityID: email,
+				Meta: map[string]any{"reason": "local_email_unverified", "issuer": info.Issuer},
+			})
+			http.Redirect(w, r, "/auth/login?flash=Verify+your+email+before+signing+in+with+SSO", http.StatusSeeOther)
+			return
+		}
 		// Reject if this user already has a DIFFERENT oidc identity linked -
 		// prevents email-claim takeover from a second IdP.
 		var existingSubj, existingIss sql.NullString
@@ -1957,6 +2074,14 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	// Per-user 2FA lock: independent of the ticket, blocks the fresh-ticket loop.
+	if h.twoFALocked(ctx, pend.UserID) {
+		h.consumePending2FA(r)
+		http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
+		http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
+		return
+	}
+
 	ticket := pending2FATicket(r)
 	userID, err := auth.VerifySMSOTP(ctx, h.RDB, otpCookie.Value, code)
 	if err != nil || userID != pend.UserID {
@@ -1965,11 +2090,12 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 		if db := h.DB(); db != nil {
 			d.Brand = LoadBranding(r.Context(), db)
 		}
+		h.record2FAFail(ctx, pend.UserID)
 		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 			UserID: &pend.UserID, Action: "2fa.sms.fail", Entity: "auth", EntityID: pend.Email,
 		})
 		h.Metrics.OTPAttempt("sms", "fail")
-		if h.burnAttempt(ctx, ticket) {
+		if h.burnAttempt(ctx, ticket) || h.twoFALocked(ctx, pend.UserID) {
 			h.consumePending2FA(r)
 			http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
 			http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
@@ -1979,6 +2105,7 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.clearAttempts(ctx, ticket)
+	h.clear2FAFails(ctx, pend.UserID)
 
 	// Consume both cookies.
 	h.consumePending2FA(r)
@@ -2084,6 +2211,13 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Per-user 2FA lock: independent of the ticket, blocks the fresh-ticket loop.
+	if h.twoFALocked(ctx, pend.UserID) {
+		h.consumePending2FA(r)
+		http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+		http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
+		return
+	}
 	ticket := pending2FATicket(r)
 	userID, err := auth.VerifyEmailOTP(ctx, h.RDB, otpCookie.Value, code)
 	if err != nil || userID != pend.UserID {
@@ -2092,11 +2226,12 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 		if db := h.DB(); db != nil {
 			d.Brand = LoadBranding(r.Context(), db)
 		}
+		h.record2FAFail(ctx, pend.UserID)
 		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 			UserID: &pend.UserID, Action: "2fa.email.fail", Entity: "auth", EntityID: pend.Email,
 		})
 		h.Metrics.OTPAttempt("email", "fail")
-		if h.burnAttempt(ctx, ticket) {
+		if h.burnAttempt(ctx, ticket) || h.twoFALocked(ctx, pend.UserID) {
 			h.consumePending2FA(r)
 			http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
 			http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
@@ -2106,6 +2241,7 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	h.clearAttempts(ctx, ticket)
+	h.clear2FAFails(ctx, pend.UserID)
 	h.consumePending2FA(r)
 	http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{

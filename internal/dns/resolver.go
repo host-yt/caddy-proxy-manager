@@ -61,3 +61,26 @@ func Check(ctx context.Context, domain, nodeHostname, nodeIP string) error {
 
 	return fmt.Errorf("%w (got %v, expected node %s / %s)", ErrDNSMismatch, ips, nodeHostname, nodeIP)
 }
+
+// TXTContains reports whether any TXT record at `name` equals `want`. Used for
+// domain-ownership proof: the owner publishes the route's verify token at
+// _hpg-verify.<domain>. Exact match (trimmed) so a squatter cannot piggyback on
+// an unrelated TXT value. Returns false on lookup error (fail closed).
+func TXTContains(ctx context.Context, name, want string) bool {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return false
+	}
+	records, err := net.DefaultResolver.LookupTXT(ctx, name)
+	if err != nil {
+		return false
+	}
+	for _, rec := range records {
+		if strings.TrimSpace(rec) == want {
+			return true
+		}
+	}
+	return false
+}
