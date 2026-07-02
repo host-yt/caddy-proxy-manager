@@ -73,6 +73,14 @@ func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Hand
 			if r.Method != http.MethodPost {
 				return true
 			}
+			// Skip node control-plane POSTs: these carry a per-node Bearer token
+			// (their handlers authenticate) and /internal/* is IP-restricted to
+			// node CIDRs. They are not public forms, and counting a busy node's
+			// WAF/access-log batches against the 60/min/IP budget would 429 the
+			// backlog drain into a stall.
+			if strings.HasPrefix(r.URL.Path, "/api/node/") || strings.HasPrefix(r.URL.Path, "/internal/") {
+				return true
+			}
 			// Skip passkey login challenge generation: it's a benign
 			// stateless op (returns a fresh assertion request) and has
 			// no credential-leak surface, so it doesn't need the same

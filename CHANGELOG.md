@@ -2,6 +2,18 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## [1.3.1] - 2026-07-02
+
+### Fixed
+
+- **DNS domain-ownership proof**: the panel now reads the `_hpg-verify` TXT record straight from the domain's authoritative nameservers instead of the container's default resolver. Fixes verification failing when the record is published and visible to external tools but the container's Docker DNS returns a stale/split-horizon answer, without weakening the proof (it stays anchored to the zone's delegation). The A/CNAME serving check uses public resolvers for the same reason.
+- **WAF event ingest loop**: a backlog could get stuck re-shipping forever. Per-route pruning moved off the per-event hot path (once per route per batch), the ingest handler no longer aborts on client disconnect mid-batch, unattributed (route-less) events are now globally capped, and an incomplete batch returns a retryable error so no events are silently dropped. A concurrency cap sheds load under retry storms.
+- **Node control-plane rate limiting**: authenticated node endpoints (`/api/node/*`, `/internal/*`) are exempt from the unauthenticated-POST limit, so a busy node's WAF/access-log batches can no longer 429 themselves into a stall.
+
+### Removed
+
+- **Client support/contact form**: removed the in-app contact page and its mail path.
+
 ## [1.3.0] - 2026-07-02
 
 ### Reseller multi-tenancy

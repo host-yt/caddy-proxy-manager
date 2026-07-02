@@ -1,6 +1,7 @@
 // Package wafevents stores and retrieves WAF event records.
-// Events are kept in waf_events; the table is pruned to maxPerRoute most
-// recent rows per route on each insert.
+// Events are kept in waf_events; attributed rows are trimmed to maxPerRoute per
+// route by PruneRoute, which the ingest caller runs once per batch (not per
+// insert - see InsertIfNew).
 package wafevents
 
 import (
@@ -130,8 +131,8 @@ func (s *Store) InsertIfNew(ctx context.Context, e Event, key string) (bool, err
 
 // PruneRoute trims waf_events for one route to its maxPerRoute newest rows.
 // Best-effort: run once per distinct route after a batch of inserts, not per
-// event. A no-op for routeID <= 0 (unattributed events are pruned globally by
-// the ledger cap, not per route).
+// event. No-op for routeID <= 0: unattributed (route_id NULL) rows have NO
+// per-route bound - PruneUnattributed caps them globally instead.
 func (s *Store) PruneRoute(ctx context.Context, routeID int64) error {
 	db := s.db()
 	if db == nil || routeID <= 0 {
@@ -149,6 +150,34 @@ func (s *Store) PruneRoute(ctx context.Context, routeID int64) error {
 		       ) sub
 		   )`,
 		routeID, routeID, maxPerRoute,
+	)
+	return err
+}
+
+// maxUnattributed caps waf_events rows with NULL route_id - events whose host/uri
+// matched no configured route (scanners, bare-IP probes). It is the ONLY bound on
+// those rows, which a WAF sees in high volume, so without it the table grows
+// without limit under scan traffic.
+const maxUnattributed = 20_000
+
+// PruneUnattributed trims NULL-route rows to the newest maxUnattributed. Best-
+// effort: run once per batch that inserted any unattributed event.
+func (s *Store) PruneUnattributed(ctx context.Context) error {
+	db := s.db()
+	if db == nil {
+		return nil
+	}
+	_, err := db.ExecContext(ctx,
+		`DELETE FROM waf_events
+		 WHERE route_id IS NULL
+		   AND id NOT IN (
+		       SELECT id FROM (
+		           SELECT id FROM waf_events
+		           WHERE route_id IS NULL
+		           ORDER BY ts DESC, id DESC
+		           LIMIT ?
+		       ) sub
+		   )`, maxUnattributed,
 	)
 	return err
 }

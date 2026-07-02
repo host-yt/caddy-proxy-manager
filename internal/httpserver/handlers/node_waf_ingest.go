@@ -58,6 +58,12 @@ const wafSeenPruneEvery = time.Hour
 // wafSeenLastPrune is the unix-seconds timestamp of the last ledger prune.
 var wafSeenLastPrune atomic.Int64
 
+// wafIngestSem bounds concurrent ingest handlers. Ingest detaches from request
+// cancellation (context.WithoutCancel), so a disconnecting client no longer sheds
+// load; this cap stops detached 30s handlers piling up and draining the DB pool
+// under a node retry storm.
+var wafIngestSem = make(chan struct{}, 8)
+
 // validSeverities and validActions constrain free-text fields to known values.
 var (
 	validSeverities = map[string]struct{}{"low": {}, "medium": {}, "high": {}, "critical": {}}
@@ -132,6 +138,16 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Shed load past the concurrency cap: 503 tells the node to retry the same
+	// backlog later rather than opening yet another detached handler.
+	select {
+	case wafIngestSem <- struct{}{}:
+		defer func() { <-wafIngestSem }()
+	default:
+		http.Error(w, "ingest busy", http.StatusServiceUnavailable)
+		return
+	}
+
 	// Cap body sized to the batch limit (~few KB/event) to bound memory before parse.
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 
@@ -150,6 +166,7 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 
 	accepted := 0
 	prunedRoutes := map[int64]struct{}{} // distinct routes to trim once after the batch
+	insertedUnattributed := false        // any NULL-route event stored this batch
 	for _, item := range items {
 		e, ok := toWAFEvent(item)
 		if !ok {
@@ -177,6 +194,8 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		}
 		if e.RouteID.Valid {
 			prunedRoutes[e.RouteID.Int64] = struct{}{}
+		} else {
+			insertedUnattributed = true
 		}
 		if h.Metrics != nil {
 			h.Metrics.WAFEvent(e.Severity, e.Action)
@@ -185,14 +204,31 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Prune once per distinct route, not per event: the maxPerRoute sort is far
-	// too slow to run 500x within the ingest window.
+	// too slow to run 500x within the ingest window. Fresh budget so a slow insert
+	// loop can't starve the trim (it is the only bound on the rows just written).
+	pctx, pcancel := context.WithTimeout(context.WithoutCancel(r.Context()), 15*time.Second)
 	for rid := range prunedRoutes {
-		if err := h.WAFEvents.PruneRoute(ctx, rid); err != nil {
+		if err := h.WAFEvents.PruneRoute(pctx, rid); err != nil {
 			h.Logger.Warn("waf ingest prune route", "route_id", rid, "err", err)
 		}
 	}
+	// NULL-route rows have no per-route bound; cap them globally when any landed.
+	if insertedUnattributed {
+		if err := h.WAFEvents.PruneUnattributed(pctx); err != nil {
+			h.Logger.Warn("waf ingest prune unattributed", "err", err)
+		}
+	}
+	pcancel()
 
 	h.maybePruneSeen()
+
+	// If the insert budget expired mid-batch, the tail was not stored. Return
+	// non-2xx so the node re-ships (committed rows dedup out) instead of advancing
+	// its offset past the un-inserted tail and silently losing those events.
+	if ctx.Err() != nil {
+		http.Error(w, "ingest incomplete; retry", http.StatusServiceUnavailable)
+		return
+	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
