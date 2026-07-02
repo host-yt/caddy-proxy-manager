@@ -777,6 +777,18 @@ func (h *AdminHandlers) scopeCheckPeer(ctx context.Context, sess *auth.Session, 
 	return ok
 }
 
+// requireGlobalAdmin denies restricted (reseller/client-scoped) admins from
+// mutating platform-global config (e.g. plans). Writes 403, returns false.
+func (h *AdminHandlers) requireGlobalAdmin(w http.ResponseWriter, r *http.Request) bool {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if _, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); ok && all {
+		return true
+	}
+	http.Error(w, "forbidden: platform admins only", http.StatusForbidden)
+	return false
+}
+
 // scopeCheckService resolves a service's owning client and defers to
 // scopeCheckClient. Fail-closed if the service is missing.
 func (h *AdminHandlers) scopeCheckService(ctx context.Context, sess *auth.Session, serviceID int64) bool {

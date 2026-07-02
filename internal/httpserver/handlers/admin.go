@@ -1757,6 +1757,9 @@ func (h *AdminHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 // PlansUpdate edits a plan in place. Mirrors PlansCreate parsing,
 // validation, and the same field invariants (caps > 0, kind, node group).
 func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
+	if !h.requireGlobalAdmin(w, r) {
+		return
+	}
 	db := h.DB()
 	if db == nil {
 		http.Error(w, "no db", http.StatusServiceUnavailable)
@@ -1830,6 +1833,9 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
+	if !h.requireGlobalAdmin(w, r) {
+		return
+	}
 	db := h.DB()
 	if db == nil {
 		http.Error(w, "no db", http.StatusServiceUnavailable)
@@ -1892,6 +1898,9 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *AdminHandlers) PlansDelete(w http.ResponseWriter, r *http.Request) {
+	if !h.requireGlobalAdmin(w, r) {
+		return
+	}
 	db := h.DB()
 	if db == nil {
 		http.Error(w, "no db", http.StatusServiceUnavailable)
