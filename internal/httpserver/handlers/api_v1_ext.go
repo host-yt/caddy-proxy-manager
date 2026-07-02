@@ -706,7 +706,8 @@ func (h *APIHandlers) ClientGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) ClientCreate(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) {
+	if !requireAdmin(r) {
+		apiErr(w, http.StatusForbidden, "admin role required")
 		return
 	}
 	var in struct {
@@ -737,6 +738,23 @@ func (h *APIHandlers) ClientCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Scope: an unrestricted admin creates a platform-direct client; a reseller-
+	// admin creates one owned by their reseller; a client-scoped admin is denied.
+	caller := middleware.CallerFromContext(r.Context())
+	_, all, serr := h.apiScope(ctx, caller)
+	if serr != nil {
+		apiErr(w, http.StatusForbidden, "scope unresolved")
+		return
+	}
+	var resellerCol any
+	if !all {
+		var rid sql.NullInt64
+		if err := h.DB().QueryRowContext(ctx, "SELECT reseller_id FROM users WHERE id=?", caller.UserID).Scan(&rid); err != nil || !rid.Valid {
+			apiErr(w, http.StatusForbidden, "client provisioning requires a global or reseller admin key")
+			return
+		}
+		resellerCol = rid.Int64
+	}
 	tx, err := h.DB().BeginTx(ctx, nil)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "tx begin failed")
@@ -761,8 +779,8 @@ func (h *APIHandlers) ClientCreate(w http.ResponseWriter, r *http.Request) {
 		extRef = sql.NullString{String: in.ExternalRef, Valid: true}
 	}
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO clients (user_id, display_name, external_ref) VALUES (?, ?, ?)",
-		userID, in.Name, extRef); err != nil {
+		"INSERT INTO clients (user_id, display_name, external_ref, reseller_id) VALUES (?, ?, ?, ?)",
+		userID, in.Name, extRef, resellerCol); err != nil {
 		apiErr(w, http.StatusInternalServerError, "client insert failed")
 		return
 	}

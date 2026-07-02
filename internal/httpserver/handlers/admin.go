@@ -2327,12 +2327,18 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 	if externalRef != "" {
 		extRef = sql.NullString{String: externalRef, Valid: true}
 	}
+	// A reseller-admin's new clients are owned by their reseller (else the client
+	// would be platform-direct and invisible to its own creator).
+	var resellerCol any
+	if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 {
+		resellerCol = sess.ResellerID
+	}
 	if _, err := tx.ExecContext(ctx,
-		"INSERT INTO clients (user_id, display_name, external_ref, tag, category, custom_fields) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO clients (user_id, display_name, external_ref, tag, category, custom_fields, reseller_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		userID, displayName, extRef,
 		sql.NullString{String: tag, Valid: tag != ""},
 		sql.NullString{String: category, Valid: category != ""},
-		cfJSON); err != nil {
+		cfJSON, resellerCol); err != nil {
 		h.Logger.Error("client record create", "err", err)
 		redirectWithFlash(w, r, "/admin/clients", "", "client insert failed")
 		return

@@ -72,6 +72,10 @@ func (h *AdminHandlers) ClientsStatusToggleTraffic(w http.ResponseWriter, r *htt
 	db := h.DB()
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
+	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	_, err := db.ExecContext(ctx,
 		"UPDATE clients SET status_show_traffic = NOT status_show_traffic WHERE id=?", id)
 	if err != nil {
@@ -289,16 +293,33 @@ func (h *AdminHandlers) ClientsExport(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
-	const query = `SELECT COALESCE(c.display_name, u.full_name, u.email), u.email,
+	query := `SELECT COALESCE(c.display_name, u.full_name, u.email), u.email,
 	               COALESCE((SELECT GROUP_CONCAT(DISTINCT p2.name ORDER BY p2.name SEPARATOR '/') FROM services s2 JOIN plans p2 ON p2.id=s2.plan_id WHERE s2.client_id=c.id),''),
 	               u.is_active, u.role,
 	               (SELECT COUNT(*) FROM services s WHERE s.client_id=c.id),
 	               (SELECT COUNT(*) FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=c.id AND r.status='active'),
 	               DATE_FORMAT(u.created_at, '%Y-%m-%d')
-	               FROM clients c JOIN users u ON u.id=c.user_id
-	               ORDER BY c.id DESC`
+	               FROM clients c JOIN users u ON u.id=c.user_id`
+	// Scope: a non-super_admin exports only its assigned clients (twin of the
+	// ClientsList filter); without it a scoped admin dumps every tenant.
+	var args []any
+	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); ok && !all {
+		if len(allowed) == 0 {
+			query += " WHERE 1=0"
+		} else {
+			ids := make([]int64, 0, len(allowed))
+			for id := range allowed {
+				ids = append(ids, id)
+			}
+			query += " WHERE c.id IN (" + placeholders(len(ids)) + ")"
+			for _, id := range ids {
+				args = append(args, id)
+			}
+		}
+	}
+	query += " ORDER BY c.id DESC"
 
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
 		http.Error(w, "query failed", http.StatusInternalServerError)
 		return
