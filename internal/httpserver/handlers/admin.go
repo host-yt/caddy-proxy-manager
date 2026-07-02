@@ -2509,6 +2509,12 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
 
+	// IDOR guard: a restricted admin may only create services for its own tenants.
+	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), clientID) {
+		redirectWithFlash(w, r, "/admin/services", "", "forbidden: client outside your scope")
+		return
+	}
+
 	var nodeGroupID int64
 	if err := db.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
 		redirectWithFlash(w, r, "/admin/services", "", "plan not found")
@@ -2581,6 +2587,14 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
 
+	// IDOR guard: must own both the existing service and the target client (no
+	// moving a service into or out of another tenant's scope).
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckService(ctx, sess, id) || !h.scopeCheckClient(ctx, sess, clientID) {
+		redirectWithFlash(w, r, "/admin/services", "", "forbidden: outside your scope")
+		return
+	}
+
 	var nodeGroupID int64
 	if err := db.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
 		redirectWithFlash(w, r, "/admin/services", "", "plan not found")
@@ -2619,6 +2633,10 @@ func (h *AdminHandlers) ServicesDelete(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	if !h.scopeCheckService(ctx, middleware.SessionFromContext(r.Context()), id) {
+		redirectWithFlash(w, r, "/admin/services", "", "forbidden")
+		return
+	}
 	if _, err := db.ExecContext(ctx, "DELETE FROM services WHERE id = ?", id); err != nil {
 		if strings.Contains(err.Error(), "foreign key") {
 			redirectWithFlash(w, r, "/admin/services", "", "service has routes; delete routes first")
@@ -2648,6 +2666,11 @@ func (h *AdminHandlers) ServicesSuspend(w http.ResponseWriter, r *http.Request) 
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	if !h.scopeCheckService(ctx, middleware.SessionFromContext(r.Context()), id) {
+		redirectWithFlash(w, r, "/admin/services", "", "forbidden")
+		return
+	}
 
 	// Collect distinct caddy_node_ids for affected active routes before disabling.
 	rows, err := db.QueryContext(ctx,
@@ -2722,6 +2745,11 @@ func (h *AdminHandlers) ServicesResume(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+
+	if !h.scopeCheckService(ctx, middleware.SessionFromContext(r.Context()), id) {
+		redirectWithFlash(w, r, "/admin/services", "", "forbidden")
+		return
+	}
 
 	// Collect distinct node IDs before updating so we know which nodes to push.
 	rows, err := db.QueryContext(ctx,

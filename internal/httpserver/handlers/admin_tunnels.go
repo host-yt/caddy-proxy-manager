@@ -777,6 +777,19 @@ func (h *AdminHandlers) scopeCheckPeer(ctx context.Context, sess *auth.Session, 
 	return ok
 }
 
+// scopeCheckService resolves a service's owning client and defers to
+// scopeCheckClient. Fail-closed if the service is missing.
+func (h *AdminHandlers) scopeCheckService(ctx context.Context, sess *auth.Session, serviceID int64) bool {
+	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+		return true
+	}
+	var clientID int64
+	if err := h.DB().QueryRowContext(ctx, "SELECT client_id FROM services WHERE id=?", serviceID).Scan(&clientID); err != nil {
+		return false
+	}
+	return h.scopeCheckClient(ctx, sess, clientID)
+}
+
 // ensureSelfClient returns the clients row bound to the given admin user,
 // creating it on first call. Admins are stored only in users; they don't
 // auto-get a clients row at signup. WG peers FK to clients.id, so an
