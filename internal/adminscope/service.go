@@ -17,25 +17,34 @@ func New(db func() *sql.DB) *Service {
 	return &Service{db: db}
 }
 
-// userResellerID resolves a user's reseller (0 = none). Reseller-admins are
-// scoped by ownership, not admin_client_scope rows.
-func (s *Service) userResellerID(ctx context.Context, adminUserID int64) (int64, error) {
+// userReseller resolves a user's reseller (0 = none) and whether that reseller is
+// active. Reseller-admins are scoped by ownership, not admin_client_scope rows. A
+// suspended reseller returns active=false so scope resolution can fail closed.
+func (s *Service) userReseller(ctx context.Context, adminUserID int64) (rid int64, active bool, err error) {
 	db := s.db()
 	if db == nil {
-		return 0, nil
+		return 0, false, nil
 	}
-	var rid sql.NullInt64
-	err := db.QueryRowContext(ctx, `SELECT reseller_id FROM users WHERE id=?`, adminUserID).Scan(&rid)
-	if err != nil {
+	var id sql.NullInt64
+	if err = db.QueryRowContext(ctx, `SELECT reseller_id FROM users WHERE id=?`, adminUserID).Scan(&id); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0, nil
+			return 0, false, nil
 		}
-		return 0, fmt.Errorf("adminscope: reseller lookup: %w", err)
+		return 0, false, fmt.Errorf("adminscope: reseller lookup: %w", err)
 	}
-	if rid.Valid {
-		return rid.Int64, nil
+	if !id.Valid {
+		return 0, false, nil
 	}
-	return 0, nil
+	// Second query only when the user IS a reseller-admin, so DBs without a
+	// resellers table (non-reseller code paths) never touch it.
+	var status sql.NullString
+	if err = db.QueryRowContext(ctx, `SELECT status FROM resellers WHERE id=?`, id.Int64).Scan(&status); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return id.Int64, false, nil // dangling FK: fail closed
+		}
+		return 0, false, fmt.Errorf("adminscope: reseller status: %w", err)
+	}
+	return id.Int64, status.String == "active", nil
 }
 
 // scopeMode classifies an admin. Restriction is OPT-IN and now EXPLICIT
@@ -43,6 +52,7 @@ func (s *Service) userResellerID(ctx context.Context, adminUserID int64) (int64,
 type scopeMode struct {
 	all        bool  // unrestricted platform admin
 	resellerID int64 // >0 = reseller-scoped
+	denied     bool  // hard-empty scope (e.g. suspended reseller): sees nothing
 }
 
 // resolveMode determines whether an admin is unrestricted, reseller-scoped, or
@@ -50,11 +60,17 @@ type scopeMode struct {
 // restricted admin with zero admin_client_scope rows sees nothing (fail-safe),
 // which is why the flag is explicit rather than inferred from the row count.
 func (s *Service) resolveMode(ctx context.Context, adminUserID int64) (scopeMode, error) {
-	rid, err := s.userResellerID(ctx, adminUserID)
+	rid, active, err := s.userReseller(ctx, adminUserID)
 	if err != nil {
 		return scopeMode{}, err
 	}
 	if rid != 0 {
+		// Suspended reseller: hard-empty scope. Must NOT fall through to the
+		// is_restricted branch (would grant `all`) nor to admin_client_scope (a
+		// stray assignment would leak a client). Sees/manages nothing.
+		if !active {
+			return scopeMode{denied: true}, nil
+		}
 		return scopeMode{resellerID: rid}, nil
 	}
 	db := s.db()
@@ -84,6 +100,9 @@ func (s *Service) CanAccessClient(ctx context.Context, adminUserID, clientID int
 	if m.all {
 		return true, nil
 	}
+	if m.denied {
+		return false, nil
+	}
 	var count int
 	if m.resellerID != 0 {
 		err = db.QueryRowContext(ctx,
@@ -110,6 +129,9 @@ func (s *Service) CanAccessPeer(ctx context.Context, adminUserID, peerID int64) 
 	}
 	if m.all {
 		return true, nil
+	}
+	if m.denied {
+		return false, nil
 	}
 	var count int
 	if m.resellerID != 0 {
@@ -141,6 +163,9 @@ func (s *Service) CanAccessRoute(ctx context.Context, adminUserID, routeID int64
 	}
 	if m.all {
 		return true, nil
+	}
+	if m.denied {
+		return false, nil
 	}
 	var count int
 	if m.resellerID != 0 {
@@ -235,6 +260,9 @@ func (s *Service) ScopeFilter(ctx context.Context, adminUserID int64) (clientIDs
 	}
 	if m.all {
 		return nil, true, nil
+	}
+	if m.denied {
+		return []int64{}, false, nil
 	}
 	if m.resellerID != 0 {
 		ids, err := s.resellerClientIDs(ctx, m.resellerID)

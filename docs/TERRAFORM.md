@@ -41,8 +41,8 @@ returned by the API and is used verbatim for `terraform import`.
 | `hpg_node_pool` | `POST /node-pools` | `GET /node-pools/{id}` | `PATCH /node-pools/{id}` | `DELETE /node-pools/{id}` | platform-admin key only |
 | `hpg_node` | `POST /nodes` | `GET /nodes/{id}` | `PATCH /nodes/{id}` | `DELETE /nodes/{id}` | platform-admin key only; `node_group_id` -> `hpg_node_pool.id` |
 | `hpg_plan` | `POST /plans` | `GET /plans/{id}` | `PATCH /plans/{id}` | `DELETE /plans/{id}` | reseller keys create own-reseller plans |
-| `hpg_client` | `POST /clients` | `GET /clients/{id}` | `PATCH /clients/{id}` | `DELETE /clients/{id}` | reseller keys stamp `reseller_id` automatically |
-| `hpg_service` | `POST /services` | `GET /services/{id}` | `PATCH /services/{id}` | `POST /services/{id}/delete` | `client_id` + `plan_id` must be in key scope |
+| `hpg_client` | `POST /clients` | `GET /clients/{id}` | `PATCH /clients/{id}` | `DELETE /clients/{id}` | reseller keys stamp `reseller_id` on create and may delete only their own clients |
+| `hpg_service` | `POST /services` | `GET /services/{id}` | `PATCH /services/{id}` | `DELETE /services/{id}` | `client_id` + `plan_id` must be in key scope |
 | `hpg_route` | `POST /routes` | `GET /routes/{id}` | `PATCH /routes/{id}` | `DELETE /routes/{id}` | `service_id` -> `hpg_service.id`; SSL is async |
 
 ### Attribute reference (abridged)

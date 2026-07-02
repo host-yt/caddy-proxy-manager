@@ -23,6 +23,8 @@ func openAPIScopeDB(t *testing.T) func() *sql.DB {
 		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0)`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
+		`CREATE TABLE resellers (id INTEGER PRIMARY KEY, status TEXT)`,
+		`INSERT INTO resellers (id, status) VALUES (7, 'active'), (9, 'active')`,
 		// user 1 = reseller-admin (reseller 7); user 3 = bare admin.
 		`INSERT INTO users (id, reseller_id) VALUES (1, 7), (3, NULL)`,
 		`INSERT INTO clients (id, reseller_id) VALUES (100, 7), (101, 7), (200, 9), (300, NULL)`,

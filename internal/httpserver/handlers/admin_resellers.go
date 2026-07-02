@@ -202,6 +202,11 @@ func (h *AdminHandlers) ResellersUpdate(w http.ResponseWriter, r *http.Request) 
 		redirectWithFlash(w, r, "/admin/resellers", "", "could not update reseller")
 		return
 	}
+	// Suspending cuts scope at resolveMode already; revoke the reseller-admins'
+	// sessions too so nothing lingers on a cached session.
+	if status == reseller.StatusSuspended {
+		h.revokeUsers(r.Context(), h.resellerAdminIDs(r.Context(), id))
+	}
 	h.auditReseller(r, sess, "reseller.updated", strconv.FormatInt(id, 10), map[string]any{"status": status})
 	redirectWithFlash(w, r, "/admin/resellers", "Reseller updated", "")
 }

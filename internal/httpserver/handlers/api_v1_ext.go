@@ -904,12 +904,20 @@ func (h *APIHandlers) ClientUpdate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *APIHandlers) ClientDelete(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) {
+	if !requireAdmin(r) {
+		apiErr(w, http.StatusForbidden, "admin role required")
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+
+	// Scoped delete: a reseller-admin may remove only its own reseller's client,
+	// symmetric with ClientCreate/ClientGet. Unrestricted admins pass through.
+	if !h.apiAllowClient(ctx, middleware.CallerFromContext(r.Context()), id) {
+		apiErr(w, http.StatusForbidden, "forbidden")
+		return
+	}
 
 	var userID int64
 	if err := h.DB().QueryRowContext(ctx,

@@ -149,8 +149,7 @@ func (r *serviceResource) Delete(ctx context.Context, req resource.DeleteRequest
 	if resp.Diagnostics.HasError() {
 		return
 	}
-	// Services use a POST /delete sub-route (foreign-key aware).
-	if err := r.client.Post(ctx, "/services/"+strconv.FormatInt(state.ID.ValueInt64(), 10)+"/delete", nil, nil); err != nil && !IsNotFound(err) {
+	if err := r.client.Delete(ctx, "/services/"+strconv.FormatInt(state.ID.ValueInt64(), 10)); err != nil && !IsNotFound(err) {
 		resp.Diagnostics.AddError("Delete service failed", err.Error())
 	}
 }

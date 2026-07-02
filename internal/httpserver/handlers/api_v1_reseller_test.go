@@ -34,6 +34,8 @@ func openResellerAPIDB(t *testing.T) *sql.DB {
 		`CREATE TABLE plans (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE services (id INTEGER PRIMARY KEY, client_id INTEGER)`,
 		`CREATE TABLE routes (id INTEGER PRIMARY KEY, service_id INTEGER)`,
+		`CREATE TABLE resellers (id INTEGER PRIMARY KEY, status TEXT)`,
+		`INSERT INTO resellers (id, status) VALUES (7, 'active'), (9, 'active')`,
 		`INSERT INTO users (id, reseller_id) VALUES (1, 7)`,
 		`INSERT INTO clients (id, user_id, reseller_id) VALUES (100, 50, 7), (101, 51, 7), (200, 60, 9)`,
 		`INSERT INTO plans (id, reseller_id) VALUES (1, NULL), (7, 7), (9, 9)`,

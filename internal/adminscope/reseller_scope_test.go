@@ -22,6 +22,8 @@ func openResellerDB(t *testing.T) *sql.DB {
 		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0)`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
+		`CREATE TABLE resellers (id INTEGER PRIMARY KEY, status TEXT)`,
+		`INSERT INTO resellers (id, status) VALUES (7, 'active'), (9, 'active')`,
 		// user 1 = reseller-admin (reseller 7); user 2 = client-scoped admin
 		// (has admin_client_scope rows); user 3 = bare/unrestricted admin.
 		`INSERT INTO users (id, reseller_id, is_restricted) VALUES (1, 7, 0), (2, NULL, 1), (3, NULL, 0)`,
@@ -60,6 +62,31 @@ func TestScopeFilterResellerAdmin(t *testing.T) {
 	}
 	if idSet(ids)[200] {
 		t.Fatal("cross-reseller leak: manual assignment to client 200 widened the scope")
+	}
+}
+
+// TestSuspendedResellerFailsClosed: suspending a reseller must cut its admin's
+// scope to nothing - not fall through to unrestricted 'all'.
+func TestSuspendedResellerFailsClosed(t *testing.T) {
+	db := openResellerDB(t)
+	if _, err := db.Exec(`UPDATE resellers SET status='suspended' WHERE id=7`); err != nil {
+		t.Fatalf("suspend: %v", err)
+	}
+	svc := New(func() *sql.DB { return db })
+	ctx := context.Background()
+
+	ids, all, err := svc.ScopeFilter(ctx, 1)
+	if err != nil {
+		t.Fatalf("ScopeFilter(suspended): %v", err)
+	}
+	if all {
+		t.Fatal("suspended reseller-admin must NOT resolve to all=true")
+	}
+	if len(ids) != 0 {
+		t.Fatalf("suspended reseller-admin scope = %v, want empty", ids)
+	}
+	if ok, _ := svc.CanAccessClient(ctx, 1, 100); ok {
+		t.Fatal("suspended reseller-admin must not access its former client")
 	}
 }
 
