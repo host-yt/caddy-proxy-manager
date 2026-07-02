@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
@@ -122,6 +123,39 @@ func TestClientCannotAccessOtherTenantResource(t *testing.T) {
 	}
 	if !h.scopeCheckClient(ctx, super, 200) {
 		t.Error("super_admin must not be scope-blocked")
+	}
+}
+
+// TestHostProbesEnforceScope guards the F3b-2 IDOR fix: HostsDNSTest and
+// HostsTestBackend take a route {id} and must refuse a scoped admin probing a
+// route outside its assigned clients (cross-tenant DNS/SSRF probe).
+func TestHostProbesEnforceScope(t *testing.T) {
+	db := scopedAdminSchemaDB(t)
+	h := &AdminHandlers{
+		DB:         func() *sql.DB { return db },
+		AdminScope: adminscope.New(func() *sql.DB { return db }),
+		Logger:     slog.Default(),
+	}
+	scoped := &auth.Session{UserID: 1, Role: "admin"} // client 100 (route 1000) only
+
+	for _, probe := range []struct {
+		name string
+		fn   func(http.ResponseWriter, *http.Request)
+	}{
+		{"dns", h.HostsDNSTest},
+		{"backend", h.HostsTestBackend},
+	} {
+		// route 2000 belongs to client 200 - must be forbidden.
+		req := httptest.NewRequest(http.MethodPost, "/admin/hosts/2000/probe", nil)
+		req = req.WithContext(middleware.ContextWithSession(req.Context(), scoped))
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "2000")
+		req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+		rr := httptest.NewRecorder()
+		probe.fn(rr, req)
+		if rr.Code != http.StatusForbidden {
+			t.Errorf("%s probe: cross-tenant route must be 403, got %d", probe.name, rr.Code)
+		}
 	}
 }
 

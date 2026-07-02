@@ -417,6 +417,23 @@ func (h *AdminHandlers) HostsExport(w http.ResponseWriter, r *http.Request) {
 		where = append(where, "COALESCE(NULLIF(r.backend_ip_override,''), s.backend_ip) LIKE ?")
 		args = append(args, "%"+backendIP+"%")
 	}
+	// Scope: a non-super_admin exports only routes of its assigned clients (twin
+	// of the HostsList filter). Without this a scoped admin could CSV-dump every
+	// tenant's routes.
+	if allowed, all, ok := h.adminClientScope(ctx, sess); ok && !all {
+		if len(allowed) == 0 {
+			where = append(where, "1=0")
+		} else {
+			ids := make([]int64, 0, len(allowed))
+			for id := range allowed {
+				ids = append(ids, id)
+			}
+			where = append(where, "c.id IN ("+placeholders(len(ids))+")")
+			for _, id := range ids {
+				args = append(args, id)
+			}
+		}
+	}
 	whereSQL := strings.Join(where, " AND ")
 
 	rows, err := db.QueryContext(ctx,
@@ -1552,6 +1569,10 @@ func (h *AdminHandlers) HostsDNSTest(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
+	if !h.scopeCheckRoute(ctx, middleware.SessionFromContext(r.Context()), id) {
+		apiJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+		return
+	}
 	var resolverIP, resolverPeerIP, upstreamHost, addressFamily string
 	err := db.QueryRowContext(ctx,
 		`SELECT COALESCE(r.dns_resolver_ip,''), COALESCE(dns_peer.assigned_ip,''),
@@ -1674,6 +1695,10 @@ func (h *AdminHandlers) HostsTestBackend(w http.ResponseWriter, r *http.Request)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	if !h.scopeCheckRoute(ctx, middleware.SessionFromContext(r.Context()), id) {
+		apiJSON(w, http.StatusForbidden, map[string]any{"error": "forbidden"})
+		return
+	}
 
 	var backendHost string
 	var upstreamPort int
@@ -4304,6 +4329,10 @@ func parseHeaderLines(raw string) string {
 }
 
 func (h *AdminHandlers) HostGroupCreate(w http.ResponseWriter, r *http.Request) {
+	// Global taxonomy: unrestricted admins only (see HostGroupUpdate).
+	if !h.requireGlobalAdmin(w, r) {
+		return
+	}
 	name := strings.TrimSpace(r.FormValue("name"))
 	color := strings.TrimSpace(r.FormValue("color"))
 	if name == "" {
@@ -4329,6 +4358,11 @@ func (h *AdminHandlers) HostGroupCreate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *AdminHandlers) HostGroupUpdate(w http.ResponseWriter, r *http.Request) {
+	// host_groups are global (not client-scoped); only an unrestricted admin
+	// may rename them so a scoped/reseller admin cannot touch shared taxonomy.
+	if !h.requireGlobalAdmin(w, r) {
+		return
+	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
 		redirectWithFlash(w, r, "/admin/hosts", "", "invalid id")
@@ -4359,6 +4393,10 @@ func (h *AdminHandlers) HostGroupUpdate(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *AdminHandlers) HostGroupDelete(w http.ResponseWriter, r *http.Request) {
+	// Global taxonomy: unrestricted admins only (see HostGroupUpdate).
+	if !h.requireGlobalAdmin(w, r) {
+		return
+	}
 	id, err := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	if err != nil || id <= 0 {
 		redirectWithFlash(w, r, "/admin/hosts", "", "invalid id")

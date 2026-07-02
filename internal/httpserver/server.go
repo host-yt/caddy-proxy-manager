@@ -365,6 +365,12 @@ func (s *Server) routes() {
 			// Tunnels: list scoped via adminClientScope, every {id} op gated by
 			// scopeCheckPeer/Client (reseller-aware). Safe to expose in full.
 			"/admin/tunnels*",
+			// Hosts: list/export filtered by adminClientScope; every {id} op gated
+			// by scopeCheckRoute; global taxonomy (host groups) denied internally.
+			"/admin/hosts*",
+			// Services: list filtered by adminClientScope; create/update/delete/
+			// suspend/resume gated by scopeCheckClient/scopeCheckService.
+			"/admin/services*",
 			// /admin/search NOT allow-listed: AdminSearch unscoped (F3 to scope).
 		}))
 		// Enforce 2FA enrollment for admins when REQUIRE_ADMIN_2FA (env) or the
