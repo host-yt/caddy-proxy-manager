@@ -141,10 +141,15 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	// Detach from the request context so the batch still commits if the node-agent
+	// hits its own client timeout and disconnects mid-insert. Otherwise every
+	// remaining insert failed with "context canceled", nothing committed, and the
+	// node-agent re-shipped the same backlog forever (a self-sustaining loop).
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
 	defer cancel()
 
 	accepted := 0
+	prunedRoutes := map[int64]struct{}{} // distinct routes to trim once after the batch
 	for _, item := range items {
 		e, ok := toWAFEvent(item)
 		if !ok {
@@ -170,10 +175,21 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		if !inserted {
 			continue // duplicate / replay / already cleared
 		}
+		if e.RouteID.Valid {
+			prunedRoutes[e.RouteID.Int64] = struct{}{}
+		}
 		if h.Metrics != nil {
 			h.Metrics.WAFEvent(e.Severity, e.Action)
 		}
 		accepted++
+	}
+
+	// Prune once per distinct route, not per event: the maxPerRoute sort is far
+	// too slow to run 500x within the ingest window.
+	for rid := range prunedRoutes {
+		if err := h.WAFEvents.PruneRoute(ctx, rid); err != nil {
+			h.Logger.Warn("waf ingest prune route", "route_id", rid, "err", err)
+		}
 	}
 
 	h.maybePruneSeen()

@@ -436,6 +436,8 @@ type dashboardData struct {
 	Traffic      dashTraffic
 	TopRoutes    []dashTopRoute
 	TopClients   []dashTopClient
+	// ResellerUsage is set for reseller sessions: own consumption vs package.
+	ResellerUsage *quota.Usage
 }
 
 // Cap below the max number of distinct attention items (currently 7) so the
@@ -454,6 +456,12 @@ func (h *AdminHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	d.Counts = h.dashboardCounts(ctx, db)
+	// Reseller sessions get their package usage front and center.
+	if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 && h.Quota != nil {
+		if u, err := h.Quota.UsageFor(ctx, sess.ResellerID); err == nil {
+			d.ResellerUsage = &u
+		}
+	}
 	d.Attention, d.Truncated = h.dashboardAttention(ctx, db)
 	d.RecentEvents = h.dashboardRecentEvents(ctx, db)
 	d.Traffic = h.dashboardTraffic(ctx, db)

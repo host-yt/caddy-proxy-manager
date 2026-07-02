@@ -12,6 +12,25 @@
   </a>
 </div>
 
+{{if .ResellerUsage}}
+<!-- Reseller package usage -->
+<div class="r-card mb-5 text-sm">
+  <div class="flex flex-wrap items-center gap-6">
+    <span class="font-medium" style="color:rgb(var(--text))">Your package</span>
+    {{with .ResellerUsage}}
+    {{if .Limited}}
+      <span>Clients <strong>{{.Clients}}</strong>/{{if .MaxClients}}{{.MaxClients}}{{else}}&#8734;{{end}}</span>
+      <span>Services <strong>{{.Services}}</strong>/{{if .MaxServices}}{{.MaxServices}}{{else}}&#8734;{{end}}</span>
+      <span>Domains <strong>{{.Domains}}</strong>/{{if .MaxDomains}}{{.MaxDomains}}{{else}}&#8734;{{end}}</span>
+      {{if .Overselling}}<span class="r-pill r-pill-success">overselling allowed</span>{{end}}
+    {{else}}
+      <span class="t-small" style="color:rgb(var(--muted))">No package assigned - unlimited.</span>
+    {{end}}
+    {{end}}
+  </div>
+</div>
+{{end}}
+
 <!-- KPI stat row -->
 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-5 mb-5">
   <div class="r-card flex items-center gap-4">

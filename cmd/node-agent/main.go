@@ -1306,7 +1306,11 @@ func postWAFBatch(ctx context.Context, c config, events []wafEventPayload) bool 
 		return false
 	}
 	endpoint := strings.TrimRight(c.PanelURL, "/") + "/api/node/waf/events"
-	reqCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// 30s: the panel finishes a full 500-event batch (insert + dedup + per-route
+	// prune) well inside this. A tighter 10s could fire mid-batch, and a failed
+	// chunk stalls the whole read window's offset advance - re-shipping the same
+	// backlog on the next tick.
+	reqCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(reqCtx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
@@ -1341,7 +1345,11 @@ func wafBatchBounds(buf []byte, atCap bool) (batchLen int, skip bool) {
 // Same poll pattern as forwardAccessLogs; batches at most 500 events per flush.
 func forwardWAFEvents(ctx context.Context, log *slog.Logger, c config) {
 	const maxBatch = 500
-	const maxRead = 8 << 20
+	// 1MB per read (was 8MB): offset only advances when ALL chunks of a read
+	// window succeed, so a smaller window bounds how much is replayed if one chunk
+	// fails, and lets a cold backlog persist progress incrementally instead of
+	// re-shipping megabytes each tick. Still far larger than any single audit line.
+	const maxRead = 1 << 20
 	posPath := forwardPosPath(c.StateDir, c.WAFAuditLogPath)
 	var offset int64
 	inited := false

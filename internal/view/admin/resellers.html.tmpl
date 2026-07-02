@@ -39,6 +39,63 @@
     </form>
   </div>
 
+  <!-- Reseller packages (aggregate quota tiers) -->
+  <div class="r-card space-y-3 text-sm">
+    <h2 class="font-medium" style="color:rgb(var(--text))">Packages</h2>
+    <p class="t-caption" style="color:rgb(var(--muted))">Aggregate limits + grants shared by subscribed resellers. 0 = unlimited.</p>
+    {{range .Packages}}
+    <form method="POST" action="/admin/reseller-plans" class="grid grid-cols-2 md:grid-cols-6 gap-2 items-end border-b pb-3" style="border-color:rgb(var(--border))">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <input type="hidden" name="id" value="{{.ID}}">
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">Name</label>
+        <input name="name" value="{{.Name}}" required class="r-input w-full"></div>
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">Max clients</label>
+        <input name="max_clients" type="number" min="0" value="{{.MaxClients}}" class="r-input w-full"></div>
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">Max services</label>
+        <input name="max_services_total" type="number" min="0" value="{{.MaxServices}}" class="r-input w-full"></div>
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">Max domains</label>
+        <input name="max_domains_total" type="number" min="0" value="{{.MaxDomainsTotal}}" class="r-input w-full"></div>
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">RPM cap</label>
+        <input name="rate_limit_rpm_cap" type="number" min="0" value="{{.RateLimitCap}}" class="r-input w-full"></div>
+      <div class="flex gap-2">
+        <button type="submit" class="r-btn r-btn-secondary">Save</button>
+        <button type="submit" formaction="/admin/reseller-plans/{{.ID}}/delete" class="r-btn r-btn-danger-ghost"
+                onclick="return confirm('Delete package? Fails if any reseller still uses it.')">Delete</button>
+      </div>
+      <div class="col-span-2 md:col-span-6">
+        <span class="t-caption mr-2" style="color:rgb(var(--muted))">Pools:</span>
+        {{$p := .}}{{range $.NodeGroups}}<label class="t-caption mr-3"><input type="checkbox" name="node_group_id" value="{{.ID}}"
+          {{$ng := .ID}}{{range $p.NodeGroupIDs}}{{if eq . $ng}}checked{{end}}{{end}}> {{.Name}}</label>{{end}}
+        <span class="t-caption mr-2 ml-4" style="color:rgb(var(--muted))">Features:</span>
+        {{range $.Features}}<label class="t-caption mr-3"><input type="checkbox" name="feature" value="{{.}}"
+          {{$f := .}}{{range $p.Features}}{{if eq . $f}}checked{{end}}{{end}}> {{.}}</label>{{end}}
+      </div>
+    </form>
+    {{end}}
+    <!-- New package -->
+    <form method="POST" action="/admin/reseller-plans" class="grid grid-cols-2 md:grid-cols-6 gap-2 items-end">
+      <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+      <input type="hidden" name="id" value="0">
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">Name</label>
+        <input name="name" placeholder="Starter" required class="r-input w-full"></div>
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">Max clients</label>
+        <input name="max_clients" type="number" min="0" value="0" class="r-input w-full"></div>
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">Max services</label>
+        <input name="max_services_total" type="number" min="0" value="0" class="r-input w-full"></div>
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">Max domains</label>
+        <input name="max_domains_total" type="number" min="0" value="0" class="r-input w-full"></div>
+      <div><label class="block t-caption mb-1" style="color:rgb(var(--muted))">RPM cap</label>
+        <input name="rate_limit_rpm_cap" type="number" min="0" value="0" class="r-input w-full"></div>
+      <div><button type="submit" class="r-btn r-btn-primary">Add package</button></div>
+      <div class="col-span-2 md:col-span-6">
+        <span class="t-caption mr-2" style="color:rgb(var(--muted))">Pools:</span>
+        {{range .NodeGroups}}<label class="t-caption mr-3"><input type="checkbox" name="node_group_id" value="{{.ID}}"> {{.Name}}</label>{{end}}
+        <span class="t-caption mr-2 ml-4" style="color:rgb(var(--muted))">Features:</span>
+        {{range .Features}}<label class="t-caption mr-3"><input type="checkbox" name="feature" value="{{.}}" checked> {{.}}</label>{{end}}
+      </div>
+    </form>
+  </div>
+
   {{if not .Resellers}}
   <p class="t-small" style="color:rgb(var(--muted))">No resellers yet. Create one above, then assign clients and provision a reseller-admin.</p>
   {{end}}
@@ -50,7 +107,14 @@
         <span class="font-medium" style="color:rgb(var(--text))">{{.Name}}</span>
         <span class="t-caption ml-2" style="color:rgb(var(--muted))">{{.Slug}}</span>
         {{if eq .Status "suspended"}}<span class="r-pill r-pill-danger ml-2">suspended</span>{{else}}<span class="r-pill r-pill-success ml-2">active</span>{{end}}
-        <span class="t-caption ml-2" style="color:rgb(var(--muted))">{{.ClientCount}} clients / {{.AdminCount}} admins</span>
+        <span class="t-caption ml-2" style="color:rgb(var(--muted))">
+          {{if .Usage.Limited}}
+            clients {{.Usage.Clients}}/{{if .Usage.MaxClients}}{{.Usage.MaxClients}}{{else}}∞{{end}}
+            · services {{.Usage.Services}}/{{if .Usage.MaxServices}}{{.Usage.MaxServices}}{{else}}∞{{end}}
+            · domains {{.Usage.Domains}}/{{if .Usage.MaxDomains}}{{.Usage.MaxDomains}}{{else}}∞{{end}}
+            {{if .Usage.Overselling}}· overselling{{end}}
+          {{else}}{{.ClientCount}} clients / {{.AdminCount}} admins · no package (unlimited){{end}}
+        </span>
       </div>
       <form method="POST" action="/admin/resellers/{{.ID}}/delete" onsubmit="return confirm('Delete reseller? Owned clients/admins return to platform-direct and their sessions are revoked.')">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
@@ -91,6 +155,21 @@
       <div class="md:col-span-3">
         <button type="submit" class="r-btn r-btn-secondary">Save</button>
       </div>
+    </form>
+
+    <!-- Package + policy -->
+    <form method="POST" action="/admin/resellers/{{.ID}}/policy" class="flex items-end gap-3 flex-wrap">
+      <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+      <div>
+        <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Package</label>
+        <select name="reseller_plan_id" class="r-input">
+          <option value="0" {{if not .Policy.PlanID}}selected{{end}}>none (unlimited)</option>
+          {{$pol := .Policy}}{{range $.Packages}}<option value="{{.ID}}" {{if eq .ID $pol.PlanID}}selected{{end}}>{{.Name}}</option>{{end}}
+        </select>
+      </div>
+      <label class="t-caption pb-2"><input type="checkbox" name="overselling_allowed" value="1" {{if .Policy.Overselling}}checked{{end}}> overselling</label>
+      <label class="t-caption pb-2"><input type="checkbox" name="can_create_plans" value="1" {{if .Policy.CanCreatePlans}}checked{{end}}> can create plans</label>
+      <button type="submit" class="r-btn r-btn-secondary">Save policy</button>
     </form>
 
     <!-- Assign a client -->

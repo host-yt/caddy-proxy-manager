@@ -456,6 +456,13 @@ func (s *Server) routes() {
 			r.Post("/{id}/delete", s.deps.Admin.ResellersDelete)
 			r.Post("/{id}/clients", s.deps.Admin.ResellerAssignClient)
 			r.Post("/{id}/admins", s.deps.Admin.ResellerProvisionAdmin)
+			r.Post("/{id}/policy", s.deps.Admin.ResellerSetPolicy)
+		})
+		// Reseller packages (aggregate quota tiers). Same super_admin-only
+		// surface, deliberately outside the reseller-admin boundary.
+		r.Route("/reseller-plans", func(r chi.Router) {
+			r.Post("/", s.deps.Admin.ResellerPlanSave)
+			r.Post("/{id}/delete", s.deps.Admin.ResellerPlanDelete)
 		})
 		r.Route("/hosts", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.HostsList)

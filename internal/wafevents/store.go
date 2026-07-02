@@ -92,6 +92,11 @@ func (s *Store) Insert(ctx context.Context, e Event) error {
 // Insert + ledger write share one transaction: a failed event insert rolls the
 // ledger row back so the event is retried, not silently swallowed. Returns true
 // when the event was newly stored.
+//
+// Per-route pruning is NOT done here: it is a sort over up to maxPerRoute rows
+// and running it once per event made a 500-event batch exceed the ingest timeout
+// (node-agent then retried the whole backlog forever). Callers prune once per
+// distinct route after the batch via PruneRoute.
 func (s *Store) InsertIfNew(ctx context.Context, e Event, key string) (bool, error) {
 	db := s.db()
 	if db == nil {
@@ -120,24 +125,32 @@ func (s *Store) InsertIfNew(ctx context.Context, e Event, key string) (bool, err
 	if err := tx.Commit(); err != nil {
 		return false, err
 	}
-	if e.RouteID.Valid {
-		// Keep only maxPerRoute most recent rows per route. Best-effort and
-		// outside the tx: a prune failure must never discard the new event.
-		_, _ = db.ExecContext(ctx,
-			`DELETE FROM waf_events
-			 WHERE route_id = ?
-			   AND id NOT IN (
-			       SELECT id FROM (
-			           SELECT id FROM waf_events
-			           WHERE route_id = ?
-			           ORDER BY ts DESC, id DESC
-			           LIMIT ?
-			       ) sub
-			   )`,
-			e.RouteID, e.RouteID, maxPerRoute,
-		)
-	}
 	return true, nil
+}
+
+// PruneRoute trims waf_events for one route to its maxPerRoute newest rows.
+// Best-effort: run once per distinct route after a batch of inserts, not per
+// event. A no-op for routeID <= 0 (unattributed events are pruned globally by
+// the ledger cap, not per route).
+func (s *Store) PruneRoute(ctx context.Context, routeID int64) error {
+	db := s.db()
+	if db == nil || routeID <= 0 {
+		return nil
+	}
+	_, err := db.ExecContext(ctx,
+		`DELETE FROM waf_events
+		 WHERE route_id = ?
+		   AND id NOT IN (
+		       SELECT id FROM (
+		           SELECT id FROM waf_events
+		           WHERE route_id = ?
+		           ORDER BY ts DESC, id DESC
+		           LIMIT ?
+		       ) sub
+		   )`,
+		routeID, routeID, maxPerRoute,
+	)
+	return err
 }
 
 // PruneSeen caps the dedup ledger to its keep newest rows so waf_seen_events

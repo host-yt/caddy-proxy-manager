@@ -13,6 +13,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 	"github.com/go-chi/chi/v5"
 )
@@ -26,6 +27,14 @@ type resellerRow struct {
 	reseller.Reseller
 	ClientCount int
 	AdminCount  int
+	Policy      reseller.Policy
+	Usage       quota.Usage
+}
+
+// ngOpt is a node-group option for the package grant checkboxes.
+type ngOpt struct {
+	ID   int64
+	Name string
 }
 
 // rsClientOpt / adminOpt drive the assign/provision selects.
@@ -45,9 +54,12 @@ type adminOpt struct {
 
 type resellersData struct {
 	baseAdminData
-	Resellers []resellerRow
-	Clients   []rsClientOpt
-	Admins    []adminOpt
+	Resellers  []resellerRow
+	Clients    []rsClientOpt
+	Admins     []adminOpt
+	Packages   []reseller.Plan
+	NodeGroups []ngOpt
+	Features   []string
 }
 
 // guardSuperAdmin denies non-super_admin. Reseller provisioning is owner-level:
@@ -81,7 +93,28 @@ func (h *AdminHandlers) ResellersList(w http.ResponseWriter, r *http.Request) {
 				db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clients WHERE reseller_id=?`, rs.ID).Scan(&row.ClientCount)
 				db.QueryRowContext(ctx, `SELECT COUNT(*) FROM users WHERE reseller_id=?`, rs.ID).Scan(&row.AdminCount)
 			}
+			row.Policy, _ = h.Resellers.PolicyFor(ctx, rs.ID)
+			if h.Quota != nil {
+				row.Usage, _ = h.Quota.UsageFor(ctx, rs.ID)
+			}
 			d.Resellers = append(d.Resellers, row)
+		}
+		if pkgs, err := h.Resellers.PlansList(ctx); err != nil {
+			h.Logger.Error("reseller packages list", "err", err)
+		} else {
+			d.Packages = pkgs
+		}
+	}
+	d.Features = reseller.KnownFeatures
+	if db != nil {
+		if rows, err := db.QueryContext(ctx, `SELECT id, name FROM node_groups ORDER BY name`); err == nil {
+			defer rows.Close()
+			for rows.Next() {
+				var o ngOpt
+				if rows.Scan(&o.ID, &o.Name) == nil {
+					d.NodeGroups = append(d.NodeGroups, o)
+				}
+			}
 		}
 	}
 	d.Clients = h.listClientOpts(ctx, db)
