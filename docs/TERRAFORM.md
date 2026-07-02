@@ -1,13 +1,21 @@
 # Terraform Provider - Resource Reference
 
-The Terraform provider lives in a **separate repository** and is a thin client
-over the [REST API v1](API.md). This document is the contract it implements: the
-resource/attribute mapping, auth, and import semantics. The machine-readable
-source of truth is the OpenAPI spec served at:
+The Terraform provider lives in-repo at [`../terraform-provider-hpg/`](../terraform-provider-hpg/)
+as a nested Go module (its own `go.mod`, built independently). It is a thin
+client over the [REST API v1](API.md). To publish on the Terraform Registry,
+split that directory into a standalone `terraform-provider-hpg` repo and tag
+releases - the code is unchanged, only the repo layout.
+
+This document is the contract the provider implements: resource/attribute
+mapping, auth, and import semantics. The machine-readable source of truth is the
+OpenAPI spec served at:
 
 ```
 GET /api-docs/openapi.json
 ```
+
+Implemented resources: `hpg_node_pool`, `hpg_plan`, `hpg_client`, `hpg_service`,
+`hpg_route`. (`hpg_node` follows the same shape against `/nodes`.)
 
 ## Provider configuration
 
