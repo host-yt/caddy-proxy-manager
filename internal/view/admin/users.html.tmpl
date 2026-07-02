@@ -117,7 +117,7 @@
                 {{end}}
                 {{if and $.CanManageScopes (ne .Role "client") (ne .Role "super_admin")}}
                 <button type="button" class="usr-scope-btn hpg-act-item" role="menuitem"
-                  data-id="{{.ID}}" data-email="{{.Email}}" data-scope="{{.ScopeIDs}}">Scope</button>
+                  data-id="{{.ID}}" data-email="{{.Email}}" data-scope="{{.ScopeIDs}}" data-restricted="{{if .Restricted}}1{{else}}0{{end}}">Scope</button>
                 {{end}}
                 {{if and (eq .Role "client") .IsActive}}
                 <form class="contents" method="POST" action="/admin/users/{{.ID}}/impersonate">
@@ -215,6 +215,13 @@
       </div>
       <form id="usr-scope-form" method="POST" action="/admin/users/0/scope" class="space-y-4 text-sm">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <label class="flex items-start gap-2 rounded-lg bg-[rgb(var(--surface))] ring-1 ring-[rgb(var(--border))] p-3 cursor-pointer">
+          <input type="checkbox" id="usr-scope-restricted" name="is_restricted" value="1" class="mt-1 rounded cursor-pointer">
+          <span class="min-w-0">
+            <span class="block font-medium text-[rgb(var(--text))]">Restrict to selected clients</span>
+            <span class="block t-caption text-[rgb(var(--muted))]">Off = full platform access. On with no clients = sees nothing (fail-safe).</span>
+          </span>
+        </label>
         <div class="rounded-xl bg-[rgb(var(--surface-2))] ring-1 ring-[rgb(var(--border))] p-3 max-h-80 overflow-y-auto grid grid-cols-1 sm:grid-cols-2 gap-2">
           {{range .ScopeClients}}
           <label class="scope-client flex items-start gap-2 rounded-lg bg-[rgb(var(--surface))] ring-1 ring-[rgb(var(--border))] p-3 cursor-pointer hover:ring-[rgb(var(--accent))]">
@@ -299,6 +306,8 @@
       form.action = "/admin/users/" + btn.dataset.id + "/scope";
       var title = document.getElementById("usr-scope-title");
       if (title) title.textContent = "Assign clients to " + btn.dataset.email;
+      var restr = document.getElementById("usr-scope-restricted");
+      if (restr) restr.checked = btn.dataset.restricted === "1";
       form.querySelectorAll('input[name="client_ids"]').forEach(function(cb){ cb.checked = !!selected[cb.value]; });
       modal.classList.remove("hidden");
     });

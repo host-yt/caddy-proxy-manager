@@ -18,12 +18,12 @@ func openTestDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	stmts := []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0)`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
 		`CREATE TABLE services (id INTEGER PRIMARY KEY, client_id INTEGER)`,
 		`CREATE TABLE routes (id INTEGER PRIMARY KEY, service_id INTEGER)`,
 		// admin 1 (no reseller) is scoped to client 100 only; client 200 is another tenant.
-		`INSERT INTO users (id, reseller_id) VALUES (1, NULL)`,
+		`INSERT INTO users (id, reseller_id, is_restricted) VALUES (1, NULL, 1)`,
 		`INSERT INTO admin_client_scope (admin_user_id, client_id) VALUES (1, 100)`,
 		`INSERT INTO services (id, client_id) VALUES (10, 100), (20, 200)`,
 		`INSERT INTO routes (id, service_id) VALUES (1000, 10), (2000, 20)`,

@@ -38,15 +38,17 @@ func (s *Service) userResellerID(ctx context.Context, adminUserID int64) (int64,
 	return 0, nil
 }
 
-// scopeMode classifies an admin. Restriction is OPT-IN: an admin with no
-// reseller and no admin_client_scope rows is unrestricted (full platform).
+// scopeMode classifies an admin. Restriction is OPT-IN and now EXPLICIT
+// (users.is_restricted), not inferred from admin_client_scope row count.
 type scopeMode struct {
 	all        bool  // unrestricted platform admin
 	resellerID int64 // >0 = reseller-scoped
 }
 
 // resolveMode determines whether an admin is unrestricted, reseller-scoped, or
-// client-scoped (admin_client_scope rows present).
+// client-scoped. reseller_id wins; otherwise users.is_restricted decides. A
+// restricted admin with zero admin_client_scope rows sees nothing (fail-safe),
+// which is why the flag is explicit rather than inferred from the row count.
 func (s *Service) resolveMode(ctx context.Context, adminUserID int64) (scopeMode, error) {
 	rid, err := s.userResellerID(ctx, adminUserID)
 	if err != nil {
@@ -59,15 +61,15 @@ func (s *Service) resolveMode(ctx context.Context, adminUserID int64) (scopeMode
 	if db == nil {
 		return scopeMode{}, nil
 	}
-	var n int
+	var restricted bool
 	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM admin_client_scope WHERE admin_user_id=?`, adminUserID).Scan(&n); err != nil {
+		`SELECT COALESCE(is_restricted,0) FROM users WHERE id=?`, adminUserID).Scan(&restricted); err != nil {
 		return scopeMode{}, fmt.Errorf("adminscope: mode: %w", err)
 	}
-	if n == 0 {
-		return scopeMode{all: true}, nil // no restriction on file
+	if restricted {
+		return scopeMode{}, nil // client-scoped (empty scope = sees nothing)
 	}
-	return scopeMode{}, nil // client-scoped
+	return scopeMode{all: true}, nil // unrestricted
 }
 
 func (s *Service) CanAccessClient(ctx context.Context, adminUserID, clientID int64) (bool, error) {

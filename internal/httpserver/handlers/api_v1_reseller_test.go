@@ -28,7 +28,7 @@ func openResellerAPIDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	for _, s := range []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0)`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, user_id INTEGER, display_name TEXT, reseller_id INTEGER)`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
 		`CREATE TABLE plans (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,

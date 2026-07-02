@@ -19,12 +19,12 @@ func openResellerDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	stmts := []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0)`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
 		// user 1 = reseller-admin (reseller 7); user 2 = client-scoped admin
 		// (has admin_client_scope rows); user 3 = bare/unrestricted admin.
-		`INSERT INTO users (id, reseller_id) VALUES (1, 7), (2, NULL), (3, NULL)`,
+		`INSERT INTO users (id, reseller_id, is_restricted) VALUES (1, 7, 0), (2, NULL, 1), (3, NULL, 0)`,
 		// reseller 7 owns clients 100,101; client 200 belongs to another reseller;
 		// client 300 is platform-direct (reseller_id NULL).
 		`INSERT INTO clients (id, reseller_id) VALUES (100, 7), (101, 7), (200, 9), (300, NULL)`,

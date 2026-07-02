@@ -2950,6 +2950,7 @@ type userRow struct {
 	CanDelete   bool
 	ScopeCount  int
 	ScopeIDs    string
+	Restricted  bool // explicit users.is_restricted flag
 }
 
 type userScopeClientRow struct {
@@ -2988,7 +2989,8 @@ func (h *AdminHandlers) UsersList(w http.ResponseWriter, r *http.Request) {
 	q := `SELECT id, COALESCE(full_name,''), email, role, is_active, totp_enabled,
 	             COALESCE(DATE_FORMAT(last_login_at, '%Y-%m-%d %H:%i'), ''),
 	             (SELECT COUNT(*) FROM admin_client_scope acs WHERE acs.admin_user_id = users.id),
-	             COALESCE((SELECT GROUP_CONCAT(acs.client_id ORDER BY acs.client_id SEPARATOR ',') FROM admin_client_scope acs WHERE acs.admin_user_id = users.id), '')
+	             COALESCE((SELECT GROUP_CONCAT(acs.client_id ORDER BY acs.client_id SEPARATOR ',') FROM admin_client_scope acs WHERE acs.admin_user_id = users.id), ''),
+	             COALESCE(is_restricted,0)
 	      FROM users`
 	args := []any{}
 	var conds []string
@@ -3010,7 +3012,7 @@ func (h *AdminHandlers) UsersList(w http.ResponseWriter, r *http.Request) {
 		defer rows.Close()
 		for rows.Next() {
 			var u userRow
-			if err := rows.Scan(&u.ID, &u.FullName, &u.Email, &u.Role, &u.IsActive, &u.TOTPEnabled, &u.LastLoginAt, &u.ScopeCount, &u.ScopeIDs); err == nil {
+			if err := rows.Scan(&u.ID, &u.FullName, &u.Email, &u.Role, &u.IsActive, &u.TOTPEnabled, &u.LastLoginAt, &u.ScopeCount, &u.ScopeIDs, &u.Restricted); err == nil {
 				// Safety: a user can't disable/delete themselves; only super_admin
 				// can act on another super_admin.
 				canAct := true
@@ -3280,6 +3282,14 @@ func (h *AdminHandlers) UsersScopeUpdate(w http.ResponseWriter, r *http.Request)
 			redirectWithFlash(w, r, "/admin/users", "", "scope save failed")
 			return
 		}
+	}
+	// Explicit restriction flag (decoupled from row count so removing the last
+	// client keeps a restricted admin scoped-to-nothing instead of escalating
+	// to full access). A restricted admin with no clients sees nothing.
+	restricted := r.FormValue("is_restricted") == "1"
+	if _, err := tx.ExecContext(ctx, "UPDATE users SET is_restricted = ? WHERE id = ?", restricted, id); err != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "scope flag save failed")
+		return
 	}
 	if err := tx.Commit(); err != nil {
 		redirectWithFlash(w, r, "/admin/users", "", "scope commit failed")

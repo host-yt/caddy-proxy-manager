@@ -20,7 +20,7 @@ func openAPIScopeDB(t *testing.T) func() *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	for _, s := range []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0)`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
 		// user 1 = reseller-admin (reseller 7); user 3 = bare admin.
