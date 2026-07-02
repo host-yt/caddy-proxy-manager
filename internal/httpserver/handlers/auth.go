@@ -416,15 +416,24 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 // `via` is the entry path ("password", "oidc"). `mfa` is the second-factor
 // used ("none", "totp", "recovery", "sms", "email"); SSO logins report "none"
 // with via="oidc" so the dashboard can distinguish them.
-// lookupResellerID returns the reseller a user belongs to, or 0. Best-effort:
-// called at login on a DB that just authenticated the user, so a NULL/miss maps
-// to 0 (platform admin) rather than failing the login.
+// resellerScopeUnknown: non-zero poison so a lookup failure fails CLOSED
+// (boundary denies, ScopeFilter matches no clients), never platform-admin.
+const resellerScopeUnknown = int64(-1)
+
+// lookupResellerID returns the user's reseller (0 = none). Fail-closed: a DB
+// error yields resellerScopeUnknown; only a clean NULL/no-row maps to 0.
 func lookupResellerID(ctx context.Context, db *sql.DB, userID int64) int64 {
 	if db == nil {
-		return 0
+		return resellerScopeUnknown
 	}
 	var rid sql.NullInt64
-	_ = db.QueryRowContext(ctx, "SELECT reseller_id FROM users WHERE id = ?", userID).Scan(&rid)
+	err := db.QueryRowContext(ctx, "SELECT reseller_id FROM users WHERE id = ?", userID).Scan(&rid)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0
+		}
+		return resellerScopeUnknown // fail-closed on a real DB error
+	}
 	if rid.Valid {
 		return rid.Int64
 	}
