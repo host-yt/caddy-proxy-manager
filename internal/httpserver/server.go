@@ -362,6 +362,9 @@ func (s *Server) routes() {
 			"/admin/map",      // scoped by ScopeFilter to owned clients
 			"/admin/worldmap", // scoped
 			"/admin/ai/chat*", // scoped (tools filter to owned clients)
+			// Tunnels: list scoped via adminClientScope, every {id} op gated by
+			// scopeCheckPeer/Client (reseller-aware). Safe to expose in full.
+			"/admin/tunnels*",
 			// /admin/search NOT allow-listed: AdminSearch unscoped (F3 to scope).
 		}))
 		// Enforce 2FA enrollment for admins when REQUIRE_ADMIN_2FA (env) or the

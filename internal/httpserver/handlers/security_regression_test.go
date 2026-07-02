@@ -72,9 +72,11 @@ func scopedAdminSchemaDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	stmts := []string{
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
 		`CREATE TABLE services (id INTEGER PRIMARY KEY, client_id INTEGER)`,
 		`CREATE TABLE routes (id INTEGER PRIMARY KEY, service_id INTEGER)`,
+		`INSERT INTO users (id, reseller_id) VALUES (1, NULL)`,
 		`INSERT INTO admin_client_scope (admin_user_id, client_id) VALUES (1, 100)`,
 		`INSERT INTO services (id, client_id) VALUES (10, 100), (20, 200)`,
 		`INSERT INTO routes (id, service_id) VALUES (1000, 10), (2000, 20)`,
