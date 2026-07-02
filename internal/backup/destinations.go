@@ -4,10 +4,20 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
+
+// insecureTransportAllowed reports whether insecure backup transport opt-outs
+// (plaintext FTP, skip_verify, insecure_host_key) may be honoured. They are
+// refused in production so a misconfigured destination cannot silently ship
+// the DR artifact over a MITM-able channel (DB-02 / DB-03). APP_ENV defaults
+// to "production" (matches internal/config), so the safe default is deny.
+func insecureTransportAllowed() bool {
+	return os.Getenv("APP_ENV") != "production"
+}
 
 // validateDestHost rejects backup destination hostnames that resolve into
 // SSRF-sensitive ranges (loopback, RFC1918, link-local, CGNAT). Admin is

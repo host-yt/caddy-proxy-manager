@@ -179,7 +179,9 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		GeoModuleAvailable:       cfg.Caddy.GeoIPAvailable,
 		DNS01ModuleAvailable:     cfg.Caddy.DNS01Available,
 		// External-HTTPS-upstream routes: at-rest secret crypto + host allowlist.
-		EncryptSecret:             state.Encrypt,
+		// Per-purpose sub-key so a route-secret leak/rotation is scoped
+		// (CRYPTO-02); Decrypt auto-detects legacy + v2 envelopes.
+		EncryptSecret:             state.Scoped("route").Encrypt,
 		DecryptSecret:             state.Decrypt,
 		ExternalUpstreamAllowlist: cfg.Security.ExternalUpstreamAllowlist,
 		// Incremental per-route Caddy push (PATCH/POST/DELETE by @id) for
@@ -488,7 +490,8 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	wgPeerSvc := &wgpeer.Service{
 		DB:     wizard.DB(),
 		Logger: logger,
-		Enc:    state,
+		// Per-purpose sub-key for customer WG private keys (CRYPTO-02).
+		Enc: state.Scoped("wg"),
 	}
 	wgBootH := &handlers.WGBootstrapHandler{
 		DB:          wizard.DB,
@@ -643,6 +646,9 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		}
 		if n, err := accesslog.PruneRollups(ctx, db); err == nil && n > 0 {
 			logger.Info("rollup retention prune", "rows", n)
+		}
+		if n, err := accesslog.PruneAccessLog(ctx, db); err == nil && n > 0 {
+			logger.Info("access-log retention prune", "rows", n)
 		}
 	}))
 

@@ -2247,6 +2247,13 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			ip = tunnelResolverIP
 		}
 		backendResolver := ""
+		// lb_cookie_secret is stored encrypted at rest (SECRET-02); decrypt for
+		// the Caddy push. Legacy plaintext rows fall through unchanged.
+		if lbCookieSecret != "" && s.DecryptSecret != nil {
+			if dec, derr := s.DecryptSecret(lbCookieSecret); derr == nil {
+				lbCookieSecret = dec
+			}
+		}
 		// Resolve geo-block response: a client's own customisation wins over the
 		// panel-wide default (empty client action = inherit the default).
 		gb := geoDefault

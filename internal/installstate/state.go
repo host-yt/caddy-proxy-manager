@@ -20,6 +20,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"crypto/sha256"
@@ -99,10 +100,13 @@ var StepOrder = []string{StepWelcome, StepProfile, StepDB, StepAdmin, StepApp, S
 
 // Manager persists state and provides encryption helpers.
 type Manager struct {
-	path  string
-	key   []byte
-	mu    sync.RWMutex
-	cache *State
+	path string
+	key  []byte
+	// purpose, when non-empty, makes Encrypt emit a per-purpose envelope
+	// (see Scoped / CRYPTO-02). Empty = the legacy shared-key format.
+	purpose string
+	mu      sync.RWMutex
+	cache   *State
 }
 
 // New returns a Manager whose state file lives at <dir>/install_state.json.
@@ -179,9 +183,31 @@ func (m *Manager) Save(s *State) error {
 	return nil
 }
 
-// Encrypt encrypts plaintext with AES-256-GCM and returns base64 string.
-func (m *Manager) Encrypt(plaintext string) (string, error) {
-	block, err := aes.NewCipher(m.key)
+// v2Prefix marks a per-purpose envelope: "v2:<purpose>:<base64(nonce||ct)>".
+// Ciphertext without it is the legacy shared-key format (decrypted with m.key).
+const v2Prefix = "v2:"
+
+// Scoped returns a Manager whose Encrypt emits a per-purpose envelope sealed
+// under a sub-key HKDF(stateKey, "hpg/secret/<purpose>/v1"), so a single leaked
+// sub-key or a per-domain rotation is scoped to that purpose (CRYPTO-02). The
+// returned Manager shares the base key, so its Decrypt still reads legacy and
+// any-purpose v2 values. Use it only for at-rest secret crypto (not state I/O).
+func (m *Manager) Scoped(purpose string) *Manager {
+	return &Manager{path: m.path, key: m.key, purpose: purpose}
+}
+
+// purposeKey derives the per-purpose AES key from the state key.
+func (m *Manager) purposeKey(purpose string) ([]byte, error) {
+	r := hkdf.New(sha256.New, m.key, nil, []byte("hpg/secret/"+purpose+"/v1"))
+	k := make([]byte, 32)
+	if _, err := io.ReadFull(r, k); err != nil {
+		return nil, fmt.Errorf("hkdf purpose %q: %w", purpose, err)
+	}
+	return k, nil
+}
+
+func seal(key []byte, plaintext string) (string, error) {
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
@@ -197,13 +223,12 @@ func (m *Manager) Encrypt(plaintext string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ct), nil
 }
 
-// Decrypt reverses Encrypt.
-func (m *Manager) Decrypt(b64 string) (string, error) {
+func open(key []byte, b64 string) (string, error) {
 	raw, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
 		return "", err
 	}
-	block, err := aes.NewCipher(m.key)
+	block, err := aes.NewCipher(key)
 	if err != nil {
 		return "", err
 	}
@@ -215,12 +240,53 @@ func (m *Manager) Decrypt(b64 string) (string, error) {
 	if len(raw) < ns {
 		return "", errors.New("ciphertext too short")
 	}
-	nonce, ct := raw[:ns], raw[ns:]
-	pt, err := gcm.Open(nil, nonce, ct, nil)
+	pt, err := gcm.Open(nil, raw[:ns], raw[ns:], nil)
 	if err != nil {
 		return "", fmt.Errorf("gcm open: %w", err)
 	}
 	return string(pt), nil
+}
+
+// EncryptFor seals plaintext under the named purpose's sub-key and returns the
+// self-describing v2 envelope.
+func (m *Manager) EncryptFor(purpose, plaintext string) (string, error) {
+	key, err := m.purposeKey(purpose)
+	if err != nil {
+		return "", err
+	}
+	b64, err := seal(key, plaintext)
+	if err != nil {
+		return "", err
+	}
+	return v2Prefix + purpose + ":" + b64, nil
+}
+
+// Encrypt seals plaintext. A purpose-scoped Manager (see Scoped) emits a v2
+// per-purpose envelope; otherwise it uses the legacy shared-key format so
+// unmigrated callers keep producing back-compatible ciphertext.
+func (m *Manager) Encrypt(plaintext string) (string, error) {
+	if m.purpose != "" {
+		return m.EncryptFor(m.purpose, plaintext)
+	}
+	return seal(m.key, plaintext)
+}
+
+// Decrypt reverses Encrypt/EncryptFor. It auto-detects the format: a v2
+// envelope is opened with its embedded purpose's sub-key; anything else is
+// treated as legacy shared-key ciphertext.
+func (m *Manager) Decrypt(b64 string) (string, error) {
+	if rest, ok := strings.CutPrefix(b64, v2Prefix); ok {
+		purpose, payload, found := strings.Cut(rest, ":")
+		if !found || purpose == "" {
+			return "", errors.New("malformed v2 envelope")
+		}
+		key, err := m.purposeKey(purpose)
+		if err != nil {
+			return "", err
+		}
+		return open(key, payload)
+	}
+	return open(m.key, b64)
 }
 
 // DeriveBackupKey returns a 32-byte key derived from APP_SECRET via HKDF

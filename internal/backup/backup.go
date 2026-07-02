@@ -482,9 +482,10 @@ func (s *Service) encodeConfig(cfg map[string]string) (string, error) {
 		return "", err
 	}
 	if s.State == nil {
-		// No encryption available: store plaintext base64. Logged at higher
-		// level — should not happen in normal operation.
-		return "plain:" + string(raw), nil
+		// Fail closed: never persist destination credentials (S3 keys, SFTP
+		// passwords, SSH keys) in cleartext. The read path still accepts legacy
+		// plain:/unprefixed blobs, but we refuse to write new ones (SECRET-03).
+		return "", errors.New("cannot encrypt destination config: installstate not wired")
 	}
 	enc, err := s.State.Encrypt(string(raw))
 	if err != nil {

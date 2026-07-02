@@ -125,6 +125,11 @@ type SecurityConfig struct {
 	// keeps the legacy behavior (open within the docker network); set it
 	// in production to lock the endpoint down.
 	MetricsAllow []string
+	// FOSSBillingAllowIPs source-binds the /api/v1/provisioning endpoints to
+	// the billing system's IP(s) (CIDR allow-list). Empty = no source
+	// restriction (auth is still the API key). Set it to bind provisioning to
+	// the billing host so a leaked admin key alone cannot provision (BILL-01).
+	FOSSBillingAllowIPs []string
 	// ExternalUpstreamAllowlist is the set of FQDNs an external-HTTPS-upstream
 	// route may proxy to (exact host). Empty = external routes disabled. The
 	// primary open-relay defense for the external-proxy feature.
@@ -220,6 +225,7 @@ func Load() (*Config, error) {
 			CaptchaSecret:             os.Getenv("CAPTCHA_SECRET"),
 			SSOJumpSharedSecret:       os.Getenv("SSO_JUMP_SHARED_SECRET"),
 			MetricsAllow:              splitCSV(os.Getenv("APP_METRICS_ALLOW")),
+			FOSSBillingAllowIPs:       splitCSV(os.Getenv("FOSSBILLING_ALLOW_IPS")),
 			ExternalUpstreamAllowlist: splitCSV(os.Getenv("EXTERNAL_UPSTREAM_ALLOWLIST")),
 			SIEMWebhook:               os.Getenv("AUDIT_SIEM_WEBHOOK"),
 			RequireAdmin2FA:           envBool("REQUIRE_ADMIN_2FA", false),

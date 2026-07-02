@@ -2381,6 +2381,13 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		h.render(w, "hosts_edit", d)
 		return
 	}
+	// Decrypt lb_cookie_secret for the edit form (SECRET-02). Legacy plaintext
+	// rows (pre-encryption) fail to decrypt and fall through unchanged.
+	if d.LBCookieSecret != "" && h.Routes.DecryptSecret != nil {
+		if dec, derr := h.Routes.DecryptSecret(d.LBCookieSecret); derr == nil {
+			d.LBCookieSecret = dec
+		}
+	}
 	// mTLS CA dropdown: active CAs only, newest first (best-effort).
 	if car, cerr := db.QueryContext(ctx,
 		`SELECT id, COALESCE(NULLIF(name,''), common_name) FROM mtls_cas WHERE status='active' ORDER BY id DESC`); cerr == nil {
@@ -2650,6 +2657,14 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	lbHeaderField := strings.TrimSpace(r.FormValue("lb_header_field"))
 	lbCookieName := strings.TrimSpace(r.FormValue("lb_cookie_name"))
 	lbCookieSecret := strings.TrimSpace(r.FormValue("lb_cookie_secret"))
+	// Encrypt the LB sticky-cookie signing secret at rest (SECRET-02); the
+	// Caddy push path decrypts it. Form carries the plaintext (edit view
+	// decrypts for display), so a re-save re-seals cleanly.
+	if lbCookieSecret != "" && h.Routes.EncryptSecret != nil {
+		if enc, eerr := h.Routes.EncryptSecret(lbCookieSecret); eerr == nil {
+			lbCookieSecret = enc
+		}
+	}
 	healthURI := strings.TrimSpace(r.FormValue("health_uri"))
 	if healthURI != "" && !strings.HasPrefix(healthURI, "/") {
 		healthURI = "/" + healthURI

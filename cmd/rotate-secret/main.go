@@ -118,6 +118,47 @@ func deriveStateKey(secret string) []byte {
 	return k
 }
 
+// v2Prefix mirrors installstate: "v2:<purpose>:<b64>" per-purpose envelopes.
+const v2Prefix = "v2:"
+
+// derivePurposeKey reproduces installstate.Manager.purposeKey: the sub-key is
+// HKDF(stateKey, info=hpg/secret/<purpose>/v1).
+func derivePurposeKey(stateKey []byte, purpose string) []byte {
+	r := hkdf.New(sha256.New, stateKey, nil, []byte("hpg/secret/"+purpose+"/v1"))
+	k := make([]byte, 32)
+	_, _ = io.ReadFull(r, k)
+	return k
+}
+
+// decEnvelope decrypts a stored value under the state key, auto-detecting the
+// v2 per-purpose envelope. Returns the purpose ("" for legacy) so the caller
+// can re-emit the same form under the new key.
+func decEnvelope(stored string, stateKey []byte) (purpose, pt string, err error) {
+	if rest, ok := strings.CutPrefix(stored, v2Prefix); ok {
+		p, payload, found := strings.Cut(rest, ":")
+		if !found || p == "" {
+			return "", "", errors.New("malformed v2 envelope")
+		}
+		s, e := decrypt(payload, derivePurposeKey(stateKey, p))
+		return p, s, e
+	}
+	s, e := decrypt(stored, stateKey)
+	return "", s, e
+}
+
+// encEnvelope re-seals under the new state key, preserving the envelope form
+// (v2 per-purpose when purpose != "", else legacy shared-key).
+func encEnvelope(purpose, pt string, stateKey []byte) (string, error) {
+	if purpose == "" {
+		return encrypt(pt, stateKey)
+	}
+	b64, err := encrypt(pt, derivePurposeKey(stateKey, purpose))
+	if err != nil {
+		return "", err
+	}
+	return v2Prefix + purpose + ":" + b64, nil
+}
+
 func decrypt(b64 string, key []byte) (string, error) {
 	raw, err := base64.StdEncoding.DecodeString(b64)
 	if err != nil {
@@ -218,25 +259,29 @@ type dbStats struct{ settings, totp, enc, pending, apikeys int }
 // encColumn describes one id-keyed column holding installstate-encrypted
 // ciphertext that rotate-secret must re-seal under the new key.
 type encColumn struct {
-	table  string // table name
-	idCol  string // primary key column used to target the UPDATE
-	col    string // encrypted column
-	where  string // extra filter ANDed onto the non-empty guard, e.g. "is_encrypted = 1"
-	prefix string // storage prefix stripped before decrypt / re-added after, "" if none
+	table    string // table name
+	idCol    string // primary key column used to target the UPDATE
+	col      string // encrypted column
+	where    string // extra filter ANDed onto the non-empty guard, e.g. "is_encrypted = 1"
+	prefix   string // storage prefix stripped before decrypt / re-added after, "" if none
+	tolerant bool   // skip (not fail) rows that fail to decrypt (transitional plaintext)
 }
 
 // encColumns is every dedicated at-rest secret column outside settings/totp.
 // Missing one here means an APP_SECRET rotation orphans it (CRYPTO-01).
 var encColumns = []encColumn{
-	{"routes", "id", "proxy_secret_enc", "", ""},
-	{"backup_destinations", "id", "config_enc", "", "enc:"},
-	{"dns_providers", "id", "api_token_enc", "", ""},
-	{"webhook_endpoints", "id", "secret_enc", "", ""},
-	{"oauth_providers", "provider", "client_secret", "is_encrypted = 1", ""},
-	{"sync_slaves", "id", "token_enc", "", ""},
-	{"customer_wg_peer", "id", "server_privkey_e2", "", ""},
-	{"mtls_cas", "id", "key_pem_enc", "", ""},
-	{"manual_certs", "id", "key_pem_enc", "", ""},
+	{"routes", "id", "proxy_secret_enc", "", "", false},
+	{"backup_destinations", "id", "config_enc", "", "enc:", false},
+	{"dns_providers", "id", "api_token_enc", "", "", false},
+	{"webhook_endpoints", "id", "secret_enc", "", "", false},
+	{"oauth_providers", "provider", "client_secret", "is_encrypted = 1", "", false},
+	{"sync_slaves", "id", "token_enc", "", "", false},
+	{"customer_wg_peer", "id", "server_privkey_e2", "", "", false},
+	{"mtls_cas", "id", "key_pem_enc", "", "", false},
+	{"manual_certs", "id", "key_pem_enc", "", "", false},
+	// lb_cookie_secret is encrypted at rest as of SECRET-02, but legacy rows
+	// may still hold plaintext until re-saved - tolerate undecryptable rows.
+	{"routes", "id", "lb_cookie_secret", "", "", true},
 }
 
 func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
@@ -281,14 +326,14 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 	}
 	rows.Close()
 	for _, e := range todo {
-		pt, err := decrypt(e.v, oldKey)
+		purpose, pt, err := decEnvelope(e.v, oldKey)
 		if err != nil {
 			// Fail hard — silently skipping a setting we cannot decrypt
 			// leaves a forever-broken row. The operator can re-run after
 			// fixing the underlying issue (e.g., wrong --old-secret).
 			return s, fmt.Errorf("setting %q decrypt: %w", e.k, err)
 		}
-		ne, err := encrypt(pt, newKey)
+		ne, err := encEnvelope(purpose, pt, newKey)
 		if err != nil {
 			return s, err
 		}
@@ -315,11 +360,11 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 	}
 	urows.Close()
 	for _, u := range users {
-		pt, err := decrypt(u.enc, oldKey)
+		purpose, pt, err := decEnvelope(u.enc, oldKey)
 		if err != nil {
 			return s, fmt.Errorf("user %d totp decrypt: %w", u.id, err)
 		}
-		ne, err := encrypt(pt, newKey)
+		ne, err := encEnvelope(purpose, pt, newKey)
 		if err != nil {
 			return s, err
 		}
@@ -362,11 +407,15 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 				}
 				b64 = strings.TrimPrefix(e.val, c.prefix)
 			}
-			pt, derr := decrypt(b64, oldKey)
+			purpose, pt, derr := decEnvelope(b64, oldKey)
 			if derr != nil {
+				if c.tolerant {
+					// Legacy plaintext / not-yet-encrypted row: leave as-is.
+					continue
+				}
 				return s, fmt.Errorf("%s.%s id=%s decrypt: %w", c.table, c.col, e.id, derr)
 			}
-			ne, eerr := encrypt(pt, newKey)
+			ne, eerr := encEnvelope(purpose, pt, newKey)
 			if eerr != nil {
 				return s, eerr
 			}

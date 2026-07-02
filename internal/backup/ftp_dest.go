@@ -67,9 +67,19 @@ func newFTPDest(cfg map[string]string) (*ftpDest, error) {
 		d.basePath = "."
 	}
 	switch d.tlsMode {
-	case "", "explicit", "implicit":
+	case "explicit", "implicit":
+	case "":
+		// Plaintext FTP puts credentials + the full backup on the wire (DB-02).
+		// Require FTPS unless an explicit opt-out is set, and never in prod.
+		if !(cfg["insecure_ftp"] == "1" && insecureTransportAllowed()) {
+			return nil, errors.New("ftp: plaintext transport refused; use tls=explicit|implicit (or set insecure_ftp=1 outside production)")
+		}
 	default:
 		return nil, fmt.Errorf("ftp: invalid tls=%q", d.tlsMode)
+	}
+	// skip_verify defeats TLS cert validation - only outside production (DB-03).
+	if d.skipVerify && !insecureTransportAllowed() {
+		return nil, errors.New("ftp: skip_verify not allowed in production")
 	}
 	return d, nil
 }

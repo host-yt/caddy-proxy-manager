@@ -795,6 +795,14 @@ func (s *Server) routes() {
 			if s.deps.FOSSBilling != nil {
 				r.Route("/provisioning", func(r chi.Router) {
 					r.Use(mw.RequireAdminScope())
+					// Source-bind provisioning to the billing host when
+					// FOSSBILLING_ALLOW_IPS is set, so a leaked admin API key
+					// alone cannot provision from anywhere (BILL-01). Empty =
+					// no restriction (uses real client IP via TrustedRealIP).
+					provisionAllow := mw.ParseCIDRList(s.deps.Config.Security.FOSSBillingAllowIPs)
+					r.Use(func(next http.Handler) http.Handler {
+						return mw.IPAllowList(provisionAllow, next)
+					})
 					r.Post("/client", s.deps.FOSSBilling.ProvisionClient)
 					r.Post("/service", s.deps.FOSSBilling.ProvisionService)
 					r.Post("/route", s.deps.FOSSBilling.ProvisionRoute)

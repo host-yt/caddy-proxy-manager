@@ -88,6 +88,11 @@ func newSFTPDest(cfg map[string]string) (*sftpDest, error) {
 	if d.basePath == "" {
 		d.basePath = "."
 	}
+	// insecure_host_key disables host-key pinning (MITM-able) - refuse in
+	// production (DB-03).
+	if d.insecure && !insecureTransportAllowed() {
+		return nil, errors.New("sftp: insecure_host_key not allowed in production; pin host_key instead")
+	}
 	if hk := strings.TrimSpace(cfg["host_key"]); hk != "" {
 		pub, _, _, _, err := ssh.ParseAuthorizedKey([]byte(hk))
 		if err != nil {

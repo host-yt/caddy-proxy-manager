@@ -41,16 +41,28 @@ func (cw *captureWriter) Write(b []byte) (int, error) {
 	return cw.ResponseWriter.Write(b)
 }
 
-// Idempotency returns stored responses for repeated POST requests that carry
-// an Idempotency-Key header. Keyed by (header_value, user_id) so one user
+// mutatingMethod reports whether a method changes state and is therefore worth
+// deduping when an Idempotency-Key is supplied. Covers POST/PUT/PATCH/DELETE so
+// entitlement-changing calls like PUT suspend / DELETE service are deduped, not
+// just POST creates (security review BILL-02).
+func mutatingMethod(m string) bool {
+	switch m {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	}
+	return false
+}
+
+// Idempotency returns stored responses for repeated mutating requests that
+// carry an Idempotency-Key header. Keyed by (header_value, user_id) so one user
 // cannot replay another user's key. The cached entry is bound to the request
 // method, path and body hash; reusing a key for a different request yields 409.
-// The key is reserved before the handler runs so concurrent same-key POSTs do
-// not both execute. TTL is 24 h.
+// The key is reserved before the handler runs so concurrent same-key requests
+// do not both execute. TTL is 24 h.
 func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Method != http.MethodPost {
+			if !mutatingMethod(r.Method) {
 				next.ServeHTTP(w, r)
 				return
 			}

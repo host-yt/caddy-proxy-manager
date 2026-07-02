@@ -170,6 +170,13 @@ func (s *Service) attempt(ctx context.Context, deliveryID, epID int64, body stri
 			"endpoint missing or disabled", deliveryID)
 		return
 	}
+	// Fail closed: never deliver an unsigned payload. A receiver cannot
+	// distinguish a genuine unsigned event from a forged one, so an endpoint
+	// with no signing secret must not be called at all (BILL-03).
+	if secretEnc.String == "" || s.State == nil {
+		s.markFail(ctx, deliveryID, attempts, 0, "endpoint has no signing secret; refusing unsigned delivery")
+		return
+	}
 	// Re-validate at dispatch time (URL could have been saved before the
 	// SSRF guard existed, or set via direct DB write). SafeHTTPClient also
 	// re-validates each redirect hop.
@@ -188,13 +195,15 @@ func (s *Service) attempt(ctx context.Context, deliveryID, epID int64, body stri
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "hostyt-proxy-webhook/1")
-	if secretEnc.String != "" && s.State != nil {
-		if secret, derr := s.State.Decrypt(secretEnc.String); derr == nil {
-			mac := hmac.New(sha256.New, []byte(secret))
-			mac.Write([]byte(body))
-			req.Header.Set("X-HPG-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
-		}
+	secret, derr := s.State.Decrypt(secretEnc.String)
+	if derr != nil {
+		// Cannot recover the signing secret - refuse rather than send unsigned.
+		s.markFail(ctx, deliveryID, attempts, 0, "signing secret undecryptable; refusing delivery")
+		return
 	}
+	mac := hmac.New(sha256.New, []byte(secret))
+	mac.Write([]byte(body))
+	req.Header.Set("X-HPG-Signature", "sha256="+hex.EncodeToString(mac.Sum(nil)))
 	resp, err := s.hc.Do(req)
 	if err != nil {
 		if s.Metrics != nil {
@@ -263,14 +272,19 @@ func (s *Service) SaveEndpoint(ctx context.Context, name, urlStr, secret, events
 	if db == nil {
 		return 0, errors.New("db not ready")
 	}
-	var secretEnc sql.NullString
-	if secret != "" && s.State != nil {
-		enc, err := s.State.Encrypt(secret)
-		if err != nil {
-			return 0, fmt.Errorf("encrypt: %w", err)
-		}
-		secretEnc = sql.NullString{String: enc, Valid: true}
+	// A signing secret is mandatory: unsigned deliveries are refused at
+	// dispatch (BILL-03), so an endpoint without one could never fire.
+	if secret == "" {
+		return 0, errors.New("signing secret required (webhook deliveries must be signed)")
 	}
+	if s.State == nil {
+		return 0, errors.New("cannot encrypt webhook secret: installstate not wired")
+	}
+	enc, err := s.State.Encrypt(secret)
+	if err != nil {
+		return 0, fmt.Errorf("encrypt: %w", err)
+	}
+	secretEnc := sql.NullString{String: enc, Valid: true}
 	var createdByVal sql.NullInt64
 	if createdBy != 0 {
 		createdByVal = sql.NullInt64{Int64: createdBy, Valid: true}

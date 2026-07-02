@@ -18,6 +18,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // FOSSBillingHandlers handles provisioning calls from a FOSSBilling instance.
@@ -162,8 +163,15 @@ func (h *FOSSBillingHandlers) ProvisionService(w http.ResponseWriter, r *http.Re
 		fbErr(w, http.StatusBadRequest, "client_id, name, backend_ip, plan_id required")
 		return
 	}
-	if net.ParseIP(in.BackendIP) == nil {
+	backendIP := net.ParseIP(in.BackendIP)
+	if backendIP == nil {
 		fbErr(w, http.StatusBadRequest, "backend_ip invalid")
+		return
+	}
+	// SSRF screen the backend (loopback/link-local/metadata) - twin of
+	// CADDY-02 / API-02.
+	if security.IsDangerousProxyBackend(backendIP) {
+		fbErr(w, http.StatusBadRequest, "backend_ip not allowed (loopback/link-local/metadata)")
 		return
 	}
 	if in.PortStart < 1 || in.PortEnd > 65535 || in.PortStart > in.PortEnd {

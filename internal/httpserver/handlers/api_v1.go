@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -17,6 +18,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // APIHandlers groups all /api/v1 endpoints. They share APIKeyAuth middleware.
@@ -111,8 +113,15 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "required fields missing")
 		return
 	}
-	if net.ParseIP(in.BackendIP) == nil {
+	backendIP := net.ParseIP(in.BackendIP)
+	if backendIP == nil {
 		apiErr(w, http.StatusBadRequest, "backend_ip invalid")
+		return
+	}
+	// Screen the backend for SSRF-sensitive ranges (loopback/link-local/
+	// metadata) - twin of CADDY-02 on the web path (API-02).
+	if security.IsDangerousProxyBackend(backendIP) {
+		apiErr(w, http.StatusBadRequest, "backend_ip not allowed (loopback/link-local/metadata)")
 		return
 	}
 	if in.AllowedPortStart < 1 || in.AllowedPortEnd > 65535 || in.AllowedPortStart > in.AllowedPortEnd {
@@ -523,6 +532,16 @@ func (h *APIHandlers) NodeCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if in.Name == "" || in.APIURL == "" || in.NodeGroupID == 0 || in.MaxRoutes <= 0 {
 		apiErr(w, http.StatusBadRequest, "required fields missing")
+		return
+	}
+	// Screen the node admin URL (API-03). Nodes live on the private WG mesh so
+	// RFC1918/hostnames are allowed by design; block only a literal-IP host in
+	// the loopback/link-local/metadata ranges (node-local admin / SSRF probe).
+	if u, perr := url.Parse(in.APIURL); perr != nil || (u.Scheme != "http" && u.Scheme != "https") {
+		apiErr(w, http.StatusBadRequest, "api_url must be a valid http(s) URL")
+		return
+	} else if ip := net.ParseIP(u.Hostname()); ip != nil && security.IsDangerousProxyBackend(ip) {
+		apiErr(w, http.StatusBadRequest, "api_url host not allowed (loopback/link-local/metadata)")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
