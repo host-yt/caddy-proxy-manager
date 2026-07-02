@@ -267,10 +267,8 @@ goose: migration 0031_some_table.sql: pq: column "foo" of relation "bar" already
 
 **Check current migration state:**
 ```bash
-docker exec $(docker ps -qf name=hostyt-proxy-gateway-app-1) \
-  /app/server migrate-status 2>/dev/null \
-  || docker exec $(docker ps -qf name=mariadb) \
-       mysql -u root -p hostyt_proxy -e "SELECT version_id, is_applied, tstamp FROM goose_db_version ORDER BY id DESC LIMIT 10;"
+docker exec $(docker ps -qf name=mariadb) \
+  mysql -u root -p hostyt_proxy -e "SELECT version_id, is_applied, tstamp FROM goose_db_version ORDER BY id DESC LIMIT 10;"
 ```
 
 **Common causes and fixes:**
@@ -378,6 +376,6 @@ From the panel UI: **Admin -> Caddy nodes -> (node) -> Sync**. This re-pushes th
 
 To trigger it from the command line (with an API key from **Admin -> API keys**):
 ```bash
-curl -X POST https://panel.example.com/api/v1/nodes/<node-id>/sync \
+curl -X POST https://panel.example.com/api/v1/nodes/<node-id>/resync \
   -H "Authorization: Bearer <api-key>"
 ```

@@ -25,6 +25,10 @@ The manager runs a WireGuard sidecar container (`deploy/wireguard/`) in the
 host network namespace. When a node joins, the sidecar re-reads `wg0.conf` and
 calls `wg syncconf` - no interface restart, no dropped sessions.
 
+Node pools/nodes are platform-global infrastructure managed only by platform
+admins (gated by `requireGlobalAPIAdmin`), not reseller-scoped - reseller-admins
+cannot manage nodes or the WireGuard mesh.
+
 ---
 
 ## 2. Network Topology

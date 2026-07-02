@@ -61,8 +61,14 @@ Operations:
 
 ---
 
+## Shipped (v1.3)
+
+- **Reseller tier** - reseller-admins with own clients, reseller-scoped plans, white-label client portal + status page, suspend/resume (fails closed)
+- **Terraform provider** (`terraform-provider-hpg`) - manage nodes, node pools, plans, clients, services and routes via Terraform/OpenTofu; multi-tenant key scope
+- **Lite deployment** - `docker-compose.lite.yml` on stock Caddy (edge modules disabled) for installs that do not need WAF/GeoIP/L4
+
+---
+
 ## Planned
 
-- **Reseller tier** - sub-admins with quota caps and white-label panel
-- **Terraform provider** - manage routes and clients via Terraform/OpenTofu
-- **ClickHouse analytics backend** - high-volume request log storage and ad-hoc query for large deployments
+- **Automatic failover** hardening and richer node-health signals

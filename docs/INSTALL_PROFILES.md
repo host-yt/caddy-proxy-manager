@@ -29,12 +29,11 @@ its own modules.
 > **MySQL/MariaDB never goes away.** It is the primary, fully supported driver
 > and is **required** for `provider` mode.
 
-`*` SQLite is **planned but not yet available** (`deployment.SQLiteAvailable`
-is `false`). The wizard shows it as a disabled option and a `DBDriver` seam is
-already in place (`DB_DRIVER` env / install state), but the current release runs
-only on MySQL/MariaDB. SQLite is deferred because the schema and queries rely on
-MySQL-specific features (`ENUM`, `GET_LOCK`, `ON DUPLICATE KEY UPDATE`,
-`NOW() ... INTERVAL`, etc.) that need a portable abstraction first.
+`*` SQLite is **available** (`deployment.SQLiteAvailable = true`) and is the
+recommended driver for `homelab`/`smallteam` single-node installs. The wizard
+offers it as a selectable option (see the DB step in `docs/INSTALL.md`); the
+`provider` profile still hard-requires MySQL/MariaDB. Driver choice is persisted
+in install state and gated per-profile by `Profile.AllowsDriver`.
 
 - `provider` hard-requires MySQL/MariaDB; the wizard and the profile switch both
   block any other driver.

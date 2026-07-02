@@ -40,9 +40,9 @@ returned by the API and is used verbatim for `terraform import`.
 |----------|--------|------|--------|--------|-------|
 | `hpg_node_pool` | `POST /node-pools` | `GET /node-pools/{id}` | `PATCH /node-pools/{id}` | `DELETE /node-pools/{id}` | platform-admin key only |
 | `hpg_node` | `POST /nodes` | `GET /nodes/{id}` | `PATCH /nodes/{id}` | `DELETE /nodes/{id}` | platform-admin key only; `node_group_id` -> `hpg_node_pool.id` |
-| `hpg_plan` | `POST /plans` | `GET /plans/{id}` | `PATCH /plans/{id}` | `DELETE /plans/{id}` | reseller keys create own-reseller plans |
+| `hpg_plan` | `POST /plans` | `GET /plans/{id}` | `PATCH /plans/{id}` | `DELETE /plans/{id}` | platform-admin key only (reseller-admins manage plans via the panel, not the API) |
 | `hpg_client` | `POST /clients` | `GET /clients/{id}` | `PATCH /clients/{id}` | `DELETE /clients/{id}` | reseller keys stamp `reseller_id` on create and may delete only their own clients |
-| `hpg_service` | `POST /services` | `GET /services/{id}` | `PATCH /services/{id}` | `DELETE /services/{id}` | `client_id` + `plan_id` must be in key scope |
+| `hpg_service` | `POST /services` | `GET /services/{id}` | `PATCH /services/{id}` + `POST /services/{id}/ports` | `DELETE /services/{id}` | `client_id`/`name`/`backend_ip`/`plan_id` force-replace; ports patched via the dedicated endpoint; must be in key scope |
 | `hpg_route` | `POST /routes` | `GET /routes/{id}` | `PATCH /routes/{id}` | `DELETE /routes/{id}` | `service_id` -> `hpg_service.id`; SSL is async |
 
 ### Attribute reference (abridged)
@@ -51,11 +51,11 @@ See the OpenAPI schema for the exhaustive list; these are the required/notable
 attributes a provider must expose.
 
 - **hpg_node_pool**: `name` (required), `mode` (`single`|`active_active`|`failover`).
-- **hpg_node**: `name`, `api_url`, `node_group_id`, `max_routes` (required); `public_hostname`, `public_ip`, `priority`. Backend/URL is SSRF-screened server-side.
-- **hpg_plan**: `name`, `max_domains`, `max_ports`, `node_group_id` (required); feature flags `ssl_enabled`, `path_routing_enabled`, `wildcard_enabled`, `websocket_enabled`, `external_proxy_enabled`, `allow_egress_ip`; `rate_limit_rpm`, `wg_key_rotation_days` (0 = unset).
-- **hpg_client**: `email`, `name`, `password` (>= 12 chars, required on create); `external_ref` for idempotent external mapping. `password` is write-only.
-- **hpg_service**: `client_id`, `name`, `backend_ip`, `allowed_port_start`, `allowed_port_end`, `plan_id` (required); `external_reference`. `status` is computed.
-- **hpg_route**: `service_id`, `upstream_port`, `domain` (required); `path_prefix`, `ssl`, `websocket`, `force_https`. `status` and `caddy_node_id` are computed; SSL provisioning is asynchronous (poll `status`).
+- **hpg_node**: `name`, `api_url`, `node_group_id`, `max_routes` (required); `public_hostname`, `public_ip`, `priority`; only `name` + `is_enabled` are mutable in place, the rest force-replace; `current_routes` + `health_status` are computed. Backend/URL is SSRF-screened server-side.
+- **hpg_plan**: `name`, `max_domains`, `max_ports`, `node_group_id` (required); `kind` (`restricted` default | `npm`); feature flags `ssl_enabled`, `path_routing_enabled`, `wildcard_enabled`, `websocket_enabled`, `external_proxy_enabled`, `allow_egress_ip`; `rate_limit_rpm`, `wg_key_rotation_days` (0 = unset).
+- **hpg_client**: `email`, `name`, `password` (>= 12 chars, required - must stay present in config on every apply; a post-create change is ignored with a warning, rotate in-panel); `external_ref` for idempotent external mapping; `user_id` is computed. `password` is write-only.
+- **hpg_service**: `client_id`, `name`, `backend_ip`, `allowed_port_start`, `allowed_port_end`, `plan_id` (required); `external_reference`. `client_id`/`name`/`backend_ip`/`plan_id` force replacement when changed; `status` is computed.
+- **hpg_route**: `service_id`, `upstream_port`, `domain` (required; `service_id`/`domain` force-replace); `path_prefix`, `ssl`, `websocket`, `force_https`. Note the create/read payload uses `ssl` while update uses `ssl_enabled` for the same field. `status` and `caddy_node_id` are computed; SSL provisioning is asynchronous (poll `status`).
 
 ## Import
 
@@ -70,9 +70,9 @@ from a follow-up `GET /clients` if you provision outside Terraform.
 ## Async & drift notes
 
 - Route SSL/DNS is provisioned in the background. After `POST /routes` the
-  `status` moves `pending_dns -> dns_ok -> pending_ssl -> active`. A provider
-  should treat non-`active` as "still converging", not an error, and may expose
-  `verify-dns` / `retry-ssl` as no-op-on-success operations.
+  `status` moves `pending_dns -> dns_ok -> pending_ssl -> active`. The provider
+  treats non-`active` as "still converging", not an error. (The `verify-dns` /
+  `retry-ssl` API actions are not yet surfaced as provider operations - future work.)
 - Deleting a `hpg_node` with active routes returns `409`; reassign first.
 - Deleting a `hpg_plan`/`hpg_node_pool` in use returns `409`.
 

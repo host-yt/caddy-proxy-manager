@@ -29,17 +29,19 @@ Role enforcement is per-endpoint. Keys that belong to a disabled or demoted user
 
 An admin key's reach is derived from the owning user, not the token:
 
-| Owner | Data reach | Global infra (nodes / node-pools / client provisioning) |
-|-------|-----------|----------------------------------------------------------|
-| `super_admin` / unrestricted `admin` | all clients | allowed |
-| Reseller-admin (`users.reseller_id` set) | only that reseller's clients | denied (`403 global admin scope required`) |
-| Client-scoped admin (`admin_client_scope` rows) | only assigned clients | denied |
-| `client` | only its own client | n/a |
+| Owner | Data reach | Global infra (nodes / pools / plans) | Client provisioning |
+|-------|-----------|--------------------------------------|---------------------|
+| `super_admin` / unrestricted `admin` / `api` | all clients | allowed | allowed |
+| Reseller-admin (`users.reseller_id` set, reseller active) | only that reseller's clients | denied (`403 global admin scope required`) | allowed (client owned by its reseller) |
+| Suspended-reseller admin (`resellers.status != 'active'`) | none - hard fail-closed | denied | denied |
+| Client-scoped admin (`users.is_restricted=1` + `admin_client_scope` rows) | only assigned clients | denied | denied |
+| `client` | only its own client | n/a | n/a |
 
 List endpoints return only in-scope rows; single-resource reads and mutations
-return `403` for out-of-scope ids. A reseller-admin key may create clients
-(owned by its reseller) and manage its own reseller's plans, but never touches
-shared node infrastructure. Global plans stay platform-only.
+return `403` for out-of-scope ids. A reseller-admin key may create and delete
+clients owned by its reseller, but never touches shared node infrastructure.
+Plan management via API key is platform-admin only (a reseller-admin manages its
+own plans through the panel UI, not the API); global plans stay platform-only.
 
 ---
 

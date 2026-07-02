@@ -56,13 +56,20 @@ Out of scope: physical access to the host, kernel exploits, cloud provider compr
 
 ## Authorization (RBAC)
 
-Four roles: `super_admin`, `admin`, `client`, `support`.
+Base roles (`users.role`): `super_admin`, `admin`, `client`, `support`, plus `api` for machine keys.
+
+The `admin` role has an explicit sub-hierarchy (`internal/adminscope/service.go` `resolveMode`):
+
+- **Unrestricted platform admin** - full access.
+- **Reseller-admin** (`users.reseller_id` set) - scoped to its reseller's owned clients/plans only; a default-deny allow-list middleware (`reseller_boundary.go`) gates its panel routes, and its API key cannot touch global infra (`requireGlobalAPIAdmin`).
+- **Client-scoped admin** (`users.is_restricted = 1`) - limited to its `admin_client_scope` assignments. Restriction is an **explicit opt-in flag**, not inferred from assignment-row count: this closes the old footgun where deleting a scoped admin's last client silently escalated it to full access. `is_restricted=1` with zero scope rows now means "sees nothing".
 
 - Role stored in `users.role`, re-checked on every HTTP request - no caching in session or token
 - Route groups enforce role at the chi middleware level (`RequireRole` middleware)
 - Client handlers use `client_id` from session context and apply `IN (...)` DB filters; never trust user-supplied IDs for scoping
 - Admin impersonation sets `ImpersonatorUserID` in session; audit log records both IDs
 - `REQUIRE_ADMIN_2FA` flag blocks admin routes until a 2FA factor is enrolled
+- **Reseller suspension is fail-closed**: setting `resellers.status='suspended'` makes `resolveMode` return a hard-empty (`denied`) scope - the reseller-admin sees and manages nothing (never falls through to platform-wide access), and its live sessions are revoked on suspend.
 
 ---
 

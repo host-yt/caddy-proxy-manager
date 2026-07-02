@@ -2,6 +2,35 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## [1.3.0] - 2026-07-02
+
+### Reseller multi-tenancy
+
+- **Resellers**: a reseller owns a set of clients (and optionally its own plans + branding) and is managed by a reseller-admin who sees ONLY that reseller's clients - never platform-global infra or other resellers.
+- **Explicit admin tiers**: super_admin > unrestricted platform admin > reseller-admin (`users.reseller_id`) / client-scoped admin (`users.is_restricted` + `admin_client_scope`). Restriction is now an explicit opt-in flag, no longer inferred from assignment-row count.
+- **Reseller-scoped plans**: plans may be global (available to every tenant) or owned by one reseller; reseller-admins create and manage only their own.
+- **Self-service provisioning**: reseller-admins provision their own clients, hosts, services, routes, tunnels and L4 streams, all bound to the reseller's ownership.
+- **Per-reseller branding**: client portal + public status page overlay the owning reseller's brand name, logo, colours and support email.
+- **Suspend/resume**: suspending a reseller fails closed - reseller-admin scope resolves to nothing (never falls through to platform-wide access), and their sessions are revoked immediately.
+- **Super-admin management UI** for reseller CRUD, client assignment and reseller-admin provisioning.
+
+### API & Terraform
+
+- **Multi-tenant API v1 key scope**: a reseller-admin API key is transparently scoped to its own clients/plans and cannot touch global infrastructure (nodes, node pools, global plans, client provisioning are platform-admin only).
+- **Terraform provider** (`terraform-provider-hpg`, in-repo nested module): resources `hpg_node_pool`, `hpg_node`, `hpg_plan`, `hpg_client`, `hpg_service`, `hpg_route` - a thin client over API v1 with import support and async-SSL awareness. Ships GoReleaser + release workflow for turnkey Terraform Registry publishing.
+
+### Deployment
+
+- **Lite stack**: `deploy/docker-compose.lite.yml` runs stock Caddy with every edge module disabled (`*_AVAILABLE=0`), for installs that do not need WAF/GeoIP/L4/cache/rate-limit. Full-vs-lite guidance added to the install docs.
+
+### Security
+
+- Closed multiple reseller-boundary and IDOR gaps found by adversarial review: scope-checked single-service, client status-slug and bulk admin handlers; restricted plan mutation to unrestricted platform admins; scoped L4 streams to the owning client.
+- Fixed a scope-escalation footgun by making admin restriction explicit (`users.is_restricted`) instead of inferring it from `admin_client_scope` row count.
+- Terraform `hpg_service` delete now calls the registered `DELETE /services/{id}` (previously an unregistered `POST /delete` whose 404 was swallowed as success, leaving services live while dropping them from state).
+- Scoped `ClientDelete` so a reseller-admin can destroy its own client via the API/Terraform.
+- Earlier hardening batch: rotate all `_enc` columns per purpose, force remote-backup encryption, configurable Caddy Admin API bind, AI-chat retention + rate-limit + error redaction, Docker hardening.
+
 ## [1.0.0] - 2026-06-28
 
 ### Authentication & Access Control

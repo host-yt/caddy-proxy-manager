@@ -254,17 +254,21 @@ These flags must remain `0` until **every** Caddy node in the fleet (central and
 
 Open `http://<server-ip>:8080/install` (or `APP_URL/install`).
 
-The wizard runs four steps:
+The wizard runs the following ordered steps (`internal/installstate/state.go`):
 
 1. **Welcome** - confirms database and Redis connectivity before proceeding.
 
-2. **Database backend** - choose MariaDB/MySQL (default, requires bundled `mariadb` service) or SQLite (embedded, no extra service). If you set `DB_DRIVER=sqlite3` in `.env` before opening the wizard, this step is pre-selected.
+2. **Profile** - choose an installation profile: homelab / smallteam / advanced / provider. This tunes defaults for later steps.
 
-3. **Admin account** - create the first `super_admin` user (email + password). This account owns the panel. Store the credentials; password reset requires SMTP to be configured.
+3. **Database backend** - choose MariaDB/MySQL (default, requires bundled `mariadb` service) or SQLite (embedded, no extra service). If you set `DB_DRIVER=sqlite3` in `.env` before opening the wizard, this step is pre-selected.
 
-4. **First Caddy node registration** - the wizard registers the bundled `caddy` container (from `CADDY_ADMIN_URL`) as the first node. It pushes the initial Caddy config via the Admin API.
+4. **Admin account** - create the first `super_admin` user (email + password). This account owns the panel. Store the credentials; password reset requires SMTP to be configured.
 
-5. **Self-route setup** - the wizard pushes a virtual host route for `APP_URL` → the `app` container on the first node, so the panel becomes accessible at `https://panel.example.com` (with a valid TLS certificate) without requiring a manual "Add host" step.
+5. **App URL** - confirm the public `APP_URL` the panel will be reachable at; the wizard later pushes a virtual host route for it.
+
+6. **SMTP** - optionally configure outbound mail (used for password reset and notifications). Can be skipped and set later in the admin UI.
+
+7. **Caddy node** - the wizard registers the bundled `caddy` container (from `CADDY_ADMIN_URL`) as the first node, pushes the initial Caddy config via the Admin API, and adds a virtual host route for `APP_URL` → the `app` container so the panel becomes accessible at `https://panel.example.com` (with a valid TLS certificate) without requiring a manual "Add host" step.
 
 On completion the wizard sets `INSTALLED=1` in the persistent state file. The `/install` path becomes inaccessible.
 

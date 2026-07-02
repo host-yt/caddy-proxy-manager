@@ -6,6 +6,8 @@ Comparison of HPG with common alternatives.
 |---------|-----|--------------------|---------|----|
 | Admin panel | yes | yes | yes | All three have a web UI |
 | Multi-tenant clients | yes | no | no | HPG: client role with quota-isolated services |
+| Reseller / white-label tier | yes | no | no | Reseller-owned clients+plans, per-reseller branding, suspend = fail-closed, scoped API keys |
+| Terraform / IaC provider | yes | no | no | hpg_node_pool, hpg_node, hpg_plan, hpg_client, hpg_service, hpg_route |
 | Plans / quotas | yes | no | no | Max domains, ports, RPM per plan |
 | WireGuard VPN | yes | no | no | Customer tunnels + manager mesh + WG-over-WSS |
 | L4 TCP/UDP streams | yes | no | no | Requires caddy-l4 module |

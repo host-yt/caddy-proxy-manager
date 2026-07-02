@@ -15,6 +15,10 @@ saved but no WAF block is pushed to Caddy (routes still work normally).
 
 Use the provided `deploy/caddy/Dockerfile` as the base; it already includes the module.
 
+The lite stack (`deploy/docker-compose.lite.yml`) runs stock Caddy with no custom
+modules and ships `WAF_MODULE_AVAILABLE=0`, so WAF is unavailable there - switch to
+the full/custom-build stack to enable it.
+
 ## Enablement runbook
 
 WAF is code-complete; turning it on is a deploy operation. Order matters - do NOT

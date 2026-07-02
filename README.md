@@ -76,6 +76,8 @@ Single binary ~21 MB image, ~28 MB idle RAM.
 - **Alert rules**: high-error-rate detection and custom threshold alerts.
 - **Client self-registration** behind settings toggle.
 - **Backup/restore**: S3/SFTP/FTP targets, restore drill CLI.
+- **Reseller multi-tenancy**: resellers own scoped clients/plans/branding, fail-closed on suspension.
+- **Terraform provider** (`terraform-provider-hpg`): manage nodes, pools, plans, clients, services, routes as code.
 
 ---
 
@@ -154,13 +156,13 @@ internal/
   wafevents/        WAF audit log ingest and event storage
   webhook/          outbound webhook delivery and retry
   wireguard/        Curve25519 keypair gen, config writer, IP allocator
-node-agent/         Go agent on each Caddy node (WG sync, log forward, WAF events, GeoIP)
+cmd/node-agent/      Go agent on each Caddy node (WG sync, log forward, WAF events, GeoIP)
 deploy/
   docker-compose.yml    manager stack (app + mariadb + redis + caddy + node-agent + optional wg)
   caddy/                Caddy node image (xcaddy with cache-handler + L4 modules)
   remote-node/          drop-in compose for an external Caddy node
   wireguard/            WG sidecar image (alpine + wg-tools + watch loop)
-migrations/             117 goose .sql files (auto-applied on boot)
+migrations/             115 goose .sql files (auto-applied on boot)
 scripts/                node-join.sh - bash bootstrap for remote nodes
 docs/                   all the docs you'll find linked below
 ```
@@ -204,6 +206,7 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 | [`docs/GEOIP.md`](docs/GEOIP.md) | GeoIP country filtering |
 | [`docs/DNS_PROVIDERS.md`](docs/DNS_PROVIDERS.md) | DNS-01 challenge providers for wildcard TLS |
 | [`docs/MTLS.md`](docs/MTLS.md) | Mutual TLS / client certificate auth |
+| [`docs/TERRAFORM.md`](docs/TERRAFORM.md) | Terraform provider (hpg_node, hpg_client, hpg_service, ...) |
 | [`docs/ANALYTICS.md`](docs/ANALYTICS.md) | Access log analytics |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Shipped features and planned work |
 | [`docs/FEATURE_MATRIX.md`](docs/FEATURE_MATRIX.md) | HPG vs alternatives comparison |

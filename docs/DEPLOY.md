@@ -143,10 +143,15 @@ If you want the panel itself reachable at a clean hostname (e.g. `panel.example.
 
 **Change in `.env`:**
 ```
-APP_PORT=127.0.0.1:8080
+APP_BIND_HOST=127.0.0.1
+APP_PORT=8080
 SESSION_COOKIE_SECURE=true
 APP_TRUSTED_PROXIES=127.0.0.1/8,::1/128
 ```
+`APP_BIND_HOST` and `APP_PORT` are separate vars (compose maps
+`${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8080}:8080`); `APP_BIND_HOST`
+already defaults to `127.0.0.1`, so only `APP_PORT` needs a bare port
+number here, not a host:port pair.
 
 **Caddyfile snippet (outer Caddy):**
 ```
@@ -182,16 +187,18 @@ Set `APP_TRUSTED_PROXIES` to the CIDR of the upstream proxy so the panel reads t
 
 ## 5. Caddy module gates
 
-Four feature flags control capabilities that require the custom Caddy image (`deploy/caddy/Dockerfile`, built via xcaddy). **Never flip a gate to `1` while any node in the fleet still runs stock `caddy:2.x`.** The panel pushes a `/load` config to every node on each change; a node that does not have the module compiled in will reject the entire config and go offline.
+Six feature flags control capabilities that require the custom Caddy image (`deploy/caddy/Dockerfile`, built via xcaddy). **Never flip a gate to `1` while any node in the fleet still runs stock `caddy:2.x`.** The panel pushes a `/load` config to every node on each change; a node that does not have the module compiled in will reject the entire config and go offline.
 
 | Variable | Module | What it enables |
 |----------|--------|-----------------|
+| `CACHE_HANDLER_AVAILABLE` | `caddyserver/cache-handler` (Souin) | Per-route HTTP response caching |
 | `WEIGHTED_LB_AVAILABLE` | built-in xcaddy policy | `weighted_round_robin` load-balancing on multi-backend hosts |
 | `RATE_LIMIT_AVAILABLE` | `caddy-ratelimit` | Per-route rate-limit handler in the admin UI |
 | `WAF_MODULE_AVAILABLE` | `coraza-caddy/v2` | Per-route Coraza OWASP WAF toggle |
 | `DNS01_AVAILABLE` | `caddy-dns/*` | Wildcard TLS via DNS-01 challenge (needs provider API key) |
+| `GEOIP_AVAILABLE` | `maxmind/caddy-maxmind-geolocation` | Country/CIDR-based allow/deny matcher |
 
-All four default to `0`.
+All six default to `0`.
 
 **Safe rollout procedure:**
 

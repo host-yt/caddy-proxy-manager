@@ -44,13 +44,9 @@ admin user, panel URL, SMTP, first Caddy node.
 
 ## Adding things
 
-Cookbook entries in [`docs/SPEC.md`](docs/SPEC.md) cover:
-- Adding a goose migration
-- Adding a typed SQL query
-- Adding a route handler
-- Pushing a Caddy route
-- Project security checklist
-- Release-readiness check
+See [`docs/SPEC.md`](docs/SPEC.md) for the functional spec: Overview,
+Roles, Core Entities, Auth Flows, Caddy Integration, WireGuard Tunnels,
+L4 Streams, AI Assistant, Analytics.
 
 ## Tests
 

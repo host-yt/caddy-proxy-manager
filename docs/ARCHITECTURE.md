@@ -266,6 +266,14 @@ FOSSBilling / Hostyt billing platform adapter used by the REST API v1.
 Input validators shared across handler layers (domain format, port ranges,
 CIDR checks, etc.).
 
+### `internal/adminscope/`, `internal/reseller/`
+`adminscope` resolves the effective admin scope per request: unrestricted
+(super-admin), reseller-scoped, client-scoped, or fail-closed-denied when the
+admin's reseller is suspended. `reseller` is the reseller domain package
+(resellers, branding, plan/client ownership). The in-repo `terraform-provider-hpg/`
+is a nested Go module that talks to `/api/v1` to manage nodes, pools, plans,
+clients, services, and routes as code.
+
 ---
 
 ## 3. Data model
@@ -275,10 +283,14 @@ Core entity relationships (abridged to the most significant columns):
 ```
 settings (key, value, is_encrypted)
 
-users (id, email, password_hash, role, totp_enabled, oidc_subject)
+resellers (id, name, slug, status active|suspended, brand_name, logo_url,
+           support_email, primary_color)
+
+users (id, email, password_hash, role, totp_enabled, oidc_subject,
+       reseller_id*, is_restricted)   (* NULL = platform-direct)
   └── recovery_codes (user_id, code_hash, used_at)
   └── api_keys (user_id, key_prefix, key_hash, scopes)
-  └── clients (user_id, display_name, external_ref)
+  └── clients (user_id, display_name, external_ref, reseller_id*)
         └── services (client_id, backend_ip*, allowed_port_start*, allowed_port_end*,
                       plan_id, node_group_id, status)   (* admin-only fields)
               └── routes (service_id, caddy_node_id, domain, path_prefix,
@@ -290,7 +302,8 @@ users (id, email, password_hash, role, totp_enabled, oidc_subject)
 node_groups (id, name, mode)           -- single / active_active / failover
   └── caddy_nodes (node_group_id, name, api_url, wg_ip, wg_public_key,
                    tunnel_enabled, tunnel_transport, tunnel_wstunnel_port, ...)
-  └── plans (node_group_id, name, kind, max_domains, max_ports, ssl_enabled, ...)
+  └── plans (node_group_id, name, kind, max_domains, max_ports, ssl_enabled,
+             reseller_id*, ...)   (* NULL = global plan)
 
 stream_routes (service_id, caddy_node_id, protocol, listen_port, upstream_port)
 node_join_tokens (token_hash, node_group_id, expires_at, used_at, used_node_id)
