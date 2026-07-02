@@ -49,6 +49,9 @@ type statusPageData struct {
 	GeneratedAt time.Time
 	AllUp       bool
 	ShowTraffic bool
+	// Brand carries the reseller overlay for a reseller-owned client (empty =
+	// global default; the template falls back to just the client name).
+	Brand Branding
 	Routes      []statusRouteRow
 	Tunnels     []statusTunnelRow
 	// Pre-serialised for inline sparkline (14-day per-node request deltas).
@@ -74,12 +77,13 @@ func (h *StatusPageHandlers) Page(w http.ResponseWriter, r *http.Request) {
 	var clientID int64
 	var clientName string
 	var showTraffic bool
+	var resellerID sql.NullInt64
 	err := db.QueryRowContext(ctx,
-		`SELECT c.id, COALESCE(c.display_name, u.full_name, u.email), c.status_show_traffic
+		`SELECT c.id, COALESCE(c.display_name, u.full_name, u.email), c.status_show_traffic, c.reseller_id
 		 FROM clients c JOIN users u ON u.id = c.user_id
 		 WHERE c.status_slug = ? AND u.is_active = 1`,
 		slug,
-	).Scan(&clientID, &clientName, &showTraffic)
+	).Scan(&clientID, &clientName, &showTraffic, &resellerID)
 	if err == sql.ErrNoRows {
 		http.NotFound(w, r)
 		return
@@ -94,6 +98,10 @@ func (h *StatusPageHandlers) Page(w http.ResponseWriter, r *http.Request) {
 		ClientName:  clientName,
 		GeneratedAt: time.Now().UTC(),
 		ShowTraffic: showTraffic,
+	}
+	// White-label: a reseller-owned client shows its reseller's brand.
+	if resellerID.Valid && resellerID.Int64 > 0 {
+		d.Brand = LoadBrandingFor(ctx, db, resellerID.Int64)
 	}
 	d.Routes = h.loadRoutes(ctx, db, clientID)
 	d.Tunnels = h.loadTunnels(ctx, db, clientID)

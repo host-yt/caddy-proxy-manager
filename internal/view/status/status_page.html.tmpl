@@ -38,8 +38,9 @@
   <!-- Header -->
   <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.75rem;">
     <div>
+      {{if .Brand.LogoURLLight}}<img src="{{.Brand.LogoURLLight}}" alt="" style="height:1.75rem;margin-bottom:0.5rem;">{{end}}
       <h1 style="font-size:1.125rem;font-weight:600;line-height:1.4;">{{.ClientName}}</h1>
-      <p style="font-size:0.8125rem;color:rgb(var(--muted));">Service status</p>
+      <p style="font-size:0.8125rem;color:rgb(var(--muted));">{{if .Brand.BrandName}}{{.Brand.BrandName}} - {{end}}Service status</p>
     </div>
     <span style="display:inline-flex;align-items:center;gap:0.5rem;padding:0.3125rem 0.875rem;border-radius:9999px;font-size:0.8125rem;font-weight:500;
       background:{{if .AllUp}}rgb(var(--success) / .1){{else}}rgb(var(--danger) / .1){{end}};

@@ -88,6 +88,18 @@ func (h *ClientHandlers) base(r *http.Request, title string) baseAppData {
 		d.Role = sess.Role
 		d.CSRF = sess.CSRFToken
 		d.ImpersonatorEmail = sess.ImpersonatorEmail
+		// Reseller overlay: a client owned by a reseller sees that reseller's
+		// brand (name/logo) over the global one. clients.reseller_id, not
+		// users.reseller_id (the latter marks reseller-admins).
+		if db := h.DB(); db != nil {
+			ctxB, canB := context.WithTimeout(r.Context(), 500*time.Millisecond)
+			var rid sql.NullInt64
+			db.QueryRowContext(ctxB, "SELECT reseller_id FROM clients WHERE user_id=?", sess.UserID).Scan(&rid)
+			canB()
+			if rid.Valid && rid.Int64 > 0 {
+				d.Brand = LoadBrandingFor(r.Context(), db, rid.Int64)
+			}
+		}
 	}
 	if msg := r.URL.Query().Get("flash"); msg != "" {
 		d.Flash = msg
