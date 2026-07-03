@@ -24,7 +24,7 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-production}
       APP_URL: ${APP_URL}
-      APP_SECRET: ${APP_SECRET}
+      APP_SECRET: ${APP_SECRET:?APP_SECRET must be set (openssl rand -hex 32)}
       # Must match the `internal` network subnet below so TrustedRealIP
       # accepts X-Forwarded-For from the bundled Caddy container instead of
       # collapsing every client to Caddy's IP (breaks per-IP rate-limit).
@@ -33,12 +33,12 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT:-3306}
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:?DB_NAME must be set}
+      DB_USER: ${DB_USER:?DB_USER must be set}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       DB_TLS: ${DB_TLS:-true}
       REDIS_ADDR: redis:6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
       CADDY_ADMIN_URL: http://caddy:2019
@@ -63,15 +63,15 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"]
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
       - redis_data:/data
     networks:
       - internal
     healthcheck:
-      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD}\" ping | grep -q PONG"]
+      test: ["CMD-SHELL", "redis-cli -a \"$${REDIS_PASSWORD:?REDIS_PASSWORD must be set}\" ping | grep -q PONG"]
       interval: 10s
       timeout: 3s
       retries: 5

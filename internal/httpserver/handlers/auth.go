@@ -728,7 +728,7 @@ func (h *AuthHandlers) TwoFASend(w http.ResponseWriter, r *http.Request) {
 		body := fmt.Sprintf("Code #%d: %s", sentN, formatSMSCode(code))
 		if err := h.SMS.Send(ctx, phone.String, body); err != nil {
 			h.Logger.Warn("sms send", "err", err)
-			http.Error(w, "sms provider: "+firstLine(err.Error()), http.StatusBadGateway)
+			http.Error(w, "sms provider error", http.StatusBadGateway)
 			return
 		}
 		http.SetCookie(w, &http.Cookie{
@@ -774,7 +774,7 @@ func (h *AuthHandlers) TwoFASend(w http.ResponseWriter, r *http.Request) {
 			"Someone (hopefully you) is signing in to your account.",
 			int(auth.EmailOTPTTLSeconds/60)); err != nil {
 			h.Logger.Warn("email send", "err", err)
-			http.Error(w, "smtp: "+firstLine(err.Error()), http.StatusBadGateway)
+			http.Error(w, "smtp send failed", http.StatusBadGateway)
 			return
 		}
 		http.SetCookie(w, &http.Cookie{
@@ -1412,20 +1412,6 @@ func firstNonEmpty(vals ...string) string {
 		}
 	}
 	return ""
-}
-
-// firstLine trims the first line of an error string and caps the length,
-// so a provider's multi-line stack trace can't pollute a response body.
-// Used when surfacing upstream send-failure causes to the admin UI.
-func firstLine(s string) string {
-	if i := strings.IndexAny(s, "\r\n"); i >= 0 {
-		s = s[:i]
-	}
-	const max = 240
-	if len(s) > max {
-		s = s[:max] + "…"
-	}
-	return s
 }
 
 // ---- OIDC --------------------------------------------------------------

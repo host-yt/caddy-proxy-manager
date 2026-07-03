@@ -749,7 +749,8 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	// sentinel backend (0.0.0.0) that is never dialed, so skip them.
 	if form.Kind == "proxy" || form.External {
 		if err := screenBackendHost(ctx, form.BackendIP); err != nil {
-			h.renderHostsNewErr(w, r, form, err.Error())
+			h.Logger.Warn("backend host screen failed", "err", err)
+			h.renderHostsNewErr(w, r, form, "backend host is not reachable or not allowed")
 			return
 		}
 	}
@@ -1531,9 +1532,10 @@ func (h *AdminHandlers) HostsCheckDNS(w http.ResponseWriter, r *http.Request) {
 	resolver := &net.Resolver{}
 	addrs, err := resolver.LookupHost(ctx, domain)
 	if err != nil {
+		h.Logger.Warn("dns lookup failed", "domain", domain, "err", err)
 		resp["resolved"] = []string{}
 		resp["match"] = false
-		resp["error"] = "lookup failed: " + err.Error()
+		resp["error"] = "lookup failed"
 		apiJSON(w, http.StatusOK, resp)
 		return
 	}

@@ -71,7 +71,8 @@ func (h *AdminHandlers) NpmImportSubmit(w http.ResponseWriter, r *http.Request) 
 
 	var backup npmBackup
 	if err := json.Unmarshal(raw, &backup); err != nil {
-		jsonErr(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
+		h.Logger.Warn("npm import: invalid JSON", "err", err)
+		jsonErr(w, "invalid JSON", http.StatusBadRequest)
 		return
 	}
 
@@ -108,7 +109,8 @@ func (h *AdminHandlers) runNpmImport(r *http.Request, hosts []npmProxyHost) npmI
 	// Resolve the caller's admin client once; shared across all imports.
 	clientID, err := ensureAdminClient(ctx, db, sess.UserID, sess.ResellerID)
 	if err != nil {
-		result.Errors = append(result.Errors, "admin client setup: "+err.Error())
+		h.Logger.Warn("npm import: admin client setup failed", "err", err)
+		result.Errors = append(result.Errors, "admin client setup failed")
 		return result
 	}
 
@@ -118,13 +120,15 @@ func (h *AdminHandlers) runNpmImport(r *http.Request, hosts []npmProxyHost) npmI
 	if err := db.QueryRowContext(ctx,
 		"SELECT node_group_id FROM caddy_nodes WHERE approved_at IS NOT NULL AND is_enabled = 1 ORDER BY id ASC LIMIT 1",
 	).Scan(&nodeGroupID); err != nil {
-		result.Errors = append(result.Errors, "no available node: "+err.Error())
+		h.Logger.Warn("npm import: no available node", "err", err)
+		result.Errors = append(result.Errors, "no available node")
 		return result
 	}
 
 	planID, err := ensureAdminPlan(ctx, db, nodeGroupID)
 	if err != nil {
-		result.Errors = append(result.Errors, "admin plan setup: "+err.Error())
+		h.Logger.Warn("npm import: admin plan setup failed", "err", err)
+		result.Errors = append(result.Errors, "admin plan setup failed")
 		return result
 	}
 

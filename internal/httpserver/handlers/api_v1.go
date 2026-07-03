@@ -293,7 +293,8 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 	if h.Quota != nil {
 		if rid, qerr := h.Quota.ResellerOfClient(ctx, in.ClientID); qerr == nil && rid != 0 {
 			if qerr = h.Quota.CanCreateService(ctx, rid, in.PlanID); qerr != nil {
-				apiErr(w, http.StatusForbidden, qerr.Error())
+				h.Logger.Warn("service quota check failed", "err", qerr)
+				apiErr(w, http.StatusForbidden, "service quota reached or check failed")
 				return
 			}
 		}
@@ -801,7 +802,8 @@ func (h *APIHandlers) NodeResync(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
 	if err := h.Routes.Resync(ctx, id); err != nil {
-		apiErr(w, http.StatusInternalServerError, "resync failed: "+err.Error())
+		h.Logger.Warn("node resync failed", "id", id, "err", err)
+		apiErr(w, http.StatusInternalServerError, "resync failed")
 		return
 	}
 	uid := apiCallerID(r)

@@ -26,7 +26,7 @@ services:
       APP_ENV: ${APP_ENV:-production}
       APP_URL: ${APP_URL}
       APP_BIND: ${APP_BIND:-0.0.0.0:8080}
-      APP_SECRET: ${APP_SECRET}
+      APP_SECRET: ${APP_SECRET:?APP_SECRET must be set (openssl rand -hex 32)}
       # Must match the `internal` network subnet below so TrustedRealIP
       # accepts X-Forwarded-For from the bundled Caddy container instead of
       # collapsing every client to Caddy's IP (breaks per-IP rate-limit).
@@ -35,11 +35,11 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_HOST: ${DB_HOST:-mariadb}
       DB_PORT: ${DB_PORT:-3306}
-      DB_NAME: ${DB_NAME}
-      DB_USER: ${DB_USER}
-      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME:?DB_NAME must be set}
+      DB_USER: ${DB_USER:?DB_USER must be set}
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
       CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://caddy:2019}
@@ -81,10 +81,10 @@ services:
     security_opt:
       - no-new-privileges:true
     environment:
-      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD}
-      MARIADB_DATABASE: ${DB_NAME}
-      MARIADB_USER: ${DB_USER}
-      MARIADB_PASSWORD: ${DB_PASSWORD}
+      MARIADB_ROOT_PASSWORD: ${MARIADB_ROOT_PASSWORD:?MARIADB_ROOT_PASSWORD must be set}
+      MARIADB_DATABASE: ${DB_NAME:?DB_NAME must be set}
+      MARIADB_USER: ${DB_USER:?DB_USER must be set}
+      MARIADB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
     volumes:
       - mariadb_data:/var/lib/mysql
     networks:
@@ -102,9 +102,9 @@ services:
       - no-new-privileges:true
     # No ":-" empty default - empty --requirepass disables auth entirely.
     # Redis holds sessions, rate-limit, 2FA/OTP; must always be authenticated.
-    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD}"]
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set}"]
     environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
       - redis_data:/data
     networks:

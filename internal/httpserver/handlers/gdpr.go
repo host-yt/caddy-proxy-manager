@@ -128,7 +128,8 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 		 totp_secret = NULL, totp_secret_enc = NULL, totp_enabled = 0,
 		 is_active = 0
 		 WHERE id = ?`, mask, id); err != nil {
-		http.Error(w, "user mask failed: "+err.Error(), http.StatusInternalServerError)
+		h.Logger.Warn("gdpr user mask failed", "id", id, "err", err)
+		http.Error(w, "user mask failed", http.StatusInternalServerError)
 		return
 	}
 	// Remove derived rows that hold PII directly.

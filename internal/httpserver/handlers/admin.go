@@ -1837,7 +1837,8 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 	if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 && h.Resellers != nil {
 		feats := planFeatureTokens(ssl, pathRouting, websocket, wildcard, externalProxy, rateLimit)
 		if err := h.Resellers.ValidatePlanBounds(ctx, sess.ResellerID, groupID, feats, rateLimit); err != nil {
-			redirectWithFlash(w, r, "/admin/plans", "", err.Error())
+			h.Logger.Warn("plan bounds check failed", "err", err)
+			redirectWithFlash(w, r, "/admin/plans", "", "plan is outside your package bounds")
 			return
 		}
 	}
@@ -1938,7 +1939,8 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 		feats := planFeatureTokens(ssl, pathRouting, websocket, wildcard, externalProxy, rateLimit)
 		if h.Resellers != nil {
 			if err := h.Resellers.ValidatePlanBounds(ctx, planReseller, groupID, feats, rateLimit); err != nil {
-				redirectWithFlash(w, r, "/admin/plans", "", err.Error())
+				h.Logger.Warn("plan bounds check failed", "err", err)
+				redirectWithFlash(w, r, "/admin/plans", "", "plan is outside your package bounds")
 				return
 			}
 		}
@@ -2336,7 +2338,8 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 	if h.Quota != nil {
 		if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 {
 			if qerr := h.Quota.CanCreateClient(ctx, sess.ResellerID); qerr != nil {
-				redirectWithFlash(w, r, "/admin/clients", "", qerr.Error())
+				h.Logger.Warn("client quota check failed", "err", qerr)
+				redirectWithFlash(w, r, "/admin/clients", "", "client quota reached or check failed")
 				return
 			}
 		}
@@ -2682,7 +2685,8 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	if h.Quota != nil {
 		if rid, qerr := h.Quota.ResellerOfClient(ctx, clientID); qerr == nil && rid != 0 {
 			if qerr = h.Quota.CanCreateService(ctx, rid, planID); qerr != nil {
-				redirectWithFlash(w, r, "/admin/services", "", qerr.Error())
+				h.Logger.Warn("service quota check failed", "err", qerr)
+				redirectWithFlash(w, r, "/admin/services", "", "service quota reached or check failed")
 				return
 			}
 		}
@@ -5130,7 +5134,8 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := security.ValidateOutboundURL(u); err != nil {
-			redirectWithFlash(w, r, "/admin/settings", "", "OIDC issuer: "+err.Error())
+			h.Logger.Warn("OIDC issuer validation failed", "err", err)
+			redirectWithFlash(w, r, "/admin/settings", "", "OIDC issuer: URL not allowed")
 			return
 		}
 	}

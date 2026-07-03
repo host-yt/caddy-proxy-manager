@@ -60,7 +60,7 @@ func (h *PasskeyHandlers) RegisterBegin(w http.ResponseWriter, r *http.Request) 
 	u, err := auth.LoadWAUser(ctx, db, sess.UserID)
 	if err != nil {
 		h.Logger.Error("passkey LoadWAUser failed", "err", err, "user_id", sess.UserID)
-		http.Error(w, "load user failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "load user failed", http.StatusInternalServerError)
 		return
 	}
 	// Require user verification + prefer platform authenticators but accept
@@ -75,7 +75,7 @@ func (h *PasskeyHandlers) RegisterBegin(w http.ResponseWriter, r *http.Request) 
 	)
 	if err != nil {
 		h.Logger.Error("webauthn BeginRegistration", "err", err, "user_id", sess.UserID)
-		http.Error(w, "begin failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "begin failed", http.StatusInternalServerError)
 		return
 	}
 	ticket, err := h.stash(ctx, "wa:reg:", sessionData)
@@ -171,10 +171,9 @@ func (h *PasskeyHandlers) List(w http.ResponseWriter, r *http.Request) {
 		sess.UserID)
 	if err != nil {
 		// Most common cause: webauthn_credentials table missing (migration
-		// 30 hasn't run). Logging the real cause beats "query failed" in
-		// the browser console.
+		// 30 hasn't run). Real cause goes to the server log, not the client.
 		h.Logger.Error("passkey list query failed", "err", err, "user_id", sess.UserID)
-		http.Error(w, "passkey list failed: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "passkey list failed", http.StatusInternalServerError)
 		return
 	}
 	defer rows.Close()

@@ -185,7 +185,9 @@ func (s *Server) routes() {
 	}
 	r.Get("/favicon.ico", handlers.Favicon)
 
-	// Public API docs - no auth, open to all.
+	// API docs. Gated by the `apidocs.public_enabled` setting (default on for
+	// back-compat): when off, anonymous visitors get 404 and only an active
+	// session sees it - see APIDocsHandler.allow.
 	if s.deps.APIDocs != nil {
 		r.Get("/api-docs", s.deps.APIDocs.Page)
 		r.Get("/api-docs/openapi.json", s.deps.APIDocs.Spec)

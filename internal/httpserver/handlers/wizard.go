@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -382,6 +383,15 @@ func (w *Wizard) DBSubmit(rw http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	if driver == "sqlite3" {
+		// The DB path comes from an unauthenticated install form; confine it to
+		// a relative path under the working dir so it cannot write to /etc,
+		// escape via .. , or clobber an arbitrary absolute file.
+		clean, perr := safeSQLitePath(form.SQLitePath)
+		if perr != nil {
+			w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "Invalid SQLite path: must be a relative path under the app dir, no '..'"))
+			return
+		}
+		form.SQLitePath = clean
 		sqliteDSN := installstate.BuildSQLiteDSN(form.SQLitePath)
 		if err := store.Ping(ctx, "sqlite3", sqliteDSN); err != nil {
 			w.renderR(rw, r, installstate.StepDB, w.view(installstate.StepDB, form, "SQLite open failed: "+sanitizeErr(err)))
@@ -856,6 +866,22 @@ func (w *Wizard) CaddySubmit(rw http.ResponseWriter, r *http.Request) {
 // --- helpers --------------------------------------------------------------
 
 // sanitizeErr strips potentially sensitive bits before showing to user.
+// safeSQLitePath confines an operator-supplied SQLite path to a relative
+// location under the working dir. Rejects absolute paths and any .. traversal
+// so the unauthenticated install form cannot target /etc, an arbitrary file,
+// or escape the app dir.
+func safeSQLitePath(input string) (string, error) {
+	input = strings.TrimSpace(input)
+	if input == "" {
+		input = "./data/hpg.db"
+	}
+	clean := filepath.Clean(input)
+	if filepath.IsAbs(clean) || clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return "", errors.New("sqlite path must be relative and within the app dir")
+	}
+	return clean, nil
+}
+
 func sanitizeErr(err error) string {
 	msg := err.Error()
 	// Strip password from any DSN-style strings.
