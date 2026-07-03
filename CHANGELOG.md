@@ -2,6 +2,25 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## [1.3.2] - 2026-07-03
+
+### Fixed
+
+- **Admin resellers page 500**: `/admin/resellers` returned HTTP 500 for super-admins because a page-local `Features` field shadowed the shared nav-gating one. Renamed to `PkgFeatures`.
+- **Blank client route pages**: `/app/routes/{id}/edit` and `/app/routes/{id}/logs` rendered empty for clients - the layout content dispatch had no branch for those pages (handlers and templates already existed). Both now render.
+- **WAF ingest throughput**: a full 500-event batch could not finish within the 30s budget (it did ~2000 sequential DB round trips) and looped 503s in production. Route resolution now runs as one indexed query per batch and inserts commit in one transaction per batch.
+
+### Added
+
+- **Backend-server registry**: manage named backend servers (name + IP + external reference) under `/admin/servers`, reseller-scoped, and pick one from a dropdown in the service form instead of retyping raw IPs.
+- **Plan-driven port range**: selecting a plan auto-fills a service's end port from the plan's port count; only the start port is entered.
+- **First-free-port pre-fill**: the client new-route form pre-fills the first unused port from the client's pool.
+
+### Changed
+
+- **Port-collision guards**: reject a service port range that overlaps another service on the same backend IP, and a route port already used within its service.
+- **Client portal**: removed the duplicate sidebar dark/light toggle (top-bar one stays); `Cmd/Ctrl+K` command palette now works in the client portal.
+
 ## [1.3.1] - 2026-07-02
 
 ### Fixed
