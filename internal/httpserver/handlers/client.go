@@ -978,6 +978,21 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, editURL, "", "domain is required")
 		return
 	}
+	// Same shape check Create enforces: an unvalidated edit was the domain-
+	// takeover hole (client could point a verified route at any hostname).
+	if !routes.ValidDomain(newDomain) {
+		redirectWithFlash(w, r, editURL, "", "invalid domain")
+		return
+	}
+	if newPath != "" {
+		if !strings.HasPrefix(newPath, "/") {
+			newPath = "/" + newPath
+		}
+		if strings.Contains(newPath, "..") {
+			redirectWithFlash(w, r, editURL, "", "invalid path prefix")
+			return
+		}
+	}
 	if newPort < 1 || newPort > 65535 {
 		redirectWithFlash(w, r, editURL, "", "port must be 1-65535")
 		return
@@ -995,13 +1010,15 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 	var ownerClientID, portStart, portEnd, serviceID int64
 	var planWebSocket bool
 	var caddyNodeID sql.NullInt64
+	var oldDomain, oldPath string
 	if err := db.QueryRowContext(ctx,
-		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket_enabled, r.caddy_node_id, s.id
+		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket_enabled, r.caddy_node_id, s.id,
+		        LOWER(r.domain), COALESCE(r.path_prefix,'')
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN plans p ON p.id = s.plan_id
 		 WHERE r.id = ?`, id,
-	).Scan(&ownerClientID, &portStart, &portEnd, &planWebSocket, &caddyNodeID, &serviceID); err != nil {
+	).Scan(&ownerClientID, &portStart, &portEnd, &planWebSocket, &caddyNodeID, &serviceID, &oldDomain, &oldPath); err != nil {
 		redirectWithFlash(w, r, "/app/routes", "", "route not found")
 		return
 	}
@@ -1039,7 +1056,26 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := db.ExecContext(ctx,
+	// Domain/path change re-arms ownership proof: reset domain_verified and
+	// issue a fresh TXT token so the moved route holds at pending_dns instead
+	// of inheriting the old host's verified flag (cert/serving takeover).
+	domainChanged := newDomain != oldDomain || newPath != oldPath
+	if domainChanged {
+		verifyToken, terr := routes.NewVerifyToken()
+		if terr != nil {
+			redirectWithFlash(w, r, editURL, "", "update failed")
+			return
+		}
+		if _, err := db.ExecContext(ctx,
+			`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?, force_https=?,
+			        domain_verified=0, verify_token=?, status='pending_dns', ssl_issued_at=NULL,
+			        last_error='domain ownership not verified', updated_at=NOW() WHERE id=?`,
+			newDomain, newPath, newPort, newWS, newFH, verifyToken, id,
+		); err != nil {
+			redirectWithFlash(w, r, editURL, "", "update failed")
+			return
+		}
+	} else if _, err := db.ExecContext(ctx,
 		`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?, force_https=?, updated_at=NOW() WHERE id=?`,
 		newDomain, newPath, newPort, newWS, newFH, id,
 	); err != nil {
@@ -1715,17 +1751,6 @@ func (h *ClientHandlers) RouteLogsCSV(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Rate limit: 1 export per route per 10 s.
-	key := strconv.FormatInt(id, 10)
-	now := time.Now()
-	if last, ok := routeCSVLimiter.Load(key); ok {
-		if t, ok := last.(time.Time); ok && now.Sub(t) < 10*time.Second {
-			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
-			return
-		}
-	}
-	routeCSVLimiter.Store(key, now)
-
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 
@@ -1746,6 +1771,18 @@ func (h *ClientHandlers) RouteLogsCSV(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+
+	// Rate limit 1 export per route per 10 s. AFTER ownership check and keyed
+	// per-client so a stranger guessing route IDs can't burn the owner's limit.
+	key := fmt.Sprintf("%d:%d", clientID, id)
+	now := time.Now()
+	if last, ok := routeCSVLimiter.Load(key); ok {
+		if t, ok := last.(time.Time); ok && now.Sub(t) < 10*time.Second {
+			http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+			return
+		}
+	}
+	routeCSVLimiter.Store(key, now)
 
 	f := parseLogsFilter(r)
 	f.Limit = accesslog.MaxExportRows

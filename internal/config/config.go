@@ -135,6 +135,11 @@ type SecurityConfig struct {
 	// primary open-relay defense for the external-proxy feature.
 	ExternalUpstreamAllowlist []string
 
+	// AskAllowCIDRs source-binds /internal/ask (Caddy on-demand TLS) to a
+	// CIDR allow-list. Empty = open (unchanged); avoids gating cert issuance
+	// on APP_TRUSTED_PROXIES, which many deployments already set (C-01).
+	AskAllowCIDRs []string
+
 	// SIEMWebhook is the URL each audit event is POSTed to (JSON). Empty =
 	// disabled. The forwarder's SafeHTTPClient blocks RFC1918/loopback.
 	SIEMWebhook string
@@ -227,6 +232,7 @@ func Load() (*Config, error) {
 			MetricsAllow:              splitCSV(os.Getenv("APP_METRICS_ALLOW")),
 			FOSSBillingAllowIPs:       splitCSV(os.Getenv("FOSSBILLING_ALLOW_IPS")),
 			ExternalUpstreamAllowlist: splitCSV(os.Getenv("EXTERNAL_UPSTREAM_ALLOWLIST")),
+			AskAllowCIDRs:             splitCSV(os.Getenv("ASK_ALLOW_CIDRS")),
 			SIEMWebhook:               os.Getenv("AUDIT_SIEM_WEBHOOK"),
 			RequireAdmin2FA:           envBool("REQUIRE_ADMIN_2FA", false),
 			Admin2FAGraceHours:        envInt("REQUIRE_ADMIN_2FA_GRACE_HOURS", 0),

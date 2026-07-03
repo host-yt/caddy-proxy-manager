@@ -90,17 +90,13 @@ func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Hand
 			if r.URL.Path == "/auth/passkey/login/begin" {
 				return true
 			}
-			// Skip when an admin/client session cookie is present (any
-			// cookie name starting with "hpg_session"). Wrong-skip is
-			// safe: authed users hit their own per-handler rate limits.
-			// Also skip mid-2FA POSTs (hpg_2fa_pending cookie): the
-			// per-ticket OTP attempt cap already bounds those - without
-			// this, a NAT'd source can 429 the user out of /auth/2fa
-			// after a couple of wrong codes + page reloads.
+			// Skip authed sessions: check the PARSED session, not a cookie
+			// name - a forged hpg_session* must not buy a bypass.
+			if SessionFromContext(r.Context()) != nil {
+				return true
+			}
+			// Mid-2FA ticket: no session yet, but per-ticket OTP cap bounds it.
 			for _, c := range r.Cookies() {
-				if strings.HasPrefix(c.Name, "hpg_session") {
-					return true
-				}
 				if c.Name == "hpg_2fa_pending" && c.Value != "" {
 					return true
 				}

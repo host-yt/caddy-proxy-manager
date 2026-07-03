@@ -2910,6 +2910,14 @@ func validDomain(d string) bool {
 	return true
 }
 
+// ValidDomain exposes the internal hostname validator so handlers editing a
+// route (not via Create) enforce the same shape check.
+func ValidDomain(d string) bool { return validDomain(d) }
+
+// NewVerifyToken exposes the DNS-TXT ownership nonce generator so an
+// out-of-service domain change can re-arm verification.
+func NewVerifyToken() (string, error) { return newVerifyToken() }
+
 // looksLikeIP reports whether s parses as IPv4/IPv6 (not a hostname).
 func looksLikeIP(s string) bool {
 	return net.ParseIP(strings.TrimSpace(s)) != nil

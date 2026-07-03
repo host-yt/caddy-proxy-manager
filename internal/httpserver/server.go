@@ -221,7 +221,8 @@ func (s *Server) routes() {
 	// in combination with a one-time join token.
 	r.Get("/install/node.sh", s.deps.NodeJoin.Script)
 
-	r.Get("/internal/ask", s.deps.Ask.ServeHTTP)
+	// Optional source-bind (ASK_ALLOW_CIDRS). Empty = open, unchanged.
+	r.Method(http.MethodGet, "/internal/ask", mw.IPAllowList(mw.ParseCIDRList(s.deps.Config.Security.AskAllowCIDRs), http.HandlerFunc(s.deps.Ask.ServeHTTP)))
 	// mTLS RBAC trusts the caller's X-Mtls-Subject header verbatim (see
 	// admin_mtls_rbac.go) - only the node's forward_auth subrequest, which
 	// arrives over the WG control-plane mesh, may reach it.

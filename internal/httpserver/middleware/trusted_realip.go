@@ -25,6 +25,12 @@ func TrustedRealIP(trustedCIDRs []*net.IPNet) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			peer := stripPort(r.RemoteAddr)
 			if !inAnyCIDR(peer, trustedCIDRs) {
+				// Untrusted peer must not dictate the host: portal resolves the
+				// protected host from X-Forwarded-Host. Strip only when a trusted
+				// list exists, else unconfigured setups behind Caddy break.
+				if len(trustedCIDRs) > 0 {
+					r.Header.Del("X-Forwarded-Host")
+				}
 				next.ServeHTTP(w, r)
 				return
 			}

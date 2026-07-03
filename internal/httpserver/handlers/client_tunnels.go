@@ -82,7 +82,7 @@ func (h *ClientHandlers) ClientTunnelsList(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	d.Nodes = loadTunnelNodeOptions(ctx, db)
+	d.Nodes = loadClientTunnelNodeOptions(ctx, db, clientID)
 	if tok := strings.TrimSpace(r.URL.Query().Get("created")); tok != "" {
 		d.NewTunnel = h.lookupClientNewTunnel(ctx, db, r, tok, clientID)
 	}
@@ -114,6 +114,11 @@ func (h *ClientHandlers) ClientTunnelsCreate(w http.ResponseWriter, r *http.Requ
 	name := strings.TrimSpace(r.FormValue("name"))
 	if nodeID == 0 {
 		clientRedirectFlash(w, r, "/app/tunnels", "", "node is required")
+		return
+	}
+	// Scope: client may only peer a node in a group they hold a service in.
+	if !clientTunnelNodeAllowed(ctx, h.DB(), clientID, nodeID) {
+		clientRedirectFlash(w, r, "/app/tunnels", "", "node not available")
 		return
 	}
 	peer, token, err := h.WGPeers.Create(ctx, wgpeer.CreateInput{
@@ -203,6 +208,43 @@ func (h *ClientHandlers) lookupClientNewTunnel(ctx context.Context, db *sql.DB, 
 		ConfURL:        base + "/api/wg/bootstrap?token=" + token,
 		InstallCommand: "curl -fsSL " + base + "/api/wg/install.sh?token=" + token + " | sudo bash",
 	}
+}
+
+// loadClientTunnelNodeOptions lists tunnel nodes in a group the client
+// holds an active service in - not every tunnel_enabled node (B-02).
+func loadClientTunnelNodeOptions(ctx context.Context, db *sql.DB, clientID int64) []nodeOption {
+	rows, err := db.QueryContext(ctx,
+		`SELECT DISTINCT n.id, n.name FROM caddy_nodes n
+		 JOIN services s ON s.node_group_id = n.node_group_id
+		 WHERE n.tunnel_enabled = 1 AND s.client_id = ? AND s.status = 'active'
+		 ORDER BY n.name LIMIT 100`, clientID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []nodeOption
+	for rows.Next() {
+		var o nodeOption
+		if err := rows.Scan(&o.ID, &o.Name); err == nil {
+			out = append(out, o)
+		}
+	}
+	_ = rows.Err()
+	return out
+}
+
+// clientTunnelNodeAllowed enforces the same scope server-side.
+func clientTunnelNodeAllowed(ctx context.Context, db *sql.DB, clientID, nodeID int64) bool {
+	if db == nil {
+		return false
+	}
+	var n int
+	err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM caddy_nodes n
+		 JOIN services s ON s.node_group_id = n.node_group_id
+		 WHERE n.id = ? AND n.tunnel_enabled = 1 AND s.client_id = ? AND s.status = 'active'`,
+		nodeID, clientID).Scan(&n)
+	return err == nil && n > 0
 }
 
 // clientRedirectFlash mirrors redirectWithFlash but lives in the

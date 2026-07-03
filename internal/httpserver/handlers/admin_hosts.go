@@ -830,7 +830,13 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	routeID, err := h.Routes.Create(ctx, 0, routes.CreateInput{
+	// Reseller-admin is a tenant, not the operator: pass their clientID so the
+	// route must prove DNS ownership. Platform admin (ResellerID==0) stays trusted.
+	ownerScope := int64(0)
+	if sess.ResellerID != 0 {
+		ownerScope = clientID
+	}
+	routeID, err := h.Routes.Create(ctx, ownerScope, routes.CreateInput{
 		ServiceID:      serviceID,
 		UpstreamPort:   port,
 		UpstreamScheme: form.UpstreamScheme,
