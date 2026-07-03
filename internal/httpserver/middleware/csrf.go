@@ -36,8 +36,9 @@ func VerifyCSRF(next http.Handler) http.Handler {
 			return
 		}
 		// Built-in portal endpoints run on the protected host, not the panel
-		// origin, so there is no panel session/CSRF token to present. Same
-		// posture as /auth/login (SameSite=Lax + per-(email,IP) lockout).
+		// origin, so there is no panel session/CSRF token to present. The
+		// portal enforces its OWN double-submit CSRF token on login/2FA POSTs
+		// (see PortalHandlers.verifyPortalCSRF) plus SameSite=Lax + lockout.
 		if strings.HasPrefix(r.URL.Path, "/hpg-portal/") {
 			next.ServeHTTP(w, r)
 			return

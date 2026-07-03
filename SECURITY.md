@@ -23,9 +23,7 @@ Expect an initial response within 72 hours.
 ## Hardening checklist for operators
 
 This applies to anyone running the panel in production. See also
-[`docs/SECURITY.md`](docs/SECURITY.md) (threat model) and
-[`docs/SECURITY_REVIEW_2.md`](docs/SECURITY_REVIEW_2.md) (latest
-internal audit).
+[`docs/SECURITY.md`](docs/SECURITY.md) (threat model).
 
 ### Network
 
@@ -73,10 +71,8 @@ internal audit).
 
 ## Known limitations
 
-- TOTP secret encryption at rest is **pending**. Tracked in
-  [`docs/SECURITY_REVIEW_2.md`](docs/SECURITY_REVIEW_2.md) as P0
-  carry-forward. Mitigation: restrict DB access; use full-disk
-  encryption on the DB host.
-- The CSP allows `unsafe-inline` for scripts so the inline Tailwind
-  and theme-toggle bootstrap can run. Nonce-based CSP is on the
-  roadmap.
+- The CSP still allows `unsafe-inline` on `style-src` (inline styles
+  in templates). `script-src` is already nonce-strict. Dropping
+  `unsafe-inline` from styles is pending the inline-style-to-class
+  migration; until then, XSS via injected `<style>`/style attributes
+  is not blocked by CSP alone.

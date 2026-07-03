@@ -99,14 +99,14 @@ func CreateAPIKey(ctx context.Context, db *sql.DB, userID int64, name, scopes st
 // On success returns the owning user id, role, and the key's comma-separated
 // scopes (empty string = unscoped / full access, for keys issued before scope
 // enforcement existed).
-func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (userID int64, role, scopes string, err error) {
+func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (userID, keyID int64, role, scopes string, err error) {
 	token = strings.TrimSpace(token)
 	if !strings.HasPrefix(token, "hpg_") {
-		return 0, "", "", ErrAPIKeyInvalid
+		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	parts := strings.SplitN(strings.TrimPrefix(token, "hpg_"), "_", 2)
 	if len(parts) != 2 || len(parts[0]) != 8 || parts[1] == "" {
-		return 0, "", "", ErrAPIKeyInvalid
+		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	prefix, secret := parts[0], parts[1]
 
@@ -123,16 +123,16 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (user
 		prefix,
 	).Scan(&id, &uid, &hash, &hmacCol, &scopeCol, &revoked, &expires)
 	if errors.Is(err, sql.ErrNoRows) {
-		return 0, "", "", ErrAPIKeyInvalid
+		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	if err != nil {
-		return 0, "", "", err
+		return 0, 0, "", "", err
 	}
 	if revoked.Valid {
-		return 0, "", "", ErrAPIKeyInvalid
+		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	if expires.Valid && time.Now().UTC().After(expires.Time) {
-		return 0, "", "", ErrAPIKeyInvalid
+		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	scopes = scopeCol.String
 
@@ -143,7 +143,7 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (user
 		if derr == nil && gerr == nil && subtle.ConstantTimeCompare(want, got) == 1 {
 			finalizeAPIKey(ctx, db, id, uid, secret, hmacCol.String, clientIP)
 			role, err = lookupRole(ctx, db, uid)
-			return uid, role, scopes, err
+			return uid, id, role, scopes, err
 		}
 		// HMAC present + mismatch → still try Argon2id below in case the
 		// stored HMAC was written with a different key (post-rotation).
@@ -152,11 +152,11 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (user
 	// Legacy slow path: Argon2id from key_hash. On success, write key_hmac
 	// so the next call uses the fast path.
 	if err := VerifyPassword(hash, secret); err != nil {
-		return 0, "", "", ErrAPIKeyInvalid
+		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	finalizeAPIKey(ctx, db, id, uid, secret, "", clientIP)
 	role, err = lookupRole(ctx, db, uid)
-	return uid, role, scopes, err
+	return uid, id, role, scopes, err
 }
 
 func finalizeAPIKey(ctx context.Context, db *sql.DB, id, uid int64, secret, existingHMAC, clientIP string) {

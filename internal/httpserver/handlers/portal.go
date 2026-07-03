@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"crypto/subtle"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -54,6 +55,7 @@ type metricsLoginEmitter interface {
 
 const (
 	portalCookie      = "hpg_portal"
+	portalCSRFCookie  = "hpg_portal_csrf"
 	portalSessPrefix  = "hpg:portal:sess:"
 	portalLoginPath   = "/hpg-portal/login"
 	portalFailWindow  = 15 * time.Minute
@@ -89,6 +91,38 @@ func (h *PortalHandlers) ttl() time.Duration {
 		return h.TTL
 	}
 	return portalDefaultTTL
+}
+
+// issuePortalCSRF mints a double-submit CSRF token, sets it as a portal-scoped
+// cookie, and returns it for embedding as a hidden form field. The portal runs
+// on the protected host (not the panel origin) and has no panel CSRF session,
+// so its POST flows use double-submit: an attacker cannot read the victim's
+// cookie to place its value in a forged form.
+func (h *PortalHandlers) issuePortalCSRF(w http.ResponseWriter) string {
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	tok := base64.RawURLEncoding.EncodeToString(b)
+	http.SetCookie(w, &http.Cookie{
+		Name: portalCSRFCookie, Value: tok, Path: "/hpg-portal",
+		HttpOnly: true, Secure: h.Secure, SameSite: h.SameSite,
+	})
+	return tok
+}
+
+// verifyPortalCSRF checks the double-submit token: the csrf_token form field
+// must match the portal CSRF cookie (constant-time). Fails closed on absence.
+func (h *PortalHandlers) verifyPortalCSRF(r *http.Request) bool {
+	c, err := r.Cookie(portalCSRFCookie)
+	if err != nil || c.Value == "" {
+		return false
+	}
+	got := r.FormValue("csrf_token")
+	if got == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(got), []byte(c.Value)) == 1
 }
 
 // loadPortalSession returns the session bound to the request cookie, or nil.
@@ -187,6 +221,7 @@ type portalViewData struct {
 	Back           string
 	Host           string
 	CSPNonce       string
+	CSRFToken      string
 	OAuthProviders []portalOAuthProvider
 }
 
@@ -205,6 +240,11 @@ func (h *PortalHandlers) LoginPage(w http.ResponseWriter, r *http.Request) {
 func (h *PortalHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	host := portalRequestHost(r)
+	if !h.verifyPortalCSRF(r) {
+		back := portalSafeBack(r.FormValue("back"), host)
+		h.renderLogin(w, r, http.StatusForbidden, portalViewData{Error: "Session expired. Please try again.", Back: back, Host: host})
+		return
+	}
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 	password := r.FormValue("password")
 	back := portalSafeBack(r.FormValue("back"), host)
@@ -340,9 +380,10 @@ func (h *PortalHandlers) startPortal2FA(ctx context.Context, w http.ResponseWrit
 }
 
 type portal2FAViewData struct {
-	CSPNonce string
-	Host     string
-	Error    string
+	CSPNonce  string
+	Host      string
+	Error     string
+	CSRFToken string
 }
 
 func (h *PortalHandlers) Portal2FAPage(w http.ResponseWriter, r *http.Request) {
@@ -358,6 +399,10 @@ func (h *PortalHandlers) Portal2FAPage(w http.ResponseWriter, r *http.Request) {
 func (h *PortalHandlers) Portal2FASubmit(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
 	host := portalRequestHost(r)
+	if !h.verifyPortalCSRF(r) {
+		h.render2FA(w, r, http.StatusForbidden, portal2FAViewData{Host: host, Error: "Session expired. Please try again."})
+		return
+	}
 
 	c, err := r.Cookie(portal2FACookie)
 	if err != nil || c.Value == "" {
@@ -452,6 +497,7 @@ func (h *PortalHandlers) clearPortal2FACookie(w http.ResponseWriter) {
 
 func (h *PortalHandlers) render2FA(w http.ResponseWriter, r *http.Request, status int, d portal2FAViewData) {
 	d.CSPNonce = middleware.CSPNonce(r.Context())
+	d.CSRFToken = h.issuePortalCSRF(w)
 	var buf bytes.Buffer
 	if err := portal2FATmpl.Execute(&buf, d); err != nil {
 		http.Error(w, "render failed", http.StatusInternalServerError)
@@ -482,6 +528,7 @@ var portal2FATmpl = template.Must(template.New("portal_2fa").Parse(`<!doctype ht
  <p class="sub">{{.Host}}</p>
  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
  <form method="POST" action="/hpg-portal/2fa">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
   <label for="code">Authenticator code</label>
   <input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9 ]*" autocomplete="one-time-code" autofocus required maxlength="10" placeholder="000 000">
   <button type="submit">Verify</button>
@@ -668,6 +715,7 @@ func (h *PortalHandlers) loadPortalOAuthProviders(ctx context.Context) []portalO
 // since it is served on the customer host; CSP nonce is applied to the form.
 func (h *PortalHandlers) renderLogin(w http.ResponseWriter, r *http.Request, status int, d portalViewData) {
 	d.CSPNonce = middleware.CSPNonce(r.Context())
+	d.CSRFToken = h.issuePortalCSRF(w)
 	// Populate OAuth buttons on every render (including error re-renders).
 	if d.OAuthProviders == nil {
 		d.OAuthProviders = h.loadPortalOAuthProviders(r.Context())
@@ -711,6 +759,7 @@ var portalLoginTmpl = template.Must(template.New("portal_login").Parse(`<!doctyp
  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
  <form method="POST" action="/hpg-portal/login">
   <input type="hidden" name="back" value="{{.Back}}">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
   <label for="email">Email</label>
   <input id="email" name="email" type="email" autocomplete="username" autofocus required>
   <label for="password">Password</label>

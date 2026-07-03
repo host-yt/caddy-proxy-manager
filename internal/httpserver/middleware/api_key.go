@@ -19,6 +19,7 @@ const apiCallerKey apiKeyCtxKey = 1
 // APICaller is the resolved authenticated principal for an API request.
 type APICaller struct {
 	UserID int64
+	KeyID  int64
 	Role   string
 	// Scopes carried by the API key. Empty means the key is unscoped and has
 	// full access (back-compat: keys issued before scope enforcement).
@@ -70,7 +71,7 @@ func APIKeyAuth(db func() *sql.DB) func(http.Handler) http.Handler {
 			authCtx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 			defer cancel()
 			clientIP := security.ClientIP(r)
-			uid, role, scopes, err := auth.VerifyAPIKey(authCtx, d, token, clientIP)
+			uid, keyID, role, scopes, err := auth.VerifyAPIKey(authCtx, d, token, clientIP)
 			if err != nil {
 				// Audit failed attempts for hpg_-prefixed tokens only; garbage
 				// or absent headers are too noisy to be actionable.
@@ -103,7 +104,7 @@ func APIKeyAuth(db func() *sql.DB) func(http.Handler) http.Handler {
 				return
 			}
 			role = freshRole
-			ctx := context.WithValue(r.Context(), apiCallerKey, &APICaller{UserID: uid, Role: role, Scopes: parseScopes(scopes)})
+			ctx := context.WithValue(r.Context(), apiCallerKey, &APICaller{UserID: uid, KeyID: keyID, Role: role, Scopes: parseScopes(scopes)})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}

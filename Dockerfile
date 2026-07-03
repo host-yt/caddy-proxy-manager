@@ -58,9 +58,10 @@ COPY . .
 # //go:embed all:web/static in embed.go captures it (self-contained binary).
 COPY --from=tailwind /out/tailwind.css ./web/static/css/tailwind.css
 
-# Generate templ + sqlc (no-op if files absent).
-RUN templ generate || true \
- && sqlc generate || true
+# Generate templ + sqlc. Fail the build on real codegen errors instead of
+# shipping stale generated files; skip cleanly only when no source is present.
+RUN if find internal -name '*.templ' | grep -q .; then templ generate; fi \
+ && if [ -f sqlc.yaml ] || [ -f sqlc.yml ]; then sqlc generate; fi
 
 # Static build. TARGETARCH comes from buildx so cross-arch builds (arm64
 # from an amd64 runner) emit the right ELF instead of host-native.

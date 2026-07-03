@@ -49,6 +49,20 @@ type WGBootstrapHandler struct {
 	OnWstunnelHealthy func(nodeID int64)
 }
 
+// bootstrapToken prefers the token from an `Authorization: Bearer <token>`
+// header (never logged, never in browser/proxy history) and falls back to the
+// `?token=` query only for the one-command curl|bash UX. Callers that can set a
+// header (API clients, scripts) should - the query form stays a deprecated
+// fallback because the token is single-shot/short-TTL (F-14).
+func bootstrapToken(r *http.Request) string {
+	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+		if t := strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")); t != "" {
+			return t
+		}
+	}
+	return strings.TrimSpace(r.URL.Query().Get("token"))
+}
+
 func (h *WGBootstrapHandler) rateLimited(r *http.Request) bool {
 	if h.PerIPPerMin <= 0 || h.RDB == nil {
 		return false
@@ -73,7 +87,7 @@ func (h *WGBootstrapHandler) BootstrapConf(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "rate limited", http.StatusTooManyRequests)
 		return
 	}
-	token := r.URL.Query().Get("token")
+	token := bootstrapToken(r)
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	res, err := h.Peers.ConsumeBootstrap(ctx, token)
@@ -208,7 +222,7 @@ func (h *WGBootstrapHandler) InstallScript(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "rate limited", http.StatusTooManyRequests)
 		return
 	}
-	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	token := bootstrapToken(r)
 	if len(token) != 192 {
 		http.Error(w, "missing token", http.StatusBadRequest)
 		return
@@ -321,7 +335,7 @@ func (h *WGBootstrapHandler) PeerStatus(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "rate limited", http.StatusTooManyRequests)
 		return
 	}
-	token := strings.TrimSpace(r.URL.Query().Get("token"))
+	token := bootstrapToken(r)
 	if len(token) != 192 {
 		http.Error(w, "missing token", http.StatusBadRequest)
 		return

@@ -9,7 +9,7 @@ Primary threats considered:
 | Credential theft / brute force | Argon2id hashing, Redis brute-force counter, TOTP/passkey 2FA |
 | Session hijacking | HttpOnly cookie, 24-byte random session ID, 12 h TTL, rotated on login |
 | CSRF | Synchronizer token (`crypto/subtle.ConstantTimeCompare`), checked on all non-safe non-API routes |
-| Cross-tenant data access | Role re-checked per request; client handlers filter by `client_id`; backend IPs never exposed to clients |
+| Cross-tenant data access | Privilege changes revoke live sessions immediately; client handlers filter by `client_id`; backend IPs never exposed to clients |
 | API key compromise | Argon2id hash + HMAC pre-screen; per-key RPM cap; key disable takes effect immediately |
 | Config injection to Caddy | Panel is the only writer to Caddy Admin API; nodes are firewalled behind WireGuard |
 | Supply chain / binary tampering | Single static Go binary; no runtime plugins; module flags disable non-stock blocks |
@@ -64,7 +64,12 @@ The `admin` role has an explicit sub-hierarchy (`internal/adminscope/service.go`
 - **Reseller-admin** (`users.reseller_id` set) - scoped to its reseller's owned clients/plans only; a default-deny allow-list middleware (`reseller_boundary.go`) gates its panel routes, and its API key cannot touch global infra (`requireGlobalAPIAdmin`).
 - **Client-scoped admin** (`users.is_restricted = 1`) - limited to its `admin_client_scope` assignments. Restriction is an **explicit opt-in flag**, not inferred from assignment-row count: this closes the old footgun where deleting a scoped admin's last client silently escalated it to full access. `is_restricted=1` with zero scope rows now means "sees nothing".
 
-- Role stored in `users.role`, re-checked on every HTTP request - no caching in session or token
+- Role stored in `users.role`. The API-key path re-reads `role`/`is_active`
+  from the DB on every request. Cookie sessions cache the role in the Redis
+  session record for speed; any privilege change - role edit, deactivate,
+  delete, password rotation, reseller reassignment, GDPR erase - immediately
+  calls `DestroyAllForUser`, so a stale-privilege session cannot outlive the
+  change (it does not merely expire at session TTL)
 - Route groups enforce role at the chi middleware level (`RequireRole` middleware)
 - Client handlers use `client_id` from session context and apply `IN (...)` DB filters; never trust user-supplied IDs for scoping
 - Admin impersonation sets `ImpersonatorUserID` in session; audit log records both IDs
@@ -101,7 +106,8 @@ The `admin` role has an explicit sub-hierarchy (`internal/adminscope/service.go`
 Nonce-based CSP generated per request. Inline scripts require the per-request nonce. Static CSP header includes:
 - `default-src 'self'`
 - `script-src 'self' 'nonce-<random>'`
-- `style-src 'self' 'nonce-<random>'`
+- `style-src 'self' 'unsafe-inline'` (inline template styles; nonce
+  migration pending - see SECURITY.md "Known limitations")
 - `frame-ancestors 'none'`
 
 Additional headers set by `security_headers.go` middleware:
@@ -113,10 +119,12 @@ Additional headers set by `security_headers.go` middleware:
 
 ## mTLS
 
-Requires `MTLS_AVAILABLE` Caddy module. When enabled on a route:
+Implemented via Caddy `tls_connection_policies`; works on stock Caddy, no
+extra module needed. When enabled on a route:
 - Caddy requests a client certificate during TLS handshake
-- Panel emits `client_auth` block in the route's TLS config with the configured CA
-- Guarded by `MTLS_AVAILABLE` env flag; no-op on stock Caddy
+- Panel emits the `client_authentication` block in the route's TLS config with the configured CA
+- `MTLS_AVAILABLE` is a UI feature flag only (whether the option is offered),
+  not a functional gate - see `docs/MTLS.md`
 
 ---
 
@@ -153,7 +161,12 @@ All write operations by admins and clients are logged to the `audit_log` table:
 - Source IP
 - Timestamp
 
-Audit log is append-only from the application layer. No delete endpoint exists.
+The application never updates or deletes individual audit rows. A single
+bulk-purge exists (`POST /admin/audit/clear`, super_admin + CSRF only): it
+wipes the table and, in the same transaction, writes an `audit.cleared`
+tombstone recording the actor, IP, user agent and purged row count - so a
+clear cannot itself go untraced. For tamper-evident retention beyond this,
+ship audit rows to an external append-only sink.
 
 ---
 

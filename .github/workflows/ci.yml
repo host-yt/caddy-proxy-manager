@@ -30,6 +30,8 @@ jobs:
             echo "::error::unpinned xcaddy --with module (missing @version/@commit)"; fail=1; fi
           if git ls-files | grep -En 'install_state|\.db$|^data/'; then
             echo "::error::runtime artifact tracked in git"; fail=1; fi
+          if grep -rEn 'templ generate \|\| true|sqlc generate \|\| true' Dockerfile .github/; then
+            echo "::error::codegen error swallowed with || true (let build fail)"; fail=1; fi
           exit $fail
 
       - uses: actions/setup-go@v6
@@ -44,8 +46,11 @@ jobs:
 
       - name: Generate
         run: |
-          templ generate || true
-          sqlc generate || true
+          if find internal -name '*.templ' | grep -q .; then templ generate; fi
+          if [ -f sqlc.yaml ] || [ -f sqlc.yml ]; then sqlc generate; fi
+
+      - name: Check doc links
+        run: python3 scripts/check_docs_links.py
 
       - name: Check migrations layout
         run: make check-migrations

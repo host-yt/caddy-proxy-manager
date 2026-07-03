@@ -14,9 +14,11 @@ import (
 // the per-key value from api_keys.rate_limit_rpm (NULL = no cap). Sits
 // AFTER APIKeyAuth so CallerFromContext is populated.
 //
-// Implementation: bucket key `hpg:apikey:rl:<user_id>:<yyyymmddhhmm>` with
+// Implementation: bucket key `hpg:apikey:rl:<key_id>:<yyyymmddhhmm>` with
 // 70s expiry. Atomic incr; reject when > cap. The cap value is cached in
-// Redis for 5 minutes per user to avoid a DB hit on every request.
+// Redis for 5 minutes per key to avoid a DB hit on every request. Bucket and
+// cap are keyed on the API key ID (not the user) so one key's high limit does
+// not raise the limit for the user's other keys.
 func APIQuota(rdb *redis.Client, db func() *sql.DB) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -25,19 +27,19 @@ func APIQuota(rdb *redis.Client, db func() *sql.DB) func(http.Handler) http.Hand
 				return
 			}
 			c := CallerFromContext(r.Context())
-			if c == nil {
+			if c == nil || c.KeyID == 0 {
 				next.ServeHTTP(w, r)
 				return
 			}
 			ctx, cancel := context.WithTimeout(r.Context(), 200*time.Millisecond)
 			defer cancel()
-			cap_, err := lookupQuota(ctx, rdb, db, c.UserID)
+			cap_, err := lookupQuota(ctx, rdb, db, c.KeyID)
 			if err != nil || cap_ <= 0 {
 				next.ServeHTTP(w, r)
 				return
 			}
 			now := time.Now().UTC()
-			bucket := "hpg:apikey:rl:" + strconv.FormatInt(c.UserID, 10) + ":" + now.Format("200601021504")
+			bucket := "hpg:apikey:rl:" + strconv.FormatInt(c.KeyID, 10) + ":" + now.Format("200601021504")
 			n, err := rdb.Incr(ctx, bucket).Result()
 			if err == nil {
 				if n == 1 {
@@ -56,8 +58,8 @@ func APIQuota(rdb *redis.Client, db func() *sql.DB) func(http.Handler) http.Hand
 	}
 }
 
-func lookupQuota(ctx context.Context, rdb *redis.Client, db func() *sql.DB, userID int64) (int, error) {
-	key := "hpg:apikey:cap:" + strconv.FormatInt(userID, 10)
+func lookupQuota(ctx context.Context, rdb *redis.Client, db func() *sql.DB, keyID int64) (int, error) {
+	key := "hpg:apikey:cap:" + strconv.FormatInt(keyID, 10)
 	if v, err := rdb.Get(ctx, key).Result(); err == nil {
 		n, _ := strconv.Atoi(v)
 		return n, nil
@@ -66,13 +68,13 @@ func lookupQuota(ctx context.Context, rdb *redis.Client, db func() *sql.DB, user
 	if d == nil {
 		return 0, nil
 	}
-	var maxRPM int
+	var rpm int
 	row := d.QueryRowContext(ctx,
-		`SELECT COALESCE(MAX(rate_limit_rpm), 0) FROM api_keys
-		 WHERE user_id = ? AND revoked_at IS NULL`, userID)
-	if err := row.Scan(&maxRPM); err != nil {
+		`SELECT COALESCE(rate_limit_rpm, 0) FROM api_keys
+		 WHERE id = ? AND revoked_at IS NULL`, keyID)
+	if err := row.Scan(&rpm); err != nil {
 		return 0, err
 	}
-	_ = rdb.Set(ctx, key, strconv.Itoa(maxRPM), 5*time.Minute).Err()
-	return maxRPM, nil
+	_ = rdb.Set(ctx, key, strconv.Itoa(rpm), 5*time.Minute).Err()
+	return rpm, nil
 }
