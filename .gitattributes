@@ -1,0 +1,10 @@
+# Keep runtime artifacts and local junk out of `git archive` source tarballs.
+data/ export-ignore
+*.db export-ignore
+*.sqlite export-ignore
+.DS_Store export-ignore
+__MACOSX export-ignore
+bin/ export-ignore
+dist/ export-ignore
+build/ export-ignore
+.claude/ export-ignore

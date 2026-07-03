@@ -3189,6 +3189,13 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		upstreamScheme = "http"
 	}
 	upstreamSkipTLS := r.FormValue("upstream_skip_tls_verify") == "1"
+	// Disabling upstream cert verification enables MITM to the backend: only
+	// super_admin may turn it on. Unchecking (safe direction) stays allowed.
+	if upstreamSkipTLS && (sess == nil || sess.Role != "super_admin") {
+		editPath := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
+		redirectWithFlash(w, r, editPath, "", "skip upstream TLS verify requires super_admin")
+		return
+	}
 	viaPeerID, _ := strconv.ParseInt(r.FormValue("via_wg_peer_id"), 10, 64)
 	if external {
 		editPath := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
@@ -3224,7 +3231,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		sctx, scancel := context.WithTimeout(r.Context(), 5*time.Second)
 		if err := screenBackendHost(sctx, screenHost); err != nil {
 			scancel()
-			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", err.Error())
+			h.Logger.Warn("host save: backend screen failed", "host", screenHost, "err", err)
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "backend address blocked or unresolvable")
 			return
 		}
 		scancel()

@@ -14,6 +14,24 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
+      # Anti-regression gates for the 2026-07 security/supply-chain hardening.
+      - name: Security policy gates
+        run: |
+          fail=0
+          if grep -rEn 'image:[[:space:]]*caddy:2\.8|FROM caddy:2\.8' scripts/ deploy/; then
+            echo "::error::stale caddy:2.8 image pin (bump to current stable)"; fail=1; fi
+          if grep -rn 'get.docker.com' scripts/; then
+            echo "::error::get.docker.com|sh bootstrap in scripts/ (use distro docker.io)"; fail=1; fi
+          if grep -rEn 'pull_policy:[[:space:]]*always' deploy/; then
+            echo "::error::pull_policy: always in deploy/ (use if_not_present)"; fail=1; fi
+          if grep -rEn 'ghcr\.io/host-yt/[^[:space:]}]*:latest' deploy/; then
+            echo "::error:::latest tag on own ghcr image in deploy/ (pin a version/digest)"; fail=1; fi
+          if grep -En '^[[:space:]]*--with ' deploy/caddy/Dockerfile | grep -v '@'; then
+            echo "::error::unpinned xcaddy --with module (missing @version/@commit)"; fail=1; fi
+          if git ls-files | grep -En 'install_state|\.db$|^data/'; then
+            echo "::error::runtime artifact tracked in git"; fail=1; fi
+          exit $fail
+
       - uses: actions/setup-go@v6
         with:
           go-version: "1.26"

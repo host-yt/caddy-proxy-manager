@@ -62,9 +62,10 @@ if [[ "$need_apt" -eq 1 ]]; then
     log "Installing wireguard, docker, curl, jq via apt-get"
     export DEBIAN_FRONTEND=noninteractive
     apt-get update -qq
-    apt-get install -y -qq wireguard wireguard-tools curl jq ca-certificates
+    # docker.io from the distro repo instead of piping a remote installer to root (supply-chain).
+    apt-get install -y -qq wireguard wireguard-tools curl jq ca-certificates docker.io
     if ! command -v docker >/dev/null 2>&1; then
-      curl -fsSL https://get.docker.com | sh
+      die "docker install failed. Install Docker from your distro repo and re-run."
     fi
   else
     die "auto-install only supports apt-based distros. Install wg, docker, jq manually then re-run."
@@ -129,7 +130,7 @@ log "Writing $INSTALL_DIR/docker-compose.yml"
 cat > "$INSTALL_DIR/docker-compose.yml" <<EOF
 services:
   caddy:
-    image: caddy:2.8
+    image: caddy:2.11.4
     restart: unless-stopped
     ports:
       - "${admin_listen}:2019"

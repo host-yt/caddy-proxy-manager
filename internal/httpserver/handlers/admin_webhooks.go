@@ -122,7 +122,8 @@ func (h *AdminHandlers) WebhooksCreate(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	id, err := h.Webhooks.SaveEndpoint(ctx, name, url, secret, events, enabled, uid)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/webhooks", "", "save failed: "+err.Error())
+		h.Logger.Warn("webhook save failed", "err", err)
+		redirectWithFlash(w, r, "/admin/webhooks", "", "save failed")
 		return
 	}
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
@@ -144,7 +145,8 @@ func (h *AdminHandlers) WebhooksDelete(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if _, err := db.ExecContext(ctx, "DELETE FROM webhook_endpoints WHERE id = ?", id); err != nil {
-		redirectWithFlash(w, r, "/admin/webhooks", "", "delete failed: "+err.Error())
+		h.Logger.Warn("webhook delete failed", "err", err)
+		redirectWithFlash(w, r, "/admin/webhooks", "", "delete failed")
 		return
 	}
 	sess := middleware.SessionFromContext(r.Context())

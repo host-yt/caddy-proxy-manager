@@ -115,7 +115,8 @@ func (h *AdminHandlers) ManualCertsImport(w http.ResponseWriter, r *http.Request
 		ChainPEM: chainPEM,
 	})
 	if err != nil {
-		redirectWithFlash(w, r, page, "", "import failed: "+err.Error())
+		h.Logger.Warn("manual cert import failed", "err", err)
+		redirectWithFlash(w, r, page, "", "import failed")
 		return
 	}
 

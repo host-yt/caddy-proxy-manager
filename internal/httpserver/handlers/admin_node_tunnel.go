@@ -172,7 +172,8 @@ func (h *AdminHandlers) NodeTunnelEnable(w http.ResponseWriter, r *http.Request)
 	}
 	transport, wstPort, wstPortInt, terr := parseTransport(r)
 	if terr != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", terr.Error())
+		h.Logger.Warn("tunnel enable: invalid transport form", "err", terr)
+		redirectWithFlash(w, r, "/admin/nodes", "", "invalid transport or wstunnel_port")
 		return
 	}
 

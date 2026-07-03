@@ -15,7 +15,7 @@ services:
     # Stock Caddy used only as fallback for nodes that don't run the
     # custom cache-handler build. For cache_enabled routes the node MUST
     # run ghcr.io/host-yt/caddy-proxy-manager-edge (deploy/caddy/Dockerfile).
-    image: ${IMAGE_CADDY:-caddy:2.11.3}
+    image: ${IMAGE_CADDY:-caddy:2.11.4}
     restart: unless-stopped
     # IMPORTANT: bind :2019 to the WireGuard IP only. Public ports
     # (80/443/443-udp) are bound on 0.0.0.0 as usual.

@@ -39,7 +39,6 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
-	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/instasync"
@@ -47,6 +46,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/nodejoin"
 	"github.com/host-yt/caddy-proxy-manager/internal/obs"
 	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
+	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
@@ -3838,11 +3838,11 @@ type smtpView struct {
 }
 
 type acmeView struct {
-	Email      string
-	Staging    bool
-	CaURL      string // "" or "letsencrypt" or "zerossl" or custom URL
-	EabKID     string
-	HasEABKey  bool // true when an encrypted EAB HMAC is stored
+	Email     string
+	Staging   bool
+	CaURL     string // "" or "letsencrypt" or "zerossl" or custom URL
+	EabKID    string
+	HasEABKey bool // true when an encrypted EAB HMAC is stored
 }
 
 type geoipView struct {
@@ -3958,7 +3958,7 @@ type settingsData struct {
 	AllowSelfRegistration bool
 	DefaultPlanID         string
 	// Instances tab: registered slave HPG instances.
-	Slaves     []SyncSlaveView
+	Slaves      []SyncSlaveView
 	IsSlaveMode bool
 }
 
@@ -4287,6 +4287,12 @@ func (h *AdminHandlers) SettingsMTLS(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no db", http.StatusServiceUnavailable)
 		return
 	}
+	// fail_open weakens mTLS enforcement fleet-wide: super_admin break-glass only.
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "super_admin role required", http.StatusForbidden)
+		return
+	}
 	_ = r.ParseForm()
 	failOpen := "0"
 	if r.FormValue("mtls_fail_open") == "1" {
@@ -4298,7 +4304,6 @@ func (h *AdminHandlers) SettingsMTLS(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/settings#mtls", "", "save failed")
 		return
 	}
-	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "settings.mtls.save", Entity: "settings",
 		EntityID: "mtls", Meta: map[string]any{"fail_open": failOpen == "1"},
@@ -5077,6 +5082,12 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "no db", http.StatusServiceUnavailable)
 		return
 	}
+	// allow_unverified_email is an identity-trust downgrade: super_admin only.
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "super_admin role required", http.StatusForbidden)
+		return
+	}
 	_ = r.ParseForm()
 	enabled := r.FormValue("enabled") == "1"
 	providerName := strings.TrimSpace(r.FormValue("provider_name"))
@@ -5153,6 +5164,12 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 		pwdDisabledStr = "1"
 	}
 	allowUnverified := r.FormValue("allow_unverified_email") == "1"
+	// Trusting an unverified email while auto-provisioning lets anyone who
+	// controls such an address at the IdP mint an account. Refuse the combo.
+	if allowUnverified && autoProvision {
+		redirectWithFlash(w, r, "/admin/settings", "", "OIDC: allow_unverified_email cannot be combined with auto_provision (security)")
+		return
+	}
 	allowUnverifiedStr := "0"
 	if allowUnverified {
 		allowUnverifiedStr = "1"
@@ -5198,10 +5215,12 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 	if h.OIDC != nil {
 		h.OIDC.InvalidateCache()
 	}
-	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "settings.oidc.save", Entity: "settings",
-		EntityID: "oidc", Meta: map[string]any{"enabled": enabled, "issuer": issuer},
+		EntityID: "oidc", Meta: map[string]any{
+			"enabled": enabled, "issuer": issuer,
+			"allow_unverified_email": allowUnverified, "auto_provision": autoProvision,
+		},
 	})
 	redirectWithFlash(w, r, "/admin/settings", "OIDC saved. Next sign-in will use the updated config.", "")
 }
@@ -5651,7 +5670,6 @@ func (h *AdminHandlers) Stub(title string) http.HandlerFunc {
 		})
 	}
 }
-
 
 // planFeatureTokens maps plan flag fields to package feature tokens (F5).
 func planFeatureTokens(ssl, path, websocket, wildcard, external bool, rateLimitRPM int) []string {

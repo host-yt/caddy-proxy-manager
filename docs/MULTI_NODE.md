@@ -193,9 +193,10 @@ Checks for `wg`, `wg-quick`, `docker`, `curl`, `jq`. If any are missing and
 `apt-get` is available, installs them:
 
 ```bash
-apt-get install -y wireguard wireguard-tools curl jq ca-certificates
-curl -fsSL https://get.docker.com | sh  # if docker missing
+apt-get install -y wireguard wireguard-tools curl jq ca-certificates docker.io
 ```
+
+Docker comes from the distro repo (`docker.io`), not `get.docker.com | sh`.
 
 Fails fast with an error on non-apt distros.
 
@@ -327,8 +328,7 @@ verify every step.
 
 ```bash
 apt-get update
-apt-get install -y wireguard wireguard-tools curl jq
-curl -fsSL https://get.docker.com | sh
+apt-get install -y wireguard wireguard-tools curl jq docker.io
 ```
 
 ### 7.2 Register the node

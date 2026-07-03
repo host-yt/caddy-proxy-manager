@@ -308,12 +308,12 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 
 	cidrAllow, err := parseCIDRList(form.CIDRAllow)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/streams", "", "cidr_allow: "+err.Error())
+		redirectWithFlash(w, r, "/admin/streams", "", "cidr_allow: invalid CIDR")
 		return
 	}
 	cidrDeny, err := parseCIDRList(form.CIDRDeny)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/streams", "", "cidr_deny: "+err.Error())
+		redirectWithFlash(w, r, "/admin/streams", "", "cidr_deny: invalid CIDR")
 		return
 	}
 	matchValues := parseCSVList(form.MatchValues)
@@ -336,7 +336,8 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 	for _, u := range extraUpstreams {
 		host, _, _ := net.SplitHostPort(u.Address)
 		if err := screenBackendHost(ctx, host); err != nil {
-			redirectWithFlash(w, r, "/admin/streams", "", "upstream "+u.Address+": "+err.Error())
+			h.Logger.Warn("stream upstream screen failed", "addr", u.Address, "err", err)
+			redirectWithFlash(w, r, "/admin/streams", "", "upstream "+u.Address+": blocked or unresolvable")
 			return
 		}
 	}
@@ -522,12 +523,12 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 
 	cidrAllow, err := parseCIDRList(r.FormValue("cidr_allow"))
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "cidr_allow: "+err.Error())
+		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "cidr_allow: invalid CIDR")
 		return
 	}
 	cidrDeny, err := parseCIDRList(r.FormValue("cidr_deny"))
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "cidr_deny: "+err.Error())
+		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "cidr_deny: invalid CIDR")
 		return
 	}
 	matchValues := parseCSVList(r.FormValue("match_values"))

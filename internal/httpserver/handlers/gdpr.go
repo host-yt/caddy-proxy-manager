@@ -270,7 +270,8 @@ func (h *AdminHandlers) LegalDocAdmin(w http.ResponseWriter, r *http.Request) {
 		legalQ = `INSERT INTO legal_documents (slug, title, body, updated_by) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE title=VALUES(title), body=VALUES(body), updated_by=VALUES(updated_by)`
 	}
 	if _, err := db.ExecContext(ctx, legalQ, slug, title, body, updatedBy); err != nil {
-		redirectWithFlash(w, r, "/admin/legal", "", "save failed: "+err.Error())
+		h.Logger.Warn("legal doc save failed", "err", err)
+		redirectWithFlash(w, r, "/admin/legal", "", "save failed")
 		return
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
