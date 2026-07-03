@@ -86,6 +86,8 @@ func (p *hpgProvider) Resources(_ context.Context) []func() resource.Resource {
 		NewClientResource,
 		NewServiceResource,
 		NewRouteResource,
+		NewResellerResource,
+		NewResellerPlanResource,
 	}
 }
 

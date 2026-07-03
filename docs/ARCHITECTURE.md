@@ -270,9 +270,43 @@ CIDR checks, etc.).
 `adminscope` resolves the effective admin scope per request: unrestricted
 (super-admin), reseller-scoped, client-scoped, or fail-closed-denied when the
 admin's reseller is suspended. `reseller` is the reseller domain package
-(resellers, branding, plan/client ownership). The in-repo `terraform-provider-hpg/`
-is a nested Go module that talks to `/api/v1` to manage nodes, pools, plans,
-clients, services, and routes as code.
+(resellers, branding, plan/client ownership, and reseller-package CRUD in
+`plans.go`). The in-repo `terraform-provider-hpg/` is a nested Go module that
+talks to `/api/v1` to manage nodes, pools, plans, clients, services, and
+routes as code.
+
+Admin tiers, most to least privileged:
+
+1. **`super_admin`** - user id `0`-equivalent unrestricted path; full platform
+   access, unfiltered by `adminscope`.
+2. **Platform admin** - `role = 'admin'`/`'api'` with `users.reseller_id`
+   NULL and `users.is_restricted = 0`; full platform access except
+   `super_admin`-only settings.
+3. **Reseller-admin** - `role = 'reseller'` (or legacy `role = 'admin'` with
+   `users.reseller_id` set); scope is exactly the clients owned by that
+   reseller (`clients.reseller_id`), resolved fresh on every request - never
+   cached, never widened by a stray `admin_client_scope` row. A suspended
+   reseller (`resellers.status = 'suspended'`) fails its admins closed to
+   nothing, not through to unrestricted.
+4. **Client-scoped admin** - `role = 'admin'` with `users.is_restricted = 1`;
+   scope is the client ids listed in `admin_client_scope`. Restriction is an
+   explicit flag (not inferred from row count), so a scoped admin with zero
+   assigned clients correctly sees nothing instead of silently escalating to
+   full access.
+
+### `internal/quota/`
+Enforces a reseller's aggregate package limits (`reseller_plans`) at the three
+create surfaces that grow reseller usage: clients, services, and routes. A
+business limit, not a security boundary - tenant isolation is `adminscope`'s
+job. `Service.CanCreateClient`/`CanCreateService`/`CanCreateRoute` return
+typed errors (`ErrClientQuota`, `ErrServiceQuota`, `ErrDomainQuota`) that
+handlers map to `403`. Platform-direct resources (`reseller_id` NULL) and
+resellers with no package subscribed are never limited (the "Unlimited"
+package backfill keeps existing installs unaffected). Overselling
+(`resellers.overselling_allowed`) switches domain enforcement from an
+allocation check at service-create time (sum of attached plans' `max_domains`
+against the package total) to a real route count check at route-create time.
+`Service.UsageFor` powers the reseller dashboard/API usage summary.
 
 ---
 
@@ -284,10 +318,15 @@ Core entity relationships (abridged to the most significant columns):
 settings (key, value, is_encrypted)
 
 resellers (id, name, slug, status active|suspended, brand_name, logo_url,
-           support_email, primary_color)
+           support_email, primary_color, reseller_plan_id*, owner_user_id,
+           overselling_allowed, can_create_plans)   (* NULL = no package = unlimited)
+  └── reseller_plans (id, name, max_clients, max_domains_total,
+                      max_services_total, rate_limit_rpm_cap)   -- 0 = unlimited
+        └── reseller_plan_node_groups (reseller_plan_id, node_group_id)
+        └── reseller_plan_features (reseller_plan_id, feature)
 
-users (id, email, password_hash, role, totp_enabled, oidc_subject,
-       reseller_id*, is_restricted)   (* NULL = platform-direct)
+users (id, email, password_hash, role super_admin|admin|support|client|api|reseller,
+       totp_enabled, oidc_subject, reseller_id*, is_restricted)   (* NULL = platform-direct)
   └── recovery_codes (user_id, code_hash, used_at)
   └── api_keys (user_id, key_prefix, key_hash, scopes)
   └── clients (user_id, display_name, external_ref, reseller_id*)

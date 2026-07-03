@@ -26,6 +26,7 @@ func TestProviderSchema(t *testing.T) {
 	want := []string{
 		"hpg_node_pool", "hpg_node", "hpg_plan",
 		"hpg_client", "hpg_service", "hpg_route",
+		"hpg_reseller", "hpg_reseller_plan",
 	}
 	for _, name := range want {
 		if _, ok := resp.ResourceSchemas[name]; !ok {

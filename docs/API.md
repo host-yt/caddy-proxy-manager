@@ -590,6 +590,378 @@ This endpoint is called by the node bootstrap script (`/install/node.sh`). Do no
 
 ---
 
+### Resellers
+
+A reseller is a white-label tenant that owns a set of clients (and optionally its own plans + branding). Reseller management is **platform-admin only** - a reseller-admin API key passes the role check but is denied by the global-scope gate (`403 global admin scope required`); it manages its own tenants through the scoped `/clients`, `/services`, and `/routes` endpoints instead.
+
+---
+
+#### `GET /api/v1/resellers`
+
+List all resellers.
+
+**Auth:** Bearer token - platform-admin only.
+
+**Response `200`**
+
+```json
+{
+  "resellers": [
+    {
+      "id": 3,
+      "name": "Acme Hosting",
+      "slug": "acme-hosting",
+      "status": "active",
+      "brand_name": "Acme Cloud",
+      "support_email": "support@acme.example",
+      "reseller_plan_id": 2,
+      "overselling_allowed": false,
+      "can_create_plans": true,
+      "owner_user_id": 41
+    }
+  ]
+}
+```
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 401 | Auth required |
+| 403 | Admin role required, or caller is not a global-scope admin (reseller-admin key) |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
+
+---
+
+#### `GET /api/v1/resellers/{id}`
+
+Get a single reseller, including current package usage.
+
+**Auth:** Bearer token - platform-admin only.
+
+**Response `200`**
+
+```json
+{
+  "id": 3,
+  "name": "Acme Hosting",
+  "slug": "acme-hosting",
+  "status": "active",
+  "brand_name": "Acme Cloud",
+  "support_email": "support@acme.example",
+  "reseller_plan_id": 2,
+  "overselling_allowed": false,
+  "can_create_plans": true,
+  "owner_user_id": 41,
+  "usage": {
+    "Clients": 4,
+    "MaxClients": 10,
+    "Services": 6,
+    "MaxServices": 25,
+    "Domains": 18,
+    "MaxDomains": 50,
+    "Overselling": false,
+    "Limited": true
+  }
+}
+```
+
+`usage.Limited` is `false` when the reseller has no package subscribed (unlimited); the `Max*` fields are then `0` and not enforced.
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 401 | Auth required |
+| 403 | Admin role required, or caller is not a global-scope admin |
+| 404 | Reseller not found |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
+
+---
+
+#### `POST /api/v1/resellers`
+
+Create a reseller and its owner login in one atomic operation.
+
+**Auth:** Bearer token - platform-admin only.
+
+**Request body**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `name` | string | yes | Display name |
+| `slug` | string | yes | Lowercase alphanumeric/dashes; unique |
+| `owner_email` | string | yes | Login for the reseller-admin owner account |
+| `owner_password` | string | yes | >= 12 characters |
+| `brand_name` | string | no | White-label brand name |
+| `support_email` | string | no | Support contact shown to the reseller's own clients |
+
+```json
+{
+  "name": "Acme Hosting",
+  "slug": "acme-hosting",
+  "owner_email": "owner@acme.example",
+  "owner_password": "correct-horse-battery-staple",
+  "brand_name": "Acme Cloud",
+  "support_email": "support@acme.example"
+}
+```
+
+The owner account is created with `role=reseller` and `users.reseller_id` set to the new reseller, and is subscribed to the default "Unlimited" package.
+
+**Response `201`**
+
+```json
+{ "id": 3, "owner_user_id": 41 }
+```
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 400 | Missing/invalid `name`, `slug`, `owner_email`, or `owner_password` too short |
+| 401 | Auth required |
+| 403 | Admin role required, or caller is not a global-scope admin |
+| 409 | `slug` or `owner_email` already exists |
+| 429 | Rate limit exceeded |
+| 500 | Hash or database error |
+
+---
+
+#### `PATCH /api/v1/resellers/{id}`
+
+Update a reseller's identity, branding, status, and package policy.
+
+**Auth:** Bearer token - platform-admin only.
+
+All fields are optional; omit to leave unchanged.
+
+**Request body**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `name` | string | |
+| `status` | string | `active` or `suspended` |
+| `brand_name` | string | |
+| `support_email` | string | |
+| `reseller_plan_id` | integer | Subscribed package (see Reseller plans below) |
+| `overselling_allowed` | boolean | Policy flag |
+| `can_create_plans` | boolean | Policy flag |
+
+```json
+{ "status": "suspended" }
+```
+
+Setting `status: "suspended"` revokes every active session for that reseller's users (fail-closed - a reseller-admin cannot keep working through an already-open session).
+
+**Response `200`** - same shape as `GET /api/v1/resellers/{id}` (without `usage`).
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 400 | Invalid JSON, or `status` not `active`/`suspended` |
+| 401 | Auth required |
+| 403 | Admin role required, or caller is not a global-scope admin |
+| 404 | Reseller not found |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
+
+---
+
+#### `DELETE /api/v1/resellers/{id}`
+
+Delete a reseller.
+
+**Auth:** Bearer token - platform-admin only.
+
+Owned clients, plans, and users have `reseller_id` reset to `NULL` (they become platform-direct) - deleting a reseller never cascades a delete of customer data. Sessions of the freed users are revoked.
+
+**Response `200`**
+
+```json
+{ "id": 3, "deleted": true }
+```
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 401 | Auth required |
+| 403 | Admin role required, or caller is not a global-scope admin |
+| 404 | Reseller not found |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
+
+---
+
+### Reseller plans
+
+A reseller plan (package) is the aggregate quota + resource grant tier a reseller subscribes to - analogous to a Plesk "reseller plan" or WHM "account limits". It is distinct from a `Plan` (`plans` table), which is the quota a client's *service* uses; a reseller plan caps the reseller's totals across all of its clients/services/domains and grants which node pools and route features the reseller may use when authoring its own plans.
+
+---
+
+#### `GET /api/v1/reseller-plans`
+
+List all reseller packages.
+
+**Auth:** Bearer token - platform-admin only.
+
+**Response `200`**
+
+```json
+{
+  "reseller_plans": [
+    {
+      "id": 2,
+      "name": "Growth",
+      "max_clients": 10,
+      "max_services_total": 25,
+      "max_domains_total": 50,
+      "rate_limit_rpm_cap": 600,
+      "node_group_ids": [1, 2],
+      "features": ["ssl", "wildcard", "websocket"]
+    }
+  ]
+}
+```
+
+`0` on any `max_*`/`rate_limit_rpm_cap` field means unlimited/uncapped.
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 401 | Auth required |
+| 403 | Admin role required, or caller is not a global-scope admin |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
+
+---
+
+#### `POST /api/v1/reseller-plans`
+
+Create a reseller package.
+
+**Auth:** Bearer token - platform-admin only.
+
+**Request body**
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `name` | string | yes | Unique package name |
+| `max_clients` | integer | no | `0` = unlimited |
+| `max_services_total` | integer | no | `0` = unlimited |
+| `max_domains_total` | integer | no | `0` = unlimited |
+| `rate_limit_rpm_cap` | integer | no | `0` = uncapped |
+| `node_group_ids` | array of integer | no | Node pools this package may place services on |
+| `features` | array of string | no | Grantable set: `ssl`, `wildcard`, `websocket`, `path`, `external`, `waf`, `geo`, `l4`, `cache`, `rate_limit`, `dns01`, `weighted_lb` |
+
+```json
+{
+  "name": "Growth",
+  "max_clients": 10,
+  "max_services_total": 25,
+  "max_domains_total": 50,
+  "rate_limit_rpm_cap": 600,
+  "node_group_ids": [1, 2],
+  "features": ["ssl", "wildcard", "websocket"]
+}
+```
+
+**Response `201`**
+
+```json
+{ "id": 2 }
+```
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 400 | `name` missing |
+| 401 | Auth required |
+| 403 | Admin role required, or caller is not a global-scope admin |
+| 409 | Package name already exists |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
+
+---
+
+#### `PATCH /api/v1/reseller-plans/{id}`
+
+Replace a reseller package's limits and grant sets.
+
+**Auth:** Bearer token - platform-admin only.
+
+This is a full replace, not a partial patch: `node_group_ids` and `features` are wholesale-replaced with the arrays supplied, so omitting them clears the grant. Request body is the same shape as create.
+
+**Response `200`**
+
+```json
+{ "id": 2, "updated": true }
+```
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 400 | `name` missing |
+| 401 | Auth required |
+| 403 | Admin role required, or caller is not a global-scope admin |
+| 409 | Package name already exists |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
+
+---
+
+#### `DELETE /api/v1/reseller-plans/{id}`
+
+Delete a reseller package.
+
+**Auth:** Bearer token - platform-admin only.
+
+**Response `200`**
+
+```json
+{ "id": 2, "deleted": true }
+```
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 401 | Auth required |
+| 403 | Admin role required, or caller is not a global-scope admin |
+| 404 | Package not found |
+| 409 | Package still in use - reassign resellers to a different package first |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
+
+---
+
+### Reseller quota errors
+
+`POST /api/v1/clients` and `POST /api/v1/services` enforce the caller's reseller package limits (`internal/quota`) when the target client/service belongs to a reseller. Exceeding a limit returns `403` with the standard error envelope:
+
+```json
+{ "error": "reseller quota: client limit reached" }
+```
+
+```json
+{ "error": "reseller quota: service limit reached" }
+```
+
+```json
+{ "error": "reseller quota: domain limit reached" }
+```
+
+These are business limits, not authorization failures - they only trigger for resellers that are actually subscribed to a package (a reseller with no package, or a platform-direct client, is never limited). Domain (route) capacity is enforced either as an allocation check at service-create time (sum of attached plans' `max_domains` against the package total) or, when `overselling_allowed` is on, as a real route count at route-create time.
+
+---
+
 ## WireGuard Tunnel Endpoints
 
 These endpoints serve customer-side WireGuard tunnel setup. They are **not** under `/api/v1` and use a different authentication scheme.

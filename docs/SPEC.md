@@ -71,6 +71,36 @@ Named quota sets defining:
 - `rate_limit_rpm` - default RPM cap applied to client API keys
 - Route type permissions (`restricted` vs `npm`)
 
+### Resellers
+
+A white-label tenant that owns a set of clients (and optionally its own plans + branding). A reseller has:
+- Identity/branding: `name`, `slug` (unique), `brand_name`, `logo_url`, `support_email`, `primary_color`
+- `status` - `active` or `suspended`; suspending a reseller revokes every session belonging to its users and fails closed (its admins immediately lose access, never fall through to unrestricted)
+- An owner account (`owner_user_id`) - a user with `role = 'reseller'` created atomically with the reseller
+- A subscribed package (`reseller_plan_id`, see ResellerPlan below); new resellers default to the "Unlimited" package
+- Policy flags: `overselling_allowed` (real-usage vs allocation-based domain enforcement) and `can_create_plans` (whether the reseller may author its own service `Plans`, bounded by its package's grants)
+
+Ownership is expressed by `clients.reseller_id` / `plans.reseller_id` / `users.reseller_id` (all `NULL` = platform-direct). A reseller-admin user (`role = 'reseller'`, or a legacy `role = 'admin'` with `reseller_id` set) sees only clients owned by its own reseller - never platform-global infrastructure or another reseller's tenants.
+
+### ResellerPlan
+
+A reseller package: the aggregate quota + resource grant tier a reseller subscribes to (analogous to a Plesk "reseller plan" or WHM "account limits"). Distinct from a `Plan`, which caps a single client `Service`. A ResellerPlan defines:
+- `max_clients`, `max_domains_total`, `max_services_total` - aggregate caps across every client/service/route owned by the subscribed reseller (`0` = unlimited)
+- `rate_limit_rpm_cap` - ceiling a reseller's own authored plans may not exceed
+- Node pool grants (`reseller_plan_node_groups`) - which node groups the reseller's services may be placed on
+- Feature grants (`reseller_plan_features`) - which route features (`ssl`, `wildcard`, `websocket`, `path`, `external`, `waf`, `geo`, `l4`, `cache`, `rate_limit`, `dns01`, `weighted_lb`) the reseller's own plans may enable
+
+Package management is platform-admin only; a super_admin must grant a package before a reseller can author its own plans.
+
+### Aggregate quota enforcement (`internal/quota`)
+
+A business limit, not a security boundary - tenant isolation is a separate concern (see Roles/scoping). Enforced at three create surfaces for any client/service/route owned by a reseller with a subscribed package:
+- **Client creation** - rejected once the reseller's client count reaches `max_clients`
+- **Service creation** - rejected once the reseller's service count reaches `max_services_total`; when `overselling_allowed` is off, the new service's plan `max_domains` must also fit the package's remaining `max_domains_total` allocation (routes are then bounded by the per-plan cap, so the aggregate holds without a per-route check)
+- **Route creation** - when `overselling_allowed` is on (or for the internal `npm`-kind plans used by the flat hosts flow, whose capacity is never pre-allocated), the real route count is checked against `max_domains_total` directly
+
+A reseller with no package subscribed, or a platform-direct client (`reseller_id IS NULL`), is never limited.
+
 ---
 
 ## Auth Flows

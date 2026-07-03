@@ -44,6 +44,8 @@ returned by the API and is used verbatim for `terraform import`.
 | `hpg_client` | `POST /clients` | `GET /clients/{id}` | `PATCH /clients/{id}` | `DELETE /clients/{id}` | reseller keys stamp `reseller_id` on create and may delete only their own clients |
 | `hpg_service` | `POST /services` | `GET /services/{id}` | `PATCH /services/{id}` + `POST /services/{id}/ports` | `DELETE /services/{id}` | `client_id`/`name`/`backend_ip`/`plan_id` force-replace; ports patched via the dedicated endpoint; must be in key scope |
 | `hpg_route` | `POST /routes` | `GET /routes/{id}` | `PATCH /routes/{id}` | `DELETE /routes/{id}` | `service_id` -> `hpg_service.id`; SSL is async |
+| `hpg_reseller` | `POST /resellers` | `GET /resellers/{id}` | `PATCH /resellers/{id}` | `DELETE /resellers/{id}` | platform-admin key only (a reseller-admin key is denied); not yet implemented in the Go provider code, API surface documented above |
+| `hpg_reseller_plan` | `POST /reseller-plans` | `GET /reseller-plans` (list only, no single-resource GET; provider reads via list + filter by id) | `PATCH /reseller-plans/{id}` | `DELETE /reseller-plans/{id}` | platform-admin key only; update is a full replace of `node_group_ids`/`features`; not yet implemented in the Go provider code |
 
 ### Attribute reference (abridged)
 
@@ -56,6 +58,8 @@ attributes a provider must expose.
 - **hpg_client**: `email`, `name`, `password` (>= 12 chars, required - must stay present in config on every apply; a post-create change is ignored with a warning, rotate in-panel); `external_ref` for idempotent external mapping; `user_id` is computed. `password` is write-only.
 - **hpg_service**: `client_id`, `name`, `backend_ip`, `allowed_port_start`, `allowed_port_end`, `plan_id` (required); `external_reference`. `client_id`/`name`/`backend_ip`/`plan_id` force replacement when changed; `status` is computed.
 - **hpg_route**: `service_id`, `upstream_port`, `domain` (required; `service_id`/`domain` force-replace); `path_prefix`, `ssl`, `websocket`, `force_https`. Note the create/read payload uses `ssl` while update uses `ssl_enabled` for the same field. `status` and `caddy_node_id` are computed; SSL provisioning is asynchronous (poll `status`).
+- **hpg_reseller**: `name`, `slug` (required, lowercase alphanumeric/dashes, unique), `owner_email` (required); `owner_password` is **create-only and sensitive** - required at create (>= 12 chars) to provision the owner login, not accepted on update, never returned by the API; `brand_name`, `support_email` optional; `status` (`active`|`suspended`), `reseller_plan_id`, `overselling_allowed`, `can_create_plans` are mutable in place. `owner_user_id` is **computed** (the id of the owner account created atomically with the reseller). Setting `status = "suspended"` revokes all sessions of that reseller's users.
+- **hpg_reseller_plan**: `name` (required, unique); `max_clients`, `max_domains_total`, `max_services_total`, `rate_limit_rpm_cap` (`0` = unlimited/uncapped); `node_group_ids`, `features` (grantable set: `ssl`, `wildcard`, `websocket`, `path`, `external`, `waf`, `geo`, `l4`, `cache`, `rate_limit`, `dns01`, `weighted_lb`) - both are wholesale-replaced on update, not merged. Deleting a package still referenced by a `hpg_reseller.reseller_plan_id` returns `409`.
 
 ## Import
 
