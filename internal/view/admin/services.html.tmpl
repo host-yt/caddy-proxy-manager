@@ -164,8 +164,15 @@
           <input name="name" required placeholder="vps-fra-01" class="r-input w-full">
         </div>
         <div>
-          <label class="t-eyebrow block mb-1.5">Backend IP (admin-only)</label>
-          <input name="backend_ip" required placeholder="10.0.0.5" class="r-input w-full font-mono">
+          <label class="t-eyebrow block mb-1.5">Backend server (admin-only)</label>
+          <select id="svc-server-select" class="r-select w-full">
+            <option value="">Custom IP…</option>
+            {{range .Servers}}<option value="{{.IP}}">{{.Name}} - {{.IP}}{{if .ExternalRef}} ({{.ExternalRef}}){{end}}</option>{{end}}
+          </select>
+        </div>
+        <div id="svc-backend-ip-wrap">
+          <label class="t-eyebrow block mb-1.5">Backend IP</label>
+          <input name="backend_ip" id="svc-backend-ip" placeholder="10.0.0.5" class="r-input w-full font-mono">
         </div>
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -173,14 +180,14 @@
             <input name="port_start" type="number" min="1" max="65535" value="30000" required class="r-input w-full font-mono">
           </div>
           <div>
-            <label class="t-eyebrow block mb-1.5">Port end</label>
-            <input name="port_end" type="number" min="1" max="65535" value="30019" required class="r-input w-full font-mono">
+            <label class="t-eyebrow block mb-1.5">Port end <span class="font-normal normal-case">(auto from plan)</span></label>
+            <input name="port_end" type="number" min="1" max="65535" value="30019" class="r-input w-full font-mono">
           </div>
         </div>
         <div>
           <label class="t-eyebrow block mb-1.5">Plan</label>
           <select name="plan_id" required class="r-select w-full">
-            {{range .Plans}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+            {{range .Plans}}<option value="{{.ID}}" data-ports="{{.MaxPorts}}">{{.Name}}</option>{{end}}
           </select>
         </div>
         <div>
@@ -268,11 +275,43 @@
   function open() { modal.classList.remove("hidden"); }
   function close() { modal.classList.add("hidden"); }
 
+  // Backend server dropdown: a selected server copies its IP into backend_ip
+  // and hides the free-text field; "Custom IP…" reveals it for manual entry.
+  var serverSel = document.getElementById("svc-server-select");
+  var ipWrap = document.getElementById("svc-backend-ip-wrap");
+  var ipInput = document.getElementById("svc-backend-ip");
+  function syncServerSelect() {
+    if (!serverSel || !ipWrap || !ipInput) return;
+    if (serverSel.value) {
+      ipInput.value = serverSel.value;
+      ipWrap.classList.add("hidden");
+    } else {
+      ipWrap.classList.remove("hidden");
+    }
+  }
+  if (serverSel) serverSel.addEventListener("change", syncServerSelect);
+
+  // Auto-compute port_end = port_start + plan.max_ports - 1; stays editable as override.
+  var planSel = form.elements["plan_id"];
+  var portStartEl = form.elements["port_start"];
+  var portEndEl = form.elements["port_end"];
+  function autoPortEnd() {
+    if (!planSel || !portStartEl || !portEndEl) return;
+    var opt = planSel.options[planSel.selectedIndex];
+    var ports = opt ? parseInt(opt.getAttribute("data-ports"), 10) : 0;
+    var start = parseInt(portStartEl.value, 10);
+    if (ports > 0 && !isNaN(start)) portEndEl.value = start + ports - 1;
+  }
+  if (planSel) planSel.addEventListener("change", autoPortEnd);
+  if (portStartEl) portStartEl.addEventListener("input", autoPortEnd);
+
   // Create mode: reset form, post to collection endpoint.
   document.getElementById("svc-new-btn").addEventListener("click", function () {
     form.reset();
     form.action = "/admin/services";
     if (title) title.textContent = "New service";
+    autoPortEnd();
+    syncServerSelect();
     open();
   });
 
@@ -291,6 +330,15 @@
       setVal("plan_id", d.plan);
       setVal("external_reference", d.extref);
       setVal("notes", d.notes);
+      // Preselect the matching registered server, else fall back to custom IP.
+      if (serverSel) {
+        var matched = false;
+        for (var j = 0; j < serverSel.options.length; j++) {
+          if (serverSel.options[j].value === d.backend) { serverSel.selectedIndex = j; matched = true; break; }
+        }
+        if (!matched) serverSel.value = "";
+        syncServerSelect();
+      }
       open();
     });
   }

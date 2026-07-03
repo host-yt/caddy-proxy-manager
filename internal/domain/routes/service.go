@@ -369,6 +369,7 @@ type CreateInput struct {
 // Validation errors exposed to handlers.
 var (
 	ErrPortOutOfRange  = errors.New("port not in allowed range for this service")
+	ErrPortInUse       = errors.New("backend port already in use by another route")
 	ErrInvalidDomain   = errors.New("invalid domain")
 	ErrDomainTaken     = errors.New("domain (+ path) already mapped")
 	ErrNoNodeFound     = errors.New("no Caddy node available for this plan")
@@ -566,6 +567,16 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		}
 	} else if !in.External && (in.UpstreamPort < portStart || in.UpstreamPort > portEnd) {
 		return 0, ErrPortOutOfRange
+	}
+	// Reject a backend port already claimed by another route in this service's pool.
+	if in.Kind != "redirect" && !in.External {
+		var portUsed int
+		if err := s.DB.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM routes WHERE service_id = ? AND upstream_port = ?",
+			in.ServiceID, in.UpstreamPort,
+		).Scan(&portUsed); err == nil && portUsed > 0 {
+			return 0, ErrPortInUse
+		}
 	}
 	if pathPrefix != "" && !planPath {
 		return 0, fmt.Errorf("plan does not permit path routing")

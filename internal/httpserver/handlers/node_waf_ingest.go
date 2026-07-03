@@ -34,6 +34,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"sort"
 	"strconv"
 	"strings"
 	"sync/atomic"
@@ -164,9 +165,16 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), 30*time.Second)
 	defer cancel()
 
-	accepted := 0
-	prunedRoutes := map[int64]struct{}{} // distinct routes to trim once after the batch
-	insertedUnattributed := false        // any NULL-route event stored this batch
+	// One route-index load per batch: the per-event resolve query plus per-event
+	// insert tx cost ~2000 sequential round trips and overran the 30s budget.
+	idx, err := h.loadRouteIndex(ctx, nodeID)
+	if err != nil {
+		h.Logger.Warn("waf ingest route index", "err", err)
+		idx = wafRouteIndex{} // degrade to unattributed, same as the old per-event error path
+	}
+
+	evs := make([]wafevents.Event, 0, len(items))
+	keys := make([]string, 0, len(items))
 	for _, item := range items {
 		e, ok := toWAFEvent(item)
 		if !ok {
@@ -177,28 +185,35 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 		// host/uri (Coraza does not emit a route id). Unattributable events are
 		// stored with NULL route_id. Correct attribution is what makes the
 		// per-route WAF view, scoped-admin visibility, and per-route pruning work.
-		if rid := h.resolveRoute(ctx, nodeID, item.Host, item.URI); rid > 0 {
+		if rid := idx.resolve(item.Host, item.URI); rid > 0 {
 			e.RouteID = sql.NullInt64{Int64: rid, Valid: true}
 		} else {
 			e.RouteID = sql.NullInt64{}
 		}
-		// Idempotent insert: a replay of an already-ingested line (or one cleared
-		// by an operator) is silently dropped, never re-created.
-		inserted, err := h.WAFEvents.InsertIfNew(ctx, e, wafEventKey(nodeID, e))
-		if err != nil {
-			h.Logger.Warn("waf ingest insert", "err", err)
-			continue
-		}
-		if !inserted {
+		evs = append(evs, e)
+		keys = append(keys, wafEventKey(nodeID, e))
+	}
+
+	// Idempotent batch insert in ONE transaction: replays of already-ingested
+	// lines (or ones cleared by an operator) are silently dropped, never re-created.
+	inserted, insErr := h.WAFEvents.InsertBatchIfNew(ctx, evs, keys)
+	if insErr != nil {
+		h.Logger.Warn("waf ingest batch insert", "err", insErr)
+	}
+	accepted := 0
+	prunedRoutes := map[int64]struct{}{} // distinct routes to trim once after the batch
+	insertedUnattributed := false        // any NULL-route event stored this batch
+	for i, ok := range inserted {
+		if !ok {
 			continue // duplicate / replay / already cleared
 		}
-		if e.RouteID.Valid {
-			prunedRoutes[e.RouteID.Int64] = struct{}{}
+		if evs[i].RouteID.Valid {
+			prunedRoutes[evs[i].RouteID.Int64] = struct{}{}
 		} else {
 			insertedUnattributed = true
 		}
 		if h.Metrics != nil {
-			h.Metrics.WAFEvent(e.Severity, e.Action)
+			h.Metrics.WAFEvent(evs[i].Severity, evs[i].Action)
 		}
 		accepted++
 	}
@@ -222,10 +237,10 @@ func (h *NodeWAFIngestHandler) Ingest(w http.ResponseWriter, r *http.Request) {
 
 	h.maybePruneSeen()
 
-	// If the insert budget expired mid-batch, the tail was not stored. Return
-	// non-2xx so the node re-ships (committed rows dedup out) instead of advancing
-	// its offset past the un-inserted tail and silently losing those events.
-	if ctx.Err() != nil {
+	// If the batch tx failed or the insert budget expired, the batch was not
+	// stored. Return non-2xx so the node re-ships (committed rows dedup out)
+	// instead of advancing its offset past un-inserted events and losing them.
+	if ctx.Err() != nil || insErr != nil {
 		http.Error(w, "ingest incomplete; retry", http.StatusServiceUnavailable)
 		return
 	}
@@ -274,16 +289,51 @@ func (h *NodeWAFIngestHandler) maybePruneSeen() {
 	}()
 }
 
-// resolveRoute maps a WAF event to a route served by nodeID, using the event's
-// Host header and request path. Returns 0 when no route on this node matches.
-// Server-side + nodeID-scoped so a node can never attribute events to another
-// node's routes. For path-routed domains it prefers the longest matching
-// path_prefix, falling back to a bare-domain (” or '/') route.
-func (h *NodeWAFIngestHandler) resolveRoute(ctx context.Context, nodeID int64, host, uri string) int64 {
+// wafRouteEntry is one candidate route for a domain: id plus its path prefix.
+type wafRouteEntry struct {
+	id     int64
+	prefix string
+}
+
+// wafRouteIndex maps lowercase domain to its routes, longest path_prefix first,
+// so a whole batch resolves in memory instead of one SQL query per event.
+type wafRouteIndex map[string][]wafRouteEntry
+
+// loadRouteIndex loads every non-disabled route served by nodeID in one query.
+// nodeID-scoped so a node can never attribute events to another node's routes.
+func (h *NodeWAFIngestHandler) loadRouteIndex(ctx context.Context, nodeID int64) (wafRouteIndex, error) {
 	db := h.DB()
 	if db == nil {
-		return 0
+		return wafRouteIndex{}, nil
 	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, LOWER(domain), COALESCE(path_prefix,'') FROM routes
+		   WHERE caddy_node_id = ? AND status <> 'disabled'`, nodeID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	idx := wafRouteIndex{}
+	for rows.Next() {
+		var ent wafRouteEntry
+		var dom string
+		if rows.Scan(&ent.id, &dom, &ent.prefix) != nil {
+			continue
+		}
+		idx[dom] = append(idx[dom], ent)
+	}
+	// Longest prefix first preserves the old ORDER BY CHAR_LENGTH(...) DESC pick.
+	for _, list := range idx {
+		sort.SliceStable(list, func(a, b int) bool { return len(list[a].prefix) > len(list[b].prefix) })
+	}
+	return idx, rows.Err()
+}
+
+// resolve maps a WAF event's Host header + request path to a route id with the
+// same semantics as the old per-event resolveRoute: strip :port, lowercase,
+// longest matching path_prefix, fallback to a bare-domain (” or '/') route.
+// Returns 0 when no route matches.
+func (idx wafRouteIndex) resolve(host, uri string) int64 {
 	host = strings.ToLower(strings.TrimSpace(host))
 	if i := strings.IndexByte(host, ':'); i >= 0 {
 		host = host[:i] // strip :port
@@ -295,32 +345,29 @@ func (h *NodeWAFIngestHandler) resolveRoute(ctx context.Context, nodeID int64, h
 	if i := strings.IndexByte(path, '?'); i >= 0 {
 		path = path[:i]
 	}
-	rows, err := db.QueryContext(ctx,
-		`SELECT id, COALESCE(path_prefix,'') FROM routes
-		   WHERE caddy_node_id = ? AND status <> 'disabled' AND LOWER(domain) = ?
-		   ORDER BY CHAR_LENGTH(COALESCE(path_prefix,'')) DESC`, nodeID, host)
-	if err != nil {
-		return 0
-	}
-	defer rows.Close()
 	var fallback int64
-	for rows.Next() {
-		var id int64
-		var pp string
-		if rows.Scan(&id, &pp) != nil {
-			continue
-		}
-		if pp == "" || pp == "/" {
+	for _, ent := range idx[host] {
+		if ent.prefix == "" || ent.prefix == "/" {
 			if fallback == 0 {
-				fallback = id
+				fallback = ent.id
 			}
 			continue
 		}
-		if strings.HasPrefix(path, pp) {
-			return id // longest prefix first (ORDER BY length DESC)
+		if strings.HasPrefix(path, ent.prefix) {
+			return ent.id // longest prefix first (sorted at load)
 		}
 	}
 	return fallback
+}
+
+// resolveRoute keeps the one-event API (attribution tests exercise it); Ingest
+// resolves whole batches via loadRouteIndex to avoid a query per event.
+func (h *NodeWAFIngestHandler) resolveRoute(ctx context.Context, nodeID int64, host, uri string) int64 {
+	idx, err := h.loadRouteIndex(ctx, nodeID)
+	if err != nil {
+		return 0
+	}
+	return idx.resolve(host, uri)
 }
 
 // decodeWAFBatch stream-decodes the {"events":[...]} body one element at a time,

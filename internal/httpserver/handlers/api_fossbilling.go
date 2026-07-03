@@ -264,6 +264,8 @@ func (h *FOSSBillingHandlers) ProvisionRoute(w http.ResponseWriter, r *http.Requ
 		switch {
 		case errors.Is(err, routes.ErrPortOutOfRange):
 			fbErr(w, http.StatusBadRequest, "port out of range")
+		case errors.Is(err, routes.ErrPortInUse):
+			fbErr(w, http.StatusConflict, "port already in use by another route")
 		case errors.Is(err, routes.ErrInvalidDomain):
 			fbErr(w, http.StatusBadRequest, "invalid domain")
 		case errors.Is(err, routes.ErrDomainTaken):

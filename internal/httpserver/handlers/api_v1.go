@@ -586,6 +586,8 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusForbidden, "service not yours")
 		case errors.Is(err, routes.ErrPortOutOfRange):
 			apiErr(w, http.StatusBadRequest, "port out of range")
+		case errors.Is(err, routes.ErrPortInUse):
+			apiErr(w, http.StatusConflict, "port already in use by another route")
 		case errors.Is(err, routes.ErrInvalidDomain):
 			apiErr(w, http.StatusBadRequest, "invalid domain")
 		case errors.Is(err, routes.ErrDomainTaken):

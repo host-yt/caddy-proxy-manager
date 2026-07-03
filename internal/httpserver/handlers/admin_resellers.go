@@ -59,7 +59,9 @@ type resellersData struct {
 	Admins     []adminOpt
 	Packages   []reseller.Plan
 	NodeGroups []ngOpt
-	Features   []string
+	// PkgFeatures: named to avoid shadowing baseAdminData.Features (nav gating),
+	// which the shared layout reads on every admin page.
+	PkgFeatures []string
 }
 
 // guardSuperAdmin denies non-super_admin. Reseller provisioning is owner-level:
@@ -105,7 +107,7 @@ func (h *AdminHandlers) ResellersList(w http.ResponseWriter, r *http.Request) {
 			d.Packages = pkgs
 		}
 	}
-	d.Features = reseller.KnownFeatures
+	d.PkgFeatures = reseller.KnownFeatures
 	if db != nil {
 		if rows, err := db.QueryContext(ctx, `SELECT id, name FROM node_groups ORDER BY name`); err == nil {
 			defer rows.Close()

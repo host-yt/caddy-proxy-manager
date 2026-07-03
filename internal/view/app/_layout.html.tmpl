@@ -46,7 +46,7 @@
   </div>
 
   <!-- Navigation -->
-  <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
+  <nav id="app-sidebar" class="flex-1 overflow-y-auto py-3 px-2 space-y-0.5">
 
     <div data-nav-group="ops">
     <button type="button" class="nav-group-btn mb-1 px-2"><span class="nav-eyebrow text-[10px]">Operations</span><svg class="nav-chevron" fill="none" viewBox="0 0 16 16" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6l4 4 4-4"/></svg></button>
@@ -109,16 +109,7 @@
       </div>
       <span class="text-xs truncate min-w-0" style="color:rgb(var(--text))">{{.Data.Email}}</span>
     </div>
-    <div class="flex items-center justify-between">
-      <button type="button" data-theme-toggle title="Toggle theme"
-        class="r-btn-ghost h-8 w-8 p-0">
-        <span id="icon-moon">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-        </span>
-        <span id="icon-sun" class="hidden">
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
-        </span>
-      </button>
+    <div class="flex items-center justify-center">
       <form method="POST" action="/auth/logout">
         <input type="hidden" name="csrf_token" value="{{.Data.CSRF}}">
         <button class="text-xs text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors duration-150 cursor-pointer">Sign out</button>
@@ -218,11 +209,13 @@
     {{if eq .Page "services"}}{{template "services" .Data}}{{end}}
     {{if eq .Page "routes_list"}}{{template "routes_list" .Data}}{{end}}
     {{if eq .Page "route_new"}}{{template "route_new" .Data}}{{end}}
+    {{if eq .Page "route_edit"}}{{template "route_edit" .Data}}{{end}}
     {{if eq .Page "twofa"}}{{template "twofa" .Data}}{{end}}
     {{if eq .Page "api_keys"}}{{template "api_keys" .Data}}{{end}}
     {{if eq .Page "tunnels"}}{{template "client_tunnels" .Data}}{{end}}
     {{if eq .Page "account"}}{{template "account" .Data}}{{end}}
     {{if eq .Page "worldmap"}}{{template "worldmap_app" .Data}}{{end}}
+    {{if eq .Page "client_route_logs"}}{{template "client_route_logs" .Data}}{{end}}
   </main>
 </div>
 
@@ -251,6 +244,25 @@
     <div class="flex justify-end gap-2">
       <button id="hpg-prompt-cancel" type="button" class="r-btn-ghost text-sm h-8 px-3">Cancel</button>
       <button id="hpg-prompt-ok" type="button" class="r-btn-primary text-sm h-8 px-3">OK</button>
+    </div>
+  </div>
+</div>
+
+<!-- Command palette overlay -->
+<div id="hpg-palette" class="fixed inset-0 z-[60] items-center justify-center p-4" style="display:none;background:rgba(0,0,0,.5);backdrop-filter:blur(4px)" role="dialog" aria-modal="true" aria-label="Command palette">
+  <div class="rounded-[var(--r-lg,16px)] border w-full max-w-xl overflow-hidden" style="background:rgb(var(--surface));border-color:rgb(var(--border));box-shadow:var(--shadow-soft)">
+    <div class="flex items-center gap-2 px-4 py-3 border-b" style="border-color:rgb(var(--border))">
+      <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 shrink-0 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/>
+      </svg>
+      <input id="hpg-palette-input" type="text" class="flex-1 bg-transparent text-sm outline-none placeholder:opacity-50" style="color:rgb(var(--text))" placeholder="Go to dashboard, routes, tunnels..." autocomplete="off" spellcheck="false">
+      <kbd class="hidden sm:inline px-1.5 py-0.5 rounded text-[10px] border" style="color:rgb(var(--muted));background:rgb(var(--surface));border-color:rgb(var(--border))">Esc</kbd>
+    </div>
+    <ul id="hpg-palette-list" role="listbox" class="max-h-72 overflow-y-auto divide-y" style="border-color:rgb(var(--border))"></ul>
+    <div class="px-4 py-2 flex items-center gap-3 text-[10px] border-t" style="color:rgb(var(--muted));border-color:rgb(var(--border))">
+      <span><kbd class="font-mono">↑↓</kbd> navigate</span>
+      <span><kbd class="font-mono">↵</kbd> open</span>
+      <span><kbd class="font-mono">Esc</kbd> close</span>
     </div>
   </div>
 </div>
@@ -318,7 +330,7 @@ window.hpgPrompt = function(msg, defaultValue){
 </script>
 <script nonce="{{.Data.CSPNonce}}">
 function updateThemeIcons(dark) {
-  var ids = [['icon-moon','icon-sun'],['icon-moon-top','icon-sun-top']];
+  var ids = [['icon-moon-top','icon-sun-top']];
   ids.forEach(function(pair){
     var moon = document.getElementById(pair[0]);
     var sun  = document.getElementById(pair[1]);
@@ -395,6 +407,108 @@ function closeSidebar() {
 }
 </script>
 <script nonce="{{.Data.CSPNonce}}">(function(){var K='hpg-ng';function L(){try{return JSON.parse(localStorage.getItem(K)||'{}')}catch{return{}}}function S(s){try{localStorage.setItem(K,JSON.stringify(s))}catch{}}var st=L();document.querySelectorAll('[data-nav-group]').forEach(function(w){var g=w.dataset.navGroup;var btn=w.querySelector('.nav-group-btn');var body=w.querySelector('.nav-group-body');var chev=btn&&btn.querySelector('.nav-chevron');if(!body)return;var open=st[g]!==false;if(!open){body.style.display='none';if(chev)chev.style.transform='rotate(-90deg)';}if(btn)btn.addEventListener('click',function(){open=!open;st[g]=open;S(st);body.style.display=open?'':'none';if(chev)chev.style.transform=open?'':'rotate(-90deg)';});});document.querySelectorAll('[data-greeting]').forEach(function(el){var h=new Date().getHours();el.textContent=h<12?'Good morning':h<17?'Good afternoon':'Good evening';});})();</script>
+<script nonce="{{.Data.CSPNonce}}">
+// Command palette (Cmd/Ctrl+K): client-side fuzzy search over the sidebar nav
+// plus a couple of destinations that aren't standalone nav links.
+(function(){
+  var pal = document.getElementById('hpg-palette');
+  var inp = document.getElementById('hpg-palette-input');
+  var lst = document.getElementById('hpg-palette-list');
+  var btn = document.getElementById('cmd-palette-btn');
+  if (!pal || !inp || !lst) return;
+
+  var items = [], cursor = -1;
+
+  function collectItems(){
+    items = [];
+    document.querySelectorAll('#app-sidebar a[href]').forEach(function(a){
+      var label = a.textContent.trim();
+      if (label) items.push({ label: label, href: a.getAttribute('href') });
+    });
+    items.push({ label: 'New route', href: '/app/routes/new' });
+  }
+
+  function fuzzy(text, q){
+    if (!q) return 1;
+    text = text.toLowerCase(); q = q.toLowerCase();
+    var i = 0;
+    for (var j = 0; j < text.length && i < q.length; j++) { if (text[j] === q[i]) i++; }
+    return i === q.length ? (q.length / text.length) : 0;
+  }
+
+  function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+  function setCursor(idx){
+    var els = lst.querySelectorAll('[data-idx]');
+    els.forEach(function(el){ el.classList.remove('bg-slate-50','dark:bg-zinc-800'); });
+    cursor = idx;
+    if (idx >= 0 && idx < els.length) { els[idx].classList.add('bg-slate-50','dark:bg-zinc-800'); els[idx].scrollIntoView({block:'nearest'}); }
+  }
+
+  function render(q){
+    var res = items
+      .map(function(it){ return { it: it, sc: fuzzy(it.label, q) }; })
+      .filter(function(r){ return r.sc > 0; })
+      .sort(function(a,b){ return b.sc - a.sc; })
+      .slice(0, 8);
+    lst.innerHTML = '';
+    cursor = -1;
+    res.forEach(function(r, i){
+      var li = document.createElement('li');
+      li.setAttribute('role', 'option');
+      li.setAttribute('data-idx', i);
+      li.dataset.href = r.it.href;
+      li.className = 'flex items-center gap-3 px-4 py-2.5 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm';
+      li.innerHTML = '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="opacity:.4;flex-shrink:0"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg><span class="flex-1 min-w-0 truncate" style="color:rgb(var(--text))">' + escHtml(r.it.label) + '</span>';
+      li.addEventListener('click', function(){ navigate(i); });
+      li.addEventListener('mouseenter', function(){ setCursor(i); });
+      lst.appendChild(li);
+    });
+    if (res.length) setCursor(0);
+    else lst.innerHTML = '<li class="px-4 py-3 text-sm" style="color:rgb(var(--muted))">No results</li>';
+  }
+
+  function navigate(idx){
+    var el = lst.querySelector('[data-idx="' + idx + '"]');
+    if (!el) return;
+    var href = el.dataset.href;
+    close();
+    window.location.href = href;
+  }
+
+  function open(){
+    collectItems();
+    pal.style.display = 'flex';
+    inp.value = '';
+    render('');
+    setTimeout(function(){ inp.focus(); }, 30);
+  }
+  function close(){
+    pal.style.display = 'none';
+    inp.value = '';
+    lst.innerHTML = '';
+    items = []; cursor = -1;
+  }
+
+  inp.addEventListener('input', function(){ render(inp.value.trim()); });
+  inp.addEventListener('keydown', function(e){
+    var len = lst.querySelectorAll('[data-idx]').length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (len) setCursor(Math.min(cursor + 1, len - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (len) setCursor(Math.max(cursor - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); navigate(cursor >= 0 ? cursor : 0); }
+    else if (e.key === 'Escape') { e.preventDefault(); close(); }
+  });
+  pal.addEventListener('click', function(e){ if (e.target === pal) close(); });
+  if (btn) btn.addEventListener('click', open);
+  document.addEventListener('keydown', function(e){
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      if (pal.style.display === 'none' || !pal.style.display) open(); else close();
+    }
+    if (e.key === 'Escape' && pal.style.display === 'flex') close();
+  });
+})();
+</script>
 </body>
 </html>
 {{end}}

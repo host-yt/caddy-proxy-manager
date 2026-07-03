@@ -216,6 +216,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"client_detail":      {{Label: "Customers", URL: ""}, {Label: "Clients", URL: "/admin/clients"}, {Label: "Client", URL: ""}},
 	"plans":              {{Label: "Customers", URL: ""}, {Label: "Plans", URL: ""}},
 	"services":           {{Label: "Customers", URL: ""}, {Label: "Services", URL: ""}},
+	"servers":            {{Label: "Customers", URL: ""}, {Label: "Backend servers", URL: ""}},
 	"users":              {{Label: "Customers", URL: ""}, {Label: "Users", URL: ""}},
 	"audit":              {{Label: "System", URL: ""}, {Label: "Audit log", URL: ""}},
 	"alerts":             {{Label: "System", URL: ""}, {Label: "Alerts", URL: ""}},
@@ -2460,8 +2461,16 @@ type clientOpt struct {
 }
 
 type planOpt struct {
-	ID   int64
-	Name string
+	ID       int64
+	Name     string
+	MaxPorts int // drives port_end auto-compute in the service form
+}
+
+type serverOpt struct {
+	ID          int64
+	Name        string
+	IP          string
+	ExternalRef string
 }
 
 type servicesData struct {
@@ -2469,8 +2478,9 @@ type servicesData struct {
 	Services     []serviceRow
 	Clients      []clientOpt
 	Plans        []planOpt
-	Q            string // search query
-	StatusFilter string // "active","suspended","terminated","" = all
+	Servers      []serverOpt // backend-server registry dropdown; empty falls back to free-text IP
+	Q            string      // search query
+	StatusFilter string      // "active","suspended","terminated","" = all
 }
 
 func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
@@ -2567,7 +2577,7 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Plan dropdown: reseller-admins see global plans plus their own reseller's.
-	planQ := "SELECT id, name FROM plans"
+	planQ := "SELECT id, name, max_ports FROM plans"
 	var planArgs []any
 	if prid, pall, pok := h.planScope(ctx, middleware.SessionFromContext(r.Context())); pok && !pall {
 		planQ += " WHERE (reseller_id IS NULL OR reseller_id = ?)"
@@ -2579,8 +2589,27 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 		defer prows.Close()
 		for prows.Next() {
 			var p planOpt
-			if err := prows.Scan(&p.ID, &p.Name); err == nil {
+			if err := prows.Scan(&p.ID, &p.Name, &p.MaxPorts); err == nil {
 				d.Plans = append(d.Plans, p)
+			}
+		}
+	}
+
+	// Backend server dropdown: reseller-admins see global servers plus their own.
+	serverQ := "SELECT id, name, ip, external_ref FROM backend_servers"
+	var serverArgs []any
+	if srid, sall, sok := h.serverScope(ctx, middleware.SessionFromContext(r.Context())); sok && !sall {
+		serverQ += " WHERE (reseller_id IS NULL OR reseller_id = ?)"
+		serverArgs = append(serverArgs, srid)
+	}
+	serverQ += " ORDER BY name"
+	srows, err := db.QueryContext(ctx, serverQ, serverArgs...)
+	if err == nil {
+		defer srows.Close()
+		for srows.Next() {
+			var s serverOpt
+			if err := srows.Scan(&s.ID, &s.Name, &s.IP, &s.ExternalRef); err == nil {
+				d.Servers = append(d.Servers, s)
 			}
 		}
 	}
@@ -2604,6 +2633,14 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	notes := strings.TrimSpace(r.FormValue("notes"))
 	if len(notes) > 10000 {
 		notes = notes[:10000]
+	}
+
+	// port_end left blank: derive it from the plan's port count.
+	if portEnd == 0 && planID != 0 {
+		var maxPorts int
+		if db.QueryRowContext(r.Context(), "SELECT max_ports FROM plans WHERE id = ?", planID).Scan(&maxPorts) == nil && maxPorts > 0 {
+			portEnd = portStart + maxPorts - 1
+		}
 	}
 
 	if name == "" || backendIP == "" || clientID == 0 || planID == 0 {
@@ -2630,6 +2667,14 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	// A reseller-admin may only use global plans or its own reseller's plans.
 	if !h.planAccessible(ctx, middleware.SessionFromContext(r.Context()), planID) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden: plan outside your scope")
+		return
+	}
+	// Reject a port range that overlaps another service on the same backend IP.
+	var overlapCount int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM services WHERE backend_ip = ? AND NOT (allowed_port_end < ? OR allowed_port_start > ?)`,
+		backendIP, portStart, portEnd).Scan(&overlapCount); err == nil && overlapCount > 0 {
+		redirectWithFlash(w, r, "/admin/services", "", "port range overlaps an existing service on this backend IP")
 		return
 	}
 	// Reseller aggregate quota: subscriptions + (without overselling) the
@@ -2699,6 +2744,14 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 		notes = notes[:10000]
 	}
 
+	// port_end left blank: derive it from the plan's port count.
+	if portEnd == 0 && planID != 0 {
+		var maxPorts int
+		if db.QueryRowContext(r.Context(), "SELECT max_ports FROM plans WHERE id = ?", planID).Scan(&maxPorts) == nil && maxPorts > 0 {
+			portEnd = portStart + maxPorts - 1
+		}
+	}
+
 	if name == "" || backendIP == "" || clientID == 0 || planID == 0 {
 		redirectWithFlash(w, r, "/admin/services", "", "all fields required")
 		return
@@ -2724,6 +2777,14 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if !h.planAccessible(ctx, sess, planID) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden: plan outside your scope")
+		return
+	}
+	// Reject a port range that overlaps another service on the same backend IP.
+	var overlapCount int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM services WHERE backend_ip = ? AND NOT (allowed_port_end < ? OR allowed_port_start > ?) AND id <> ?`,
+		backendIP, portStart, portEnd, id).Scan(&overlapCount); err == nil && overlapCount > 0 {
+		redirectWithFlash(w, r, "/admin/services", "", "port range overlaps an existing service on this backend IP")
 		return
 	}
 

@@ -624,6 +624,36 @@ func (h *ClientHandlers) RouteNew(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Pre-fill backend port with the first free port in the selected (or
+	// default first) service's pool: range minus ports already used by routes.
+	selService := d.SelectedServiceID
+	if selService == 0 && len(d.Services) > 0 {
+		selService = d.Services[0].ID
+	}
+	for _, svc := range d.Services {
+		if svc.ID != selService {
+			continue
+		}
+		used := map[int]bool{}
+		prows, perr := db.QueryContext(ctx, "SELECT upstream_port FROM routes WHERE service_id = ?", svc.ID)
+		if perr == nil {
+			for prows.Next() {
+				var p int
+				if prows.Scan(&p) == nil {
+					used[p] = true
+				}
+			}
+			prows.Close()
+		}
+		for p := svc.PortStart; p <= svc.PortEnd; p++ {
+			if !used[p] {
+				d.Form.UpstreamPort = p
+				break
+			}
+		}
+		break
+	}
+
 	// Show DNS target = first node in the plan's node group.
 	if len(d.Services) > 0 {
 		nodeRow := db.QueryRowContext(ctx,
@@ -962,16 +992,16 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load ownership + plan constraints + caddy node.
-	var ownerClientID, portStart, portEnd int64
+	var ownerClientID, portStart, portEnd, serviceID int64
 	var planWebSocket bool
 	var caddyNodeID sql.NullInt64
 	if err := db.QueryRowContext(ctx,
-		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket_enabled, r.caddy_node_id
+		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket_enabled, r.caddy_node_id, s.id
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN plans p ON p.id = s.plan_id
 		 WHERE r.id = ?`, id,
-	).Scan(&ownerClientID, &portStart, &portEnd, &planWebSocket, &caddyNodeID); err != nil {
+	).Scan(&ownerClientID, &portStart, &portEnd, &planWebSocket, &caddyNodeID, &serviceID); err != nil {
 		redirectWithFlash(w, r, "/app/routes", "", "route not found")
 		return
 	}
@@ -981,6 +1011,16 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 	}
 	if int64(newPort) < portStart || int64(newPort) > portEnd {
 		redirectWithFlash(w, r, editURL, "", fmt.Sprintf("port must be in range %d-%d", portStart, portEnd))
+		return
+	}
+	// Reject a backend port already claimed by another route in this service's pool.
+	var portUsed int
+	_ = db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM routes WHERE service_id = ? AND upstream_port = ? AND id != ?`,
+		serviceID, newPort, id,
+	).Scan(&portUsed)
+	if portUsed > 0 {
+		redirectWithFlash(w, r, editURL, "", "that backend port is already used by another route")
 		return
 	}
 	// Suppress WebSocket if plan does not permit it.
@@ -1035,6 +1075,8 @@ func mapRouteErr(err error) string {
 	switch {
 	case errors.Is(err, routes.ErrPortOutOfRange):
 		return "Port is outside your allowed range."
+	case errors.Is(err, routes.ErrPortInUse):
+		return "That backend port is already used by another route."
 	case errors.Is(err, routes.ErrInvalidDomain):
 		return "Invalid domain."
 	case errors.Is(err, routes.ErrDomainTaken):

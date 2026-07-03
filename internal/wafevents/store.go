@@ -7,6 +7,7 @@ package wafevents
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -127,6 +128,60 @@ func (s *Store) InsertIfNew(ctx context.Context, e Event, key string) (bool, err
 		return false, err
 	}
 	return true, nil
+}
+
+// InsertBatchIfNew is InsertIfNew for a whole batch in ONE transaction: one
+// commit (fsync) total instead of one per event, which blew the 30s ingest
+// budget at 500 events. The shared tx keeps ledger row + event insert atomic
+// per event; on any error nothing commits, the node re-ships, and dedup drops
+// the replays. inserted[i] reports whether events[i] was newly stored.
+func (s *Store) InsertBatchIfNew(ctx context.Context, events []Event, keys []string) ([]bool, error) {
+	if len(events) != len(keys) {
+		return nil, errors.New("wafevents: events and keys length mismatch")
+	}
+	inserted := make([]bool, len(events))
+	db := s.db()
+	if db == nil || len(events) == 0 {
+		return inserted, nil
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() //nolint:errcheck // no-op after Commit
+	seen, err := tx.PrepareContext(ctx,
+		store.InsertOrIgnore()+" INTO waf_seen_events (event_hash) VALUES (?)")
+	if err != nil {
+		return nil, err
+	}
+	defer seen.Close()
+	ins, err := tx.PrepareContext(ctx,
+		`INSERT INTO waf_events (route_id,ts,severity,rule_id,action,remote_ip,host,uri,message)
+		 VALUES (?,?,?,?,?,?,?,?,?)`)
+	if err != nil {
+		return nil, err
+	}
+	defer ins.Close()
+	for i := range events {
+		res, err := seen.ExecContext(ctx, keys[i])
+		if err != nil {
+			return nil, err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			continue // already ingested: drop the replay
+		}
+		e := &events[i]
+		if _, err := ins.ExecContext(ctx,
+			e.RouteID, e.TS, e.Severity, e.RuleID, e.Action, e.RemoteIP, e.Host, e.URI, e.Message,
+		); err != nil {
+			return nil, err
+		}
+		inserted[i] = true
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return inserted, nil
 }
 
 // PruneRoute trims waf_events for one route to its maxPerRoute newest rows.

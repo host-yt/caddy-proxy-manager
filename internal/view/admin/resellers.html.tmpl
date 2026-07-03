@@ -67,7 +67,7 @@
         {{$p := .}}{{range $.NodeGroups}}<label class="t-caption mr-3"><input type="checkbox" name="node_group_id" value="{{.ID}}"
           {{$ng := .ID}}{{range $p.NodeGroupIDs}}{{if eq . $ng}}checked{{end}}{{end}}> {{.Name}}</label>{{end}}
         <span class="t-caption mr-2 ml-4" style="color:rgb(var(--muted))">Features:</span>
-        {{range $.Features}}<label class="t-caption mr-3"><input type="checkbox" name="feature" value="{{.}}"
+        {{range $.PkgFeatures}}<label class="t-caption mr-3"><input type="checkbox" name="feature" value="{{.}}"
           {{$f := .}}{{range $p.Features}}{{if eq . $f}}checked{{end}}{{end}}> {{.}}</label>{{end}}
       </div>
     </form>
@@ -91,7 +91,7 @@
         <span class="t-caption mr-2" style="color:rgb(var(--muted))">Pools:</span>
         {{range .NodeGroups}}<label class="t-caption mr-3"><input type="checkbox" name="node_group_id" value="{{.ID}}"> {{.Name}}</label>{{end}}
         <span class="t-caption mr-2 ml-4" style="color:rgb(var(--muted))">Features:</span>
-        {{range .Features}}<label class="t-caption mr-3"><input type="checkbox" name="feature" value="{{.}}" checked> {{.}}</label>{{end}}
+        {{range .PkgFeatures}}<label class="t-caption mr-3"><input type="checkbox" name="feature" value="{{.}}" checked> {{.}}</label>{{end}}
       </div>
     </form>
   </div>

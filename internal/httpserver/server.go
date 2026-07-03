@@ -378,6 +378,9 @@ func (s *Server) routes() {
 			// Plans: reseller-admin sees global + own plans; create makes an
 			// own-reseller plan; edit/delete gated by planManageable.
 			"/admin/plans*",
+			// Backend servers: reseller-admin sees global + own rows; create
+			// makes an own-reseller row; edit/delete gated by serverManageable.
+			"/admin/servers*",
 			// Clients: list/export filtered by adminClientScope; every {id} op
 			// gated by scopeCheckClient; create stamps the reseller_id.
 			"/admin/clients*",
@@ -549,6 +552,12 @@ func (s *Server) routes() {
 			r.Post("/", s.deps.Admin.PlansCreate)
 			r.Post("/{id}/edit", s.deps.Admin.PlansUpdate)
 			r.Post("/{id}/delete", s.deps.Admin.PlansDelete)
+		})
+		r.Route("/servers", func(r chi.Router) {
+			r.Get("/", s.deps.Admin.ServersList)
+			r.Post("/", s.deps.Admin.ServersCreate)
+			r.Post("/{id}/edit", s.deps.Admin.ServersUpdate)
+			r.Post("/{id}/delete", s.deps.Admin.ServersDelete)
 		})
 		r.Route("/clients", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.ClientsList)
