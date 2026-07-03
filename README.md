@@ -1,13 +1,29 @@
 # Hostyt Proxy Gateway
 
-Self-hosted control panel for a fleet of [Caddy](https://caddyserver.com)
-reverse-proxy nodes. Customers get a VPS with a fixed backend IP and a
-fixed range of public ports; they map their own domains to those ports
-through the panel. The control plane configures every Caddy node over
-WireGuard, drives Let's Encrypt issuance, and surfaces traffic stats.
+**A Caddy proxy manager - the self-hosted, multi-tenant alternative to Nginx Proxy Manager, built on [Caddy](https://caddyserver.com).**
 
-**Status:** v1.0.0. Stack: Go 1.26.3, chi, MariaDB, Redis, Caddy 2.8.
+Self-hosted control panel for a fleet of [Caddy](https://caddyserver.com)
+reverse-proxy nodes. Point your domains at backends through a web UI with
+automatic HTTPS, or run it as a hosting platform: customers get a VPS with a
+fixed backend IP and a fixed range of public ports and map their own domains to
+those ports. The control plane configures every Caddy node over WireGuard,
+drives Let's Encrypt issuance, runs a WAF + GeoIP, and surfaces traffic stats.
+
+**Status:** v1.3.2. Stack: Go 1.26.3, chi, MariaDB, Redis, Caddy 2.8.
 Single binary ~21 MB image, ~28 MB idle RAM.
+
+### Why Caddy Proxy Manager over Nginx Proxy Manager?
+
+- **Caddy, not nginx** - automatic HTTPS, HTTP/3, and a live JSON config API; no
+  reload dance.
+- **Multi-node + multi-tenant** - manage a fleet of proxy nodes over a WireGuard
+  mesh, with clients, resellers, plans, and quotas. NPM is single-node,
+  single-tenant.
+- **Built-in WAF (Coraza/OWASP CRS), GeoIP blocking, L4 stream proxying, access
+  analytics, and an API + Terraform provider** - not just a reverse-proxy form.
+- **One ~21 MB Go binary**, ~28 MB idle RAM.
+
+Searching for a *caddy proxy manager* or an *nginx proxy manager alternative*? That's this.
 
 ---
 
