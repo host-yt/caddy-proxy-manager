@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Hostyt Proxy Gateway API",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "## Introduction\n\nHostyt Proxy Gateway (HPG) is a self-hosted control panel for a fleet of Caddy reverse-proxy nodes.\nCustomers receive a VPS with a fixed backend IP and an allowed port range (e.g. `30000-30019`).\nThrough this API they map their own domains to those ports; Caddy config is pushed automatically.\n\n## Authentication\n\nMost endpoints require a **Bearer API key** issued from `/admin/api-keys` (admin) or `/app/api-keys` (client).\n\n```\nAuthorization: Bearer hpg_live_xxxx...\n```\n\n**Node-agent endpoints** use a per-node agent token stored as a SHA-256 hash in `caddy_nodes.agent_token_hash`.\nPass it the same way: `Authorization: Bearer <token>` or `?node_token=<token>`.\n\n**WireGuard bootstrap endpoints** are authenticated by a single-shot 192-hex-char token passed as `?token=`.\nEach token has a 24 h TTL and is invalidated after first use.\n\n## Roles\n\n| Role    | Can do |\n|---------|--------|\n| `admin` | All operations |\n| `client`| Read own services/routes, create/delete own routes |\n\n`backend_ip` is admin-only — clients can never set or change it.\nAllowed ports come from the service record; the server validates membership.\n\n## Rate limits\n\nAll authenticated API endpoints share a per-key quota enforced in Redis.\nBootstrap endpoints are rate-limited to 10 req/min per IP.\nExceeding any limit returns `429 Too Many Requests`.\n\n## Async operations\n\nCaddy config changes (route create/delete, resync) are pushed in the background.\nSSL certificate provisioning is asynchronous — poll `GET /api/v1/services/{id}/routes` and watch `status`.\n"
   },
   "servers": [
@@ -51,6 +51,18 @@
     {
       "name": "Clients",
       "description": "Client account management — admin-only. Creates user + client records together."
+    },
+    {
+      "name": "Resellers",
+      "description": "Reseller tenant management — platform-admin keys only (ResellerID 0). Creates the reseller + its owner user."
+    },
+    {
+      "name": "Reseller Plans",
+      "description": "Reseller plan (quota bundle) management — platform-admin keys only."
+    },
+    {
+      "name": "Provisioning",
+      "description": "Billing-system provisioning hooks (FOSSBilling). Admin keys only; optionally source-bound to the billing host via FOSSBILLING_ALLOW_IPS."
     }
   ],
   "components": {
@@ -67,6 +79,34 @@
       }
     },
     "schemas": {
+      "ResellerObject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 5 },
+          "name": { "type": "string", "example": "Acme Hosting" },
+          "slug": { "type": "string", "example": "acme" },
+          "status": { "type": "string", "enum": ["active", "suspended"], "example": "active" },
+          "brand_name": { "type": "string", "example": "Acme Cloud" },
+          "support_email": { "type": "string", "format": "email" },
+          "reseller_plan_id": { "type": "integer", "format": "int64", "example": 2 },
+          "overselling_allowed": { "type": "boolean", "example": false },
+          "can_create_plans": { "type": "boolean", "example": true },
+          "owner_user_id": { "type": "integer", "format": "int64", "example": 88 }
+        }
+      },
+      "ResellerPlanObject": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64", "example": 2 },
+          "name": { "type": "string", "example": "Reseller Pro" },
+          "max_clients": { "type": "integer", "example": 50 },
+          "max_services_total": { "type": "integer", "example": 200 },
+          "max_domains_total": { "type": "integer", "example": 1000 },
+          "rate_limit_rpm_cap": { "type": "integer", "example": 600 },
+          "node_group_ids": { "type": "array", "items": { "type": "integer", "format": "int64" } },
+          "features": { "type": "array", "items": { "type": "string" }, "example": ["wildcard", "external_proxy"] }
+        }
+      },
       "Error": {
         "type": "object",
         "properties": {
@@ -1444,6 +1484,253 @@
           "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "409": { "description": "Client has active services", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/node/geoip/meta": {
+      "get": {
+        "tags": ["Node Agent"],
+        "summary": "GeoIP database metadata",
+        "operationId": "nodeGeoipMeta",
+        "description": "Node-agent pulls the current central MaxMind mmdb metadata (version, sha256, size) to decide whether to re-download.",
+        "security": [{ "nodeAuthToken": [] }],
+        "responses": {
+          "200": { "description": "GeoIP metadata", "content": { "application/json": { "schema": { "type": "object", "properties": { "sha256": { "type": "string" }, "size": { "type": "integer" }, "built_at": { "type": "string", "format": "date-time" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/node/geoip/mmdb": {
+      "get": {
+        "tags": ["Node Agent"],
+        "summary": "Download GeoIP mmdb",
+        "operationId": "nodeGeoipMMDB",
+        "description": "Streams the central MaxMind Country mmdb over the tunnel. Node-agents cache it and serve Caddy's geoip matcher.",
+        "security": [{ "nodeAuthToken": [] }],
+        "responses": {
+          "200": { "description": "Binary mmdb", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "No mmdb configured", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/node/waf/events": {
+      "post": {
+        "tags": ["Node Agent"],
+        "summary": "Ingest WAF events",
+        "operationId": "nodeWAFEvents",
+        "description": "Custom Caddy WAF (Coraza) module ships batches of blocked/logged events to the panel for the security dashboard. Deduped by an idempotency ledger.",
+        "security": [{ "nodeAuthToken": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "events": { "type": "array", "items": { "type": "object", "properties": { "ts": { "type": "string", "format": "date-time" }, "rule_id": { "type": "string" }, "action": { "type": "string", "enum": ["blocked", "logged"] }, "client_ip": { "type": "string" }, "host": { "type": "string" }, "uri": { "type": "string" } } } } } } } }
+        },
+        "responses": {
+          "200": { "description": "Accepted", "content": { "application/json": { "schema": { "type": "object", "properties": { "accepted": { "type": "integer" }, "deduped": { "type": "integer" } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/resellers": {
+      "get": {
+        "tags": ["Resellers"],
+        "summary": "List resellers",
+        "operationId": "resellersList",
+        "description": "Platform-admin keys only (ResellerID 0). Returns every reseller tenant with quota usage.",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Reseller list", "content": { "application/json": { "schema": { "type": "object", "properties": { "resellers": { "type": "array", "items": { "$ref": "#/components/schemas/ResellerObject" } } } } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Platform-admin key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Resellers"],
+        "summary": "Create a reseller",
+        "operationId": "resellerCreate",
+        "description": "Platform-admin only. Creates the reseller row and its owner user in one call.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["name", "slug", "owner_email", "owner_password"], "properties": { "name": { "type": "string", "example": "Acme Hosting" }, "slug": { "type": "string", "example": "acme" }, "owner_email": { "type": "string", "format": "email" }, "owner_password": { "type": "string", "format": "password" }, "brand_name": { "type": "string" }, "support_email": { "type": "string", "format": "email" } } } } }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerObject" } } } },
+          "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Platform-admin key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Slug or email already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/resellers/{id}": {
+      "get": {
+        "tags": ["Resellers"],
+        "summary": "Get a reseller",
+        "operationId": "resellerGet",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": {
+          "200": { "description": "Reseller", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerObject" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "patch": {
+        "tags": ["Resellers"],
+        "summary": "Update a reseller",
+        "operationId": "resellerUpdate",
+        "description": "Partial update; only supplied fields change. Setting status to `suspended` revokes the reseller's sessions.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "name": { "type": "string" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "brand_name": { "type": "string" }, "support_email": { "type": "string" }, "reseller_plan_id": { "type": "integer", "format": "int64" }, "overselling_allowed": { "type": "boolean" }, "can_create_plans": { "type": "boolean" } } } } }
+        },
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerObject" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "delete": {
+        "tags": ["Resellers"],
+        "summary": "Delete a reseller",
+        "operationId": "resellerDelete",
+        "description": "Platform-admin only. Fails if the reseller still owns clients.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "409": { "description": "Reseller has clients", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/reseller-plans": {
+      "get": {
+        "tags": ["Reseller Plans"],
+        "summary": "List reseller plans",
+        "operationId": "resellerPlansList",
+        "security": [{ "bearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Reseller plan list", "content": { "application/json": { "schema": { "type": "object", "properties": { "reseller_plans": { "type": "array", "items": { "$ref": "#/components/schemas/ResellerPlanObject" } } } } } } },
+          "403": { "description": "Platform-admin key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Reseller Plans"],
+        "summary": "Create a reseller plan",
+        "operationId": "resellerPlanCreate",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerPlanObject" } } }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerPlanObject" } } } },
+          "403": { "description": "Platform-admin key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/reseller-plans/{id}": {
+      "patch": {
+        "tags": ["Reseller Plans"],
+        "summary": "Update a reseller plan",
+        "operationId": "resellerPlanUpdate",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "requestBody": {
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerPlanObject" } } }
+        },
+        "responses": {
+          "200": { "description": "Updated", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerPlanObject" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "delete": {
+        "tags": ["Reseller Plans"],
+        "summary": "Delete a reseller plan",
+        "operationId": "resellerPlanDelete",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "409": { "description": "Plan still assigned to resellers", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/provisioning/client": {
+      "post": {
+        "tags": ["Provisioning"],
+        "summary": "Provision a client",
+        "operationId": "provisionClient",
+        "description": "FOSSBilling hook. Creates (or returns existing by `external_ref`) a client + user. Idempotent on `external_ref`.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["email", "plan_id"], "properties": { "email": { "type": "string", "format": "email" }, "name": { "type": "string" }, "plan_id": { "type": "integer", "format": "int64" }, "external_ref": { "type": "string", "example": "fossbilling-client-42" } } } } }
+        },
+        "responses": {
+          "200": { "description": "Provisioned", "content": { "application/json": { "schema": { "type": "object", "properties": { "client_id": { "type": "integer" }, "user_id": { "type": "integer" } } } } } },
+          "403": { "description": "Admin key required / source IP not allowed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/provisioning/service": {
+      "post": {
+        "tags": ["Provisioning"],
+        "summary": "Provision a service",
+        "operationId": "provisionService",
+        "description": "FOSSBilling hook. Creates a service (backend IP + allowed port range) for a client. Idempotent on `external_ref`.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["client_id", "backend_ip", "plan_id", "port_start", "port_end"], "properties": { "client_id": { "type": "integer", "format": "int64" }, "name": { "type": "string" }, "backend_ip": { "type": "string", "format": "ipv4" }, "plan_id": { "type": "integer", "format": "int64" }, "port_start": { "type": "integer" }, "port_end": { "type": "integer" }, "external_ref": { "type": "string" } } } } }
+        },
+        "responses": {
+          "200": { "description": "Provisioned", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ServiceObject" } } } },
+          "403": { "description": "Admin key required / source IP not allowed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/provisioning/route": {
+      "post": {
+        "tags": ["Provisioning"],
+        "summary": "Provision a route",
+        "operationId": "provisionRoute",
+        "description": "FOSSBilling hook. Maps a domain to an upstream port on an existing service.",
+        "security": [{ "bearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["service_id", "domain", "upstream_port"], "properties": { "service_id": { "type": "integer", "format": "int64" }, "domain": { "type": "string" }, "upstream_port": { "type": "integer" }, "path_prefix": { "type": "string" }, "ssl": { "type": "boolean" }, "websocket": { "type": "boolean" }, "force_https": { "type": "boolean" } } } } }
+        },
+        "responses": {
+          "200": { "description": "Provisioned", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RouteObject" } } } },
+          "403": { "description": "Admin key required / source IP not allowed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/provisioning/service/{id}/suspend": {
+      "put": {
+        "tags": ["Provisioning"],
+        "summary": "Suspend a service",
+        "operationId": "provisionSuspendService",
+        "description": "FOSSBilling hook. Suspends a service (routes stop serving) without deleting it.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": {
+          "200": { "description": "Suspended", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "status": { "type": "string" } } } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/provisioning/service/{id}": {
+      "delete": {
+        "tags": ["Provisioning"],
+        "summary": "Delete a provisioned service",
+        "operationId": "provisionDeleteService",
+        "description": "FOSSBilling hook. Terminates a service and its routes.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     }

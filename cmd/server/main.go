@@ -753,7 +753,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Portal:          portalH,
 		Ask:             askH,
 		API:             apiH,
-		APIDocs:         &handlers.APIDocsHandler{DB: wizard.DB},
+		APIDocs:         &handlers.APIDocsHandler{DB: wizard.DB, State: state},
 		Passkey:         passkeyH,
 		NodeJoin:        joinH,
 		WGBoot:          wgBootH,
