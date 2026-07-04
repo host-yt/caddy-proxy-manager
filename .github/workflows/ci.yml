@@ -42,12 +42,10 @@ jobs:
       - name: Install codegen tools
         run: |
           go install github.com/a-h/templ/cmd/templ@v0.2.793
-          go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.27.0
 
       - name: Generate
         run: |
           if find internal -name '*.templ' | grep -q .; then templ generate; fi
-          if [ -f sqlc.yaml ] || [ -f sqlc.yml ]; then sqlc generate; fi
 
       - name: Check doc links
         run: python3 scripts/check_docs_links.py

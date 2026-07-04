@@ -9,7 +9,6 @@ BIN   := bin/server
 
 # Tool versions - pin to keep CI and dev in sync.
 TEMPL_VERSION    := v0.2.793
-SQLC_VERSION     := v1.27.0
 GOOSE_VERSION    := v3.22.1
 GOLANGCI_VERSION := v1.61.0
 TAILWIND_VERSION := v3.4.17
@@ -24,9 +23,8 @@ help: ## Show this help.
 # --- Tooling ----------------------------------------------------------------
 
 .PHONY: tools
-tools: ## Install dev tools (templ, sqlc, goose, golangci-lint, air).
+tools: ## Install dev tools (templ, goose, golangci-lint, air).
 	$(GO) install github.com/a-h/templ/cmd/templ@$(TEMPL_VERSION)
-	$(GO) install github.com/sqlc-dev/sqlc/cmd/sqlc@$(SQLC_VERSION)
 	$(GO) install github.com/pressly/goose/v3/cmd/goose@$(GOOSE_VERSION)
 	$(GO) install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_VERSION)
 	$(GO) install github.com/air-verse/air@latest
@@ -34,15 +32,11 @@ tools: ## Install dev tools (templ, sqlc, goose, golangci-lint, air).
 # --- Codegen ----------------------------------------------------------------
 
 .PHONY: gen
-gen: gen-templ gen-sqlc ## Run all codegen.
+gen: gen-templ ## Run all codegen.
 
 .PHONY: gen-templ
 gen-templ: ## Generate templ Go from .templ files.
 	templ generate
-
-.PHONY: gen-sqlc
-gen-sqlc: ## Generate type-safe DB code from queries/*.sql.
-	sqlc generate
 
 # --- DB migrations ----------------------------------------------------------
 

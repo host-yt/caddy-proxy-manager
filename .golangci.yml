@@ -27,8 +27,6 @@ issues:
   exclude-rules:
     - path: _test\.go
       linters: [gosec, unparam, errcheck]
-    - path: internal/store/db/
-      linters: [unused, revive, gosec]  # sqlc generated
     - path: .*_templ\.go
       linters: [unused, revive, gosec]  # templ generated
 

@@ -49,8 +49,7 @@ COPY go.mod go.sum* ./
 RUN go mod download
 
 # Install codegen tools used at build time.
-RUN go install github.com/a-h/templ/cmd/templ@v0.2.793 \
- && go install github.com/sqlc-dev/sqlc/cmd/sqlc@v1.27.0
+RUN go install github.com/a-h/templ/cmd/templ@v0.2.793
 
 COPY . .
 
@@ -58,10 +57,10 @@ COPY . .
 # //go:embed all:web/static in embed.go captures it (self-contained binary).
 COPY --from=tailwind /out/tailwind.css ./web/static/css/tailwind.css
 
-# Generate templ + sqlc. Fail the build on real codegen errors instead of
-# shipping stale generated files; skip cleanly only when no source is present.
-RUN if find internal -name '*.templ' | grep -q .; then templ generate; fi \
- && if [ -f sqlc.yaml ] || [ -f sqlc.yml ]; then sqlc generate; fi
+# Generate templ. Fail the build on real codegen errors instead of shipping
+# stale generated files; skip cleanly when no source is present. (sqlc removed:
+# the app uses raw database/sql; its MySQL parser never handled our migrations.)
+RUN if find internal -name '*.templ' | grep -q .; then templ generate; fi
 
 # Static build. TARGETARCH comes from buildx so cross-arch builds (arm64
 # from an amd64 runner) emit the right ELF instead of host-native.
