@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -62,21 +63,45 @@ func NewSessionManager(rdb *redis.Client, cookieName string, secure bool, sameSi
 
 const sessionKeyPrefix = "hpg:sess:"
 
-// CookieSecure exposes the Secure flag for callers that issue companion
-// short-lived cookies (e.g. pending-2fa).
+// CookieSecure exposes the configured Secure flag for callers that issue
+// companion short-lived cookies (e.g. pending-2fa).
 func (m *Manager) CookieSecure() bool { return m.secure }
+
+// SecureForRequest returns the effective Secure value for a cookie written in
+// response to r. Secure is kept only when the request actually arrived over a
+// secure context; otherwise we must not set it. Browsers silently drop a
+// Secure cookie sent over plain HTTP (e.g. first-run access via http://<IP>),
+// which otherwise causes an infinite login loop. Never upgrades: if the config
+// disables Secure it stays off.
+func (m *Manager) SecureForRequest(r *http.Request) bool {
+	return m.secure && requestIsHTTPS(r)
+}
+
+// requestIsHTTPS reports whether r reached us over TLS, either directly or via
+// a fronting proxy (Caddy) that set X-Forwarded-Proto. A spoofed header on a
+// plain-HTTP request only makes that same request's cookie fail to set, so
+// this is not a trust boundary for us.
+func requestIsHTTPS(r *http.Request) bool {
+	if r == nil {
+		return true // no request context: fall back to configured default
+	}
+	if r.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+}
 
 // Create stores a new session in Redis and writes the cookie. resellerID is
 // non-zero only for a reseller-admin.
-func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, userID int64, email, role string, clientID, resellerID int64) (*Session, error) {
-	return m.CreateImpersonated(ctx, w, userID, email, role, clientID, resellerID, 0, "")
+func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, r *http.Request, userID int64, email, role string, clientID, resellerID int64) (*Session, error) {
+	return m.CreateImpersonated(ctx, w, r, userID, email, role, clientID, resellerID, 0, "")
 }
 
 // CreateImpersonated mints a session whose effective identity is the
 // target client (userID/email/role/clientID) but which carries the
 // admin's id/email in ImpersonatorUserID for audit accountability.
 // Pass impersonatorID=0 for a normal login.
-func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter, userID int64, email, role string, clientID, resellerID, impersonatorID int64, impersonatorEmail string) (*Session, error) {
+func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter, r *http.Request, userID int64, email, role string, clientID, resellerID, impersonatorID int64, impersonatorEmail string) (*Session, error) {
 	id, err := randomID(32)
 	if err != nil {
 		return nil, err
@@ -110,7 +135,7 @@ func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter,
 		Value:    id,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   m.secure,
+		Secure:   m.SecureForRequest(r),
 		SameSite: m.sameSite,
 		Expires:  s.ExpiresAt,
 	})
@@ -203,7 +228,7 @@ func (m *Manager) Destroy(ctx context.Context, w http.ResponseWriter, r *http.Re
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   m.secure,
+		Secure:   m.SecureForRequest(r),
 		SameSite: m.sameSite,
 		MaxAge:   -1,
 	})

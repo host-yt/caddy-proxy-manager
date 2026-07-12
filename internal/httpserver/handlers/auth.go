@@ -402,7 +402,7 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 		http.SetCookie(w, &http.Cookie{
 			Name: "hpg_2fa_pending", Value: ticket, Path: "/", HttpOnly: true,
-			Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+			Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 			Expires: time.Now().Add(pending2FATTL),
 		})
 		http.Redirect(w, r, "/auth/2fa", http.StatusSeeOther)
@@ -442,7 +442,7 @@ func lookupResellerID(ctx context.Context, db *sql.DB, userID int64) int64 {
 
 func (h *AuthHandlers) finalizeLogin(ctx context.Context, w http.ResponseWriter, r *http.Request,
 	userID int64, email, role string, clientID int64, via, mfa string) {
-	if _, err := h.Sessions.Create(ctx, w, userID, email, role, clientID, lookupResellerID(ctx, h.DB(), userID)); err != nil {
+	if _, err := h.Sessions.Create(ctx, w, r, userID, email, role, clientID, lookupResellerID(ctx, h.DB(), userID)); err != nil {
 		h.Logger.Error("session create", "err", err)
 		h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: email, Error: "Could not create session."}))
 		return
@@ -669,7 +669,7 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 	})
 	h.Metrics.OTPAttempt(mfaTag, "success")
 	if trustDev {
-		h.issueTrustCookie(w, pend.UserID)
+		h.issueTrustCookie(w, r, pend.UserID)
 	}
 	h.finalizeLogin(ctx, w, r, pend.UserID, pend.Email, pend.Role, pend.ClientID, pendViaOrPassword(pend), mfaTag)
 }
@@ -733,7 +733,7 @@ func (h *AuthHandlers) TwoFASend(w http.ResponseWriter, r *http.Request) {
 		}
 		http.SetCookie(w, &http.Cookie{
 			Name: "hpg_smsotp", Value: otpTicket, Path: "/", HttpOnly: true,
-			Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+			Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 			Expires: time.Now().Add(auth.SMSOTPTTLSeconds * time.Second),
 		})
 		w.Header().Set("X-Resend-After", strconv.Itoa(int(otpResendCooldown.Seconds())))
@@ -779,7 +779,7 @@ func (h *AuthHandlers) TwoFASend(w http.ResponseWriter, r *http.Request) {
 		}
 		http.SetCookie(w, &http.Cookie{
 			Name: "hpg_emailotp", Value: otpTicket, Path: "/", HttpOnly: true,
-			Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+			Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 			Expires: time.Now().Add(auth.EmailOTPTTLSeconds * time.Second),
 		})
 		w.Header().Set("X-Resend-After", strconv.Itoa(int(otpResendCooldown.Seconds())))
@@ -997,7 +997,7 @@ func (h *AuthHandlers) EndImpersonation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.Sessions.Destroy(ctx, w, r)
-	if _, err := h.Sessions.Create(ctx, w, sess.ImpersonatorUserID, adminEmail, adminRole, 0, lookupResellerID(ctx, db, sess.ImpersonatorUserID)); err != nil {
+	if _, err := h.Sessions.Create(ctx, w, r, sess.ImpersonatorUserID, adminEmail, adminRole, 0, lookupResellerID(ctx, db, sess.ImpersonatorUserID)); err != nil {
 		h.Logger.Error("end impersonation: create admin session", "err", err)
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 		return
@@ -1387,14 +1387,14 @@ func (h *AuthHandlers) verifyTrustToken(token string, userID int64) bool {
 
 // issueTrustCookie writes hpg_2fa_trust to the response with a 30d TTL.
 // Best-effort: signing failure just skips it (user will see 2FA again).
-func (h *AuthHandlers) issueTrustCookie(w http.ResponseWriter, userID int64) {
+func (h *AuthHandlers) issueTrustCookie(w http.ResponseWriter, r *http.Request, userID int64) {
 	token, err := h.signTrustToken(userID, trustDeviceTTL)
 	if err != nil {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: trustCookie, Value: token, Path: "/", HttpOnly: true,
-		Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+		Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 		Expires: time.Now().Add(trustDeviceTTL),
 	})
 }
@@ -1451,7 +1451,7 @@ func (h *AuthHandlers) OIDCStart(w http.ResponseWriter, r *http.Request) {
 	// Cookie keeps the state value so the callback can look it up.
 	http.SetCookie(w, &http.Cookie{
 		Name: "hpg_oidc_state", Value: state, Path: "/", HttpOnly: true,
-		Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+		Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 		Expires: time.Now().Add(oidcStateTTL),
 	})
 	http.Redirect(w, r, authURL, http.StatusSeeOther)
@@ -1966,7 +1966,7 @@ func (h *AuthHandlers) SSOJump(w http.ResponseWriter, r *http.Request) {
 		}
 		http.SetCookie(w, &http.Cookie{
 			Name: "hpg_2fa_pending", Value: ticket, Path: "/", HttpOnly: true,
-			Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+			Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 			Expires: time.Now().Add(pending2FATTL),
 		})
 		audit.Write(ctx, db, h.Logger, r, audit.Entry{
@@ -1978,7 +1978,7 @@ func (h *AuthHandlers) SSOJump(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// No second factor enrolled - create session and redirect.
-	if _, err := h.Sessions.Create(ctx, w, userID, email, role, clientID, lookupResellerID(ctx, h.DB(), userID)); err != nil {
+	if _, err := h.Sessions.Create(ctx, w, r, userID, email, role, clientID, lookupResellerID(ctx, h.DB(), userID)); err != nil {
 		h.Logger.Error("sso_jump: session create", "err", err)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
@@ -2041,12 +2041,12 @@ func (h *AuthHandlers) startSMSOTPChallenge(ctx context.Context, w http.Response
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: "hpg_2fa_pending", Value: pending, Path: "/", HttpOnly: true,
-		Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+		Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 		Expires: time.Now().Add(pending2FATTL),
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name: "hpg_smsotp", Value: otpTicket, Path: "/", HttpOnly: true,
-		Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+		Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 		Expires: time.Now().Add(auth.SMSOTPTTLSeconds * time.Second),
 	})
 	http.Redirect(w, r, "/auth/sms-otp", http.StatusSeeOther)
@@ -2181,12 +2181,12 @@ func (h *AuthHandlers) startEmailOTPChallenge(ctx context.Context, w http.Respon
 	}
 	http.SetCookie(w, &http.Cookie{
 		Name: "hpg_2fa_pending", Value: pending, Path: "/", HttpOnly: true,
-		Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+		Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 		Expires: time.Now().Add(pending2FATTL),
 	})
 	http.SetCookie(w, &http.Cookie{
 		Name: "hpg_emailotp", Value: otpTicket, Path: "/", HttpOnly: true,
-		Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+		Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
 		Expires: time.Now().Add(auth.EmailOTPTTLSeconds * time.Second),
 	})
 	http.Redirect(w, r, "/auth/email-otp", http.StatusSeeOther)

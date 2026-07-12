@@ -41,6 +41,13 @@ func (cw *ConfigWriter) Render(ctx context.Context, db *sql.DB, cp ControlPlane)
 	fmt.Fprintf(&b, "Address    = %s/%s\n", cp.ControlIP, prefixLen(cp.Subnet))
 	fmt.Fprintf(&b, "ListenPort = %d\n", cp.ListenPort)
 	fmt.Fprintf(&b, "PrivateKey = %s\n", cp.PrivateKey)
+	// Docker sets the kernel FORWARD policy to DROP. Node->master packets that
+	// DNAT into a published container port become forwarded traffic and get
+	// silently dropped (0 bit/s, endless retransmits). Explicitly accept wg0
+	// forwarding both ways so the mesh coexists with Docker's iptables chains.
+	// wg-quick removes these on `wg-quick down`; harmless on non-Docker hosts.
+	b.WriteString("PostUp   = iptables -I FORWARD -i wg0 -j ACCEPT; iptables -I FORWARD -o wg0 -j ACCEPT\n")
+	b.WriteString("PostDown = iptables -D FORWARD -i wg0 -j ACCEPT; iptables -D FORWARD -o wg0 -j ACCEPT\n")
 	b.WriteString("\n")
 
 	// Only approved + enabled nodes join the mesh - unapproved nodes must not

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -488,6 +489,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Logger:      logger,
 		Metrics:     mtr,
 		PerIPPerMin: cfg.Security.RateLimitAskPerMin,
+		PanelDomain: panelDomainFromURL(cfg.App.URL),
 	}
 	apiH := &handlers.APIHandlers{
 		DB:         wizard.DB,
@@ -923,6 +925,21 @@ func buildAskURL(cfg *config.Config) string {
 	}
 	// app service name on the internal Docker network.
 	return "http://app:8080/internal/ask"
+}
+
+// panelDomainFromURL extracts the bare hostname of the panel's own APP_URL so
+// On-Demand TLS can issue the panel's cert before any route row exists. Returns
+// "" for an IP-only or unparseable APP_URL (nothing to auto-allow).
+func panelDomainFromURL(appURL string) string {
+	u, err := url.Parse(strings.TrimSpace(appURL))
+	if err != nil {
+		return ""
+	}
+	host := u.Hostname() // strips port and brackets
+	if host == "" || net.ParseIP(host) != nil || !strings.Contains(host, ".") {
+		return ""
+	}
+	return strings.ToLower(host)
 }
 
 // panelPublicHost extracts the bare hostname from APP_URL ("https://proxy.example.com"

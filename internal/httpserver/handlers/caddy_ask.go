@@ -26,7 +26,8 @@ type AskHandler struct {
 	RDB         *redis.Client
 	Logger      *slog.Logger
 	Metrics     *obs.Metrics
-	PerIPPerMin int // requests per IP per minute; 0 disables
+	PerIPPerMin int    // requests per IP per minute; 0 disables
+	PanelDomain string // panel's own APP_URL host; always allowed (first-run cert)
 }
 
 func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -40,6 +41,16 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	domain = strings.TrimSuffix(domain, ".")
 	if len(domain) > 253 || !strings.Contains(domain, ".") {
 		http.Error(w, "denied", http.StatusForbidden)
+		return
+	}
+
+	// Panel's own domain: always allowed. On a clean install the panel host is
+	// only in caddy_nodes, not routes, so the DB lookup below would deny it and
+	// Caddy could never provision the panel's own cert (chicken-and-egg). This
+	// is the operator-configured APP_URL host, not attacker-controlled input.
+	if h.PanelDomain != "" && domain == h.PanelDomain {
+		h.Metrics.AskDecision("allow")
+		w.WriteHeader(http.StatusOK)
 		return
 	}
 

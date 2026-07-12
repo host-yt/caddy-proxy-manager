@@ -2,6 +2,14 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## [1.3.4] - 2026-07-12
+
+### Fixed
+
+- **First-run On-Demand TLS 403 (#1)**: on a clean install the panel's own domain lived only in `caddy_nodes`, so `/internal/ask` denied Caddy's cert request and the panel could never provision its own certificate. The panel's `APP_URL` host is now always approved for issuance.
+- **First-run login loop over HTTP IP (#1)**: the session/auth cookie `Secure` flag was static from config, so accessing the panel via `http://<IP>:8080` before TLS was set up made browsers silently drop the cookie (endless redirect to login). `Secure` is now derived per-request - kept on real HTTPS (direct TLS or `X-Forwarded-Proto: https`), dropped on plain HTTP. Never upgrades a request that config marked insecure.
+- **WireGuard node-to-master 0 bit/s stall (#2)**: Docker forces the kernel `FORWARD` policy to `DROP`, so node-to-master traffic that DNATs into a published container port was silently dropped (infinite TCP retransmits). The master `wg0.conf` now installs `FORWARD` accept rules for `wg0` on interface up and removes them on down; harmless on non-Docker hosts.
+
 ## [1.3.2] - 2026-07-03
 
 ### Fixed

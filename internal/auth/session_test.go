@@ -23,7 +23,9 @@ func TestSessionCookieFlags(t *testing.T) {
 
 	// Destroy() with no cookie on the request never touches rdb (nil-safe
 	// here), so this exercises the exact cookie literal written on logout.
+	// Over an HTTPS request the Secure flag must be set.
 	req := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	req.Header.Set("X-Forwarded-Proto", "https")
 	rr := httptest.NewRecorder()
 	m.Destroy(context.Background(), rr, req)
 
@@ -36,10 +38,24 @@ func TestSessionCookieFlags(t *testing.T) {
 		t.Error("session cookie missing HttpOnly")
 	}
 	if !c.Secure {
-		t.Error("session cookie missing Secure")
+		t.Error("session cookie missing Secure over HTTPS")
 	}
 	if c.SameSite != http.SameSiteStrictMode {
 		t.Errorf("session cookie SameSite = %v, want SameSiteStrictMode", c.SameSite)
+	}
+
+	// Over a plain-HTTP request (first-run access via http://<IP>) Secure must
+	// be dropped, else browsers silently discard the cookie -> infinite login
+	// loop. See GitHub issue #1.
+	reqHTTP := httptest.NewRequest(http.MethodPost, "/auth/logout", nil)
+	rrHTTP := httptest.NewRecorder()
+	m.Destroy(context.Background(), rrHTTP, reqHTTP)
+	hc := rrHTTP.Result().Cookies()
+	if len(hc) != 1 {
+		t.Fatalf("expected 1 cookie over HTTP, got %d", len(hc))
+	}
+	if hc[0].Secure {
+		t.Error("session cookie set Secure over plain HTTP (would be dropped by browsers)")
 	}
 }
 

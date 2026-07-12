@@ -374,7 +374,7 @@ func (h *PasskeyHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 	if role == "client" {
 		_ = db.QueryRowContext(ctx, `SELECT id FROM clients WHERE user_id = ?`, resolvedUser.ID).Scan(&clientID)
 	}
-	if _, err := h.Sessions.Create(ctx, w, resolvedUser.ID, resolvedUser.Email, role, clientID, lookupResellerID(ctx, db, resolvedUser.ID)); err != nil {
+	if _, err := h.Sessions.Create(ctx, w, r, resolvedUser.ID, resolvedUser.Email, role, clientID, lookupResellerID(ctx, db, resolvedUser.ID)); err != nil {
 		h.Logger.Error("session create", "err", err)
 		http.Error(w, "session create failed", http.StatusInternalServerError)
 		return
