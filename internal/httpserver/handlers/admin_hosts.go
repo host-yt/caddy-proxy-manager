@@ -2226,6 +2226,13 @@ type hostEditData struct {
 	WildcardZone    string
 	WildcardZones   []string
 
+	// DNS steering: health-driven A/AAAA sync for active_active route groups
+	// (internal/domain/dnssteer). DNSProviders feeds the provider dropdown.
+	DNSSteeringEnabled  bool
+	DNSSteeringProvider int64
+	DNSSteeringTTL      int
+	DNSProviders        []dnsProviderOption
+
 	// ViaWGPeerID == 0 means "no tunnel". When non-zero, build resolves
 	// backend host to that peer's tunnel IP at push time.
 	ViaWGPeerID   int64
@@ -2296,6 +2303,12 @@ type hostEditData struct {
 
 // mtlsCAOption is one selectable trust-anchor CA in the host editor dropdown.
 type mtlsCAOption struct {
+	ID    int64
+	Label string
+}
+
+// dnsProviderOption is one selectable dns_providers row (DNS steering dropdown).
+type dnsProviderOption struct {
 	ID    int64
 	Label string
 }
@@ -2501,6 +2514,21 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		zr.Close()
+	}
+	// DNS steering: toggle + provider + TTL (additive query, gated feature,
+	// large route SELECT above stays untouched).
+	_ = db.QueryRowContext(ctx,
+		`SELECT COALESCE(dns_steering_enabled,0), COALESCE(dns_provider_id,0), COALESCE(dns_steering_ttl,60)
+		   FROM routes WHERE id = ?`, id,
+	).Scan(&d.DNSSteeringEnabled, &d.DNSSteeringProvider, &d.DNSSteeringTTL)
+	if pr, prerr := db.QueryContext(ctx, "SELECT id, name FROM dns_providers ORDER BY name ASC"); prerr == nil {
+		for pr.Next() {
+			var o dnsProviderOption
+			if pr.Scan(&o.ID, &o.Label) == nil {
+				d.DNSProviders = append(d.DNSProviders, o)
+			}
+		}
+		pr.Close()
 	}
 	// Additional backends for the Load balancing tab (best-effort).
 	if urows, uerr := db.QueryContext(ctx,
@@ -3331,12 +3359,13 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	var currentBackendIP string
 	var prevOverride sql.NullString
 	var prevRequireClientCert bool
+	var prevDNSSteeringEnabled bool
 	if err := h.DB().QueryRowContext(ctx,
 		`SELECT r.caddy_node_id, r.service_id, s.backend_ip, r.backend_ip_override,
-		        COALESCE(r.require_client_cert, 0)
+		        COALESCE(r.require_client_cert, 0), COALESCE(r.dns_steering_enabled, 0)
 		 FROM routes r JOIN services s ON s.id = r.service_id
 		 WHERE r.id = ?`, id,
-	).Scan(&nodeID, &serviceID, &currentBackendIP, &prevOverride, &prevRequireClientCert); err != nil {
+	).Scan(&nodeID, &serviceID, &currentBackendIP, &prevOverride, &prevRequireClientCert, &prevDNSSteeringEnabled); err != nil {
 		redirectWithFlash(w, r, "/admin/hosts", "", "route not found")
 		return
 	}
@@ -3663,6 +3692,32 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			_ = tx.Commit()
 		}
 	}
+	// DNS steering: additive UPDATE (like portal_protect below) so a failure
+	// here can't roll back the rest of the host edit.
+	dnsSteeringEnabled := r.FormValue("dns_steering_enabled") == "1"
+	dnsProviderID, _ := strconv.ParseInt(r.FormValue("dns_provider_id"), 10, 64)
+	dnsSteeringTTL, _ := strconv.Atoi(r.FormValue("dns_steering_ttl"))
+	if dnsSteeringTTL <= 0 {
+		dnsSteeringTTL = 60
+	}
+	var dnsProviderIDVal sql.NullInt64
+	if dnsProviderID > 0 {
+		dnsProviderIDVal = sql.NullInt64{Int64: dnsProviderID, Valid: true}
+	} else {
+		dnsSteeringEnabled = false // can't steer without a provider
+	}
+	if _, derr := h.DB().ExecContext(ctx,
+		`UPDATE routes SET dns_steering_enabled=?, dns_provider_id=?, dns_steering_ttl=? WHERE id=?`,
+		dnsSteeringEnabled, dnsProviderIDVal, dnsSteeringTTL, id); derr != nil {
+		h.Logger.Warn("dns steering update", "id", id, "err", derr)
+	} else if prevDNSSteeringEnabled != dnsSteeringEnabled {
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess), Action: "host.dns_steering_toggled", Entity: "route",
+			EntityID: itoa64(id),
+			Meta:     map[string]any{"enabled": dnsSteeringEnabled, "provider_id": dnsProviderID, "ttl": dnsSteeringTTL},
+		})
+	}
+
 	// Built-in portal: persist the toggle + replace grants. Scope-safe -
 	// SetRouteGrants only writes group IDs the caller is allowed to reference
 	// (groups owned by the route's client, plus globals for super_admin), so a

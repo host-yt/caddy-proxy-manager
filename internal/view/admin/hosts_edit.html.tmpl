@@ -321,6 +321,27 @@
           <p class="t-caption text-muted mt-1">Zone must cover this domain. Add the provider credential under <a href="/admin/settings/dns-providers" class="text-[rgb(var(--accent))] hover:underline">DNS providers</a>.</p>
         </div>
       </div>
+      <div class="border-t border-[rgb(var(--border))] pt-4 space-y-3">
+        <label class="r-toggle">
+          <input type="checkbox" name="dns_steering_enabled" value="1" {{if .DNSSteeringEnabled}}checked{{end}}>
+          <span></span>
+          <span class="t-body ml-2">DNS steering (health-driven A/AAAA sync for active_active groups)</span>
+        </label>
+        <div class="grid grid-cols-3 gap-3">
+          <div class="col-span-2">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">DNS provider</label>
+            <select name="dns_provider_id" class="r-select w-full cursor-pointer">
+              <option value="">- select -</option>
+              {{range .DNSProviders}}<option value="{{.ID}}" {{if eq .ID $.DNSSteeringProvider}}selected{{end}}>{{.Label}}</option>{{end}}
+            </select>
+          </div>
+          <div>
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">TTL (seconds)</label>
+            <input type="number" name="dns_steering_ttl" min="30" max="86400" value="{{.DNSSteeringTTL}}" class="r-input w-full">
+          </div>
+        </div>
+        <p class="t-caption text-muted">Publishes an A/AAAA record per healthy, enabled node hosting this route and removes it when a node goes unhealthy - never the last remaining record (fail-static beats NXDOMAIN). Only this route's anchor node + its fan-out peers are managed.</p>
+      </div>
       <p class="t-caption text-muted">WebSocket OFF = Caddy answers 426 Upgrade Required, request never hits upstream. HTTP/2 is always on; HTTP/3 was removed (Caddy v2 protocols are server-wide so a per-route toggle was misleading, and QUIC fragments badly over WG).</p>
       <input type="hidden" name="http2" value="1">
       <input type="hidden" name="http3" value="0">

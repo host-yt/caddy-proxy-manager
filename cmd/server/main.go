@@ -35,6 +35,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/chatstore"
 	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
 	"github.com/host-yt/caddy-proxy-manager/internal/config"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/dnssteer"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/portal"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
@@ -361,6 +362,13 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		RouteSvc: routesSvc,
 		Metrics:  mtr,
 	}
+	// DNS steering reconciler (leader-only ticker wired below): keeps A/AAAA
+	// records for dns_steering_enabled routes in sync with node health.
+	dnsSteerSvc := &dnssteer.Reconciler{
+		DB:            wizard.DB,
+		Logger:        logger,
+		DecryptSecret: state.Decrypt,
+	}
 	// SIEM audit forwarder (nil-safe; disabled when AUDIT_SIEM_WEBHOOK empty).
 	siemFwd, err := audit.NewForwarder(cfg.Security.SIEMWebhook, logger)
 	if err != nil {
@@ -661,6 +669,12 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// Alert evaluator - leader-only, 60s cadence; deduped via alert_log.
 	go runTicker(rootCtx, 60*time.Second, leaderElec, guard(logger, "alert-eval", alertEval.Tick))
 	routesSvc.Webhooks = whSvc
+
+	// DNS steering — health-driven A/AAAA sync for active_active route groups;
+	// leader-only. DNS_STEERING_INTERVAL=0 disables (default 60s cadence).
+	if os.Getenv("DNS_STEERING_INTERVAL") != "0" {
+		go runTicker(rootCtx, envDurationOr("DNS_STEERING_INTERVAL", 60*time.Second), leaderElec, guard(logger, "dns-steering", dnsSteerSvc.Reconcile))
+	}
 
 	// Audit + webhook retention prune — leader-only, hourly.
 	go runTicker(rootCtx, time.Hour, leaderElec, guard(logger, "audit-prune", func(ctx context.Context) {
