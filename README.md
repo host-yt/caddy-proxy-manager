@@ -2,15 +2,46 @@
 
 **A Caddy proxy manager - the self-hosted, multi-tenant alternative to Nginx Proxy Manager, built on [Caddy](https://caddyserver.com).**
 
-Self-hosted control panel for a fleet of [Caddy](https://caddyserver.com)
-reverse-proxy nodes. Point your domains at backends through a web UI with
-automatic HTTPS, or run it as a hosting platform: customers get a VPS with a
-fixed backend IP and a fixed range of public ports and map their own domains to
-those ports. The control plane configures every Caddy node over WireGuard,
-drives Let's Encrypt issuance, runs a WAF + GeoIP, and surfaces traffic stats.
+Hostyt Proxy Gateway is a self-hosted control panel - a Caddy web UI - for a
+fleet of [Caddy](https://caddyserver.com) reverse-proxy nodes. Point your
+domains at backends through the web UI with automatic HTTPS, or run it as a
+hosting platform: customers get a VPS with a fixed backend IP and a fixed
+range of public ports and map their own domains to those ports. Scale it out
+and it becomes a multi-node Caddy fleet - a self-hosted CDN you operate
+yourself, with WireGuard tunnels to origin and per-node failover. The
+control plane configures every node over WireGuard, drives Let's Encrypt
+issuance, runs a WAF + GeoIP, and surfaces traffic stats.
 
 **Status:** v1.3.2. Stack: Go 1.26.3, chi, MariaDB, Redis, Caddy 2.8.
 Single binary ~21 MB image, ~28 MB idle RAM.
+
+## Use cases
+
+- **NPM-style single-box reverse proxy manager.** Run one manager + one
+  Caddy node and use `/admin/hosts` as a flat list of every domain: add a
+  host (domain + backend IP:port), get automatic HTTPS via Caddy's
+  on-demand TLS, and manage it from a dark/light web UI - a drop-in for
+  anyone hand-editing an nginx or Caddy config, or currently on Nginx
+  Proxy Manager.
+- **Multi-tenant hosting-provider edge (reseller / multi-user).** Give each
+  customer a `client` account scoped to a plan with domain/port/RPM quotas,
+  or use `npm`-kind plans where clients self-manage their own backend IP +
+  port range from `/app/services`. Resellers own their own scoped clients,
+  plans, and branding, with suspension fail-closed. Every admin action -
+  including impersonation - is audit-logged with actor and IP, and the REST
+  API v1 plus Terraform provider cover FOSSBilling/Hostyt-style automated
+  provisioning.
+- **Self-built multi-node CDN.** Group Caddy nodes into `node_groups` with
+  `active_active` (deploy to every node with capacity) or `failover`
+  (primary + warm secondary) placement modes; the scheduler places new
+  hosts across the group automatically. Customer/origin backends reach the
+  fleet over a dedicated WireGuard tunnel that falls back to WSS
+  (WebSocket-over-TLS) when UDP is blocked, so backends behind NAT or a
+  restrictive firewall stay reachable. Certificate storage can be shared
+  across a group (Redis-backed) so a failover or active_active peer already
+  holds the cert before it needs to serve traffic. Node health is scraped
+  from Caddy's Prometheus endpoint, and automatic failover moves routes off
+  a dead node onto a healthy sibling in the same group.
 
 ### Why Caddy Proxy Manager over Nginx Proxy Manager?
 
@@ -24,6 +55,29 @@ Single binary ~21 MB image, ~28 MB idle RAM.
 - **One ~21 MB Go binary**, ~28 MB idle RAM.
 
 Searching for a *caddy proxy manager* or an *nginx proxy manager alternative*? That's this.
+
+## How it compares
+
+Fair comparison against the two closest open-source projects and the
+no-panel baseline. `?` marks a cell we're not confident enough about to
+claim either way - check the project's own docs before relying on it.
+
+| | Hostyt Proxy Gateway | Nginx Proxy Manager | GoEdge | Plain Caddyfile |
+|---|---|---|---|---|
+| Multi-node fleet | Yes - node groups, active_active/failover placement | No (single instance) | Yes - core use case (edge node cluster) | No (one instance = one config) |
+| Multi-tenant / reseller | Yes - clients, plans, resellers, quotas | No¹ | Yes - user system for reselling bandwidth | No |
+| WAF | Yes - Coraza/OWASP CRS, per-route toggle | No | Yes - built-in HTTP firewall | No² |
+| Geo blocking | Yes - country/continent allow-deny, world map | No | Yes - region-based access rules | No² |
+| L4 (TCP/UDP) proxying | Yes - SNI routing (caddy-l4) | Partial³ | ? | Manual² |
+| Tunnels to origin | Yes - WireGuard, WSS fallback | No | ? | No |
+| API | Yes - REST API v1 + Terraform provider | Partial⁴ | ? | Yes - native Caddy Admin API |
+| Audit trail | Yes - every write logged with actor + IP | No | ? | No |
+| License | MIT | MIT | Apache-2.0 | Apache-2.0 |
+
+1. Per-proxy-host user permissions exist; no client-facing portal or billing/reseller model.
+2. Achievable by hand-wiring community Caddy modules and JSON/Caddyfile config; nothing built-in.
+3. Raw TCP/UDP "Streams" passthrough; no SNI-based routing.
+4. Internal REST API backs its own UI; not designed or documented for third-party provisioning.
 
 ---
 
