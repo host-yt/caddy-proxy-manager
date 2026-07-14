@@ -164,6 +164,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
             <th>Group</th>
             <th>Routes</th>
             <th>BW 24h</th>
+            <th>RTT</th>
             <th>Health</th>
             <th>Fingerprint</th>
             <th>Capabilities</th>
@@ -182,6 +183,11 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
             <td>{{.GroupName}}</td>
             <td class="tabular-nums">{{.CurrentRoutes}} / {{.MaxRoutes}}</td>
             <td class="tabular-nums font-mono text-xs">{{if .Bandwidth24h}}{{formatBytes .Bandwidth24h}}{{else}}-{{end}}</td>
+            <td class="tabular-nums font-mono text-xs">
+              {{if .LastRTTMs.Valid}}
+                <span class="r-pill {{if lt .LastRTTMs.Int32 50}}r-pill-success{{else if lt .LastRTTMs.Int32 150}}r-pill-warning{{else}}r-pill-danger{{end}}">{{.LastRTTMs.Int32}}ms</span>
+              {{else}}-{{end}}
+            </td>
             <td>
               <span class="r-pill {{if eq .Health "healthy"}}r-pill-success{{else if eq .Health "down"}}r-pill-danger{{else}}r-pill-neutral{{end}}">
                 <span class="w-1.5 h-1.5 rounded-full {{if eq .Health "healthy"}}bg-[rgb(var(--success))]{{else if eq .Health "down"}}bg-[rgb(var(--danger))]{{else}}bg-[rgb(var(--muted))]{{end}}"></span>
@@ -242,7 +248,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
           </tr>
           {{if .TunnelEnabled}}
           <tr style="background:rgb(var(--surface-2)/0.4)">
-            <td colspan="10" class="px-4 pb-2 pt-1">
+            <td colspan="11" class="px-4 pb-2 pt-1">
               <div class="flex flex-wrap items-center gap-2 text-xs">
                 <span class="font-medium t-caption">WG tunnel:</span>
                 {{if .TunnelMTU.Valid}}
@@ -293,7 +299,7 @@ HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
           </tr>
           {{end}}
           {{else}}
-          <tr><td colspan="10" class="px-4 py-8 text-center t-caption">No nodes yet.</td></tr>
+          <tr><td colspan="11" class="px-4 py-8 text-center t-caption">No nodes yet.</td></tr>
           {{end}}
         </tbody>
       </table>

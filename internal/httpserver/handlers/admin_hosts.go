@@ -1275,6 +1275,7 @@ type nodeDetailRow struct {
 	LastSeen      string
 	MaxRoutes     int
 	CurrentRoutes int
+	LastRTTMs     sql.NullInt32 // NULL until the first successful health probe
 
 	// WG tunnel health surfaced in the detail cockpit.
 	TunnelEnabled      bool
@@ -1327,7 +1328,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 	err := db.QueryRowContext(ctx,
 		`SELECT n.id, n.name, n.api_url, n.public_hostname, COALESCE(n.public_ip,''),
 		        ng.name, n.health_status, n.is_enabled, n.approved_at IS NOT NULL,
-		        n.last_seen_at, n.max_routes, n.current_routes,
+		        n.last_seen_at, n.max_routes, n.current_routes, n.last_rtt_ms,
 		        COALESCE(n.tunnel_enabled,0),
 		        n.fwd_mtu, n.tunnel_wstunnel_healthy,
 		        n.fwd_ip_forward_enabled, n.fwd_policy_drop_detected,
@@ -1348,7 +1349,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		b2i(h.Routes != nil && h.Routes.GeoModuleAvailable), id,
 	).Scan(&d.Node.ID, &d.Node.Name, &d.Node.APIURL, &d.Node.PublicHost, &d.Node.PublicIP,
 		&d.Node.GroupName, &d.Node.Health, &d.Node.Enabled, &d.Node.Approved,
-		&lastSeen, &d.Node.MaxRoutes, &d.Node.CurrentRoutes,
+		&lastSeen, &d.Node.MaxRoutes, &d.Node.CurrentRoutes, &d.Node.LastRTTMs,
 		&d.Node.TunnelEnabled,
 		&d.Node.TunnelMTU, &d.Node.WstunnelHealthy,
 		&d.Node.FwdIPForward, &d.Node.FwdPolicyDrop,
@@ -1499,6 +1500,49 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.render(w, "node_detail", d)
+}
+
+// NodeRTTJSON handles GET /admin/nodes/{id}/rtt.json. Returns {labels,
+// values} (rtt_ms_avg per 5-min bucket, last 24h) for the node_detail
+// Chart.js sparkline - same shape/mechanism as TunnelsBandwidthJSON.
+func (h *AdminHandlers) NodeRTTJSON(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
+	db := h.DB()
+	if db == nil || id == 0 {
+		apiJSON(w, http.StatusBadRequest, map[string]any{"error": "invalid node id"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+
+	rows, err := db.QueryContext(ctx,
+		`SELECT DATE_FORMAT(bucket_start,'%m-%d %H:%i'), rtt_ms_avg
+		 FROM node_rtt_samples
+		 WHERE node_id = ? AND bucket_start >= NOW() - INTERVAL 24 HOUR
+		 ORDER BY bucket_start`, id)
+	if err != nil {
+		apiJSON(w, http.StatusInternalServerError, map[string]any{"error": "query failed"})
+		return
+	}
+	defer rows.Close()
+
+	labels := []string{}
+	values := []int{}
+	for rows.Next() {
+		var label string
+		var avg int
+		if err := rows.Scan(&label, &avg); err == nil {
+			labels = append(labels, label)
+			values = append(values, avg)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Cache-Control", "no-store")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"labels": labels,
+		"values": values,
+	})
 }
 
 // HostsCheckDNS is the JSON endpoint behind the "Check DNS" button on

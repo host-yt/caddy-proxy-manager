@@ -1153,6 +1153,7 @@ type apiNode struct {
 	HasL4          bool    `json:"has_l4"`
 	HasGeoIP       bool    `json:"has_geoip"`
 	CaddyVersion   *string `json:"caddy_version,omitempty"`
+	LastRTTMs      *int32  `json:"last_rtt_ms,omitempty"`
 }
 
 func (h *APIHandlers) NodeGet(w http.ResponseWriter, r *http.Request) {
@@ -1166,14 +1167,15 @@ func (h *APIHandlers) NodeGet(w http.ResponseWriter, r *http.Request) {
 	var n apiNode
 	var pubHostname, pubIP sql.NullString
 	var caddyVer sql.NullString
+	var rtt sql.NullInt32
 	err := h.DB().QueryRowContext(ctx,
 		`SELECT id, name, api_url, COALESCE(public_hostname,''), COALESCE(public_ip,''),
 		        node_group_id, max_routes, current_routes, priority, is_enabled, health_status,
-		        COALESCE(has_waf,0), COALESCE(has_l4,0), COALESCE(has_geoip,0), caddy_version
+		        COALESCE(has_waf,0), COALESCE(has_l4,0), COALESCE(has_geoip,0), caddy_version, last_rtt_ms
 		 FROM caddy_nodes WHERE id=?`, id,
 	).Scan(&n.ID, &n.Name, &n.APIURL, &pubHostname, &pubIP,
 		&n.NodeGroupID, &n.MaxRoutes, &n.CurrentRoutes, &n.Priority, &n.Enabled, &n.Health,
-		&n.HasWAF, &n.HasL4, &n.HasGeoIP, &caddyVer)
+		&n.HasWAF, &n.HasL4, &n.HasGeoIP, &caddyVer, &rtt)
 	_ = pubHostname
 	_ = pubIP
 	if err == sql.ErrNoRows {
@@ -1186,6 +1188,9 @@ func (h *APIHandlers) NodeGet(w http.ResponseWriter, r *http.Request) {
 	}
 	if caddyVer.Valid {
 		n.CaddyVersion = &caddyVer.String
+	}
+	if rtt.Valid {
+		n.LastRTTMs = &rtt.Int32
 	}
 	apiJSON(w, http.StatusOK, n)
 }

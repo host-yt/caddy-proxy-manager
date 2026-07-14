@@ -413,6 +413,7 @@ func (s *Server) routes() {
 		r.Route("/nodes", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.Nodes)
 			r.Get("/{id}", s.deps.Admin.NodeDetail)
+			r.Get("/{id}/rtt.json", s.deps.Admin.NodeRTTJSON)
 			r.Get("/{id}/edit", s.deps.Admin.NodesEdit)
 			r.Post("/{id}/edit", s.deps.Admin.NodesUpdate)
 			r.Post("/", s.deps.Admin.NodesCreate)

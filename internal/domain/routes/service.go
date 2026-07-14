@@ -1167,13 +1167,21 @@ func (s *Service) HealthProbe(ctx context.Context) {
 			status := "down"
 			client := caddyapi.New(p.apiURL)
 			probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-			if _, err := client.GetRaw(probeCtx, "/config/"); err == nil {
+			probeStart := time.Now()
+			_, probeErr := client.GetRaw(probeCtx, "/config/")
+			rttMs := int(time.Since(probeStart).Milliseconds())
+			if probeErr == nil {
 				status = "healthy"
 			}
 			cancel()
 			_, _ = s.DB.ExecContext(ctx,
 				"UPDATE caddy_nodes SET health_status = ?, last_seen_at = NOW() WHERE id = ?",
 				status, p.id)
+			// Only a successful probe reflects real RTT - a failed/timed-out
+			// probe measures the timeout, not the network.
+			if probeErr == nil {
+				s.recordRTT(ctx, p.id, rttMs, probeStart)
+			}
 
 			// Auto-resync: node came back online (was down/unknown, now healthy).
 			// Caddy may have lost its config on restart, so re-push from DB.
@@ -1194,6 +1202,7 @@ func (s *Service) HealthProbe(ctx context.Context) {
 		}()
 	}
 	wg.Wait()
+	s.pruneRTTSamples(ctx)
 }
 
 // markHealthAndChanged records new status and returns true iff this is a

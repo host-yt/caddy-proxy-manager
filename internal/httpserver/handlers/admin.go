@@ -762,6 +762,10 @@ type nodeRow struct {
 	// Bandwidth24h is the 24h outbound bytes across all routes on this node.
 	Bandwidth24h int64
 
+	// LastRTTMs is the most recent health-probe round-trip time; NULL until
+	// the first successful probe.
+	LastRTTMs sql.NullInt32
+
 	// WG tunnel health - reported by node-agent via POST /api/node/wg/stats.
 	// All nullable: NULL = agent hasn't reported yet (older agent or no tunnel).
 	TunnelEnabled      bool
@@ -5611,7 +5615,7 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 		        COALESCE(DATE_FORMAT(n.fwd_reported_at,'%Y-%m-%d %H:%i'),''),
 		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0),
 		        COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0),
-		        COALESCE(n.caddy_version,''),
+		        COALESCE(n.caddy_version,''), n.last_rtt_ms,
 		        COALESCE((SELECT SUM(lr.bytes_resp)
 		                  FROM log_rollups lr
 		                  JOIN routes rr ON rr.id = lr.route_id
@@ -5631,7 +5635,7 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 				&n.FwdIPForward, &n.FwdPolicyDrop,
 				&n.FwdFirewallBackend, &n.FwdLastSetupError,
 				&n.FwdReportedAt,
-				&n.HasWAF, &n.HasL4, &n.HasGeoIP, &n.HasRateLimit, &n.CaddyVersion,
+				&n.HasWAF, &n.HasL4, &n.HasGeoIP, &n.HasRateLimit, &n.CaddyVersion, &n.LastRTTMs,
 				&n.Bandwidth24h); err == nil {
 				n.WGKeepalive = 25
 				d.Nodes = append(d.Nodes, n)

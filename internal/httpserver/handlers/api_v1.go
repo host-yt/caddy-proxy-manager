@@ -708,7 +708,7 @@ func (h *APIHandlers) NodesList(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	rows, err := h.DB().QueryContext(ctx,
 		`SELECT id, name, api_url, COALESCE(public_hostname,''), COALESCE(public_ip,''),
-		        node_group_id, max_routes, current_routes, is_enabled, health_status
+		        node_group_id, max_routes, current_routes, is_enabled, health_status, last_rtt_ms
 		 FROM caddy_nodes ORDER BY priority DESC, id ASC`)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "query failed")
@@ -726,12 +726,17 @@ func (h *APIHandlers) NodesList(w http.ResponseWriter, r *http.Request) {
 		CurrentRoutes  int    `json:"current_routes"`
 		Enabled        bool   `json:"enabled"`
 		Health         string `json:"health"`
+		LastRTTMs      *int32 `json:"last_rtt_ms,omitempty"`
 	}
 	out := []nr{}
 	for rows.Next() {
 		var x nr
+		var rtt sql.NullInt32
 		if err := rows.Scan(&x.ID, &x.Name, &x.APIURL, &x.PublicHostname, &x.PublicIP,
-			&x.NodeGroupID, &x.MaxRoutes, &x.CurrentRoutes, &x.Enabled, &x.Health); err == nil {
+			&x.NodeGroupID, &x.MaxRoutes, &x.CurrentRoutes, &x.Enabled, &x.Health, &rtt); err == nil {
+			if rtt.Valid {
+				x.LastRTTMs = &rtt.Int32
+			}
 			out = append(out, x)
 		}
 	}

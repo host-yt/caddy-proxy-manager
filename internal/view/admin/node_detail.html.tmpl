@@ -15,6 +15,12 @@
         {{if eq .Node.Health "healthy"}}<span style="color:rgb(var(--success))">healthy</span>{{else if eq .Node.Health "unhealthy"}}<span style="color:rgb(var(--danger))">unhealthy</span>{{else}}<span class="text-[rgb(var(--muted))]">{{.Node.Health}}</span>{{end}}
       </div>
       <div class="t-caption mt-1">{{if .Node.LastSeen}}seen {{.Node.LastSeen}}{{else}}never seen{{end}}</div>
+      <div class="t-caption mt-0.5">
+        RTT:
+        {{if .Node.LastRTTMs.Valid}}
+          <span class="{{if lt .Node.LastRTTMs.Int32 50}}text-[rgb(var(--success))]{{else if lt .Node.LastRTTMs.Int32 150}}text-[rgb(var(--warning))]{{else}}text-[rgb(var(--danger))]{{end}}">{{.Node.LastRTTMs.Int32}}ms</span>
+        {{else}}-{{end}}
+      </div>
     </div>
     <div class="r-card">
       <div class="t-eyebrow">Routes</div>
@@ -225,6 +231,13 @@
   </section>
   {{end}}
 
+  {{if .Node.LastRTTMs.Valid}}
+  <section class="r-card">
+    <h3 class="t-h3 mb-3">RTT - last 24h</h3>
+    <canvas id="hpg-node-rtt" height="80"></canvas>
+  </section>
+  {{end}}
+
   {{if .NodeAlerts}}
   <section class="r-card p-0 overflow-hidden">
     <div class="px-5 py-3 flex items-center gap-2 border-b border-[rgb(var(--border))]">
@@ -419,4 +432,44 @@
 
 })();
 </script>
+
+{{if .Node.LastRTTMs.Valid}}
+<script src="/static/js/chart.umd.min.js" nonce="{{.CSPNonce}}"></script>
+<script nonce="{{.CSPNonce}}">
+(function(){
+  // Same Chart.js line-chart mechanism as the tunnel bandwidth history chart
+  // (/admin/tunnels/{id}/bandwidth.json) - fetch a {labels,values} series,
+  // render into a canvas.
+  if (!window.Chart) return;
+  var dark = document.documentElement.classList.contains('dark');
+  Chart.defaults.color = dark ? '#94a3b8' : '#475569';
+  Chart.defaults.borderColor = dark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)';
+
+  var el = document.getElementById('hpg-node-rtt');
+  if (!el) return;
+  fetch('/admin/nodes/{{.Node.ID}}/rtt.json')
+    .then(function(r){ return r.json(); })
+    .then(function(d){
+      new Chart(el, {
+        type: 'line',
+        data: {
+          labels: d.labels,
+          datasets: [{
+            label: 'RTT (ms)', data: d.values,
+            borderColor: 'rgb(14,165,233)',
+            backgroundColor: 'rgba(14,165,233,0.12)',
+            fill: true, tension: 0.3,
+            pointRadius: d.values.length > 30 ? 0 : 2
+          }]
+        },
+        options: {
+          plugins: { legend: { display: false } },
+          scales: { y: { beginAtZero: true, ticks: { callback: function(v){ return v + 'ms'; } } } }
+        }
+      });
+    })
+    .catch(function(e){ console.warn('rtt fetch failed', e); });
+})();
+</script>
+{{end}}
 {{end}}
