@@ -338,8 +338,17 @@ func envOr(k, def string) string {
 }
 
 func main() {
+	// "node-agent doctor" (subcommand) and "node-agent -doctor" (flag) both
+	// run the preflight checks and exit - never falls through to the agent loop.
+	if len(os.Args) > 1 && os.Args[1] == "doctor" {
+		os.Exit(runDoctor())
+	}
 	dry := flag.Bool("dry-run", false, "print actions, do not execute")
+	doctor := flag.Bool("doctor", false, "run preflight diagnostics and exit")
 	flag.Parse()
+	if *doctor {
+		os.Exit(runDoctor())
+	}
 
 	log := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	cfg, err := loadConfig()

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"flag"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -67,6 +68,17 @@ const (
 )
 
 func main() {
+	// "server doctor" (subcommand) and "server -doctor" (flag) both run the
+	// preflight checks and exit - never falls through to normal boot.
+	if len(os.Args) > 1 && os.Args[1] == "doctor" {
+		os.Exit(runDoctor())
+	}
+	doctor := flag.Bool("doctor", false, "run preflight diagnostics and exit")
+	flag.Parse()
+	if *doctor {
+		os.Exit(runDoctor())
+	}
+
 	logger := newLogger(os.Getenv("LOG_LEVEL"))
 	slog.SetDefault(logger)
 

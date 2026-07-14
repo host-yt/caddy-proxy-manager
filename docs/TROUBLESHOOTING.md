@@ -310,7 +310,58 @@ docker compose -f deploy/docker-compose.yml restart redis
 
 ---
 
-## 9. Useful diagnostic commands
+## 9. Preflight doctor
+
+Before chasing individual symptoms above, run the built-in doctor - it checks the panel and each Caddy node in one pass and prints a PASS/WARN/FAIL table with a one-line fix per row. Read-only: no DB writes, safe to run anytime, including before install.
+
+### Panel doctor
+
+Run inside the `app` container (same env vars as normal boot):
+
+```bash
+docker exec $(docker ps -qf name=app) /app/server -doctor
+# or: /app/server doctor
+```
+
+Checks: config/env loads, DB reachable + migrations version + server version, Redis reachable, panel bind port free, each enabled Caddy node's admin API + module probe + tunnel state, and WireGuard prerequisites on the panel host (WARN-only - most deployments run Caddy locally and never need WireGuard).
+
+Exit code is `1` if any check FAILed - useful in a pre-deploy CI/health-check step:
+
+```bash
+docker exec $(docker ps -qf name=app) /app/server -doctor || echo "preflight failed, see table above"
+```
+
+Sample output against a misconfigured environment:
+
+```
+Hostyt Proxy Gateway - panel preflight doctor
+
+STATUS  CHECK                          DETAIL
+FAIL    config: environment variables  APP_SECRET must be set (>=32 chars) - set required env vars, see docs/INSTALL.md
+FAIL    database: reachable            db ping timeout: context deadline exceeded - verify DB_HOST/DB_PORT/DB_USER/DB_PASSWORD (or DB_DSN) and that the database is running
+FAIL    redis: reachable               dial tcp: lookup redis: no such host - verify REDIS_ADDR/REDIS_PASSWORD and that Redis is running
+PASS    port: panel bind (APP_BIND)    0.0.0.0:8080 is bindable
+WARN    caddy nodes                    skipped: database unreachable, cannot enumerate nodes
+WARN    wireguard: wg binary           not found on PATH - install wireguard-tools if you plan to join remote nodes
+WARN    wireguard: kernel module       no kernel module and no wireguard-go fallback - remote node mesh will not work
+
+1 passed, 3 warned, 3 failed
+```
+
+### Node-agent doctor
+
+Run on the Caddy node itself (needs the same env vars the agent normally reads):
+
+```bash
+docker exec $(docker ps -qf name=hpg-node-agent) /usr/local/bin/hpg-node-agent -doctor
+# or: hpg-node-agent doctor
+```
+
+Checks: local Caddy admin API reachability (override the URL with `HPG_CADDY_ADMIN_URL`, default `http://localhost:2019`), ports 80/443 free or already owned by the local Caddy, the `wstunnel` binary present when `HPG_TUNNEL_TRANSPORT` is `wss`/`auto`, and outbound reachability to `HPG_PANEL_URL` (skipped if unset - a node isn't necessarily joined yet).
+
+---
+
+## 10. Useful diagnostic commands
 
 ### View logs
 

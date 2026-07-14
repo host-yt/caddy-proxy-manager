@@ -164,6 +164,22 @@ type OIDCConfig struct {
 
 // Load reads env vars into Config and validates required fields.
 func Load() (*Config, error) {
+	c := loadEnv()
+	if err := c.validate(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// LoadUnvalidated reads env vars into Config without enforcing required
+// fields (APP_SECRET/APP_URL/DB creds). Doctor checks need the raw values
+// (e.g. DB host/port) even when validation would fail, so a bad/missing
+// APP_SECRET doesn't block every other preflight check from running.
+func LoadUnvalidated() *Config {
+	return loadEnv()
+}
+
+func loadEnv() *Config {
 	c := &Config{
 		App: AppConfig{
 			Env:               envOr("APP_ENV", "production"),
@@ -246,10 +262,7 @@ func Load() (*Config, error) {
 		},
 	}
 
-	if err := c.validate(); err != nil {
-		return nil, err
-	}
-	return c, nil
+	return c
 }
 
 func (c *Config) validate() error {
