@@ -1,6 +1,11 @@
 # Remote Caddy node - runs on a VPS connected to the control plane over
 # WireGuard. Admin API is bound to the WG interface only.
 #
+# Do NOT run this on the same host as deploy/docker-compose.yml - that
+# stack's bundled `caddy` service already owns 80/443/443udp there and
+# is already node-1; this file's ports will fail to bind. For a single
+# host see docs/MULTI_NODE.md "Colocated panel + edge".
+#
 # Prereqs on the host:
 #   1. WireGuard up with iface `wg0`, this node has IP e.g. 10.66.0.2.
 #      See docs/MULTI_NODE.md.

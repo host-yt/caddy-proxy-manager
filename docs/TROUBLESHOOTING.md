@@ -64,6 +64,8 @@ sudo systemctl stop nginx   # example
 
 If another web server must keep running on the host, configure Caddy to bind to a different external port and front it with that web server (see [`DEPLOY.md` § Reverse proxy in front of the panel](DEPLOY.md#4-reverse-proxy-in-front-of-the-panel)).
 
+**If the "whatever" holding the port is `deploy/remote-node/docker-compose.yml` on the same host as `deploy/docker-compose.yml`:** don't run both - the panel's bundled `caddy` service already owns 80/443/443udp and is already node-1, capable of carrying customer traffic. See [`MULTI_NODE.md` § 11 "Colocated Panel + Edge"](MULTI_NODE.md).
+
 ---
 
 ## 2. Can't reach panel via HTTPS

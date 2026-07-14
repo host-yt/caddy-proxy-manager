@@ -66,6 +66,14 @@ The active profile is visible after install at **Deployment mode**
 - Switching to `provider` is rejected unless the database is MySQL/MariaDB.
 - Every change is written to the audit log (`deployment.profile_changed`).
 
+## Colocated panel + edge
+
+Every profile supports running the panel and its Caddy edge on one host,
+with that Caddy carrying real customer traffic - it's the default shape of
+`deploy/docker-compose.yml`, not a separate mode to opt into. See
+[`MULTI_NODE.md` § 11 "Colocated Panel + Edge (Single Host)"](MULTI_NODE.md)
+for the port layout and how it interacts with adding remote nodes later.
+
 ## For developers
 
 - Package: `internal/deployment` (`profile.go`) is the single source of truth:

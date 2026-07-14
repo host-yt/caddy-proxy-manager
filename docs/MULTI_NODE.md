@@ -666,3 +666,100 @@ The bundled composes (`deploy/docker-compose.yml`, `deploy/portainer-external-db
 `deploy/node-agent/docker-compose.example.yml`) already include this; only custom
 stacks need the manual edit. The panel side is also idempotent (a `waf_seen_events`
 ledger drops replays), so this only affects efficiency once the offset persists.
+
+---
+
+## 11. Colocated Panel + Edge (Single Host)
+
+Running the panel and its Caddy edge on the **same** box, with that Caddy
+carrying real customer traffic, is a supported, default topology - not a
+workaround. Everything below already happens when you deploy
+`deploy/docker-compose.yml` (or `docker-compose.lite.yml`) and complete the
+install wizard; there is no separate "colocated" compose file or wizard step.
+
+### 11.1 Why this needed calling out
+
+Sections 1-10 of this guide describe adding **remote** nodes over a
+WireGuard mesh, which can read as "a Caddy node always lives on its own
+host, reachable only via WireGuard." That's true for remote nodes, but the
+panel's own bundled `caddy` service never goes through that path:
+
+- `deploy/docker-compose.yml` binds `caddy` to `80`, `443`, `443/udp` and
+  binds `app` to `127.0.0.1:8080` only (loopback).
+- The install wizard's Caddy step defaults `api_url` to `http://caddy:2019`
+  - the compose service name, reached over the plain `internal` Docker
+  bridge network, no WireGuard involved - and inserts it as the first row
+  in `caddy_nodes`.
+- On success the wizard pushes a self-bootstrap route for the panel's own
+  hostname to that node (`internal/domain/routes.Service.panelRoute`,
+  `internal/httpserver/handlers/wizard.go` `CaddySubmit` -> `ResyncNode`),
+  so `https://<panel-domain>` works immediately.
+- That route is synthesized at config-build time, not stored as a `hosts`
+  row, so it never shows up in (and can't be deleted from) the normal Hosts
+  UI - it is effectively a protected system route already.
+
+From here, node-1 is a normal node: create Hosts and pick it as the target
+like any other. If an operator instead reaches for
+`deploy/remote-node/docker-compose.yml` (built for a **separate**,
+WireGuard-tunneled VPS) and runs it on this same box, it binds the same
+80/443/443-udp ports the panel's own `caddy` already holds and fails to
+start - the likely reason anyone concluded "the panel host can't also be a
+traffic node" and re-deployed split.
+
+### 11.2 Port layout (single host)
+
+| Port | Bind | Service | Purpose |
+|------|------|---------|---------|
+| 80 | `0.0.0.0` | `caddy` | HTTP, ACME HTTP-01 challenge, customer + panel traffic |
+| 443/tcp | `0.0.0.0` | `caddy` | HTTPS, customer + panel traffic |
+| 443/udp | `0.0.0.0` | `caddy` | HTTP/3 (QUIC) |
+| 2019 | `internal` bridge only (never published) | `caddy` | Admin API; panel reaches it at `http://caddy:2019` |
+| 8080 | `127.0.0.1` (loopback) | `app` | Panel UI; reached only through caddy's self-bootstrap route |
+| 3306 | `internal` bridge only | `mariadb` | Database |
+| 6379 | `internal` bridge only | `redis` | Sessions, rate limits, cache |
+| 51820/udp | manager host, public | `wireguard` sidecar (`--profile mesh`) | Control-plane WG mesh - only if you also add remote nodes later |
+| 51821/udp (default) | host network | `hpg-node-agent` (`--profile node`) | Customer VPN tunnel (`wg-tun0`), unrelated to the mesh above |
+
+`docker compose -f deploy/docker-compose.yml --env-file .env up -d` starts
+`app`, `mariadb`, `redis`, `caddy`; the `node` and `mesh` profiles stay off
+until you opt in (see `docs/DEPLOY.md`).
+
+### 11.3 Growing into multi-node later
+
+Adding remote nodes afterwards (Sections 3-7) doesn't touch this host's
+setup - node-1 keeps serving both the panel and whatever customer Hosts are
+assigned to it. One caveat: the panel's self-bootstrap route uses a single
+global upstream (`APP_INTERNAL_HOST`/`APP_INTERNAL_PORT`, default
+`app:8080`) that is pushed to **every** node in the fleet, including remote
+ones. Remote nodes can't resolve `app` (it's a Docker service name on the
+manager's own bridge network), so they receive a harmless, unreachable copy
+of that route. This only matters if the panel's own hostname's DNS is ever
+pointed at a remote node instead of the local one, which isn't the
+supported pattern.
+
+### 11.4 Re-adding the local node manually
+
+If a pre-existing install predates the wizard's self-registration, or
+node-1 was deleted, register it the same way as any manual node - no
+WireGuard needed since it shares the `internal` Docker network with the
+panel:
+
+1. **Admin -> Caddy nodes -> Add node.**
+2. Name: anything (e.g. `node-1`). API URL: `http://caddy:2019`. Public
+   hostname: the panel's own domain (or leave for a customer domain).
+3. Save, then click **Resync**.
+
+### 11.5 Limitations
+
+- **Upgrade note:** existing split deployments (panel and edge on separate
+  hosts) are unaffected - this section describes the default single-host
+  compose, nothing about remote-node deployments changed.
+- **One Caddy per host owns 80/443.** You cannot run a second, independent
+  Caddy container on the same host bound to the same ports - that's the
+  `deploy/remote-node` conflict in 11.1, not a limit on how much traffic
+  one Caddy can carry.
+- **Panel restart is a config-push gap, not a traffic gap.** Caddy keeps
+  serving its last-loaded config independently once the `app` container
+  restarts or is briefly down; already-configured Hosts keep working. Only
+  *new* route pushes and any on-demand-TLS `/internal/ask` calls that miss
+  the Redis verdict cache queue until the panel is back.

@@ -10,6 +10,10 @@
 # enable the advanced modules later, switch to docker-compose.yml (edge image)
 # and flip the flags - see docs/INSTALL.md and docs/WAF.md.
 #
+# Same colocated topology as docker-compose.yml (caddy owns 80/443/443-udp,
+# app is loopback-only, wizard registers caddy as node-1). See
+# docs/MULTI_NODE.md "Colocated panel + edge".
+#
 # The stock Caddy image has no baked Caddyfile, so we mount deploy/caddy/Caddyfile
 # (admin API + on-demand-TLS ask endpoint). It references no custom module, so
 # stock Caddy loads it fine; advanced per-route configs are simply never emitted

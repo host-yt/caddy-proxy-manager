@@ -1,6 +1,13 @@
 # =========================================================================
 # Hostyt Proxy Gateway - production-ready compose stack
 # Tested with Docker Compose v2.20+. Works in Portainer Stacks.
+#
+# This IS the supported "colocated" topology: caddy owns 80/443/443-udp,
+# app is loopback-only, and the install wizard registers caddy as node-1
+# and self-bootstraps the panel's own route onto it. It already carries
+# customer traffic like any other node - see docs/MULTI_NODE.md
+# "Colocated panel + edge". Do not run deploy/remote-node/ on this same
+# host: it binds the same ports and will fail to start.
 # =========================================================================
 
 services:
