@@ -1561,13 +1561,16 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		return nil, err
 	}
 	var (
-		apiURL         string
-		transport      sql.NullString
-		wstunnelPort   sql.NullInt64
-		tunnelEndpoint sql.NullString
-		tunnelEnabled  bool
-		wstHealthy     sql.NullBool
-		wstFresh       sql.NullBool
+		apiURL              string
+		transport           sql.NullString
+		wstunnelPort        sql.NullInt64
+		tunnelEndpoint      sql.NullString
+		tunnelEnabled       bool
+		wstHealthy          sql.NullBool
+		wstFresh            sql.NullBool
+		proxyProtoIn        bool
+		proxyProtoAllow     string
+		proxyProtoTimeoutMs int
 	)
 	var nodeHasWAF, nodeHasL4, nodeHasGeoIP, nodeHasRateLimit, nodeHasDNS sql.NullBool
 	if err := s.DB.QueryRowContext(ctx,
@@ -1578,11 +1581,13 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_l4        ELSE NULL END,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip     ELSE NULL END,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit ELSE NULL END,
-		        CASE WHEN modules_probed_at IS NOT NULL THEN has_dns_module ELSE NULL END
+		        CASE WHEN modules_probed_at IS NOT NULL THEN has_dns_module ELSE NULL END,
+		        proxy_protocol_in, proxy_protocol_allow, proxy_protocol_timeout_ms
 		   FROM caddy_nodes WHERE id = ?`,
 		nodeID).Scan(&apiURL, &transport, &wstunnelPort, &tunnelEndpoint, &tunnelEnabled,
 		&wstHealthy, &wstFresh,
-		&nodeHasWAF, &nodeHasL4, &nodeHasGeoIP, &nodeHasRateLimit, &nodeHasDNS); err != nil {
+		&nodeHasWAF, &nodeHasL4, &nodeHasGeoIP, &nodeHasRateLimit, &nodeHasDNS,
+		&proxyProtoIn, &proxyProtoAllow, &proxyProtoTimeoutMs); err != nil {
 		return nil, err
 	}
 	// If the node has been probed, its per-node capability flags are authoritative.
@@ -1648,6 +1653,9 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		AccessLogURL:             s.AccessLogURL,
 		MTLSFailOpen:             mtlsFailOpen,
 		AdminListen:              s.CaddyAdminListen,
+		ProxyProtocolIn:          proxyProtoIn,
+		ProxyProtocolAllow:       proxyProtoAllow,
+		ProxyProtocolTimeoutMs:   proxyProtoTimeoutMs,
 	})
 	return &nodePush{cfg: cfg, built: built, routeIDs: routeIDs, apiURL: apiURL}, nil
 }

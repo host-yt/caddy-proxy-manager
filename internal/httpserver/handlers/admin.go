@@ -878,6 +878,11 @@ type nodeEditData struct {
 	HasRateLimit bool
 	HasGeoIP     bool
 	CaddyVersion string
+
+	// Inbound PROXY protocol (node sits behind an L4 balancer/HAProxy).
+	ProxyProtocolIn        bool
+	ProxyProtocolAllow     string // comma-separated CIDRs, raw for the textarea
+	ProxyProtocolTimeoutMs int
 }
 
 // NodesEdit renders GET /admin/nodes/{id}/edit.
@@ -902,7 +907,8 @@ func (h *AdminHandlers) NodesEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_l4         END, ?),
 		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_dns_module END, ?),
 		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit END, ?),
-		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip      END, ?), COALESCE(caddy_version,'')
+		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip      END, ?), COALESCE(caddy_version,''),
+		        proxy_protocol_in, proxy_protocol_allow, proxy_protocol_timeout_ms
 		   FROM caddy_nodes WHERE id = ?`,
 		b2i(h.Routes != nil && h.Routes.WAFModuleAvailable),
 		b2i(h.Routes != nil && h.Routes.Layer4ModuleAvailable),
@@ -910,7 +916,8 @@ func (h *AdminHandlers) NodesEdit(w http.ResponseWriter, r *http.Request) {
 		b2i(h.Routes != nil && h.Routes.RateLimitModuleAvailable),
 		b2i(h.Routes != nil && h.Routes.GeoModuleAvailable), id,
 	).Scan(&d.Name, &d.APIURL, &d.PublicHostname, &d.PublicIP, &outboundIPsJSON,
-		&d.HasWAF, &d.HasL4, &d.HasDNSModule, &d.HasRateLimit, &d.HasGeoIP, &d.CaddyVersion); err != nil {
+		&d.HasWAF, &d.HasL4, &d.HasDNSModule, &d.HasRateLimit, &d.HasGeoIP, &d.CaddyVersion,
+		&d.ProxyProtocolIn, &d.ProxyProtocolAllow, &d.ProxyProtocolTimeoutMs); err != nil {
 		d.Error = "node not found"
 		h.render(w, "node_edit", d)
 		return
@@ -963,6 +970,19 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 	hasGeoIP := r.FormValue("has_geoip") == "1"
 	caddyVersion := strings.TrimSpace(r.FormValue("caddy_version"))
 
+	// Inbound PROXY protocol: reuse the geo allow-list sanitizer so invalid
+	// CIDRs never reach Caddy JSON (which would fail /load for the node).
+	proxyProtocolIn := r.FormValue("proxy_protocol_in") == "1"
+	proxyProtocolAllow, ppErr := sanitizeCIDRList(r.FormValue("proxy_protocol_allow"))
+	if ppErr != nil {
+		redirectWithFlash(w, r, editPath, "", "PROXY protocol allow-list: "+ppErr.Error())
+		return
+	}
+	proxyProtocolTimeoutMs, err := strconv.Atoi(strings.TrimSpace(r.FormValue("proxy_protocol_timeout_ms")))
+	if err != nil || proxyProtocolTimeoutMs <= 0 {
+		proxyProtocolTimeoutMs = 5000
+	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	// Set modules_probed_at so these operator-declared flags become authoritative
@@ -971,16 +991,18 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 		`UPDATE caddy_nodes SET outbound_ips = ?,
 		        has_waf = ?, has_l4 = ?, has_dns_module = ?,
 		        has_rate_limit = ?, has_geoip = ?, caddy_version = ?,
+		        proxy_protocol_in = ?, proxy_protocol_allow = ?, proxy_protocol_timeout_ms = ?,
 		        modules_probed_at = NOW()
 		 WHERE id = ?`,
-		outboundIPsVal, hasWAF, hasL4, hasDNSModule, hasRateLimit, hasGeoIP, caddyVersion, id); err != nil {
+		outboundIPsVal, hasWAF, hasL4, hasDNSModule, hasRateLimit, hasGeoIP, caddyVersion,
+		proxyProtocolIn, proxyProtocolAllow, proxyProtocolTimeoutMs, id); err != nil {
 		redirectWithFlash(w, r, editPath, "", "update failed: "+sanitizeErr(err))
 		return
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.update", Entity: "node", EntityID: fmt.Sprintf("%d", id),
-		Meta: map[string]any{"outbound_ips": ips, "caddy_version": caddyVersion},
+		Meta: map[string]any{"outbound_ips": ips, "caddy_version": caddyVersion, "proxy_protocol_in": proxyProtocolIn},
 	})
 	redirectWithFlash(w, r, "/admin/nodes", "Node updated", "")
 }

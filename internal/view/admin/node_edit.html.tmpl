@@ -65,6 +65,41 @@
         </div>
       </fieldset>
 
+      <!-- Inbound PROXY protocol: node sits behind an L4 balancer (HAProxy etc.)
+           that prepends a PROXY v1/v2 header so Caddy sees the real client IP. -->
+      <fieldset class="space-y-3 border-t border-[rgb(var(--border))] pt-4">
+        <legend class="t-eyebrow mb-2">Inbound PROXY protocol</legend>
+        <label class="flex items-center gap-2 cursor-pointer t-body">
+          <input type="checkbox" id="pp_in" name="proxy_protocol_in" value="1" {{if .ProxyProtocolIn}}checked{{end}}
+            class="rounded accent-[rgb(var(--accent))]">
+          Behind L4 load balancer (PROXY protocol)
+        </label>
+        <p class="t-caption -mt-1">Enable when an L4 balancer or tunnel (e.g. HAProxy) sits in front of this node and sends a PROXY protocol header. Without this, geo-blocking, WAF, rate-limit and analytics see the balancer's IP instead of the real client.</p>
+        <div id="pp_fields" class="space-y-3 {{if not .ProxyProtocolIn}}hidden{{end}}">
+          <div>
+            <label class="t-caption font-medium block mb-1">Allow-list (CIDRs)</label>
+            <textarea id="pp_allow" name="proxy_protocol_allow" rows="2"
+              placeholder="10.0.0.0/8, 203.0.113.5/32" class="r-input w-full font-mono text-xs">{{.ProxyProtocolAllow}}</textarea>
+            <p class="t-caption mt-1">Comma-separated. Only these peers are trusted to prepend a PROXY header. Leave empty to accept from any source.</p>
+          </div>
+          <!-- SECURITY: a PROXY header is an unauthenticated claim of client IP.
+               Any peer allowed to speak it can spoof its source IP - always
+               restrict this to the load balancer's own address in production. -->
+          <div id="pp_warning" class="hidden r-card bg-[rgb(var(--danger-weak),0.15)] ring-danger/30 t-caption text-danger">
+            <div class="flex items-start gap-2">
+              <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+              <span>Accepting PROXY headers from any source allows client-IP spoofing - restrict to your LB address.</span>
+            </div>
+          </div>
+          <div>
+            <label class="t-caption font-medium block mb-1">Header timeout (ms)</label>
+            <input type="number" name="proxy_protocol_timeout_ms" min="1" value="{{.ProxyProtocolTimeoutMs}}"
+              class="r-input w-32 font-mono text-xs">
+            <p class="t-caption mt-1">How long Caddy waits for the PROXY header before dropping the connection.</p>
+          </div>
+        </div>
+      </fieldset>
+
       <div class="flex items-center justify-end gap-3 pt-1">
         <a href="/admin/nodes" class="r-btn-ghost cursor-pointer">Cancel</a>
         <button type="submit" class="r-btn-primary cursor-pointer">Save</button>
@@ -72,4 +107,20 @@
     </form>
   </section>
 </div>
+<script>
+(function(){
+  var cb = document.getElementById('pp_in');
+  var fields = document.getElementById('pp_fields');
+  var allow = document.getElementById('pp_allow');
+  var warning = document.getElementById('pp_warning');
+  function sync(){
+    if (!cb) return;
+    if (fields) fields.classList.toggle('hidden', !cb.checked);
+    if (warning) warning.classList.toggle('hidden', !(cb.checked && allow && allow.value.trim() === ''));
+  }
+  if (cb) cb.addEventListener('change', sync);
+  if (allow) allow.addEventListener('input', sync);
+  sync();
+})();
+</script>
 {{end}}

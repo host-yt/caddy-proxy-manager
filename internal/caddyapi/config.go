@@ -96,6 +96,23 @@ type NodeSettings struct {
 	// true = "request" (present cert if available, never block); false (default)
 	// = "require_and_verify" (deny handshake when no valid cert presented).
 	MTLSFailOpen bool
+
+	// ProxyProtocolIn enables the stock caddy.listeners.proxy_protocol wrapper
+	// on srv0 so Caddy reads the real client IP from a PROXY protocol header
+	// prepended by an upstream L4 balancer/tunnel instead of seeing its peer
+	// IP. Default false: existing nodes must see zero config change.
+	//
+	// SECURITY: a PROXY header is a trusted, unauthenticated claim of client
+	// IP - ProxyProtocolAllow should always be set to the balancer's own
+	// address(es) in production, or any peer that can reach this listener
+	// can spoof its source IP and bypass geo/WAF/rate-limit checks.
+	ProxyProtocolIn bool
+	// ProxyProtocolAllow is the comma-separated CIDR/IP allow-list (raw DB
+	// value, already validated on save). Empty = accept the header from any peer.
+	ProxyProtocolAllow string
+	// ProxyProtocolTimeoutMs bounds how long Caddy waits for the PROXY header
+	// before giving up on the connection. 0 falls back to 5000ms.
+	ProxyProtocolTimeoutMs int
 }
 
 // AccessLogFilePath is the on-node file both Caddy (writer) and the node-agent
@@ -292,6 +309,12 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		srv0["tls_connection_policies"] = pols
 	}
 
+	// listener_wrappers key omitted entirely when disabled - existing nodes
+	// must see byte-identical JSON on every rebuild (drift-hash safety).
+	if lw := buildProxyProtocolWrappers(s); lw != nil {
+		srv0["listener_wrappers"] = lw
+	}
+
 	apps := map[string]any{
 		"http": map[string]any{
 			"servers": map[string]any{
@@ -459,6 +482,27 @@ func buildMTLSConnPolicies(routes []Route, failOpen bool) []any {
 		})
 	}
 	return out
+}
+
+// buildProxyProtocolWrappers returns the srv0 listener_wrappers array for a
+// node behind an L4 balancer, or nil when disabled. The stock
+// caddy.listeners.proxy_protocol wrapper must run BEFORE tls (it strips the
+// PROXY header off the raw connection before the TLS handshake is read), and
+// tls must be listed explicitly once listener_wrappers is set - Caddy does
+// not implicitly append it. "allow" is omitted when empty so an unrestricted
+// node's JSON stays minimal (matches the UI's "accept from anywhere" state).
+func buildProxyProtocolWrappers(s NodeSettings) []any {
+	if !s.ProxyProtocolIn {
+		return nil
+	}
+	wrapper := map[string]any{
+		"wrapper": "proxy_protocol",
+		"timeout": msDur(s.ProxyProtocolTimeoutMs, 5000),
+	}
+	if allow := splitCIDRList(s.ProxyProtocolAllow, false); len(allow) > 0 {
+		wrapper["allow"] = allow
+	}
+	return []any{wrapper, map[string]any{"wrapper": "tls"}}
 }
 
 // pemCertsToBase64DER extracts every CERTIFICATE block from a PEM bundle and
