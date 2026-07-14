@@ -1072,6 +1072,13 @@ func (s *Service) advanceRoute(ctx context.Context, routeID int64) {
 		   SET status='active', last_error=NULL,
 		       ssl_issued_at = CASE WHEN ssl_enabled = 1 THEN NOW() ELSE ssl_issued_at END
 		 WHERE id=?`, routeID)
+	// Fan-out peers (active_active/failover) got routes:0 at create time while
+	// the route was still pending; re-push them now that it is active.
+	if peers, perr := s.fanOutNodes(ctx, routeID, nodeID); perr == nil {
+		for _, pid := range peers {
+			s.schedulePush(pid)
+		}
+	}
 	if s.Webhooks != nil {
 		s.Webhooks.Emit(ctx, "route.active", map[string]any{
 			"route_id": routeID, "domain": domain, "node_id": nodeID,
@@ -2062,7 +2069,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		 LEFT JOIN customer_wg_peer p_use ON (
 		     (p_base.peer_group_id IS NOT NULL
 		         AND p_use.peer_group_id = p_base.peer_group_id
-		         AND p_use.node_id = r.caddy_node_id
+		         AND p_use.node_id = ?
 		         AND p_use.status <> 'revoked')
 		     OR (p_base.peer_group_id IS NULL
 		         AND p_use.id = r.via_wg_peer_id
@@ -2074,8 +2081,13 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		 LEFT JOIN customer_wg_peer dns_peer
 		   ON dns_peer.id = r.dns_resolver_via_wg_peer_id
 		      AND dns_peer.status <> 'revoked'
-		 WHERE r.caddy_node_id = ? AND r.status IN ('dns_ok','active','pending_ssl')
-		 ORDER BY r.id ASC`, nodeID)
+		 -- Anchor routes plus fan-out copies (active_active/failover peers live
+		 -- only in route_node_assignments; without this peers pushed routes: 0).
+		 WHERE (r.caddy_node_id = ?
+		        OR EXISTS (SELECT 1 FROM route_node_assignments rna
+		                    WHERE rna.route_id = r.id AND rna.node_id = ?))
+		   AND r.status IN ('dns_ok','active','pending_ssl')
+		 ORDER BY r.id ASC`, nodeID, nodeID, nodeID)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -76,13 +76,22 @@ func TestFanOutDeleteDecrementsAllNodeCounters(t *testing.T) {
 	primaryID, peerID, cleanupNodes := insertTestNodes(t, db, ctx)
 	defer cleanupNodes()
 
-	// Insert a route and assignment with FK checks off.
+	// Insert a service, route and assignment with FK checks off.
+	// The service row must exist: Delete resolves ownership via an INNER JOIN.
 	_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0")
 	res, err := db.ExecContext(ctx,
+		`INSERT INTO services (client_id, name, backend_ip, allowed_port_start,
+		   allowed_port_end, plan_id, node_group_id)
+		 VALUES (9999, 'fanout-del-test', '10.9.9.9', 1, 65535, 9999, 9999)`)
+	if err != nil {
+		t.Fatalf("insert service: %v", err)
+	}
+	serviceID, _ := res.LastInsertId()
+	res, err = db.ExecContext(ctx,
 		`INSERT INTO routes (service_id, caddy_node_id, domain, upstream_port, upstream_scheme,
 		   ssl_enabled, status, kind)
-		 VALUES (9999, ?, ?, 8080, 'http', 0, 'pending_dns', 'proxy')`,
-		primaryID, fmt.Sprintf("test%d.example.com", time.Now().UnixNano()))
+		 VALUES (?, ?, ?, 8080, 'http', 0, 'pending_dns', 'proxy')`,
+		serviceID, primaryID, fmt.Sprintf("test%d.example.com", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatalf("insert route: %v", err)
 	}
@@ -99,6 +108,7 @@ func TestFanOutDeleteDecrementsAllNodeCounters(t *testing.T) {
 		_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0")
 		_, _ = db.ExecContext(ctx, "DELETE FROM route_node_assignments WHERE route_id = ?", routeID)
 		_, _ = db.ExecContext(ctx, "DELETE FROM routes WHERE id = ?", routeID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM services WHERE id = ?", serviceID)
 		_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=1")
 	})
 
