@@ -149,6 +149,12 @@ docker-down:
 docker-logs:
 	docker compose -f deploy/docker-compose.yml logs -f --tail=200
 
+# --- E2E ----------------------------------------------------------------
+
+.PHONY: e2e-multinode
+e2e-multinode: ## Scripted 2-node active_active e2e (panel + 2 stock caddy nodes).
+	deploy/integration/e2e_multinode.sh
+
 # --- Edge Caddy image (WAF / cache / L4 / geoip / rate-limit) ---------------
 # Standalone build+push of the custom Caddy image so it can be rolled to EVERY
 # node (central + remote joins) BEFORE flipping WAF_MODULE_AVAILABLE=1. Stock

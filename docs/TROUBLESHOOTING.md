@@ -432,3 +432,66 @@ To trigger it from the command line (with an API key from **Admin -> API keys**)
 curl -X POST https://panel.example.com/api/v1/nodes/<node-id>/resync \
   -H "Authorization: Bearer <api-key>"
 ```
+
+---
+
+## 11. Running the 2-node active_active e2e harness locally
+
+Multi-node setups (an active_active or failover `node_group` with more than
+one Caddy edge) are the part of this project most likely to bite a new
+operator - route placement, DNS-ownership checks, and Caddy config fan-out
+all have to line up across every node in the group. `deploy/integration/
+e2e_multinode.sh` boots the real panel image plus two **stock** Caddy edge
+nodes end to end and exercises exactly that path: create an active_active
+node_group, register both nodes, create a route, confirm both nodes' Caddy
+configs pick it up, confirm both serve real traffic, kill one node, confirm
+the panel's health poller marks it down, confirm the surviving node keeps
+serving.
+
+Run it with:
+```bash
+make e2e-multinode
+# or directly:
+deploy/integration/e2e_multinode.sh
+```
+
+It brings up `deploy/integration/docker-compose.multinode.yml` (panel built
+from the repo `Dockerfile`, mariadb, redis, a fake DNS server, a `whoami`
+upstream, and two `caddy:2.11.4` edge nodes), drives the panel through its
+public install wizard + REST API v1, asserts each step, and always tears the
+stack down on exit (`trap ... EXIT`), pass or fail.
+
+**Requirements:** Docker Desktop (or another compose v2 engine) running
+locally. Nothing binds host port 3306 - a local MySQL/MariaDB on that port
+is fine, the stack's own MariaDB is container-internal only. Panel/Caddy
+admin ports are published on `127.0.0.1:18080-18092` to avoid colliding with
+`deploy/integration/docker-compose.yml`'s ports.
+
+**Gotchas the script already routes around** (see `# TODO(api-gap):`
+comments in the script for the precise, load-bearing detail on each):
+
+- The install wizard is the only way to create the schema (migrations run
+  inside its `/install/db` step) and the first admin user - there is no
+  headless/API bootstrap path, so the script drives `/install/*` with curl.
+- Minting the *first* REST API key has no REST equivalent either (chicken-
+  and-egg: `/api/v1/*` itself requires a bearer key already). The script
+  logs in, scrapes the CSRF token, and POSTs `/admin/api-keys` like a
+  browser would.
+- `internal/dns.Check()` (the DNS-ownership gate every route must pass
+  before it's pushed to Caddy) dials `1.1.1.1`/`8.8.8.8` directly, not the
+  container's local resolver - so a fake test domain can never resolve
+  without help. The compose file points `HPG_DNS_RESOLVERS` at a small
+  CoreDNS container (`deploy/integration/multinode/coredns/`) that answers
+  authoritatively for the scenario's test domain.
+- A node created via `POST /api/v1/nodes` is left unapproved
+  (`approved_at IS NULL`) and is therefore invisible to route placement
+  until an admin approves it - there's no REST endpoint for that, so the
+  script does one `UPDATE caddy_nodes SET approved_at = NOW()` after
+  registering the second node.
+- `POST /api/v1/clients` returns `user_id`, not the `clients.id` every
+  other client-scoped endpoint actually needs - the script does a follow-up
+  `GET /api/v1/clients` and matches by email.
+
+If you hit a real product bug (not a harness issue) while iterating on this
+script, do not fix it in the same branch - report it and, if the fix is
+trivial, work around it in the harness only.

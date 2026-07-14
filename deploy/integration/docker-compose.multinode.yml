@@ -1,0 +1,122 @@
+# 2-node active_active e2e harness (see docs/TROUBLESHOOTING.md and
+# deploy/integration/e2e_multinode.sh). Separate from docker-compose.yml
+# (which is a go-test-tags=integration fixture) because this one boots the
+# actual panel image plus two edge nodes end to end.
+#
+# Everything here is throwaway/ephemeral: fixed dev-only secrets, no host
+# port 3306 (a local brew MySQL already owns it - mariadb is
+# container-internal only), high host ports for the panel/caddy admin UIs
+# so nothing collides with deploy/integration/docker-compose.yml's ports.
+#
+# Usage: make e2e-multinode (wraps this file + the test script).
+
+services:
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: e2erootpw
+      MARIADB_DATABASE: hpg_e2e
+      MARIADB_USER: hpg
+      MARIADB_PASSWORD: hpge2epw
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [e2e]
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    networks: [e2e]
+
+  # Fake authoritative DNS so the panel's DNS-ownership check can resolve
+  # the harness's fictional test domain. See multinode/coredns/Corefile.
+  dns-fake:
+    image: coredns/coredns:1.11.3
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ./multinode/coredns:/etc/coredns:ro
+    networks: [e2e]
+
+  # Tiny static upstream the test route proxies to.
+  whoami:
+    image: traefik/whoami:v1.10
+    networks: [e2e]
+
+  caddy-a:
+    image: caddy:2.11.4
+    volumes:
+      - ./multinode/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "127.0.0.1:18081:80"
+      - "127.0.0.1:18091:2019"
+    networks: [e2e]
+
+  caddy-b:
+    image: caddy:2.11.4
+    volumes:
+      - ./multinode/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "127.0.0.1:18082:80"
+      - "127.0.0.1:18092:2019"
+    networks: [e2e]
+
+  panel:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      dns-fake:
+        condition: service_started
+    environment:
+      APP_ENV: production
+      # Fake host: only used to derive the panel self-bootstrap route's
+      # hostname (harmless, never actually dialed by the test) and to
+      # satisfy config.validate()'s "APP_URL required" check.
+      APP_URL: http://panel.e2e.test:8080
+      APP_BIND: 0.0.0.0:8080
+      APP_SECRET: e2e-fixed-dev-secret-not-for-prod-use-32c
+      APP_INTERNAL_HOST: panel
+      APP_INTERNAL_PORT: "8080"
+      INSTALL_TOKEN: e2e-install-token
+      LOG_LEVEL: info
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_NAME: hpg_e2e
+      DB_USER: hpg
+      DB_PASSWORD: hpge2epw
+      REDIS_ADDR: redis:6379
+      # Plain HTTP harness - the prod default (true) would drop the
+      # session cookie on every non-TLS response and break the login step.
+      SESSION_COOKIE_SECURE: "false"
+      CADDY_ACME_EMAIL: bootstrap@invalid.local
+      # Redirects the panel's DNS-ownership check (internal/dns.Check) at
+      # the fake zone above instead of the real 1.1.1.1/8.8.8.8 default -
+      # see multinode/coredns/Corefile for why this is required at all.
+      HPG_DNS_RESOLVERS: dns-fake:53
+      # Stock caddy:2.11.4 has none of the xcaddy modules deploy/caddy/
+      # bundles; every *_AVAILABLE flag must stay off (0 is also the
+      # config.go default, listed here for clarity) or the panel will push
+      # a config block stock Caddy rejects, taking the whole node offline.
+      CACHE_HANDLER_AVAILABLE: "0"
+      LAYER4_AVAILABLE: "0"
+      WEIGHTED_LB_AVAILABLE: "0"
+      RATE_LIMIT_AVAILABLE: "0"
+      WAF_MODULE_AVAILABLE: "0"
+      DNS01_AVAILABLE: "0"
+      GEOIP_AVAILABLE: "0"
+    ports:
+      - "127.0.0.1:18080:8080"
+    networks: [e2e]
+
+networks:
+  e2e:
+    driver: bridge

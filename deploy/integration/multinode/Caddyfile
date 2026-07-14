@@ -1,0 +1,11 @@
+# Minimal bootstrap Caddyfile for the e2e-multinode stock edge nodes.
+# Mirrors deploy/caddy/Caddyfile's bootstrap-only pattern, trimmed of the
+# xcaddy-only bits (on_demand_tls/ACME) that a stock image doesn't need for
+# the ssl_enabled=0 scenario this harness drives.
+{
+	admin 0.0.0.0:2019
+}
+
+:80 {
+	respond "no routes configured yet" 503
+}

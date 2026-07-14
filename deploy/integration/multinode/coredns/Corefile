@@ -1,0 +1,19 @@
+# Fake authoritative DNS for the e2e-multinode harness.
+#
+# routes.Service.advanceRoute() calls internal/dns.Check() before it will
+# push a route to Caddy. That check does NOT use the container's normal
+# resolver (Docker embedded DNS / /etc/hosts) - it dials the public
+# resolvers in HPG_DNS_RESOLVERS (default 1.1.1.1/8.8.8.8) directly, by
+# design (avoids split-horizon/stale Docker DNS - see resolver.go). A
+# non-existent test domain like app.e2e.test can never resolve there, so
+# without this container every route would sit in status=pending_dns
+# forever and never reach Caddy. Point HPG_DNS_RESOLVERS at this
+# container instead (see docker-compose.multinode.yml).
+. {
+    hosts /etc/coredns/hosts.txt {
+        fallthrough
+    }
+    forward . 1.1.1.1:53 8.8.8.8:53
+    log
+    errors
+}
