@@ -13,7 +13,9 @@ BEGIN
     END IF;
     IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS
                     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='routes' AND COLUMN_NAME='geo_allow_cidrs') THEN
-        ALTER TABLE routes ADD COLUMN geo_allow_cidrs TEXT NOT NULL DEFAULT '' AFTER geo_fail_closed;
+        -- DEFAULT ('') expression form: MySQL 8/9 rejects plain TEXT DEFAULT ''
+        -- (MariaDB-only); both engines accept the parenthesized expression.
+        ALTER TABLE routes ADD COLUMN geo_allow_cidrs TEXT NOT NULL DEFAULT ('') AFTER geo_fail_closed;
     END IF;
 END;
 CALL hpg_mig112_up();
