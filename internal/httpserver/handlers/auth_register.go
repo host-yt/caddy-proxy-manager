@@ -269,7 +269,7 @@ func (h *AuthHandlers) VerifyEmail(w http.ResponseWriter, r *http.Request) {
 	// FOR UPDATE row-locks the token so concurrent hits can't both pass.
 	err = tx.QueryRowContext(ctx,
 		`SELECT id, user_id FROM email_verifications
-		 WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1 FOR UPDATE`,
+		 WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1`+store.ForUpdate(),
 		hashHex,
 	).Scan(&id, &userID)
 	if err != nil {

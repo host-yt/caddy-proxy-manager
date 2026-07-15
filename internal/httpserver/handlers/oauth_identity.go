@@ -168,7 +168,7 @@ func (h *OAuthIdentityHandlers) Unlink(w http.ResponseWriter, r *http.Request) {
 
 	var lockUID int64
 	if err := tx.QueryRowContext(ctx,
-		`SELECT id FROM users WHERE id = ? FOR UPDATE`, sess.UserID,
+		`SELECT id FROM users WHERE id = ?`+store.ForUpdate(), sess.UserID,
 	).Scan(&lockUID); err != nil {
 		http.Error(w, "lookup failed", http.StatusInternalServerError)
 		return

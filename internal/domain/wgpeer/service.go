@@ -529,7 +529,7 @@ func (s *Service) allocateIP(ctx context.Context, nodeID int64, subnet string) (
 
 	var next int
 	if err := tx.QueryRowContext(ctx,
-		`SELECT tunnel_next_octet FROM caddy_nodes WHERE id=? FOR UPDATE`, nodeID).Scan(&next); err != nil {
+		`SELECT tunnel_next_octet FROM caddy_nodes WHERE id=?`+store.ForUpdate(), nodeID).Scan(&next); err != nil {
 		return "", err
 	}
 

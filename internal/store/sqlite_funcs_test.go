@@ -33,6 +33,14 @@ func TestSQLiteMySQLCompatFuncs(t *testing.T) {
 		{"DATEDIFF counts whole days", "DATEDIFF('2026-07-15', '2026-07-10')", "5"},
 		{"TIMESTAMPDIFF counts seconds", "TIMESTAMPDIFF('SECOND', '2026-07-15 08:00:00', '2026-07-15 08:01:30')", "90"},
 		{"TIMESTAMPDIFF counts days", "TIMESTAMPDIFF('DAY', '2026-07-10 00:00:00', '2026-07-15 00:00:00')", "5"},
+		{"UNIX_TIMESTAMP returns epoch seconds", "UNIX_TIMESTAMP('2026-01-01 00:00:00')", "1767225600"},
+		{"UNIX_TIMESTAMP is NULL-safe", "COALESCE(CAST(UNIX_TIMESTAMP(NULL) AS TEXT), 'null')", "null"},
+		{"LEFT takes a prefix", "LEFT('abcdef', 3)", "abc"},
+		{"LEFT tolerates over-long n", "LEFT('ab', 9)", "ab"},
+		{"LOCATE is 1-based", "LOCATE('b', 'abc')", "2"},
+		{"LOCATE returns 0 when absent", "LOCATE('z', 'abc')", "0"},
+		{"SUBSTRING_INDEX takes the first field", "SUBSTRING_INDEX('host:443', ':', 1)", "host"},
+		{"SUBSTRING_INDEX passes through a missing delimiter", "SUBSTRING_INDEX('host', ':', 1)", "host"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -86,5 +94,69 @@ func TestDateSubDialects(t *testing.T) {
 	}
 	if !ok {
 		t.Error("now is not later than 5 minutes ago")
+	}
+}
+
+// ForUpdate and IntDiv paper over syntax, not functions, so each has to be
+// spelled per dialect - and the SQLite spelling has to actually parse.
+func TestSyntaxHelperDialects(t *testing.T) {
+	prev := Driver()
+	t.Cleanup(func() { SetDriver(prev) })
+
+	SetDriver("mysql")
+	if got := ForUpdate(); got != " FOR UPDATE" {
+		t.Errorf("mysql ForUpdate = %q", got)
+	}
+	if got := IntDiv(); got != "DIV" {
+		t.Errorf("mysql IntDiv = %q", got)
+	}
+	if got, want := Upsert("name", "url", "events"),
+		"ON DUPLICATE KEY UPDATE url=VALUES(url), events=VALUES(events)"; got != want {
+		t.Errorf("mysql Upsert = %q, want %q", got, want)
+	}
+
+	SetDriver("sqlite3")
+	if got := ForUpdate(); got != "" {
+		t.Errorf("sqlite ForUpdate = %q, want empty (no such syntax)", got)
+	}
+	if got, want := Upsert("name", "url", "events"),
+		"ON CONFLICT(name) DO UPDATE SET url=excluded.url, events=excluded.events"; got != want {
+		t.Errorf("sqlite Upsert = %q, want %q", got, want)
+	}
+
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if _, err := db.Exec(`CREATE TABLE t (k TEXT PRIMARY KEY, v INT)`); err != nil {
+		t.Fatal(err)
+	}
+	// A SELECT ... FOR UPDATE must degrade to a plain SELECT, not a parse error.
+	var v int
+	if err := db.QueryRow(`SELECT 1 FROM t WHERE k='x' LIMIT 1` + ForUpdate()).Scan(&v); err != nil && err != sql.ErrNoRows {
+		t.Errorf("ForUpdate does not parse on sqlite: %v", err)
+	}
+	// Integer division must truncate, the way MySQL's DIV does.
+	var q int
+	if err := db.QueryRow(`SELECT 7 ` + IntDiv() + ` 2`).Scan(&q); err != nil {
+		t.Fatalf("IntDiv does not parse: %v", err)
+	}
+	if q != 3 {
+		t.Errorf("7 %s 2 = %d, want 3", IntDiv(), q)
+	}
+	// The upsert clause has to apply, not just parse.
+	ins := `INSERT INTO t (k,v) VALUES ('a',1) ` + Upsert("k", "v")
+	if _, err := db.Exec(ins); err != nil {
+		t.Fatalf("upsert insert: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO t (k,v) VALUES ('a',9) ` + Upsert("k", "v")); err != nil {
+		t.Fatalf("upsert conflict: %v", err)
+	}
+	if err := db.QueryRow(`SELECT v FROM t WHERE k='a'`).Scan(&v); err != nil {
+		t.Fatal(err)
+	}
+	if v != 9 {
+		t.Errorf("v after upsert = %d, want 9", v)
 	}
 }

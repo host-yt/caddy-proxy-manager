@@ -34,6 +34,99 @@ func init() {
 	sqlite3.MustRegisterScalarFunction("DATE_FORMAT", 2, dateFormat)
 	sqlite3.MustRegisterScalarFunction("DATEDIFF", 2, dateDiff)
 	sqlite3.MustRegisterScalarFunction("TIMESTAMPDIFF", 3, timestampDiff)
+	sqlite3.MustRegisterScalarFunction("UNIX_TIMESTAMP", 1, unixTimestamp)
+	sqlite3.MustRegisterScalarFunction("LEFT", 2, leftFunc)
+	sqlite3.MustRegisterScalarFunction("LOCATE", 2, locateFunc)
+	sqlite3.MustRegisterScalarFunction("SUBSTRING_INDEX", 3, substringIndex)
+	// CONCAT, GROUP_CONCAT, IF and IFNULL already resolve natively, and integer
+	// division is what "/" does on integers here, so MySQL's DIV needs no
+	// function - see IntDiv in driver.go.
+}
+
+// unixTimestamp implements MySQL's UNIX_TIMESTAMP(value) - epoch seconds.
+func unixTimestamp(_ *sqlite3.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if args[0] == nil {
+		return nil, nil
+	}
+	t, err := parseSQLiteTime(args[0])
+	if err != nil {
+		return nil, nil
+	}
+	return t.Unix(), nil
+}
+
+// leftFunc implements MySQL's LEFT(str, n) - the first n characters.
+func leftFunc(_ *sqlite3.FunctionContext, args []driver.Value) (driver.Value, error) {
+	s, n, ok := strAndInt(args)
+	if !ok {
+		return nil, nil
+	}
+	if n <= 0 {
+		return "", nil
+	}
+	r := []rune(s)
+	if int(n) >= len(r) {
+		return s, nil
+	}
+	return string(r[:n]), nil
+}
+
+// locateFunc implements MySQL's LOCATE(needle, haystack): the 1-based position
+// of needle, or 0 when absent.
+func locateFunc(_ *sqlite3.FunctionContext, args []driver.Value) (driver.Value, error) {
+	needle, ok1 := args[0].(string)
+	hay, ok2 := args[1].(string)
+	if !ok1 || !ok2 {
+		return nil, nil
+	}
+	i := strings.Index(hay, needle)
+	if i < 0 {
+		return int64(0), nil
+	}
+	// MySQL counts characters, not bytes.
+	return int64(len([]rune(hay[:i]))) + 1, nil
+}
+
+// substringIndex implements MySQL's SUBSTRING_INDEX(str, delim, count) for a
+// positive count: everything before the count-th delimiter.
+func substringIndex(_ *sqlite3.FunctionContext, args []driver.Value) (driver.Value, error) {
+	s, ok1 := args[0].(string)
+	delim, ok2 := args[1].(string)
+	count, ok3 := toInt(args[2])
+	if !ok1 || !ok2 || !ok3 || delim == "" {
+		return nil, nil
+	}
+	if count > 0 {
+		parts := strings.Split(s, delim)
+		if int(count) >= len(parts) {
+			return s, nil
+		}
+		return strings.Join(parts[:count], delim), nil
+	}
+	parts := strings.Split(s, delim)
+	if n := int(-count); n < len(parts) {
+		return strings.Join(parts[len(parts)-n:], delim), nil
+	}
+	return s, nil
+}
+
+func strAndInt(args []driver.Value) (string, int64, bool) {
+	s, ok := args[0].(string)
+	if !ok {
+		return "", 0, false
+	}
+	n, ok := toInt(args[1])
+	return s, n, ok
+}
+
+func toInt(v driver.Value) (int64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, true
+	case float64:
+		return int64(n), true
+	}
+	return 0, false
 }
 
 // dateDiff implements MySQL's DATEDIFF(a, b) - whole days between two dates,

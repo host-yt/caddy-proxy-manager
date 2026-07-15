@@ -2,6 +2,7 @@ package accesslog
 
 import (
 	"context"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"strings"
 	"time"
 )
@@ -324,7 +325,7 @@ func (s *Store) ErrorRateSeries(ctx context.Context, f AnalyticsFilter) ([]Error
 	// TIMESTAMPDIFF+DIV (not UNIX_TIMESTAMP/FLOOR): treats the DATETIME as literal
 	// UTC so the bucket epoch matches Go's t.Unix() regardless of session tz, and
 	// DIV yields a clean BIGINT (the decimal `/` could fail the int64 scan).
-	q := `SELECT (TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', ts) DIV ?) * ? AS bucket,
+	q := `SELECT (TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', ts) ` + store.IntDiv() + ` ?) * ? AS bucket,
 		      COUNT(*) AS total,
 		      SUM(CASE WHEN status >= 400 THEN 1 ELSE 0 END) AS errors
 		  FROM host_access_log
@@ -390,7 +391,7 @@ func (s *Store) TrafficTimeseries(ctx context.Context, f AnalyticsFilter) ([]Tra
 	conds, args := analyticsWhere(AnalyticsFilter{RouteID: f.RouteID, From: from, To: to}, true)
 	stepSeconds := int64(step / time.Second)
 	args = append([]any{stepSeconds, stepSeconds}, args...)
-	q := `SELECT (TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', ts) DIV ?) * ? AS bucket, COUNT(*)
+	q := `SELECT (TIMESTAMPDIFF(SECOND, '1970-01-01 00:00:00', ts) ` + store.IntDiv() + ` ?) * ? AS bucket, COUNT(*)
 	      FROM host_access_log
 	      WHERE ` + strings.Join(conds, " AND ") + `
 	      GROUP BY bucket

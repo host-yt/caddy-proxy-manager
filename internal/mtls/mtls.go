@@ -23,6 +23,7 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"math/big"
 	"strings"
 	"time"
@@ -243,7 +244,7 @@ func (s *Service) Issue(ctx context.Context, in IssueInput) (IssueResult, error)
 	var serialSeq uint64
 	err = tx.QueryRowContext(ctx,
 		`SELECT cert_pem, key_pem_enc, serial_seq, status
-		   FROM mtls_cas WHERE id = ? FOR UPDATE`, in.CAID).
+		   FROM mtls_cas WHERE id = ?`+store.ForUpdate(), in.CAID).
 		Scan(&caCertPEM, &caKeyEnc, &serialSeq, &caStatus)
 	if errors.Is(err, sql.ErrNoRows) {
 		return IssueResult{}, errors.New("CA not found")

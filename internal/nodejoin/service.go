@@ -180,7 +180,7 @@ func (s *Service) markTokenUsed(ctx context.Context, db *sql.DB, tokenID int64) 
 
 	var used sql.NullTime
 	if err := tx.QueryRowContext(ctx,
-		"SELECT used_at FROM node_join_tokens WHERE id = ? FOR UPDATE", tokenID,
+		"SELECT used_at FROM node_join_tokens WHERE id = ?"+store.ForUpdate(), tokenID,
 	).Scan(&used); err != nil {
 		return err
 	}

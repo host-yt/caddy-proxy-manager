@@ -64,7 +64,7 @@ func ConsumeResetToken(ctx context.Context, db *sql.DB, plain string) (int64, er
 	// single-use).
 	err = tx.QueryRowContext(ctx,
 		`SELECT id, user_id FROM password_resets
-		 WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1 FOR UPDATE`,
+		 WHERE token_hash = ? AND used_at IS NULL AND expires_at > NOW() LIMIT 1`+store.ForUpdate(),
 		hashHex,
 	).Scan(&id, &userID)
 	if errors.Is(err, sql.ErrNoRows) {

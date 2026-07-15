@@ -2,6 +2,7 @@ package store
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 )
 
@@ -86,6 +87,55 @@ func Now() string {
 		return "CURRENT_TIMESTAMP"
 	}
 	return "NOW()"
+}
+
+// ForUpdate returns the row-lock clause. SQLite has no such syntax and needs
+// none: the pool holds a single writer connection, so the read and the write it
+// guards cannot interleave with another transaction.
+func ForUpdate() string {
+	if Driver() == "sqlite3" {
+		return ""
+	}
+	return " FOR UPDATE"
+}
+
+// IntDiv returns the integer-division operator. MySQL's "/" yields a decimal
+// (which then fails an int64 scan), hence DIV; SQLite's "/" is already integer
+// division when both operands are integers.
+func IntDiv() string {
+	if Driver() == "sqlite3" {
+		return "/"
+	}
+	return "DIV"
+}
+
+// Upsert returns the "insert or update the existing row" clause for an INSERT.
+// conflictCols names the unique key the insert may collide on - MySQL infers it
+// from the table, SQLite requires it spelled out. Each assignment is a bare
+// column name; both dialects then set it from the row that was being inserted.
+func Upsert(conflictCols string, assignments ...string) string {
+	if len(assignments) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	if Driver() == "sqlite3" {
+		b.WriteString("ON CONFLICT(" + conflictCols + ") DO UPDATE SET ")
+		for i, col := range assignments {
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(col + "=excluded." + col)
+		}
+		return b.String()
+	}
+	b.WriteString("ON DUPLICATE KEY UPDATE ")
+	for i, col := range assignments {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(col + "=VALUES(" + col + ")")
+	}
+	return b.String()
 }
 
 // DateAddMinutes returns SQL expr for NOW() + N minutes (OTP expiry paths).
