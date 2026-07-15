@@ -16,6 +16,11 @@ services:
     volumes:
       - geoip_data:/data/geoip
     restart: "no"
+    # Must be explicit: without it compose spawns an implicit `default` network
+    # whose auto-IPAM grabs 172.18.0.0/16 - the subnet `internal` pins below -
+    # and whichever loses the race dies with "Pool overlaps with other one".
+    networks:
+      - internal
 
   app:
     image: ghcr.io/host-yt/caddy-proxy-manager:1.3.2
