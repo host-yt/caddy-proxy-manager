@@ -19,6 +19,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // WGBootstrapHandler serves the customer-side WG tunnel configuration:
@@ -154,7 +155,7 @@ func queryInstallTransport(ctx context.Context, db *sql.DB, token string) instal
 		`SELECT COALESCE(cn.tunnel_transport,'udp'), COALESCE(cn.tunnel_endpoint,''),
 		        COALESCE(cn.tunnel_listen_port,51821), cn.tunnel_wstunnel_port,
 		        cn.tunnel_wstunnel_healthy,
-		        cn.tunnel_wstunnel_reported_at > NOW() - INTERVAL 3 MINUTE
+		        cn.tunnel_wstunnel_reported_at > `+store.DateSub(3, "MINUTE")+`
 		   FROM customer_wg_bootstrap b
 		   JOIN customer_wg_peer p ON p.id = b.peer_id
 		   JOIN caddy_nodes cn ON cn.id = p.node_id

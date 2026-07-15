@@ -1588,7 +1588,7 @@ func (h *AdminHandlers) NodeRTTJSON(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT DATE_FORMAT(bucket_start,'%m-%d %H:%i'), rtt_ms_avg
 		 FROM node_rtt_samples
-		 WHERE node_id = ? AND bucket_start >= NOW() - INTERVAL 24 HOUR
+		 WHERE node_id = ? AND bucket_start >= `+store.DateSub(24, "HOUR")+`
 		 ORDER BY bucket_start`, id)
 	if err != nil {
 		apiJSON(w, http.StatusInternalServerError, map[string]any{"error": "query failed"})

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
@@ -51,9 +52,9 @@ type statusPageData struct {
 	ShowTraffic bool
 	// Brand carries the reseller overlay for a reseller-owned client (empty =
 	// global default; the template falls back to just the client name).
-	Brand Branding
-	Routes      []statusRouteRow
-	Tunnels     []statusTunnelRow
+	Brand   Branding
+	Routes  []statusRouteRow
+	Tunnels []statusTunnelRow
 	// Pre-serialised for inline sparkline (14-day per-node request deltas).
 	TrafficLabels template.JS
 	TrafficValues template.JS
@@ -250,7 +251,7 @@ func (h *StatusPageHandlers) trafficSparkline(
 		        node_id,
 		        MAX(requests_total) - MIN(requests_total) AS delta
 		 FROM node_traffic_samples
-		 WHERE node_id IN (%s) AND sampled_at > NOW() - INTERVAL 14 DAY
+		 WHERE node_id IN (%s) AND sampled_at > `+store.DateSub(14, "DAY")+`
 		 GROUP BY day, node_id`,
 		strings.Join(inClause, ","),
 	)

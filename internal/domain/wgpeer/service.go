@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
 
@@ -489,7 +490,7 @@ func (s *Service) issueBootstrap(ctx context.Context, peerID int64) (string, err
 	ttlSeconds := int(bootstrapTTL / time.Second)
 	_, err := s.DB.ExecContext(ctx,
 		`INSERT INTO customer_wg_bootstrap (token, peer_id, expires_at)
-		 VALUES (?, ?, DATE_ADD(NOW(), INTERVAL ? SECOND))`,
+		 VALUES (?, ?, `+store.DateAddParam("SECOND")+`)`,
 		token, peerID, ttlSeconds)
 	return token, err
 }

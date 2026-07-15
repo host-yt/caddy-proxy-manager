@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // builtins returns the read-only tool set. Each tool selects only non-sensitive
@@ -239,14 +241,14 @@ var listActiveAlertsSchema = json.RawMessage(`{"type":"object","properties":{` +
 // systemSummary gathers top-level counts in a single round-trip set.
 func (r *Registry) systemSummary(ctx context.Context, _ json.RawMessage) (string, error) {
 	type result struct {
-		NodesTotal      int64 `json:"nodes_total"`
-		NodesHealthy    int64 `json:"nodes_healthy"`
-		RoutesTotal     int64 `json:"routes_total"`
-		RoutesActive    int64 `json:"routes_active"`
-		ClientsTotal    int64 `json:"clients_total"`
-		OpenAlerts      int64 `json:"alerts_24h"`
-		WAFBlocks24h    int64 `json:"waf_blocks_24h"`
-		BackupBytes     int64 `json:"backup_storage_bytes"`
+		NodesTotal   int64 `json:"nodes_total"`
+		NodesHealthy int64 `json:"nodes_healthy"`
+		RoutesTotal  int64 `json:"routes_total"`
+		RoutesActive int64 `json:"routes_active"`
+		ClientsTotal int64 `json:"clients_total"`
+		OpenAlerts   int64 `json:"alerts_24h"`
+		WAFBlocks24h int64 `json:"waf_blocks_24h"`
+		BackupBytes  int64 `json:"backup_storage_bytes"`
 	}
 	var s result
 	type scanPair struct {
@@ -259,8 +261,8 @@ func (r *Registry) systemSummary(ctx context.Context, _ json.RawMessage) (string
 		{`SELECT COUNT(*) FROM routes`, &s.RoutesTotal},
 		{`SELECT COUNT(*) FROM routes WHERE status='active'`, &s.RoutesActive},
 		{`SELECT COUNT(*) FROM clients`, &s.ClientsTotal},
-		{`SELECT COUNT(*) FROM alert_log WHERE fired_at >= NOW() - INTERVAL 24 HOUR`, &s.OpenAlerts},
-		{`SELECT COUNT(*) FROM waf_events WHERE action='blocked' AND ts >= NOW() - INTERVAL 24 HOUR`, &s.WAFBlocks24h},
+		{`SELECT COUNT(*) FROM alert_log WHERE fired_at >= ` + store.DateSub(24, "HOUR") + ``, &s.OpenAlerts},
+		{`SELECT COUNT(*) FROM waf_events WHERE action='blocked' AND ts >= ` + store.DateSub(24, "HOUR") + ``, &s.WAFBlocks24h},
 		{`SELECT COALESCE(SUM(size_bytes),0) FROM backup_jobs WHERE status='success'`, &s.BackupBytes},
 	}
 	for _, p := range pairs {
@@ -891,15 +893,15 @@ func (r *Registry) listWGPeers(ctx context.Context, raw json.RawMessage) (string
 	}
 	defer rows.Close()
 	type peer struct {
-		Name           string `json:"name"`
-		Status         string `json:"status"`
-		AssignedIP     string `json:"assigned_ip"`
-		LastHandshake  string `json:"last_handshake,omitempty"`
-		HandshakeAgeSec int64 `json:"handshake_age_sec,omitempty"`
-		RxBytes        int64  `json:"rx_bytes"`
-		TxBytes        int64  `json:"tx_bytes"`
-		ClientEmail    string `json:"client_email"`
-		NodeName       string `json:"node,omitempty"`
+		Name            string `json:"name"`
+		Status          string `json:"status"`
+		AssignedIP      string `json:"assigned_ip"`
+		LastHandshake   string `json:"last_handshake,omitempty"`
+		HandshakeAgeSec int64  `json:"handshake_age_sec,omitempty"`
+		RxBytes         int64  `json:"rx_bytes"`
+		TxBytes         int64  `json:"tx_bytes"`
+		ClientEmail     string `json:"client_email"`
+		NodeName        string `json:"node,omitempty"`
 	}
 	out := make([]peer, 0, limit)
 	for rows.Next() {
@@ -1066,11 +1068,11 @@ func (r *Registry) clientDetail(ctx context.Context, raw json.RawMessage) (strin
 	// Traffic from log_rollups (fast pre-aggregated).
 	_ = r.db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(lr.bytes_resp),0),
-		        COALESCE(SUM(CASE WHEN lr.bucket_start >= NOW() - INTERVAL 24 HOUR THEN lr.requests ELSE 0 END),0)
+		        COALESCE(SUM(CASE WHEN lr.bucket_start >= `+store.DateSub(24, "HOUR")+` THEN lr.requests ELSE 0 END),0)
 		 FROM log_rollups lr
 		 JOIN routes rt ON rt.id = lr.route_id
 		 JOIN services sv ON sv.id = rt.service_id
-		 WHERE sv.client_id = ? AND lr.bucket_start >= NOW() - INTERVAL 30 DAY`, res.ID,
+		 WHERE sv.client_id = ? AND lr.bucket_start >= `+store.DateSub(30, "DAY")+``, res.ID,
 	).Scan(&res.Bytes30d, &res.Requests24h)
 	return toJSON(res)
 }
@@ -1122,7 +1124,7 @@ func (r *Registry) nodeDetail(ctx context.Context, raw json.RawMessage) (string,
 		        COALESCE(SUM(lr.bytes_resp),0)
 		 FROM log_rollups lr
 		 JOIN routes r ON r.id = lr.route_id
-		 WHERE r.caddy_node_id = ? AND lr.bucket_start >= NOW() - INTERVAL 24 HOUR`, res.ID,
+		 WHERE r.caddy_node_id = ? AND lr.bucket_start >= `+store.DateSub(24, "HOUR")+``, res.ID,
 	).Scan(&res.Requests24h, &res.Errors24h, &res.Bytes24h)
 	return toJSON(res)
 }
@@ -1259,15 +1261,15 @@ func (r *Registry) serviceDetail(ctx context.Context, raw json.RawMessage) (stri
 	}
 	numID, _ := strconv.ParseInt(id, 10, 64)
 	type res struct {
-		ID          int64  `json:"id"`
-		Name        string `json:"name"`
-		Status      string `json:"status"`
-		BackendIP   string `json:"backend_ip"`
-		Plan        string `json:"plan"`
-		NodeGroup   string `json:"node_group"`
-		RouteCount  int    `json:"route_count"`
-		Bandwidth30d int64 `json:"bandwidth_30d_bytes"`
-		CreatedAt   string `json:"created_at"`
+		ID           int64  `json:"id"`
+		Name         string `json:"name"`
+		Status       string `json:"status"`
+		BackendIP    string `json:"backend_ip"`
+		Plan         string `json:"plan"`
+		NodeGroup    string `json:"node_group"`
+		RouteCount   int    `json:"route_count"`
+		Bandwidth30d int64  `json:"bandwidth_30d_bytes"`
+		CreatedAt    string `json:"created_at"`
 	}
 	var r2 res
 	err := db.QueryRowContext(ctx,
@@ -1280,7 +1282,7 @@ func (r *Registry) serviceDetail(ctx context.Context, raw json.RawMessage) (stri
 		 JOIN plans p ON p.id = s.plan_id
 		 JOIN node_groups ng ON ng.id = s.node_group_id
 		 LEFT JOIN routes ro ON ro.service_id = s.id
-		 LEFT JOIN log_rollups lr ON lr.route_id = ro.id AND lr.bucket_start >= NOW() - INTERVAL 30 DAY
+		 LEFT JOIN log_rollups lr ON lr.route_id = ro.id AND lr.bucket_start >= `+store.DateSub(30, "DAY")+`
 		 WHERE s.id = ? OR s.name = ?
 		 GROUP BY s.id`, numID, id,
 	).Scan(&r2.ID, &r2.Name, &r2.Status, &r2.BackendIP,
@@ -1319,7 +1321,7 @@ func (r *Registry) listActiveAlerts(ctx context.Context, raw json.RawMessage) (s
 		FiredAt  string          `json:"fired_at"`
 	}
 	var qargs []any
-	q := `SELECT rule_id, severity, title, COALESCE(labels_json,'{}'), DATE_FORMAT(fired_at,'%Y-%m-%dT%H:%i:%sZ') FROM alert_log WHERE fired_at >= NOW() - INTERVAL ? HOUR`
+	q := `SELECT rule_id, severity, title, COALESCE(labels_json,'{}'), DATE_FORMAT(fired_at,'%Y-%m-%dT%H:%i:%sZ') FROM alert_log WHERE fired_at >= ` + store.DateSubParam("HOUR") + ``
 	qargs = append(qargs, args.Hours)
 	if args.Severity != "" {
 		q += " AND severity = ?"
@@ -1569,10 +1571,10 @@ func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, owne
 		return "", err
 	}
 	_ = db.QueryRowContext(ctx,
-		`SELECT COALESCE(SUM(CASE WHEN bucket_start >= NOW() - INTERVAL 24 HOUR THEN requests ELSE 0 END),0),
-		        COALESCE(SUM(CASE WHEN bucket_start >= NOW() - INTERVAL 24 HOUR THEN errors_4xx+errors_5xx ELSE 0 END),0),
+		`SELECT COALESCE(SUM(CASE WHEN bucket_start >= `+store.DateSub(24, "HOUR")+` THEN requests ELSE 0 END),0),
+		        COALESCE(SUM(CASE WHEN bucket_start >= `+store.DateSub(24, "HOUR")+` THEN errors_4xx+errors_5xx ELSE 0 END),0),
 		        COALESCE(SUM(bytes_resp),0)
-		 FROM log_rollups WHERE route_id = ? AND bucket_start >= NOW() - INTERVAL 7 DAY`, ro.ID,
+		 FROM log_rollups WHERE route_id = ? AND bucket_start >= `+store.DateSub(7, "DAY")+``, ro.ID,
 	).Scan(&ro.Requests24h, &ro.Errors24h, &ro.Bytes7d)
 	return toJSON(ro)
 }

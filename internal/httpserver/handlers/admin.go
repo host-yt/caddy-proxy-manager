@@ -489,7 +489,7 @@ func (h *AdminHandlers) dashboardCounts(ctx context.Context, db *sql.DB) dashCou
 	c.SuspendedServices = susp
 	// Count CA certs expiring within 30 days (includes already expired).
 	var mtlsExpiring int
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after < (NOW() + INTERVAL 30 DAY)").Scan(&mtlsExpiring)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after < ("+store.DateAdd(30, "DAY")+")").Scan(&mtlsExpiring)
 	c.MTLSCAsExpiringSoon = mtlsExpiring
 	return c
 }
@@ -576,7 +576,7 @@ func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB) ([]A
 	// Manual certificates expiring within 30 days or already expired.
 	var expiringSoon, expired int
 	_ = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM manual_certs WHERE not_after BETWEEN NOW() AND (NOW() + INTERVAL 30 DAY)").Scan(&expiringSoon)
+		"SELECT COUNT(*) FROM manual_certs WHERE not_after BETWEEN NOW() AND ("+store.DateAdd(30, "DAY")+")").Scan(&expiringSoon)
 	_ = db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM manual_certs WHERE not_after < NOW()").Scan(&expired)
 	if expired > 0 {
@@ -597,7 +597,7 @@ func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB) ([]A
 	// mTLS CA certs: expired ones block all client-cert auth on affected routes.
 	var mtlsExpired, mtlsExpiringSoon int
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after < NOW()").Scan(&mtlsExpired)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after BETWEEN NOW() AND (NOW() + INTERVAL 30 DAY)").Scan(&mtlsExpiringSoon)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after BETWEEN NOW() AND ("+store.DateAdd(30, "DAY")+")").Scan(&mtlsExpiringSoon)
 	if mtlsExpired > 0 {
 		items = append(items, AttentionItem{
 			Severity: "error",
@@ -680,7 +680,7 @@ func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB) []da
 	rows, err := db.QueryContext(ctx,
 		`SELECT lr.route_id, r.domain, SUM(lr.requests) AS reqs
 		 FROM log_rollups lr JOIN routes r ON r.id = lr.route_id
-		 WHERE lr.bucket_start >= NOW() - INTERVAL 24 HOUR
+		 WHERE lr.bucket_start >= `+store.DateSub(24, "HOUR")+`
 		 GROUP BY lr.route_id, r.domain
 		 ORDER BY reqs DESC LIMIT 5`)
 	if err != nil {
@@ -706,7 +706,7 @@ func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB) []d
 		 JOIN services s ON s.id = r.service_id
 		 JOIN clients c ON c.id = s.client_id
 		 JOIN users u ON u.id = c.user_id
-		 WHERE lr.bucket_start >= NOW() - INTERVAL 7 DAY
+		 WHERE lr.bucket_start >= `+store.DateSub(7, "DAY")+`
 		 GROUP BY s.client_id, c.display_name, u.email, u.full_name
 		 ORDER BY bw DESC LIMIT 5`)
 	if err != nil {
@@ -2173,7 +2173,7 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 		 JOIN routes r ON r.id = lr.route_id
 		 JOIN services s ON s.id = r.service_id
 		 WHERE s.client_id IN (` + strings.Join(ph, ",") + `)
-		   AND lr.bucket_start >= NOW() - INTERVAL 30 DAY
+		   AND lr.bucket_start >= `+store.DateSub(30, "DAY")+`
 		 GROUP BY s.client_id`
 		bwRows, bwErr := db.QueryContext(ctx, bwSQL, ids...)
 		if bwErr == nil {
@@ -4868,7 +4868,7 @@ func (h *AdminHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if expiresDays > 0 {
 		_, _ = db.ExecContext(ctx,
-			"UPDATE api_keys SET expires_at = (NOW() + INTERVAL ? DAY) WHERE id = ?",
+			"UPDATE api_keys SET expires_at = ("+store.DateAddParam("DAY")+") WHERE id = ?",
 			expiresDays, id)
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
@@ -5620,7 +5620,7 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 		                  FROM log_rollups lr
 		                  JOIN routes rr ON rr.id = lr.route_id
 		                  WHERE rr.caddy_node_id = n.id
-		                    AND lr.bucket_start >= DATE_SUB(NOW(), INTERVAL 1 DAY)), 0)
+		                    AND lr.bucket_start >= `+store.DateSub(1, "DAY")+`), 0)
 		 FROM caddy_nodes n JOIN node_groups g ON g.id = n.node_group_id
 		 ORDER BY n.priority DESC, n.id ASC`)
 	if err == nil {

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // Scheduler periodically runs backups for every enabled destination based on
@@ -128,5 +130,5 @@ func (s *Scheduler) pruneOldJobs(ctx context.Context) {
 		return
 	}
 	_, _ = db.ExecContext(ctx,
-		"DELETE FROM backup_jobs WHERE created_at < (NOW() - INTERVAL ? DAY)", days)
+		"DELETE FROM backup_jobs WHERE created_at < ("+store.DateSubParam("DAY")+")", days)
 }

@@ -16,6 +16,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/customfields"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // ClientsStatusSlugGenerate sets a fresh random 32-hex-char slug on the client,
@@ -160,7 +161,7 @@ func (h *AdminHandlers) ClientsShowDetail(w http.ResponseWriter, r *http.Request
 		 FROM log_rollups lr
 		 JOIN routes r ON r.id = lr.route_id
 		 JOIN services s ON s.id = r.service_id
-		 WHERE s.client_id = ? AND lr.bucket_start >= NOW() - INTERVAL 7 DAY`, id,
+		 WHERE s.client_id = ? AND lr.bucket_start >= `+store.DateSub(7, "DAY")+``, id,
 	).Scan(&d.BandwidthBytes7d)
 
 	// Load routes for all services owned by this client (up to 200).
@@ -273,14 +274,14 @@ type clientDetailData struct {
 	Routes           []clientDetailRouteRow
 	TotalRoutes      int
 	ActiveRoutes     int
-	BandwidthBytes7d int64                // last 7 days from host_access_log
-	Notes            string               // admin-only internal notes
-	Tag              string               // grouping label
-	Category         string               // billing/segment category
-	ClientAudit      []clientAuditRow     // last 15 audit entries for this client
-	AllPlans         []planRow            // for plan change select
-	CurrentPlanID    int64                // plan_id of the first service (representative)
-	CustomFields     []customfields.View  // decoded custom field values merged with defs
+	BandwidthBytes7d int64               // last 7 days from host_access_log
+	Notes            string              // admin-only internal notes
+	Tag              string              // grouping label
+	Category         string              // billing/segment category
+	ClientAudit      []clientAuditRow    // last 15 audit entries for this client
+	AllPlans         []planRow           // for plan change select
+	CurrentPlanID    int64               // plan_id of the first service (representative)
+	CustomFields     []customfields.View // decoded custom field values merged with defs
 }
 
 // ClientsExport streams the full client list as a CSV download.

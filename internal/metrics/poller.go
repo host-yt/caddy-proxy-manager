@@ -22,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // HostSample holds per-domain request/error counters extracted from Caddy labels.
@@ -120,7 +122,7 @@ func (p *Poller) tick(ctx context.Context) {
 
 	// Prune: keep 14 days of samples (≈20k rows per node at 60s interval).
 	_, _ = db.ExecContext(ctx,
-		"DELETE FROM node_traffic_samples WHERE sampled_at < (NOW() - INTERVAL 14 DAY)")
+		"DELETE FROM node_traffic_samples WHERE sampled_at < ("+store.DateSub(14, "DAY")+")")
 }
 
 func (p *Poller) scrape(ctx context.Context, nodeID int64, apiURL string) (Sample, error) {

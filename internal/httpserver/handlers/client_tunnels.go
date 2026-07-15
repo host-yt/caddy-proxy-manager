@@ -12,6 +12,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // WGPeers is wired by main.go so the client surface can reuse the
@@ -298,21 +299,21 @@ func (h *ClientHandlers) ClientTunnelsBandwidthJSON(w http.ResponseWriter, r *ht
 		query = `SELECT DATE_FORMAT(sampled_at,'%Y-%m-%d') AS label,
 			         COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0)
 			  FROM customer_wg_peer_usage_sample
-			  WHERE peer_id = ? AND sampled_at >= NOW() - INTERVAL 7 DAY
+			  WHERE peer_id = ? AND sampled_at >= ` + store.DateSub(7, "DAY") + `
 			  GROUP BY DATE(sampled_at)
 			  ORDER BY DATE(sampled_at)`
 	case "30d":
 		query = `SELECT DATE_FORMAT(sampled_at,'%Y-%m-%d') AS label,
 			         COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0)
 			  FROM customer_wg_peer_usage_sample
-			  WHERE peer_id = ? AND sampled_at >= NOW() - INTERVAL 30 DAY
+			  WHERE peer_id = ? AND sampled_at >= ` + store.DateSub(30, "DAY") + `
 			  GROUP BY DATE(sampled_at)
 			  ORDER BY DATE(sampled_at)`
 	default:
 		query = `SELECT DATE_FORMAT(sampled_at,'%m-%d %H:00') AS label,
 			         COALESCE(SUM(rx_delta),0), COALESCE(SUM(tx_delta),0)
 			  FROM customer_wg_peer_usage_sample
-			  WHERE peer_id = ? AND sampled_at >= NOW() - INTERVAL 24 HOUR
+			  WHERE peer_id = ? AND sampled_at >= ` + store.DateSub(24, "HOUR") + `
 			  GROUP BY DATE(sampled_at), HOUR(sampled_at)
 			  ORDER BY DATE(sampled_at), HOUR(sampled_at)`
 	}

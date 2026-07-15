@@ -199,7 +199,7 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		 FROM log_rollups lr
 		 JOIN routes r ON r.id=lr.route_id
 		 JOIN services s ON s.id=r.service_id
-		 WHERE s.client_id=? AND lr.bucket_start >= NOW()-INTERVAL 7 DAY`, clientID).Scan(&bw7d)
+		 WHERE s.client_id=? AND lr.bucket_start >= `+store.DateSub(7, "DAY")+``, clientID).Scan(&bw7d)
 	d.TotalBandwidth7d = formatBytes(bw7d)
 	// 24h request + error counts from rollups.
 	_ = db.QueryRowContext(ctx,
@@ -208,7 +208,7 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		 FROM log_rollups lr
 		 JOIN routes r ON r.id = lr.route_id
 		 JOIN services s ON s.id = r.service_id
-		 WHERE s.client_id = ? AND lr.bucket_start >= NOW() - INTERVAL 24 HOUR`, clientID,
+		 WHERE s.client_id = ? AND lr.bucket_start >= `+store.DateSub(24, "HOUR")+``, clientID,
 	).Scan(&d.Requests24h, &d.Errors24h)
 	// 30-day per-day bandwidth from pre-aggregated rollups (hourly buckets).
 	// Avoids a full scan of raw host_access_log on large installations.
@@ -217,7 +217,7 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		 FROM log_rollups lr
 		 JOIN routes r ON r.id = lr.route_id
 		 JOIN services s ON s.id = r.service_id
-		 WHERE s.client_id = ? AND lr.bucket_start >= DATE_SUB(NOW(), INTERVAL 30 DAY)
+		 WHERE s.client_id = ? AND lr.bucket_start >= `+store.DateSub(30, "DAY")+`
 		 GROUP BY DATE(lr.bucket_start)
 		 ORDER BY day ASC`, clientID)
 	if err2 == nil {
@@ -390,7 +390,7 @@ func (h *ClientHandlers) ServiceDetail(w http.ResponseWriter, r *http.Request) {
 	_ = db.QueryRowContext(ctx,
 		`SELECT COALESCE(SUM(lr.bytes_resp),0)
 		 FROM log_rollups lr JOIN routes r ON r.id = lr.route_id
-		 WHERE r.service_id = ? AND lr.bucket_start >= (NOW() - INTERVAL 7 DAY)`, id,
+		 WHERE r.service_id = ? AND lr.bucket_start >= (`+store.DateSub(7, "DAY")+`)`, id,
 	).Scan(&d.Bandwidth7d)
 	d.Bandwidth7dH = formatBytes(d.Bandwidth7d)
 	h.render(w, "service_detail", d)

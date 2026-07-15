@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // PruneAccessLog deletes host_access_log rows older than the
@@ -51,7 +53,7 @@ func PruneRollups(ctx context.Context, db *sql.DB) (int64, error) {
 		return 0, nil
 	}
 	res, err := db.ExecContext(ctx,
-		"DELETE FROM log_rollups WHERE bucket_start < (NOW() - INTERVAL ? DAY)", days)
+		"DELETE FROM log_rollups WHERE bucket_start < ("+store.DateSubParam("DAY")+")", days)
 	if err != nil {
 		return 0, err
 	}

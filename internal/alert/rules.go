@@ -176,7 +176,7 @@ func drillStale(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 		`SELECT MAX(finished_at)
 		   FROM restore_drill_status
 		  WHERE success = 1
-		    AND finished_at > (NOW() - INTERVAL ? DAY)`,
+		    AND finished_at > (`+store.DateSubParam("DAY")+`)`,
 		threshold,
 	).Scan(&lastSuccess)
 	if err != nil {
@@ -216,7 +216,7 @@ func wgKeyNotFetched(ctx context.Context, db *sql.DB, cfg Config, log *slog.Logg
 		SELECT p.id, p.name
 		  FROM customer_wg_peer p
 		 WHERE p.last_rotated_at IS NOT NULL
-		   AND p.last_rotated_at < (NOW() - INTERVAL ? HOUR)
+		   AND p.last_rotated_at < (`+store.DateSubParam("HOUR")+`)
 		   AND (p.rotation_alert_sent_at IS NULL OR p.rotation_alert_sent_at < p.last_rotated_at)
 		   AND EXISTS (
 		         SELECT 1 FROM customer_wg_bootstrap b
@@ -270,7 +270,7 @@ func manualCertExpiry(ctx context.Context, db *sql.DB, cfg Config, log *slog.Log
 		SELECT id, name, common_name, route_id, not_after,
 		       TIMESTAMPDIFF(DAY, NOW(), not_after) AS days_left
 		  FROM manual_certs
-		 WHERE not_after < (NOW() + INTERVAL ? DAY)`,
+		 WHERE not_after < (`+store.DateAddParam("DAY")+`)`,
 		threshold)
 	if err != nil {
 		var me *mysql.MySQLError
@@ -367,7 +367,7 @@ func highErrorRate(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 		       SUM(CASE WHEN hal.status >= 500 THEN 1 ELSE 0 END) AS errors
 		  FROM host_access_log hal
 		  JOIN routes r ON r.id = hal.route_id
-		 WHERE hal.ts >= (NOW() - INTERVAL ? MINUTE)
+		 WHERE hal.ts >= (`+store.DateSubParam("MINUTE")+`)
 		   AND r.status = 'active'
 		 GROUP BY hal.route_id, r.domain
 		HAVING total >= ? AND (errors / total) >= ?`,
@@ -418,7 +418,7 @@ func wafAttackSurge(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 	rows, err := db.QueryContext(ctx, `
 		SELECT host, COUNT(*) AS blocks
 		  FROM waf_events
-		 WHERE ts >= (NOW() - INTERVAL ? MINUTE)
+		 WHERE ts >= (`+store.DateSubParam("MINUTE")+`)
 		   AND action = 'blocked'
 		 GROUP BY host
 		HAVING blocks >= ?

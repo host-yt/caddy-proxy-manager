@@ -64,6 +64,22 @@ func DateSubParam(unit string) string {
 	return "(NOW() - INTERVAL ? " + unit + ")"
 }
 
+// DateAdd returns SQL for "NOW() + INTERVAL n <unit>".
+func DateAdd(n int, unit string) string {
+	if Driver() == "sqlite3" {
+		return fmt.Sprintf("datetime('now', '+%d %s')", n, sqliteUnit[unit])
+	}
+	return fmt.Sprintf("(NOW() + INTERVAL %d %s)", n, unit)
+}
+
+// DateAddParam is DateAdd with the amount bound as a parameter.
+func DateAddParam(unit string) string {
+	if Driver() == "sqlite3" {
+		return "datetime('now', '+' || cast(? as text) || ' " + sqliteUnit[unit] + "')"
+	}
+	return "(NOW() + INTERVAL ? " + unit + ")"
+}
+
 // Now returns the dialect's current-timestamp expression.
 func Now() string {
 	if Driver() == "sqlite3" {

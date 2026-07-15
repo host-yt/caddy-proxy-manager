@@ -12,6 +12,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/alert"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 type alertRow struct {
@@ -52,12 +53,12 @@ type alertsData struct {
 
 // ruleDescriptions maps each known rule_id to a short human description.
 var ruleDescriptions = map[string]string{
-	"node_offline":      "Node unhealthy and unseen past threshold",
-	"route_failed":      "Route stuck in 'failed' state (SSL or DNS)",
-	"cert_failing":      "Certificate stuck in pending_ssl past threshold",
-	"wg_tunnel_stale":   "WG peer handshake older than threshold",
-	"db_pool_saturated": "DB connection pool near saturation ratio",
-	"drill_stale":       "No successful restore drill within configured days",
+	"node_offline":       "Node unhealthy and unseen past threshold",
+	"route_failed":       "Route stuck in 'failed' state (SSL or DNS)",
+	"cert_failing":       "Certificate stuck in pending_ssl past threshold",
+	"wg_tunnel_stale":    "WG peer handshake older than threshold",
+	"db_pool_saturated":  "DB connection pool near saturation ratio",
+	"drill_stale":        "No successful restore drill within configured days",
 	"wg_key_not_fetched": "Bootstrap token unconsumed after key rotation grace period",
 	"manual_cert_expiry": "Manually imported cert nearing expiry or already expired",
 	"high_error_rate":    "5xx ratio above threshold in rolling window",
@@ -145,7 +146,7 @@ func (h *AdminHandlers) AlertsPage(w http.ResponseWriter, r *http.Request) {
 	aggRows, err := db.QueryContext(ctx,
 		`SELECT rule_id, MAX(fired_at), COUNT(*), COALESCE(MAX(severity),'info')
 		   FROM alert_log
-		  WHERE fired_at > (NOW() - INTERVAL 7 DAY)
+		  WHERE fired_at > (`+store.DateSub(7, "DAY")+`)
 		  GROUP BY rule_id`)
 	if err == nil {
 		defer aggRows.Close()

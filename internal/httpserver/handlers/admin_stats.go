@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 type nodeStatRow struct {
@@ -257,7 +258,7 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 		                  JOIN routes r ON r.id=lr.route_id
 		                  JOIN services s ON s.id=r.service_id
 		                  WHERE s.client_id=c.id
-		                  AND lr.bucket_start >= (NOW() - INTERVAL 7 DAY)), 0)
+		                  AND lr.bucket_start >= (`+store.DateSub(7, "DAY")+`)), 0)
 		 FROM clients c JOIN users u ON u.id=c.user_id
 		 ORDER BY 6 DESC, 4 DESC LIMIT 10`)
 	if crows != nil {
@@ -306,7 +307,7 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 		        COUNT(DISTINCT r.id)
 		 FROM caddy_nodes n
 		 LEFT JOIN routes r ON r.caddy_node_id=n.id
-		 LEFT JOIN log_rollups lr ON lr.route_id=r.id AND lr.bucket_start >= (NOW() - INTERVAL 7 DAY)
+		 LEFT JOIN log_rollups lr ON lr.route_id=r.id AND lr.bucket_start >= (`+store.DateSub(7, "DAY")+`)
 		 GROUP BY n.id, n.name
 		 ORDER BY 3 DESC LIMIT 10`)
 	if ntrRows != nil {
@@ -328,7 +329,7 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 		        SUM(requests) AS reqs,
 		        SUM(errors_4xx + errors_5xx) AS errs
 		 FROM log_rollups
-		 WHERE bucket_start >= NOW() - INTERVAL 24 HOUR
+		 WHERE bucket_start >= `+store.DateSub(24, "HOUR")+`
 		 GROUP BY hr ORDER BY hr ASC`)
 	if htRows != nil {
 		for htRows.Next() {
@@ -390,7 +391,7 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 		        SUM(we.action='blocked') as blocked
 		 FROM waf_events we
 		 LEFT JOIN routes r ON r.id = we.route_id
-		 WHERE we.ts >= NOW() - INTERVAL 7 DAY
+		 WHERE we.ts >= `+store.DateSub(7, "DAY")+`
 		 GROUP BY we.route_id, r.domain
 		 ORDER BY cnt DESC LIMIT 10`)
 	if wafErr == nil {
@@ -460,7 +461,7 @@ func (h *AdminHandlers) Stats(w http.ResponseWriter, r *http.Request) {
 	asnRows, asnErr := db.QueryContext(ctx,
 		`SELECT asn_org, COUNT(*) AS cnt
 		 FROM host_access_log
-		 WHERE asn_org != '' AND ts >= NOW() - INTERVAL 7 DAY
+		 WHERE asn_org != '' AND ts >= `+store.DateSub(7, "DAY")+`
 		 GROUP BY asn_org
 		 ORDER BY cnt DESC
 		 LIMIT 10`)
@@ -605,7 +606,7 @@ func (h *AdminHandlers) requestsErrorsLast24h(ctx context.Context, db *sql.DB) (
 		        MAX(requests_total) - MIN(requests_total) AS req_delta,
 		        MAX(errors_total)   - MIN(errors_total)   AS err_delta
 		 FROM node_traffic_samples
-		 WHERE sampled_at > NOW() - INTERVAL 1 DAY
+		 WHERE sampled_at > `+store.DateSub(1, "DAY")+`
 		 GROUP BY node_id`)
 	if err != nil {
 		return 0, 0
@@ -657,7 +658,7 @@ func (h *AdminHandlers) perNodeStats(ctx context.Context, db *sql.DB) []nodeStat
 			        (SELECT active_conns FROM node_traffic_samples
 			           WHERE node_id = ? ORDER BY sampled_at DESC LIMIT 1)
 			 FROM node_traffic_samples
-			 WHERE node_id = ? AND sampled_at > NOW() - INTERVAL 1 HOUR`,
+			 WHERE node_id = ? AND sampled_at > `+store.DateSub(1, "HOUR")+``,
 			nodes[i].id, nodes[i].id,
 		).Scan(&maxR, &minR, &maxE, &minE, &maxB, &minB, &ac)
 		nodes[i].row.RequestsHour = uintDelta(maxR, minR)
@@ -688,7 +689,7 @@ func (h *AdminHandlers) trafficTimeseries(ctx context.Context, db *sql.DB) ([]st
 		        node_id,
 		        MAX(requests_total) - MIN(requests_total) AS delta
 		 FROM node_traffic_samples
-		 WHERE sampled_at > NOW() - INTERVAL 1 DAY
+		 WHERE sampled_at > `+store.DateSub(1, "DAY")+`
 		 GROUP BY hr, node_id`)
 	if err == nil {
 		defer rows.Close()
@@ -720,7 +721,7 @@ func (h *AdminHandlers) activityTimeseries(ctx context.Context, db *sql.DB) ([]s
 	rows, err := db.QueryContext(ctx,
 		`SELECT FLOOR(UNIX_TIMESTAMP(created_at)/3600)*3600 AS hr, COUNT(*)
 		 FROM audit_log
-		 WHERE created_at > NOW() - INTERVAL 1 DAY
+		 WHERE created_at > `+store.DateSub(1, "DAY")+`
 		 GROUP BY hr`)
 	if err == nil {
 		defer rows.Close()
@@ -798,50 +799,50 @@ func (h *AdminHandlers) securitySummaryFor(ctx context.Context, db *sql.DB) secu
 	if db == nil {
 		return s
 	}
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&s.LoginSuccess)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='login.fail' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&s.LoginFail)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&s.LoginSuccess)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='login.fail' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&s.LoginFail)
 
 	// Login entry-point + MFA factor breakdown. JSON_EXTRACT works on
 	// the meta column we already stamp from finalizeLogin (via, mfa).
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > NOW() - INTERVAL 24 HOUR
+		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > `+store.DateSub(24, "HOUR")+`
 		   AND JSON_EXTRACT(meta, '$.via') = 'password'`).Scan(&s.LoginViaPass)
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > NOW() - INTERVAL 24 HOUR
+		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > `+store.DateSub(24, "HOUR")+`
 		   AND JSON_EXTRACT(meta, '$.via') = 'oidc'`).Scan(&s.LoginViaOIDC)
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > NOW() - INTERVAL 24 HOUR
+		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > `+store.DateSub(24, "HOUR")+`
 		   AND JSON_EXTRACT(meta, '$.via') = 'passkey'`).Scan(&s.LoginViaPassk)
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM audit_log WHERE action='sso_jump.success' AND created_at > NOW() - INTERVAL 24 HOUR`).Scan(&s.LoginViaSSOJ)
+		`SELECT COUNT(*) FROM audit_log WHERE action='sso_jump.success' AND created_at > `+store.DateSub(24, "HOUR")+``).Scan(&s.LoginViaSSOJ)
 
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > NOW() - INTERVAL 24 HOUR
+		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > `+store.DateSub(24, "HOUR")+`
 		   AND JSON_EXTRACT(meta, '$.mfa') = 'totp'`).Scan(&s.MFATOTP)
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > NOW() - INTERVAL 24 HOUR
+		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > `+store.DateSub(24, "HOUR")+`
 		   AND JSON_EXTRACT(meta, '$.mfa') = 'sms'`).Scan(&s.MFASMS)
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > NOW() - INTERVAL 24 HOUR
+		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > `+store.DateSub(24, "HOUR")+`
 		   AND JSON_EXTRACT(meta, '$.mfa') = 'email'`).Scan(&s.MFAEmail)
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > NOW() - INTERVAL 24 HOUR
+		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > `+store.DateSub(24, "HOUR")+`
 		   AND JSON_EXTRACT(meta, '$.mfa') = 'passkey'`).Scan(&s.MFAPasskey)
 	_ = db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > NOW() - INTERVAL 24 HOUR
+		`SELECT COUNT(*) FROM audit_log WHERE action='login.success' AND created_at > `+store.DateSub(24, "HOUR")+`
 		   AND JSON_EXTRACT(meta, '$.mfa') = 'none'`).Scan(&s.MFANone)
 
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='passkey.register' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&s.PasskeyAdds)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='passkey.delete' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&s.PasskeyDels)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='passkey.register' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&s.PasskeyAdds)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='passkey.delete' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&s.PasskeyDels)
 	_ = db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM audit_log
 		  WHERE action IN ('2fa.fail','2fa.sms.fail','2fa.email.fail')
-		    AND created_at > NOW() - INTERVAL 24 HOUR`).Scan(&s.OTPFails)
+		    AND created_at > `+store.DateSub(24, "HOUR")+``).Scan(&s.OTPFails)
 	_ = db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM audit_log
 		  WHERE action='login.fail'
 		    AND JSON_EXTRACT(meta, '$.reason') = 'rate_limited'
-		    AND created_at > NOW() - INTERVAL 24 HOUR`).Scan(&s.BFLockouts)
+		    AND created_at > `+store.DateSub(24, "HOUR")+``).Scan(&s.BFLockouts)
 
 	// Enrollment posture - useful even without traffic.
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users WHERE totp_enabled = 1").Scan(&s.UsersWithTOTP)
@@ -861,18 +862,18 @@ func (h *AdminHandlers) opsSummaryFor(ctx context.Context, db *sql.DB) opsSummar
 	if db == nil {
 		return o
 	}
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='caddy.push.ok' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.CaddyPushes)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='caddy.push.fail' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.CaddyPushFails)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='admin.host.cache.purge' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.CacheFlushes)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='route.create' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.RoutesCreated)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='route.delete' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.RoutesDeleted)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='backup.run.ok' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.BackupsRun)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='backup.run.fail' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.BackupsFailed)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='webhook.delivery.ok' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.WebhookSent)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='webhook.delivery.fail' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.WebhookFailed)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='sso_jump.success' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.SSOJumpSuccess)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='sso_jump.denied' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.SSOJumpDenied)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action LIKE 'api_key.create%' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.APIKeysCreated)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action LIKE 'api_key.revoke%' AND created_at > NOW() - INTERVAL 24 HOUR").Scan(&o.APIKeysRevoked)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='caddy.push.ok' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.CaddyPushes)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='caddy.push.fail' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.CaddyPushFails)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='admin.host.cache.purge' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.CacheFlushes)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='route.create' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.RoutesCreated)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='route.delete' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.RoutesDeleted)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='backup.run.ok' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.BackupsRun)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='backup.run.fail' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.BackupsFailed)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='webhook.delivery.ok' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.WebhookSent)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='webhook.delivery.fail' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.WebhookFailed)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='sso_jump.success' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.SSOJumpSuccess)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='sso_jump.denied' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.SSOJumpDenied)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action LIKE 'api_key.create%' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.APIKeysCreated)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action LIKE 'api_key.revoke%' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.APIKeysRevoked)
 	return o
 }

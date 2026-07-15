@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // emptyResult is returned by scoped tools when the caller's scope resolves to no
@@ -445,7 +447,7 @@ func (r *Registry) serviceDetailScoped(ctx context.Context, scope Scope, raw jso
 	      JOIN plans p ON p.id = s.plan_id
 	      JOIN node_groups ng ON ng.id = s.node_group_id
 	      LEFT JOIN routes ro ON ro.service_id = s.id
-	      LEFT JOIN log_rollups lr ON lr.route_id = ro.id AND lr.bucket_start >= NOW() - INTERVAL 30 DAY
+	      LEFT JOIN log_rollups lr ON lr.route_id = ro.id AND lr.bucket_start >= ` + store.DateSub(30, "DAY") + `
 	      WHERE (s.id = ? OR s.name = ?) AND s.client_id IN ` + in + `
 	      GROUP BY s.id`
 	args2 := append([]any{numID, id}, idArgs...)

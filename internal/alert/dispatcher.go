@@ -28,7 +28,7 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
 	var lastFired sql.NullTime
 	_ = db.QueryRowContext(ctx,
 		`SELECT MAX(fired_at) FROM alert_log
-		  WHERE dedupe_key = ? AND fired_at > (NOW() - INTERVAL ? SECOND)`,
+		  WHERE dedupe_key = ? AND fired_at > (`+store.DateSubParam("SECOND")+`)`,
 		key, e.Cfg.CooldownSeconds).Scan(&lastFired)
 	if lastFired.Valid {
 		return
@@ -124,7 +124,7 @@ func (e *Evaluator) TestFire(ctx context.Context, a Alert) {
 // pruneLog bounds table size by dropping rows past the retention window.
 func (e *Evaluator) pruneLog(ctx context.Context, db *sql.DB) {
 	_, _ = db.ExecContext(ctx,
-		`DELETE FROM alert_log WHERE fired_at < (NOW() - INTERVAL ? DAY)`,
+		`DELETE FROM alert_log WHERE fired_at < (`+store.DateSubParam("DAY")+`)`,
 		e.Cfg.RetentionDays)
 }
 

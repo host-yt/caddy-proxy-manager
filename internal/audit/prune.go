@@ -5,6 +5,8 @@ import (
 	"database/sql"
 	"strconv"
 	"strings"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // Prune deletes audit_log rows older than `audit.retention_days` setting
@@ -24,13 +26,13 @@ func Prune(ctx context.Context, db *sql.DB) (int64, error) {
 		return 0, nil
 	}
 	res, err := db.ExecContext(ctx,
-		"DELETE FROM audit_log WHERE created_at < (NOW() - INTERVAL ? DAY)", days)
+		"DELETE FROM audit_log WHERE created_at < ("+store.DateSubParam("DAY")+")", days)
 	if err != nil {
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
 	// Also prune old webhook deliveries (same retention).
 	_, _ = db.ExecContext(ctx,
-		"DELETE FROM webhook_deliveries WHERE created_at < (NOW() - INTERVAL ? DAY) AND status <> 'pending'", days)
+		"DELETE FROM webhook_deliveries WHERE created_at < ("+store.DateSubParam("DAY")+") AND status <> 'pending'", days)
 	return n, nil
 }
