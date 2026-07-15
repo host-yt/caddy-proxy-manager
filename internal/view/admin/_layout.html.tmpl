@@ -419,8 +419,10 @@
 <!-- AI chat bubble (floating, fixed bottom-right, z-[70] above toasts). -->
 {{template "ai_bubble" .}}
 
-<!-- Toast container (bottom-right). Auto-injected toasts stack here. -->
-<div id="hpg-toasts" role="region" aria-live="polite" aria-label="Notifications" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none w-80 max-w-[calc(100vw-2rem)]"></div>
+<!-- Toast container (bottom-right). Auto-injected toasts stack here.
+     bottom-24 clears the AI bubble (fixed bottom-right, z-[70]) - at bottom-4
+     the bubble sat on top of the first toast and cut off its text. -->
+<div id="hpg-toasts" role="region" aria-live="polite" aria-label="Notifications" class="fixed bottom-24 right-4 z-50 flex flex-col gap-2 pointer-events-none w-80 max-w-[calc(100vw-2rem)]"></div>
 
 <!-- Modal confirm (replaces native confirm()). Backdrop blur, centered card. -->
 <div id="hpg-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/40 backdrop-blur-sm p-4">

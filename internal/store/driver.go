@@ -81,6 +81,17 @@ func DateAddParam(unit string) string {
 	return "(NOW() + INTERVAL ? " + unit + ")"
 }
 
+// TimestampDiff returns TIMESTAMPDIFF(unit, a, b) spelled for the dialect.
+// MySQL takes the unit as a bare keyword; the function registered on SQLite
+// takes it as a string - passing the keyword there parses as a column
+// reference ("no such column: DAY").
+func TimestampDiff(unit, a, b string) string {
+	if Driver() == "sqlite3" {
+		return "TIMESTAMPDIFF('" + unit + "', " + a + ", " + b + ")"
+	}
+	return "TIMESTAMPDIFF(" + unit + ", " + a + ", " + b + ")"
+}
+
 // Now returns the dialect's current-timestamp expression.
 func Now() string {
 	if Driver() == "sqlite3" {

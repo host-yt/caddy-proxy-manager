@@ -522,7 +522,7 @@ func (r *Registry) listWGPeersScoped(ctx context.Context, scope Scope, raw json.
 	}
 	q := `SELECT p.name, p.status, p.assigned_ip,
 	             COALESCE(DATE_FORMAT(p.last_handshake_at,'%Y-%m-%dT%H:%i:%sZ'),''),
-	             TIMESTAMPDIFF(SECOND, p.last_handshake_at, NOW()),
+	             ` + store.TimestampDiff("SECOND", "p.last_handshake_at", "NOW()") + `,
 	             p.rx_bytes, p.tx_bytes, COALESCE(n.name,'')
 	      FROM customer_wg_peer p
 	      LEFT JOIN caddy_nodes n ON n.id = p.node_id

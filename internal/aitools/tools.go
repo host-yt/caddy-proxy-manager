@@ -872,7 +872,7 @@ func (r *Registry) listWGPeers(ctx context.Context, raw json.RawMessage) (string
 
 	q := `SELECT p.name, p.status, p.assigned_ip,
 	             COALESCE(DATE_FORMAT(p.last_handshake_at,'%Y-%m-%dT%H:%i:%sZ'),''),
-	             TIMESTAMPDIFF(SECOND, p.last_handshake_at, NOW()),
+	             ` + store.TimestampDiff("SECOND", "p.last_handshake_at", "NOW()") + `,
 	             p.rx_bytes, p.tx_bytes,
 	             COALESCE(u.email,''), n.name
 	      FROM customer_wg_peer p
@@ -930,7 +930,7 @@ func (r *Registry) backupStatus(ctx context.Context, raw json.RawMessage) (strin
 		`SELECT d.name, d.kind,
 		        j.kind, j.status,
 		        j.size_bytes,
-		        TIMESTAMPDIFF(SECOND, j.started_at, COALESCE(j.finished_at, NOW())),
+		        `+store.TimestampDiff("SECOND", "j.started_at", "COALESCE(j.finished_at, NOW())")+`,
 		        COALESCE(DATE_FORMAT(j.created_at,'%Y-%m-%dT%H:%i:%sZ'),''),
 		        COALESCE(LEFT(j.error_text,200),'')
 		 FROM backup_jobs j
@@ -1374,7 +1374,7 @@ func (r *Registry) listSSLCerts(ctx context.Context, raw json.RawMessage) (strin
 	rows, err := db.QueryContext(ctx,
 		`SELECT mc.id, mc.name, mc.common_name, mc.sans,
 		        DATE_FORMAT(mc.not_after,'%Y-%m-%dT%H:%i:%sZ'),
-		        TIMESTAMPDIFF(DAY, NOW(), mc.not_after),
+		        `+store.TimestampDiff("DAY", "NOW()", "mc.not_after")+`,
 		        COALESCE(rt.domain,'')
 		 FROM manual_certs mc
 		 LEFT JOIN routes rt ON rt.id = mc.route_id

@@ -1,0 +1,92 @@
+# Single-node SQLite e2e harness (see e2e_sqlite.sh). The counterpart to
+# docker-compose.multinode.yml for the other supported DB engine: no mariadb
+# at all - the wizard is driven down its sqlite3 path and the panel keeps its
+# state in a tmpfs-backed /app/data.
+#
+# Ports are one hundred up from the multinode harness (181xx vs 180xx) so
+# both can run side by side.
+#
+# Usage: make e2e-sqlite (wraps this file + the test script).
+
+services:
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    networks: [e2e]
+
+  # Fake authoritative DNS so the panel's DNS-ownership check can resolve
+  # the harness's fictional test domains. Shared fixture with the multinode
+  # harness - see multinode/coredns/Corefile.
+  dns-fake:
+    image: coredns/coredns:1.11.3
+    command: ["-conf", "/etc/coredns/Corefile"]
+    volumes:
+      - ./multinode/coredns:/etc/coredns:ro
+    networks: [e2e]
+
+  # Tiny static upstream the test route proxies to.
+  whoami:
+    image: traefik/whoami:v1.10
+    networks: [e2e]
+
+  caddy-a:
+    image: caddy:2.11.4
+    volumes:
+      - ./multinode/Caddyfile:/etc/caddy/Caddyfile:ro
+    ports:
+      - "127.0.0.1:18181:80"
+      - "127.0.0.1:18191:2019"
+    networks: [e2e]
+
+  panel:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+      dns-fake:
+        condition: service_started
+    environment:
+      APP_ENV: production
+      APP_URL: http://panel.e2e.test:8080
+      APP_BIND: 0.0.0.0:8080
+      APP_SECRET: e2e-fixed-dev-secret-not-for-prod-use-32c
+      INSTALL_TOKEN: e2e-install-token
+      LOG_LEVEL: info
+      REDIS_ADDR: redis:6379
+      # Plain HTTP harness - the prod default (true) would drop the
+      # session cookie on every non-TLS response and break the login step.
+      SESSION_COOKIE_SECURE: "false"
+      CADDY_ACME_EMAIL: bootstrap@invalid.local
+      # See multinode/coredns/Corefile: internal/dns.Check dials these
+      # resolvers directly, never Docker's embedded DNS.
+      HPG_DNS_RESOLVERS: dns-fake:53
+      # Stock caddy:2.11.4 carries none of the xcaddy modules; every
+      # *_AVAILABLE flag must stay off or the pushed config takes the
+      # node offline.
+      CACHE_HANDLER_AVAILABLE: "0"
+      LAYER4_AVAILABLE: "0"
+      WEIGHTED_LB_AVAILABLE: "0"
+      RATE_LIMIT_AVAILABLE: "0"
+      WAF_MODULE_AVAILABLE: "0"
+      DNS01_AVAILABLE: "0"
+      GEOIP_AVAILABLE: "0"
+    volumes:
+      # The sqlite file lives here; the image runs as distroless nonroot
+      # (uid 65532) with no shell to chown anything, so a world-writable
+      # tmpfs is the simplest writable data dir for a throwaway harness.
+      - type: tmpfs
+        target: /app/data
+        tmpfs:
+          mode: 0777
+    ports:
+      - "127.0.0.1:18180:8080"
+    networks: [e2e]
+
+networks:
+  e2e:
+    driver: bridge

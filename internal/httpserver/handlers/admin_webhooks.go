@@ -13,6 +13,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 type webhookRow struct {
@@ -62,9 +63,9 @@ func (h *AdminHandlers) WebhooksPage(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(ld.http_code,0),
 		        CASE
 		          WHEN ld.created_at IS NULL THEN ''
-		          WHEN TIMESTAMPDIFF(SECOND,ld.created_at,NOW()) < 120 THEN CONCAT(TIMESTAMPDIFF(SECOND,ld.created_at,NOW()),'s ago')
-		          WHEN TIMESTAMPDIFF(MINUTE,ld.created_at,NOW()) < 120 THEN CONCAT(TIMESTAMPDIFF(MINUTE,ld.created_at,NOW()),'m ago')
-		          ELSE CONCAT(TIMESTAMPDIFF(HOUR,ld.created_at,NOW()),'h ago')
+		          WHEN `+store.TimestampDiff("SECOND", "ld.created_at", "NOW()")+` < 120 THEN CONCAT(`+store.TimestampDiff("SECOND", "ld.created_at", "NOW()")+`,'s ago')
+		          WHEN `+store.TimestampDiff("MINUTE", "ld.created_at", "NOW()")+` < 120 THEN CONCAT(`+store.TimestampDiff("MINUTE", "ld.created_at", "NOW()")+`,'m ago')
+		          ELSE CONCAT(`+store.TimestampDiff("HOUR", "ld.created_at", "NOW()")+`,'h ago')
 		        END,
 		        COALESCE(LEFT(ld.last_error,60),'')
 		 FROM webhook_endpoints e

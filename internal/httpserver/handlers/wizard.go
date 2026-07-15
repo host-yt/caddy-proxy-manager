@@ -300,7 +300,11 @@ func profileViewData(saved string) profileForm {
 	}
 	sel := saved
 	if sel == "" {
-		sel = string(deployment.Default)
+		// Preselect the simplest profile, not deployment.Default: that constant
+		// is the fallback for EXISTING installs that predate profiles (provider,
+		// the old implicit behaviour) and must stay put. A fresh wizard visitor
+		// is better served starting minimal and opting up.
+		sel = string(deployment.ProfileHomelab)
 	}
 	return profileForm{Options: opts, Selected: sel}
 }

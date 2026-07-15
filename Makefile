@@ -155,6 +155,10 @@ docker-logs:
 e2e-multinode: ## Scripted 2-node active_active e2e (panel + 2 stock caddy nodes).
 	deploy/integration/e2e_multinode.sh
 
+.PHONY: e2e-sqlite
+e2e-sqlite: ## Scripted single-node e2e on the sqlite3 wizard path; fails on any logged SQL error.
+	deploy/integration/e2e_sqlite.sh
+
 # --- Edge Caddy image (WAF / cache / L4 / geoip / rate-limit) ---------------
 # Standalone build+push of the custom Caddy image so it can be rolled to EVERY
 # node (central + remote joins) BEFORE flipping WAF_MODULE_AVAILABLE=1. Stock

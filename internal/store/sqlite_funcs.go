@@ -211,6 +211,11 @@ func parseSQLiteTime(v driver.Value) (time.Time, error) {
 		return x, nil
 	case string:
 		for _, layout := range []string{
+			// Go's time.Time binds through the driver as its String() form -
+			// "2026-07-15 08:04:05.123456789 +0000 UTC" - so that layout has to
+			// parse or every function over a driver-written column returns NULL.
+			"2006-01-02 15:04:05.999999999 -0700 MST",
+			"2006-01-02 15:04:05 -0700 MST",
 			"2006-01-02 15:04:05.999999999-07:00",
 			"2006-01-02 15:04:05.999999999",
 			"2006-01-02 15:04:05",

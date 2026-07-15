@@ -261,7 +261,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 		   JOIN caddy_nodes n ON n.id = r.caddy_node_id
 		   WHERE `+whereSQL, args...).Scan(&d.Total); err != nil {
 		h.Logger.Error("hosts list count", "err", err)
-		d.Error = "query failed"
+		d.Error = "Could not load the hosts list. Refresh to retry; if it persists, check the panel logs for 'hosts list count'."
 		h.render(w, "hosts", d)
 		return
 	}
@@ -332,7 +332,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	rows, err := db.QueryContext(ctx, q, pageArgs...)
 	if err != nil {
 		h.Logger.Error("hosts list query", "err", err)
-		d.Error = "query failed"
+		d.Error = "Could not load the hosts list. Refresh to retry; if it persists, check the panel logs for 'hosts list query'."
 		h.render(w, "hosts", d)
 		return
 	}
@@ -2231,7 +2231,7 @@ func (h *AdminHandlers) CertsList(w http.ResponseWriter, r *http.Request) {
 		 LIMIT 500`)
 	if err != nil {
 		h.Logger.Error("certs list", "err", err)
-		d.Error = "query failed"
+		d.Error = "Could not load the certificate list. Refresh to retry; if it persists, check the panel logs for 'certs list'."
 		h.render(w, "certs", d)
 		return
 	}

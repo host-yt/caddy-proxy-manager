@@ -29,6 +29,10 @@ func Open(ctx context.Context, driver, dsn string, timeout time.Duration) (*sql.
 
 	if driver == "sqlite3" {
 		// SQLite is single-writer; one open conn avoids SQLITE_BUSY races.
+		// ForUpdate() also leans on this: it drops the FOR UPDATE clause on
+		// SQLite precisely because a single connection means the read and the
+		// write it guards cannot interleave. Raising this limit reintroduces
+		// the races those row locks prevent on MySQL.
 		db.SetMaxOpenConns(1)
 		db.SetMaxIdleConns(1)
 	} else {

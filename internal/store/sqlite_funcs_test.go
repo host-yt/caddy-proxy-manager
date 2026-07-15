@@ -41,6 +41,10 @@ func TestSQLiteMySQLCompatFuncs(t *testing.T) {
 		{"LOCATE returns 0 when absent", "LOCATE('z', 'abc')", "0"},
 		{"SUBSTRING_INDEX takes the first field", "SUBSTRING_INDEX('host:443', ':', 1)", "host"},
 		{"SUBSTRING_INDEX passes through a missing delimiter", "SUBSTRING_INDEX('host', ':', 1)", "host"},
+		// The driver binds time.Time as its String() form; both functions must
+		// parse it or every driver-written timestamp column yields NULL.
+		{"DATE_FORMAT reads a driver-written time.Time", "DATE_FORMAT('2026-07-15 08:04:05.123456789 +0000 UTC', '%Y-%m-%d %H:%i')", "2026-07-15 08:04"},
+		{"UNIX_TIMESTAMP reads a driver-written time.Time", "UNIX_TIMESTAMP('2026-01-01 00:00:00 +0000 UTC')", "1767225600"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

@@ -112,7 +112,7 @@ func certFailing(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 // than the threshold. Column is `name` (not peer_name) per schema 00020.
 func wgTunnelStale(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 	rows, err := db.QueryContext(ctx, `
-		SELECT id, name, TIMESTAMPDIFF(SECOND, last_handshake_at, NOW()) AS age_sec
+		SELECT id, name, `+store.TimestampDiff("SECOND", "last_handshake_at", "NOW()")+` AS age_sec
 		  FROM customer_wg_peer
 		 WHERE status = 'active'
 		   AND last_handshake_at IS NOT NULL
@@ -268,7 +268,7 @@ func manualCertExpiry(ctx context.Context, db *sql.DB, cfg Config, log *slog.Log
 	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT id, name, common_name, route_id, not_after,
-		       TIMESTAMPDIFF(DAY, NOW(), not_after) AS days_left
+		       `+store.TimestampDiff("DAY", "NOW()", "not_after")+` AS days_left
 		  FROM manual_certs
 		 WHERE not_after < (`+store.DateAddParam("DAY")+`)`,
 		threshold)

@@ -2,3 +2,5 @@
 # passes for the harness's test route. Must match the public_ip set on
 # node-1 (caddy-a) in e2e_multinode.sh - see comment in Corefile.
 203.0.113.10 app.e2e.test
+# Second record for the sqlite harness's redirect-route assertion.
+203.0.113.10 redirect.e2e.test

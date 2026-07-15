@@ -58,7 +58,7 @@ func (h *AdminHandlers) ManualCertsList(w http.ResponseWriter, r *http.Request) 
 	recs, err := svc.List(ctx)
 	if err != nil {
 		h.Logger.Error("manual certs list", "err", err)
-		d.Error = "query failed"
+		d.Error = "Could not load manual certificates. Refresh to retry; if it persists, check the panel logs for 'manual certs list'."
 		h.render(w, "manual_certs", d)
 		return
 	}

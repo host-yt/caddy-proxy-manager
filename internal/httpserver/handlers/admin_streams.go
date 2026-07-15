@@ -208,7 +208,7 @@ func (h *AdminHandlers) StreamsList(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY sr.listen_port ASC, sr.id ASC`, streamArgs...)
 	if err != nil {
 		h.Logger.Warn("streams list", "err", err)
-		d.Error = "query failed"
+		d.Error = "Could not load L4 streams. Refresh to retry; if it persists, check the panel logs for 'streams list'."
 		h.render(w, "streams", d)
 		return
 	}

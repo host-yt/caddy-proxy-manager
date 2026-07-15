@@ -9,6 +9,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/notify"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // NodeResyncer can push a fresh Caddy config to a node after key rotation.
@@ -25,7 +26,7 @@ type WGKeyRotationJob struct {
 	// Peers delegates actual rotation so the job shares key-encrypt +
 	// bootstrap-token issuance with the manual RotateKey path.
 	Peers    *wgpeer.Service
-	Routes   NodeResyncer   // optional; triggers Caddy push after rotation
+	Routes   NodeResyncer     // optional; triggers Caddy push after rotation
 	Notifier *notify.Customer // optional; emails the client after rotation
 }
 
@@ -88,7 +89,7 @@ func (j *WGKeyRotationJob) tick(ctx context.Context) {
 		      ) > 0
 		  AND (
 			(p.last_rotated_at IS NULL AND p.last_key_rotation_at IS NULL)
-			OR TIMESTAMPDIFF(DAY, GREATEST(COALESCE(p.last_rotated_at, '2000-01-01'), COALESCE(p.last_key_rotation_at, '2000-01-01')), NOW()) >=
+			OR `+store.TimestampDiff("DAY", "GREATEST(COALESCE(p.last_rotated_at, '2000-01-01'), COALESCE(p.last_key_rotation_at, '2000-01-01'))", "NOW()")+` >=
 			    COALESCE(
 				    p.key_rotation_days,
 				    sp.plan_days,

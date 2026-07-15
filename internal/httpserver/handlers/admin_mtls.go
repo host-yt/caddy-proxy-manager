@@ -183,7 +183,7 @@ func (h *AdminHandlers) MTLSList(w http.ResponseWriter, r *http.Request) {
 	rows, err := h.loadMTLSView(ctx, svc)
 	if err != nil {
 		h.Logger.Error("mtls list", "err", err)
-		d.Error = "query failed"
+		d.Error = "Could not load mTLS CAs. Refresh to retry; if it persists, check the panel logs for 'mtls list'."
 		h.render(w, "mtls", d)
 		return
 	}
