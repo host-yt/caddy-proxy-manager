@@ -1,7 +1,10 @@
 package store
 
 import (
+	"crypto/sha256"
+	"crypto/sha512"
 	"database/sql/driver"
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"time"
@@ -35,12 +38,40 @@ func init() {
 	sqlite3.MustRegisterScalarFunction("DATEDIFF", 2, dateDiff)
 	sqlite3.MustRegisterScalarFunction("TIMESTAMPDIFF", 3, timestampDiff)
 	sqlite3.MustRegisterScalarFunction("UNIX_TIMESTAMP", 1, unixTimestamp)
+	sqlite3.MustRegisterScalarFunction("SHA2", 2, sha2Func)
 	sqlite3.MustRegisterScalarFunction("LEFT", 2, leftFunc)
 	sqlite3.MustRegisterScalarFunction("LOCATE", 2, locateFunc)
 	sqlite3.MustRegisterScalarFunction("SUBSTRING_INDEX", 3, substringIndex)
 	// CONCAT, GROUP_CONCAT, IF and IFNULL already resolve natively, and integer
 	// division is what "/" does on integers here, so MySQL's DIV needs no
 	// function - see IntDiv in driver.go.
+}
+
+// sha2Func implements MySQL's SHA2(str, bits) for the widths the panel uses.
+// Node-agent auth compares agent_token_hash = SHA2(?, 256).
+func sha2Func(_ *sqlite3.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if args[0] == nil {
+		return nil, nil
+	}
+	var data []byte
+	switch x := args[0].(type) {
+	case string:
+		data = []byte(x)
+	case []byte:
+		data = x
+	default:
+		return nil, fmt.Errorf("SHA2: unsupported input %T", args[0])
+	}
+	bits, _ := toInt(args[1])
+	switch bits {
+	case 256, 0: // MySQL treats 0 as 256
+		sum := sha256.Sum256(data)
+		return hex.EncodeToString(sum[:]), nil
+	case 512:
+		sum := sha512.Sum512(data)
+		return hex.EncodeToString(sum[:]), nil
+	}
+	return nil, fmt.Errorf("SHA2: unsupported width %d", bits)
 }
 
 // unixTimestamp implements MySQL's UNIX_TIMESTAMP(value) - epoch seconds.

@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // DumpDatabase writes a logical dump (DDL + INSERTs) of the connected
@@ -23,6 +25,10 @@ import (
 func DumpDatabase(ctx context.Context, db *sql.DB, w io.Writer) error {
 	if db == nil {
 		return fmt.Errorf("dump: nil db")
+	}
+	if store.Driver() == "sqlite3" {
+		// Different introspection AND different string escaping - see dump_sqlite.go.
+		return dumpSQLite(ctx, db, w)
 	}
 	bw := bufio.NewWriterSize(w, 1<<16)
 	defer bw.Flush()

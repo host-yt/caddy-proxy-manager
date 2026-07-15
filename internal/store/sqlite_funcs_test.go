@@ -45,6 +45,8 @@ func TestSQLiteMySQLCompatFuncs(t *testing.T) {
 		// parse it or every driver-written timestamp column yields NULL.
 		{"DATE_FORMAT reads a driver-written time.Time", "DATE_FORMAT('2026-07-15 08:04:05.123456789 +0000 UTC', '%Y-%m-%d %H:%i')", "2026-07-15 08:04"},
 		{"UNIX_TIMESTAMP reads a driver-written time.Time", "UNIX_TIMESTAMP('2026-01-01 00:00:00 +0000 UTC')", "1767225600"},
+		{"SHA2/256 matches crypto/sha256", "SHA2('abc', 256)", "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"},
+		{"SHA2 is NULL-safe", "COALESCE(SHA2(NULL, 256), 'null')", "null"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

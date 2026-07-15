@@ -182,6 +182,38 @@ HTTP_CODE=$(curl -sS -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $A
 [[ "$HTTP_CODE" == "200" ]] || fail "GET /api/v1/routes returned $HTTP_CODE"
 record_pass "REST API serves route list on sqlite"
 
+# ---- 5b. backup + restore drill on the sqlite engine ------------------------
+# The dump/restore path is engine-specific (sqlite has no information_schema/
+# SHOW CREATE and doubles quotes instead of backslash-escaping), so it gets its
+# own coverage here rather than relying on the MySQL harness.
+
+# panel_log_has PATTERN - grep the panel container's log. Wraps the compose
+# array in a helper so poll_until's check runs in this shell (a bash -c subshell
+# can't see the COMPOSE array).
+panel_log_has() {
+	"${COMPOSE[@]}" logs panel 2>/dev/null | grep -q "$1"
+}
+
+log "creating a local backup destination and running a backup"
+# The panel writes into /app/data (tmpfs, mode 0777) so the nonroot process can
+# create the backups dir itself - no chown needed.
+FORM_CSRF=$(csrf_from "$PANEL/admin/backups")
+curl -sS -o /dev/null -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+	--data "csrf_token=$FORM_CSRF&kind=local&name=e2e-local&cfg_path=/app/data/backups" \
+	"$PANEL/admin/backups/destinations"
+FORM_CSRF=$(csrf_from "$PANEL/admin/backups")
+curl -sS -o /dev/null -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+	--data "csrf_token=$FORM_CSRF&destination_id=1" "$PANEL/admin/backups/run-now"
+
+# run-now is async; poll the log for the ok line rather than sleeping blind.
+poll_until "backup produced an artifact on sqlite" 30 panel_log_has '"msg":"backup: ok"'
+
+log "running a restore drill against the sqlite artifact"
+FORM_CSRF=$(csrf_from "$PANEL/admin/backups")
+curl -sS -o /dev/null -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+	--data "csrf_token=$FORM_CSRF" "$PANEL/admin/backups/drill/run"
+poll_until "restore drill verified core tables on sqlite" 45 panel_log_has "backup-drill: ok"
+
 # ---- 6. every admin nav page renders ------------------------------------------
 
 log "sweeping every sidebar link for a 200"

@@ -236,7 +236,11 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 		return 0, fmt.Errorf("extract dump.sql: %w", err)
 	}
 
-	// 6. Open side-connection to the same MariaDB server, targeting the drill schema.
+	// 6. Restore into a scratch database. On SQLite that is a throwaway file;
+	// on MySQL a side-schema on the production server.
+	if store.Driver() == "sqlite3" {
+		return j.restoreSQLite(ctx, dumpSQL)
+	}
 	// Use full timestamp so re-runs on the same day get a fresh empty schema.
 	drillSchema := "hpg_drill_" + time.Now().UTC().Format("20060102_150405")
 	drillDSN, err := j.drillDSN(drillSchema)
@@ -324,6 +328,61 @@ func extractDumpSQL(src io.Reader) (string, error) {
 // Statements that could affect the production server (USE, DROP DATABASE,
 // GRANT, CREATE/DROP USER, REVOKE) are skipped entirely.
 // Returns the count of statements that executed without error.
+// restoreSQLite replays the dump into a temp-file SQLite database and verifies
+// the core tables arrived. Same contract as the MySQL path; the scratch DB is
+// a file because that is the whole engine - no server, no side schema.
+func (j *BackupDrillJob) restoreSQLite(ctx context.Context, dumpSQL string) (int, error) {
+	dir, err := os.MkdirTemp("", "hpg-drill-*")
+	if err != nil {
+		return 0, fmt.Errorf("mkdir drill dir: %w", err)
+	}
+	defer os.RemoveAll(dir)
+
+	drillDB, err := sql.Open("sqlite", filepath.Join(dir, "drill.db"))
+	if err != nil {
+		return 0, fmt.Errorf("open drill db: %w", err)
+	}
+	defer drillDB.Close()
+	drillDB.SetMaxOpenConns(1)
+
+	restoreCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+
+	// SplitSQLStatements (not the ";\n" split): sqlite dump values keep raw
+	// newlines and semicolons inside their quotes.
+	var rowsReplayed int
+	for _, stmt := range backup.SplitSQLStatements(dumpSQL) {
+		if isDangerousSQL(stmt) {
+			j.Logger.Debug("backup-drill: skipping dangerous stmt", "stmt_prefix", drillTruncate(stmt, 80))
+			continue
+		}
+		if _, err := drillDB.ExecContext(restoreCtx, stmt); err != nil {
+			j.Logger.Debug("backup-drill: stmt error (non-fatal)",
+				"err", err, "stmt_prefix", drillTruncate(stmt, 80))
+		} else {
+			rowsReplayed++
+		}
+	}
+
+	found := 0
+	for _, t := range coreTables {
+		var n int
+		if err := drillDB.QueryRowContext(restoreCtx,
+			`SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?`, t,
+		).Scan(&n); err != nil {
+			return rowsReplayed, fmt.Errorf("verify tables: %w", err)
+		}
+		if n > 0 {
+			found++
+		}
+	}
+	if found < minTableCount {
+		return rowsReplayed, fmt.Errorf("only %d/%d core tables present after restore", found, minTableCount)
+	}
+	j.Logger.Info("backup-drill: tables verified", "found", found, "required", minTableCount)
+	return rowsReplayed, nil
+}
+
 func (j *BackupDrillJob) replaySQL(ctx context.Context, db *sql.DB, dump string) int {
 	stmts := strings.Split(dump, ";\n")
 	var ok int
