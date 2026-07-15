@@ -7,10 +7,25 @@
     <div>
       <p class="t-eyebrow">Hosts</p>
       <h2 class="t-h2">Add host</h2>
-      <p class="t-caption">Point a public domain at a backend, or 308-redirect it elsewhere. Plan + service rows are provisioned automatically under your admin account.</p>
+      <p class="t-caption">Point a public domain at a backend, or redirect it elsewhere. HTTPS certificates are issued automatically when SSL is on.</p>
     </div>
   </div>
 
+  {{if not .NodeGroups}}
+  <!-- First-run: no eligible nodes yet - guide instead of a dead form. -->
+  <div class="r-card space-y-4">
+    <p class="t-body font-medium">No Caddy nodes are ready yet</p>
+    <p class="t-caption">A host needs at least one approved and enabled Caddy node to serve traffic. Three steps:</p>
+    <ol class="list-decimal ml-5 space-y-1 t-body">
+      <li>Add a node under <a href="/admin/nodes" class="underline" style="color:rgb(var(--accent))">Caddy nodes</a> and install the agent on your server</li>
+      <li>Approve and enable the node once it connects</li>
+      <li>Come back here and add your host</li>
+    </ol>
+    <div class="pt-1">
+      <a href="/admin/nodes" class="r-btn-primary inline-flex items-center gap-1.5">Go to Caddy nodes</a>
+    </div>
+  </div>
+  {{else}}
   <form method="POST" action="/admin/hosts/new" class="space-y-5 text-sm">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 
@@ -33,7 +48,7 @@
                  class="r-input flex-1">
           <button type="button" id="hpg-dns-check" class="r-btn-secondary text-xs cursor-pointer">Check DNS</button>
         </div>
-        <p id="hpg-dns-result" class="t-caption mt-1">DNS A record for this domain must point at the node's public IP before Let's Encrypt will issue a cert.</p>
+        <p id="hpg-dns-result" class="t-caption mt-1">DNS A record for this domain must point at the serving node's public IP before Let's Encrypt will issue a cert. Pick a node group below to enable the check.</p>
       </div>
 
       <div id="hpg-proxy-fields" class="grid grid-cols-6 gap-3">
@@ -46,12 +61,12 @@
         </div>
         <div class="col-span-3">
           <label class="t-eyebrow mb-1 block">Backend host (IP or hostname)</label>
-          <input name="backend_ip" value="{{.Form.BackendIP}}" placeholder="10.0.0.5 or backend.example.com"
+          <input id="hpg-backend" name="backend_ip" value="{{.Form.BackendIP}}" placeholder="10.0.0.5 or backend.example.com"
                  class="r-input w-full">
         </div>
         <div class="col-span-2">
           <label class="t-eyebrow mb-1 block">Port</label>
-          <input name="port" value="{{.Form.Port}}" type="number" min="1" max="65535" placeholder="8080"
+          <input id="hpg-port" name="port" value="{{.Form.Port}}" type="number" min="1" max="65535" placeholder="8080"
                  class="r-input w-full">
         </div>
       </div>
@@ -59,7 +74,7 @@
       <div id="hpg-redirect-fields" class="grid grid-cols-4 gap-3 hidden">
         <div class="col-span-3">
           <label class="t-eyebrow mb-1 block">Destination URL</label>
-          <input name="redirect_url" value="{{.Form.RedirectURL}}" placeholder="https://target.example.com"
+          <input id="hpg-redirect-url" name="redirect_url" value="{{.Form.RedirectURL}}" placeholder="https://target.example.com"
                  class="r-input w-full">
         </div>
         <div>
@@ -74,19 +89,21 @@
       </div>
 
       <div>
-        <label class="t-eyebrow mb-1 block">Caddy node</label>
-        <select name="node_id" required class="r-select w-full">
-          <option value="">-- pick a node --</option>
-          {{range .Nodes}}
-          <option value="{{.ID}}" {{if eq (printf "%d" .ID) $.Form.NodeID}}selected{{end}}>{{.Name}} ({{.Hostname}}, group: {{.Group}})</option>
+        <label class="t-eyebrow mb-1 block">Node group</label>
+        <select id="hpg-node-group" name="node_group_id" required class="r-select w-full">
+          <option value="">-- pick a node group --</option>
+          {{range .NodeGroups}}
+          <option value="{{.ID}}" data-mode="{{.Mode}}"
+                  data-nodes="{{range $i, $n := .Nodes}}{{if $i}}, {{end}}{{$n.Name}}{{if $n.IP}} ({{$n.IP}}){{end}}{{end}}"
+                  {{if eq (printf "%d" .ID) $.Form.NodeGroupID}}selected{{end}}>{{.Name}} &mdash; {{.Mode}}, {{len .Nodes}} node{{if gt (len .Nodes) 1}}s{{end}}</option>
           {{end}}
         </select>
-        {{if not .Nodes}}<p class="t-caption mt-1" style="color:rgb(var(--danger,220 38 38))">No approved + enabled nodes available. Add one under <a href="/admin/nodes" class="underline">Caddy nodes</a> first.</p>{{end}}
+        <p id="hpg-group-hint" class="t-caption mt-1">Placement is decided by the group's mode, not by a single node.</p>
       </div>
 
       <label class="flex items-center gap-2 t-body cursor-pointer">
         <input type="checkbox" name="ssl" value="1" {{if .Form.SSL}}checked{{end}} class="rounded cursor-pointer">
-        Let's Encrypt SSL
+        Let's Encrypt SSL (also auto-redirects HTTP &rarr; HTTPS)
       </label>
     </div>
 
@@ -169,13 +186,14 @@
             <input name="tag" value="{{.Form.Tag}}" placeholder="saas-customer-1" maxlength="64" class="r-input w-full">
           </div>
           <div>
-            <label class="t-eyebrow mb-1 block">Host group</label>
+            <label class="t-eyebrow mb-1 block">Host group (label)</label>
             <select name="group_id" class="r-select w-full cursor-pointer">
               <option value="0">- none -</option>
               {{range .Groups}}
               <option value="{{.ID}}">{{.Name}}</option>
               {{end}}
             </select>
+            <p class="t-caption mt-1">Organizational label for filtering the hosts list. Does not affect routing or node placement.</p>
           </div>
         </div>
       </details>
@@ -225,30 +243,68 @@
     var proxyEl = document.getElementById('hpg-proxy-fields');
     var redirEl = document.getElementById('hpg-redirect-fields');
     var wsRow   = document.getElementById('hpg-ws-row');
+    var beEl    = document.getElementById('hpg-backend');
+    var portEl  = document.getElementById('hpg-port');
+    var ruEl    = document.getElementById('hpg-redirect-url');
+    var extCb   = document.querySelector('input[name=upstream_external]');
     function sync(){
       var r = kindSel.value === 'redirect';
       proxyEl.classList.toggle('hidden', r);
       redirEl.classList.toggle('hidden', !r);
       wsRow.classList.toggle('hidden', r);
+      // Client-side required mirrors server validation: proxy needs a backend
+      // (unless external upstream replaces it), redirect needs a URL.
+      var ext = !!(extCb && extCb.checked);
+      if (beEl)   beEl.required   = !r && !ext;
+      if (portEl) portEl.required = !r && !ext;
+      if (ruEl)   ruEl.required   = r;
     }
     if (kindSel) { kindSel.addEventListener('change', sync); sync(); }
+    if (extCb) extCb.addEventListener('change', sync);
 
-    // Auto DNS precheck: fire on domain blur + node change (manual button kept),
+    // Node-group hint: spell out what the group's mode means for placement,
+    // so picking a group never reads as picking a single node.
+    var grpEl   = document.getElementById('hpg-node-group');
+    var grpHint = document.getElementById('hpg-group-hint');
+    function syncGroupHint(){
+      if (!grpEl || !grpHint) return;
+      var opt = grpEl.options[grpEl.selectedIndex];
+      if (!opt || !opt.value) { grpHint.textContent = 'Placement is decided by the group’s mode, not by a single node.'; return; }
+      var nodes = opt.getAttribute('data-nodes') || '';
+      switch (opt.getAttribute('data-mode')) {
+        case 'active_active':
+          grpHint.textContent = 'Served by ALL nodes in this group: ' + nodes + '. Point the domain’s DNS at every node IP (or use DNS load balancing).';
+          break;
+        case 'failover':
+          grpHint.textContent = 'Primary + warm standby picked by priority from: ' + nodes + '.';
+          break;
+        default:
+          grpHint.textContent = 'One node is auto-picked by current load from: ' + nodes + '.';
+      }
+    }
+
+    // Auto DNS precheck: fire on domain blur + group change (manual button kept),
     // with a debounce + stale-response guard. Renders a status pill into
     // #hpg-dns-result. Vanilla fetch, same-origin (CSP connect-src 'self').
     var domEl  = document.getElementById('hpg-domain');
-    var nodeEl = document.querySelector('select[name=node_id]');
     var out    = document.getElementById('hpg-dns-result');
     var btn    = document.getElementById('hpg-dns-check');
     var seq = 0, timer = null;
     function setPill(cls, text){ if (out){ out.textContent = text; out.className = 't-caption mt-1 ' + cls; } }
+    function syncBtn(){
+      if (!btn) return;
+      var ready = !!((domEl && domEl.value.trim()) && (grpEl && grpEl.value));
+      btn.disabled = !ready;
+      btn.classList.toggle('opacity-50', !ready);
+      btn.title = ready ? '' : 'Enter a domain and pick a node group first';
+    }
     function runDnsCheck(){
       var dom = (domEl && domEl.value || '').trim();
-      var node = nodeEl ? nodeEl.value : '';
-      if (!dom || !node) return;
+      var grp = grpEl ? grpEl.value : '';
+      if (!dom || !grp) return;
       var my = ++seq;
       setPill('', 'checking DNS...');
-      fetch('/admin/hosts/check-dns?domain='+encodeURIComponent(dom)+'&node_id='+node)
+      fetch('/admin/hosts/check-dns?domain='+encodeURIComponent(dom)+'&group_id='+grp)
         .then(function(r){ return r.json(); })
         .then(function(j){
           if (my !== seq) return; // a newer check superseded this one
@@ -258,16 +314,18 @@
             return;
           }
           var got = (j.resolved && j.resolved.length) ? j.resolved.join(', ') : '(none)';
-          var want = j.expected_ip || j.node_hostname || 'node IP';
-          if (j.match) setPill('text-emerald-600', 'resolves to node ('+got+')');
+          var want = (j.expected_ips && j.expected_ips.length) ? j.expected_ips.join(' / ') : (j.node_hostname || 'node IP');
+          if (j.match) setPill('text-emerald-600', 'resolves to a group node ('+got+')');
           else         setPill('text-amber-600', 'mismatch: '+got+' != '+want);
         })
         .catch(function(){ if (my === seq) setPill('text-rose-600', 'x lookup failed'); });
     }
     function schedule(){ clearTimeout(timer); timer = setTimeout(runDnsCheck, 250); }
     if (domEl)  domEl.addEventListener('blur', runDnsCheck);
-    if (nodeEl) nodeEl.addEventListener('change', schedule);
+    if (domEl)  domEl.addEventListener('input', syncBtn);
+    if (grpEl)  grpEl.addEventListener('change', function(){ syncGroupHint(); syncBtn(); schedule(); });
     if (btn)    btn.addEventListener('click', runDnsCheck);
+    syncGroupHint(); syncBtn();
 
     // Auto-open any Advanced group that holds a non-default value (so a
     // validation-error repopulation never hides what the admin already typed).
@@ -281,5 +339,6 @@
     });
   })();
   </script>
+  {{end}}
 </div>
 {{end}}

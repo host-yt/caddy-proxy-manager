@@ -582,10 +582,10 @@ func hostCertStatus(ssl bool, status string) string {
 
 type hostsNewData struct {
 	baseAdminData
-	Nodes   []hostsNewNode
-	Groups  []hostGroupOption
-	Form    hostsNewForm
-	CFViews []customfields.View
+	NodeGroups []hostsNewNodeGroup
+	Groups     []hostGroupOption
+	Form       hostsNewForm
+	CFViews    []customfields.View
 }
 
 type hostsNewNode struct {
@@ -593,6 +593,16 @@ type hostsNewNode struct {
 	Name     string
 	Hostname string
 	Group    string
+	IP       string
+}
+
+// hostsNewNodeGroup is a node group option on the add-host form. Placement is
+// group-scoped (see routes.nodePlacement), so the form picks a group, not a node.
+type hostsNewNodeGroup struct {
+	ID    int64
+	Name  string
+	Mode  string // single | active_active | failover
+	Nodes []hostsNewNode
 }
 
 type hostsNewForm struct {
@@ -600,7 +610,8 @@ type hostsNewForm struct {
 	BackendIP      string
 	Port           string
 	UpstreamScheme string
-	NodeID         string
+	NodeGroupID    string
+	NodeID         string // legacy fallback: pre-group forms/scripts POST node_id
 	SSL            bool
 	WebSocket      bool
 	Kind           string
@@ -623,7 +634,7 @@ func (h *AdminHandlers) HostsNew(w http.ResponseWriter, r *http.Request) {
 		baseAdminData: h.base(r, "Add host"),
 		Form:          hostsNewForm{SSL: true, WebSocket: true, Kind: "proxy", RedirectCode: "308", UpstreamScheme: "http"},
 	}
-	d.Nodes = h.loadNodeOptions(r.Context())
+	d.NodeGroups = h.loadNodeGroupOptions(r.Context())
 	db := h.DB()
 	if db != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -665,6 +676,7 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		BackendIP:      strings.TrimSpace(r.FormValue("backend_ip")),
 		Port:           strings.TrimSpace(r.FormValue("port")),
 		UpstreamScheme: strings.TrimSpace(r.FormValue("upstream_scheme")),
+		NodeGroupID:    strings.TrimSpace(r.FormValue("node_group_id")),
 		NodeID:         strings.TrimSpace(r.FormValue("node_id")),
 		SSL:            r.FormValue("ssl") == "1",
 		WebSocket:      r.FormValue("websocket") == "1",
@@ -693,11 +705,12 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	port, _ := strconv.Atoi(form.Port)
 	redirectCode, _ := strconv.Atoi(form.RedirectCode)
+	nodeGroupID, _ := strconv.ParseInt(form.NodeGroupID, 10, 64)
 	nodeID, _ := strconv.ParseInt(form.NodeID, 10, 64)
 	groupID, _ := strconv.ParseInt(r.FormValue("group_id"), 10, 64)
 
-	if form.Domain == "" || nodeID == 0 {
-		h.renderHostsNewErr(w, r, form, "domain and node are required")
+	if form.Domain == "" || (nodeGroupID == 0 && nodeID == 0) {
+		h.renderHostsNewErr(w, r, form, "domain and node group are required")
 		return
 	}
 	if form.External {
@@ -755,18 +768,34 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Resolve node's group so the plan + service line up.
-	var nodeGroupID int64
-	if err := db.QueryRowContext(ctx,
-		"SELECT node_group_id FROM caddy_nodes WHERE id = ? AND approved_at IS NOT NULL AND is_enabled = 1",
-		nodeID).Scan(&nodeGroupID); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			h.renderHostsNewErr(w, r, form, "node not found or not approved")
+	// The form picks a node group; placement inside it is mode-driven
+	// (routes.nodePlacement). Legacy POSTs that still send node_id get the
+	// node's group resolved for them.
+	if nodeGroupID == 0 {
+		if err := db.QueryRowContext(ctx,
+			"SELECT node_group_id FROM caddy_nodes WHERE id = ? AND approved_at IS NOT NULL AND is_enabled = 1",
+			nodeID).Scan(&nodeGroupID); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				h.renderHostsNewErr(w, r, form, "node not found or not approved")
+				return
+			}
+			h.Logger.Error("admin hosts: node lookup", "err", err)
+			h.renderHostsNewErr(w, r, form, "node lookup failed")
 			return
 		}
-		h.Logger.Error("admin hosts: node lookup", "err", err)
-		h.renderHostsNewErr(w, r, form, "node lookup failed")
-		return
+	} else {
+		var eligible int
+		if err := db.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM caddy_nodes WHERE node_group_id = ? AND approved_at IS NOT NULL AND is_enabled = 1",
+			nodeGroupID).Scan(&eligible); err != nil {
+			h.Logger.Error("admin hosts: group lookup", "err", err)
+			h.renderHostsNewErr(w, r, form, "node group lookup failed")
+			return
+		}
+		if eligible == 0 {
+			h.renderHostsNewErr(w, r, form, "node group has no approved + enabled nodes")
+			return
+		}
 	}
 
 	clientID, err := ensureAdminClient(ctx, db, sess.UserID, sess.ResellerID)
@@ -871,7 +900,7 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		EntityID: itoa64(routeID),
 		Meta: map[string]any{
 			"domain": form.Domain, "backend_ip": form.BackendIP, "port": port,
-			"node_id": nodeID, "kind": form.Kind, "redirect_url": form.RedirectURL,
+			"node_group_id": nodeGroupID, "kind": form.Kind, "redirect_url": form.RedirectURL,
 			"external": form.External, "external_host": form.ExternalHost,
 		},
 	})
@@ -884,13 +913,16 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 			"External host added: "+form.Domain+". Click Reveal to copy the inbound bearer.", "")
 		return
 	}
-	redirectWithFlash(w, r, "/admin/hosts", "Host added: "+form.Domain, "")
+	// Land on the edit page: WAF, geo, headers and LB all live in its tabs,
+	// and the add form intentionally stays minimal.
+	redirectWithFlash(w, r, "/admin/hosts/"+itoa64(routeID)+"/edit",
+		"Host added: "+form.Domain+". Fine-tune WAF, geo and headers in the tabs below.", "")
 }
 
 func (h *AdminHandlers) renderHostsNewErr(w http.ResponseWriter, r *http.Request, form hostsNewForm, msg string) {
 	d := hostsNewData{baseAdminData: h.base(r, "Add host"), Form: form}
 	d.Error = msg
-	d.Nodes = h.loadNodeOptions(r.Context())
+	d.NodeGroups = h.loadNodeGroupOptions(r.Context())
 	db := h.DB()
 	if db != nil {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -906,6 +938,8 @@ func (h *AdminHandlers) renderHostsNewErr(w http.ResponseWriter, r *http.Request
 	h.render(w, "hosts_new", d)
 }
 
+// loadNodeOptions lists eligible nodes flat - used by the hosts-list filter
+// and the L4 streams form, which really do target a single node.
 func (h *AdminHandlers) loadNodeOptions(ctx context.Context) []hostsNewNode {
 	db := h.DB()
 	if db == nil {
@@ -928,6 +962,42 @@ func (h *AdminHandlers) loadNodeOptions(ctx context.Context) []hostsNewNode {
 		if err := rows.Scan(&n.ID, &n.Name, &n.Hostname, &n.Group); err == nil {
 			out = append(out, n)
 		}
+	}
+	return out
+}
+
+func (h *AdminHandlers) loadNodeGroupOptions(ctx context.Context) []hostsNewNodeGroup {
+	db := h.DB()
+	if db == nil {
+		return nil
+	}
+	c, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	rows, err := db.QueryContext(c,
+		`SELECT ng.id, ng.name, ng.mode, n.id, n.name, n.public_hostname, COALESCE(n.public_ip,'')
+		 FROM node_groups ng JOIN caddy_nodes n ON n.node_group_id = ng.id
+		 WHERE n.approved_at IS NOT NULL AND n.is_enabled = 1
+		 ORDER BY ng.name, n.name`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []hostsNewNodeGroup
+	for rows.Next() {
+		var (
+			gID   int64
+			gName string
+			gMode string
+			n     hostsNewNode
+		)
+		if err := rows.Scan(&gID, &gName, &gMode, &n.ID, &n.Name, &n.Hostname, &n.IP); err != nil {
+			continue
+		}
+		if len(out) == 0 || out[len(out)-1].ID != gID {
+			out = append(out, hostsNewNodeGroup{ID: gID, Name: gName, Mode: gMode})
+		}
+		g := &out[len(out)-1]
+		g.Nodes = append(g.Nodes, n)
 	}
 	return out
 }
@@ -1554,9 +1624,10 @@ func (h *AdminHandlers) NodeRTTJSON(w http.ResponseWriter, r *http.Request) {
 func (h *AdminHandlers) HostsCheckDNS(w http.ResponseWriter, r *http.Request) {
 	domain := strings.TrimSpace(strings.ToLower(r.URL.Query().Get("domain")))
 	nodeID, _ := strconv.ParseInt(r.URL.Query().Get("node_id"), 10, 64)
+	groupID, _ := strconv.ParseInt(r.URL.Query().Get("group_id"), 10, 64)
 	resp := map[string]any{"domain": domain}
-	if domain == "" || nodeID == 0 {
-		resp["error"] = "domain and node_id required"
+	if domain == "" || (nodeID == 0 && groupID == 0) {
+		resp["error"] = "domain and node_id or group_id required"
 		apiJSON(w, http.StatusBadRequest, resp)
 		return
 	}
@@ -1568,15 +1639,53 @@ func (h *AdminHandlers) HostsCheckDNS(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 4*time.Second)
 	defer cancel()
-	var expectedIP, hostname string
-	if err := db.QueryRowContext(ctx,
-		"SELECT COALESCE(public_ip,''), public_hostname FROM caddy_nodes WHERE id = ?", nodeID,
-	).Scan(&expectedIP, &hostname); err != nil {
-		resp["error"] = "node not found"
-		apiJSON(w, http.StatusNotFound, resp)
-		return
+
+	// Expected IP set: the single node (legacy) or every eligible node of the
+	// group - placement is group-scoped, so any group member IP is a valid target.
+	var expectedIPs []string
+	var hostname string
+	if groupID != 0 {
+		rows, err := db.QueryContext(ctx,
+			`SELECT COALESCE(public_ip,''), public_hostname FROM caddy_nodes
+			 WHERE node_group_id = ? AND approved_at IS NOT NULL AND is_enabled = 1
+			 ORDER BY name`, groupID)
+		if err != nil {
+			resp["error"] = "group lookup failed"
+			apiJSON(w, http.StatusInternalServerError, resp)
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var ip, hn string
+			if rows.Scan(&ip, &hn) == nil {
+				if ip != "" {
+					expectedIPs = append(expectedIPs, ip)
+				}
+				if hostname == "" {
+					hostname = hn
+				}
+			}
+		}
+		if len(expectedIPs) == 0 && hostname == "" {
+			resp["error"] = "group has no eligible nodes"
+			apiJSON(w, http.StatusNotFound, resp)
+			return
+		}
+	} else {
+		var expectedIP string
+		if err := db.QueryRowContext(ctx,
+			"SELECT COALESCE(public_ip,''), public_hostname FROM caddy_nodes WHERE id = ?", nodeID,
+		).Scan(&expectedIP, &hostname); err != nil {
+			resp["error"] = "node not found"
+			apiJSON(w, http.StatusNotFound, resp)
+			return
+		}
+		if expectedIP != "" {
+			expectedIPs = append(expectedIPs, expectedIP)
+		}
+		resp["expected_ip"] = expectedIP
 	}
-	resp["expected_ip"] = expectedIP
+	resp["expected_ips"] = expectedIPs
 	resp["node_hostname"] = hostname
 
 	resolver := &net.Resolver{}
@@ -1591,9 +1700,9 @@ func (h *AdminHandlers) HostsCheckDNS(w http.ResponseWriter, r *http.Request) {
 	}
 	resp["resolved"] = addrs
 	match := false
-	if expectedIP != "" {
+	for _, want := range expectedIPs {
 		for _, a := range addrs {
-			if a == expectedIP {
+			if a == want {
 				match = true
 				break
 			}
