@@ -11,6 +11,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 const idempotencyTTL = 24 * time.Hour
@@ -102,15 +104,17 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 			bh := sha256.Sum256(reqBody)
 			bodyHash := hex.EncodeToString(bh[:])
 
-			expires := time.Now().Add(idempotencyTTL)
 			resCtx, resCancel := context.WithTimeout(r.Context(), 300*time.Millisecond)
 			defer resCancel()
 
-			// Reserve the key atomically before running the handler.
+			// Expiry is computed DB-side to share a clock with the
+			// 'expires_at > NOW()' lookup below: the panel's timezone need not
+			// match the DB server's.
 			_, err = d.ExecContext(resCtx,
 				`INSERT INTO idempotency_keys (idem_key, user_id, method, path, body_hash, state, response_body, expires_at)
-				 VALUES (?, ?, ?, ?, ?, ?, NULL, ?)`,
-				keyHash, c.UserID, r.Method, r.URL.Path, bodyHash, idemStatePending, expires,
+				 VALUES (?, ?, ?, ?, ?, ?, NULL, `+store.DateAddSecondsParam()+`)`,
+				keyHash, c.UserID, r.Method, r.URL.Path, bodyHash, idemStatePending,
+				int(idempotencyTTL/time.Second),
 			)
 			if err != nil {
 				// Duplicate key: an entry already exists - inspect it.
@@ -176,10 +180,11 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 
 			_, _ = d.ExecContext(storeCtx,
 				`UPDATE idempotency_keys
-				 SET state=?, response_status=?, response_body=?, response_headers=?, expires_at=?
+				 SET state=?, response_status=?, response_body=?, response_headers=?,
+				     expires_at=`+store.DateAddSecondsParam()+`
 				 WHERE idem_key=? AND user_id=?`,
-				idemStateDone, cw.status, cw.buf.String(), captureHeaders(cw.Header()), expires,
-				keyHash, c.UserID,
+				idemStateDone, cw.status, cw.buf.String(), captureHeaders(cw.Header()),
+				int(idempotencyTTL/time.Second), keyHash, c.UserID,
 			)
 		})
 	}

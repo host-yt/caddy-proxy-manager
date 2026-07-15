@@ -96,3 +96,34 @@ func TestPasswordResetTokenSingleUseAndExpiry(t *testing.T) {
 		t.Fatalf("expired token: got err=%v, want ErrResetTokenInvalid", err)
 	}
 }
+
+// TestResetTokenSurvivesNonUTCServerTimezone pins the fix for tokens that were
+// born expired: CreateResetToken used to store a Go-side UTC expiry while
+// ConsumeResetToken compared it against the DB's local NOW(). On a server ahead
+// of UTC that made every reset link dead on arrival (a 30-minute token on a
+// CEST server expired 90 minutes before it was issued). The session timezone is
+// forced ahead of UTC here so a regression fails regardless of the host's clock.
+func TestResetTokenSurvivesNonUTCServerTimezone(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+	ctx := context.Background()
+
+	if _, err := db.ExecContext(ctx, "SET SESSION time_zone = '+05:00'"); err != nil {
+		t.Skipf("cannot set session time_zone: %v", err)
+	}
+
+	userID, cleanup := insertResetTestUser(t, db)
+	defer cleanup()
+
+	plain, err := CreateResetToken(ctx, db, userID, "203.0.113.9")
+	if err != nil {
+		t.Fatalf("CreateResetToken: %v", err)
+	}
+	gotUser, err := ConsumeResetToken(ctx, db, plain)
+	if err != nil {
+		t.Fatalf("token issued on a UTC+5 server was not consumable: %v", err)
+	}
+	if gotUser != userID {
+		t.Fatalf("consumed token resolved to user %d, want %d", gotUser, userID)
+	}
+}

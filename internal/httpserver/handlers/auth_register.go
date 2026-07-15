@@ -19,6 +19,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // emailRegexp validates the basic shape of an email address.
@@ -225,10 +226,12 @@ func createEmailVerifyToken(ctx context.Context, db *sql.DB, userID int64) (stri
 	plain := base64.RawURLEncoding.EncodeToString(b)
 	sum := sha256.Sum256([]byte(plain))
 	hashHex := hex.EncodeToString(sum[:])
-	expires := time.Now().UTC().Add(emailVerifyTokenTTL)
+	// DB-side expiry: the consume path compares against NOW(), so a Go-side UTC
+	// timestamp expires the token on issue wherever the DB runs ahead of UTC.
 	if _, err := db.ExecContext(ctx,
-		"INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
-		userID, hashHex, expires,
+		"INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES (?, ?, "+
+			store.DateAddSecondsParam()+")",
+		userID, hashHex, int(emailVerifyTokenTTL/time.Second),
 	); err != nil {
 		return "", err
 	}

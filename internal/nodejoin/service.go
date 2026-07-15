@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
 
@@ -93,11 +94,16 @@ func (s *Service) Mint(ctx context.Context, o MintOpts) (Token, error) {
 	if o.NameHint != "" {
 		nameHint = sql.NullString{String: o.NameHint, Valid: true}
 	}
+	// Expiry is computed DB-side so it shares a clock and timezone with the
+	// 'expires_at > NOW()' check in Consume; a Go-side UTC value expires the
+	// token on issue wherever the DB server runs ahead of UTC. ExpiresAt below
+	// stays Go-side: it is only ever shown to the operator.
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO node_join_tokens (token_hash, token_prefix, node_group_id, max_routes, priority,
 		   name_hint, created_by, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		hashHex, prefix, o.NodeGroupID, o.MaxRoutes, o.Priority, nameHint, createdBy, expires,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, `+store.DateAddSecondsParam()+`)`,
+		hashHex, prefix, o.NodeGroupID, o.MaxRoutes, o.Priority, nameHint, createdBy,
+		int(TokenTTL/time.Second),
 	); err != nil {
 		return Token{}, fmt.Errorf("insert token: %w", err)
 	}

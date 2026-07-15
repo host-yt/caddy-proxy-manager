@@ -10,6 +10,8 @@ import (
 	"errors"
 	"fmt"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // ResetTokenTTL is how long a password reset link stays valid.
@@ -27,14 +29,18 @@ func CreateResetToken(ctx context.Context, db *sql.DB, userID int64, ip string) 
 	plain := base64.RawURLEncoding.EncodeToString(b)
 	sum := sha256.Sum256([]byte(plain))
 	hashHex := hex.EncodeToString(sum[:])
-	expires := time.Now().UTC().Add(ResetTokenTTL)
 	var ipVal sql.NullString
 	if ip != "" {
 		ipVal = sql.NullString{String: ip, Valid: true}
 	}
+	// Expiry is computed DB-side so it shares a clock and timezone with the
+	// 'expires_at > NOW()' check in ConsumeResetToken. A Go-side UTC timestamp
+	// makes every token look already-expired wherever the DB server runs ahead
+	// of UTC (a CEST server expires a 30-minute token 90 minutes before issue).
 	if _, err := db.ExecContext(ctx,
-		"INSERT INTO password_resets (user_id, token_hash, expires_at, ip) VALUES (?, ?, ?, ?)",
-		userID, hashHex, expires, ipVal,
+		"INSERT INTO password_resets (user_id, token_hash, expires_at, ip) VALUES (?, ?, "+
+			store.DateAddSecondsParam()+", ?)",
+		userID, hashHex, int(ResetTokenTTL/time.Second), ipVal,
 	); err != nil {
 		return "", fmt.Errorf("insert reset: %w", err)
 	}
