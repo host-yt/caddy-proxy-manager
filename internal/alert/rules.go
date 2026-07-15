@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/go-sql-driver/mysql"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // nodeOffline fires for each enabled node that has been non-healthy and
@@ -22,7 +24,7 @@ func nodeOffline(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 		  FROM caddy_nodes
 		 WHERE is_enabled = 1
 		   AND health_status <> 'healthy'
-		   AND (last_seen_at IS NULL OR last_seen_at < (NOW() - INTERVAL ? MINUTE))`,
+		   AND (last_seen_at IS NULL OR last_seen_at < `+store.DateSubParam("MINUTE")+`)`,
 		cfg.NodeOfflineMinutes)
 	if err != nil {
 		return nil
@@ -82,7 +84,7 @@ func certFailing(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 		SELECT id, domain
 		  FROM routes
 		 WHERE status = 'pending_ssl'
-		   AND updated_at < (NOW() - INTERVAL ? MINUTE)`,
+		   AND updated_at < `+store.DateSubParam("MINUTE")+``,
 		cfg.CertStuckMinutes)
 	if err != nil {
 		return nil
@@ -114,7 +116,7 @@ func wgTunnelStale(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 		  FROM customer_wg_peer
 		 WHERE status = 'active'
 		   AND last_handshake_at IS NOT NULL
-		   AND last_handshake_at < (NOW() - INTERVAL ? SECOND)`,
+		   AND last_handshake_at < `+store.DateSubParam("SECOND")+``,
 		cfg.WGStaleSeconds)
 	if err != nil {
 		return nil

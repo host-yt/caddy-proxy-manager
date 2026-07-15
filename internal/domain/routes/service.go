@@ -1278,7 +1278,7 @@ func (s *Service) AutoFailover(ctx context.Context) {
 		 JOIN services sv ON sv.id = r.service_id
 		 WHERE n.is_enabled = 1
 		   AND n.health_status = 'down'
-		   AND n.last_seen_at < (NOW() - INTERVAL ? MINUTE)
+		   AND n.last_seen_at < `+store.DateSubParam("MINUTE")+`
 		   AND r.status IN ('active','dns_ok','pending_ssl')
 		 ORDER BY r.id ASC LIMIT 500`, failoverGraceMinutes)
 	if err != nil {
@@ -1416,7 +1416,7 @@ func (s *Service) Reconcile(ctx context.Context) {
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT id FROM routes
 		 WHERE status IN ('pending_dns','dns_ok','pending_ssl','failed')
-		   AND updated_at < (NOW() - INTERVAL 1 MINUTE)
+		   AND updated_at < `+store.DateSub(1, "MINUTE")+`
 		 ORDER BY updated_at ASC LIMIT 100`)
 	if err != nil {
 		s.Logger.Warn("reconcile: list stuck routes", "err", err)
@@ -1585,7 +1585,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 	if err := s.DB.QueryRowContext(ctx,
 		`SELECT api_url, tunnel_transport, tunnel_wstunnel_port, tunnel_endpoint, tunnel_enabled,
 		        tunnel_wstunnel_healthy,
-		        tunnel_wstunnel_reported_at > NOW() - INTERVAL 3 MINUTE,
+		        tunnel_wstunnel_reported_at > `+store.DateSub(3, "MINUTE")+`,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_waf       ELSE NULL END,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_l4        ELSE NULL END,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip     ELSE NULL END,

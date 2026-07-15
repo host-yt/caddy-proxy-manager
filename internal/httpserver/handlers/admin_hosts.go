@@ -321,7 +321,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	        SELECT route_id, SUM(requests) AS req24h,
 	               SUM(errors_4xx+errors_5xx) AS err24h
 	        FROM log_rollups
-	        WHERE bucket_start >= DATE_SUB(NOW(), INTERVAL 1 DAY)
+	        WHERE bucket_start >= `+store.DateSub(1, "DAY")+`
 	        GROUP BY route_id
 	      ) lr ON lr.route_id = r.id
 	      LEFT JOIN host_groups hg ON hg.id = r.group_id
@@ -1516,7 +1516,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		`SELECT COALESCE(SUM(lr.bytes_resp),0), COALESCE(SUM(lr.requests),0)
 		 FROM log_rollups lr
 		 JOIN routes r ON r.id = lr.route_id
-		 WHERE r.caddy_node_id = ? AND lr.bucket_start >= NOW() - INTERVAL 24 HOUR`, id,
+		 WHERE r.caddy_node_id = ? AND lr.bucket_start >= `+store.DateSub(24, "HOUR")+``, id,
 	).Scan(&d.NodeBandwidth24h, &d.NodeRequests24h)
 
 	// Top 5 routes by 24h bandwidth on this node (from rollups).
@@ -1524,7 +1524,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		`SELECT lr.route_id, r.domain, COALESCE(SUM(lr.bytes_resp),0), COALESCE(SUM(lr.requests),0)
 		 FROM log_rollups lr
 		 JOIN routes r ON r.id = lr.route_id
-		 WHERE r.caddy_node_id = ? AND lr.bucket_start >= NOW() - INTERVAL 24 HOUR
+		 WHERE r.caddy_node_id = ? AND lr.bucket_start >= `+store.DateSub(24, "HOUR")+`
 		 GROUP BY lr.route_id, r.domain
 		 ORDER BY SUM(lr.bytes_resp) DESC LIMIT 5`, id)
 	if err == nil {

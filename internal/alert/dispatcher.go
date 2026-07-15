@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // eventAlertFired is the webhook event type for fired alerts. Mirrors the
@@ -36,7 +38,7 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
 	labelsJSON, _ := json.Marshal(a.Labels)
 	if _, err := db.ExecContext(ctx,
 		`INSERT INTO alert_log (rule_id, severity, title, detail, labels_json, dedupe_key, fired_at)
-		 VALUES (?, ?, ?, ?, ?, ?, NOW())`,
+		 VALUES (?, ?, ?, ?, ?, ?, `+store.Now()+`)`,
 		a.RuleID, string(a.Severity), a.Title, a.Detail, string(labelsJSON), key); err != nil {
 		if e.Logger != nil {
 			e.Logger.Warn("alert log insert failed", "rule", a.RuleID, "err", err)
