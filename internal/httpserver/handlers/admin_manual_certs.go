@@ -126,6 +126,10 @@ func (h *AdminHandlers) ManualCertsImport(w http.ResponseWriter, r *http.Request
 		EntityID: strconv.FormatInt(id, 10),
 		Meta:     map[string]any{"name": name},
 	})
+	// Linked to a route: push it to the node(s) so the edge serves it now.
+	if routeID.Valid {
+		h.pushManualCertRoute(routeID.Int64)
+	}
 	redirectWithFlash(w, r, page, "Certificate imported.", "")
 }
 
@@ -162,6 +166,10 @@ func (h *AdminHandlers) ManualCertsReplace(w http.ResponseWriter, r *http.Reques
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	// Remember the old cert's linked route before it's gone, so its node also
+	// gets re-pushed (drops the old cert) even if the link moved.
+	oldRoute := h.manualCertRouteID(ctx, id)
+
 	// Import new first so a bad PEM never destroys the still-valid old cert.
 	// If Delete fails after a successful import we get a harmless duplicate row
 	// (name/CN are non-unique); log it and carry on.
@@ -188,6 +196,13 @@ func (h *AdminHandlers) ManualCertsReplace(w http.ResponseWriter, r *http.Reques
 		EntityID: strconv.FormatInt(newID, 10),
 		Meta:     map[string]any{"replaced_id": id, "name": name},
 	})
+	// Push the new link's node and, if the link moved, the old one too.
+	if routeID.Valid {
+		h.pushManualCertRoute(routeID.Int64)
+	}
+	if oldRoute != 0 && (!routeID.Valid || oldRoute != routeID.Int64) {
+		h.pushManualCertRoute(oldRoute)
+	}
 	redirectWithFlash(w, r, page, "Certificate replaced.", "")
 }
 
@@ -206,6 +221,8 @@ func (h *AdminHandlers) ManualCertsDelete(w http.ResponseWriter, r *http.Request
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Capture the linked route before deletion so its node re-pushes without it.
+	routeID := h.manualCertRouteID(ctx, id)
 	if err := svc.Delete(ctx, id); err != nil {
 		redirectWithFlash(w, r, page, "", "delete failed: "+sanitizeErr(err))
 		return
@@ -215,5 +232,38 @@ func (h *AdminHandlers) ManualCertsDelete(w http.ResponseWriter, r *http.Request
 		UserID: actorUserID(sess), Action: "manual_cert.delete", Entity: "manual_cert",
 		EntityID: strconv.FormatInt(id, 10),
 	})
+	if routeID != 0 {
+		h.pushManualCertRoute(routeID)
+	}
 	redirectWithFlash(w, r, page, "Certificate deleted.", "")
+}
+
+// manualCertRouteID returns the route a manual cert is linked to, or 0 if none
+// / on any error (the caller only uses it to decide whether to re-push a node).
+func (h *AdminHandlers) manualCertRouteID(ctx context.Context, id int64) int64 {
+	db := h.DB()
+	if db == nil {
+		return 0
+	}
+	var rid sql.NullInt64
+	if err := db.QueryRowContext(ctx, "SELECT route_id FROM manual_certs WHERE id = ?", id).Scan(&rid); err != nil {
+		return 0
+	}
+	if rid.Valid {
+		return rid.Int64
+	}
+	return 0
+}
+
+// pushManualCertRoute re-pushes the node(s) serving routeID so a just-changed
+// manual cert (import/replace/delete) reaches or leaves the edge. Fire-and-forget
+// on the app background context, mirroring the host-edit push pattern.
+func (h *AdminHandlers) pushManualCertRoute(routeID int64) {
+	if h.Routes == nil || routeID == 0 {
+		return
+	}
+	go func() {
+		defer recoverBg(h.Logger, "manual-cert-push")
+		h.Routes.SchedulePushForRoute(h.Routes.BackgroundCtx(), routeID)
+	}()
 }

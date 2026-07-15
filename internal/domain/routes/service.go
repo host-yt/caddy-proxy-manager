@@ -317,6 +317,44 @@ func (s *Service) SchedulePushForClient(ctx context.Context, clientID int64) {
 	}
 }
 
+// SchedulePushForRoute re-pushes every node serving the given route (its direct
+// caddy_node_id plus any route_node_assignments fan-out). Used when something
+// off the routes table but baked into a node's config changes - e.g. a manual
+// TLS cert linked to the route is imported, replaced, or deleted.
+func (s *Service) SchedulePushForRoute(ctx context.Context, routeID int64) {
+	if s.DB == nil || routeID == 0 {
+		return
+	}
+	seen := map[int64]struct{}{}
+	sched := func(nid int64) {
+		if nid == 0 {
+			return
+		}
+		if _, dup := seen[nid]; dup {
+			return
+		}
+		seen[nid] = struct{}{}
+		s.schedulePush(nid)
+	}
+	var direct sql.NullInt64
+	if err := s.DB.QueryRowContext(ctx,
+		`SELECT caddy_node_id FROM routes WHERE id = ?`, routeID).Scan(&direct); err == nil && direct.Valid {
+		sched(direct.Int64)
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT node_id FROM route_node_assignments WHERE route_id = ?`, routeID)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var nid int64
+		if rows.Scan(&nid) == nil {
+			sched(nid)
+		}
+	}
+}
+
 // BackgroundCtx returns the app background context (cancelled after shutdown),
 // or context.Background() when unset (tests/dev). Exported so handlers in other
 // packages can scope their fire-and-forget pushes to the app lifecycle.
@@ -1666,6 +1704,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		ProxyProtocolIn:          proxyProtoIn,
 		ProxyProtocolAllow:       proxyProtoAllow,
 		ProxyProtocolTimeoutMs:   proxyProtoTimeoutMs,
+		ManualCerts:              s.buildManualCertsForNode(ctx, nodeID),
 	})
 	return &nodePush{cfg: cfg, built: built, routeIDs: routeIDs, apiURL: apiURL}, nil
 }
@@ -2796,6 +2835,53 @@ func (s *Service) buildWildcardPolicies(ctx context.Context, nodeID int64) []cad
 			continue
 		}
 		out = append(out, caddyapi.WildcardPolicy{Zone: zone, Provider: provider, Fields: fields})
+	}
+	return out
+}
+
+// buildManualCertsForNode returns operator-imported certs to load into this
+// node's Caddy cert pool: every manual_cert linked to a route this node serves
+// (direct caddy_node_id or a route_node_assignments fan-out), with its private
+// key decrypted. Same node-membership + status filter as buildRoutesForNode so
+// a cert is only shipped when its route is actually emitted. Unlinked certs
+// (route_id NULL) are stored-only and never pushed - the link is the binding.
+func (s *Service) buildManualCertsForNode(ctx context.Context, nodeID int64) []caddyapi.ManualCertPEM {
+	if s.DB == nil || s.DecryptSecret == nil {
+		return nil
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT mc.cert_pem, COALESCE(mc.chain_pem,''), mc.key_pem_enc
+		   FROM manual_certs mc
+		   JOIN routes r ON r.id = mc.route_id
+		  WHERE (r.caddy_node_id = ?
+		         OR EXISTS (SELECT 1 FROM route_node_assignments rna
+		                     WHERE rna.route_id = r.id AND rna.node_id = ?))
+		    AND r.ssl_enabled = 1
+		    AND r.status IN ('dns_ok','active','pending_ssl')
+		  ORDER BY mc.id ASC`, nodeID, nodeID)
+	if err != nil {
+		s.Logger.Error("manual certs: query failed", "node_id", nodeID, "err", err)
+		return nil
+	}
+	defer rows.Close()
+	var out []caddyapi.ManualCertPEM
+	for rows.Next() {
+		var certPEM, chainPEM, keyEnc string
+		if err := rows.Scan(&certPEM, &chainPEM, &keyEnc); err != nil {
+			continue
+		}
+		key, derr := s.DecryptSecret(keyEnc)
+		if derr != nil || key == "" {
+			// Never emit a cert with no key: Caddy would reject the whole /load.
+			s.Logger.Error("manual certs: key decrypt failed, skipping", "node_id", nodeID)
+			continue
+		}
+		// Caddy's load_pem wants leaf + chain in one PEM blob.
+		bundle := strings.TrimRight(certPEM, "\n")
+		if c := strings.TrimSpace(chainPEM); c != "" {
+			bundle += "\n" + c
+		}
+		out = append(out, caddyapi.ManualCertPEM{CertPEM: bundle, KeyPEM: key})
 	}
 	return out
 }

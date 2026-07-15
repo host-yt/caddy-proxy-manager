@@ -13,7 +13,7 @@
     <div class="px-5 py-4 flex items-center justify-between" style="border-bottom:1px solid rgb(var(--border))">
       <div>
         <h2 class="t-h3">Manually imported certificates <span class="t-small font-normal" style="color:rgb(var(--muted))">({{.Total}})</span></h2>
-        <p class="t-caption mt-0.5" style="color:rgb(var(--muted))">Private keys are encrypted at rest. Certs expiring within 30 days are flagged.</p>
+        <p class="t-caption mt-0.5" style="color:rgb(var(--muted))">Private keys are encrypted at rest. Certs expiring within 30 days are flagged. A cert linked to a route is served by that route's edge node(s); unlinked certs are stored only.</p>
       </div>
     </div>
     <!-- Filter bar -->
@@ -157,6 +157,7 @@
         <div>
           <label class="t-eyebrow block mb-1">Linked proxy route ID (optional)</label>
           <input name="route_id" placeholder="e.g. 42" type="number" min="1" class="r-input w-full">
+          <p class="t-caption mt-1" style="color:rgb(var(--muted))">Link a route to have its edge node serve this cert for that domain (no ACME). Leave blank to store only.</p>
         </div>
       </div>
       <div>

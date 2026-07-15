@@ -113,6 +113,22 @@ type NodeSettings struct {
 	// ProxyProtocolTimeoutMs bounds how long Caddy waits for the PROXY header
 	// before giving up on the connection. 0 falls back to 5000ms.
 	ProxyProtocolTimeoutMs int
+
+	// ManualCerts are operator-imported TLS certificates to load into Caddy's
+	// cert pool (apps.tls.certificates.load_pem) so the node serves them for
+	// their SNI instead of trying ACME. Built by the routes service from
+	// manual_certs linked to a route on this node, with the private key already
+	// decrypted. A loaded cert takes precedence over on-demand automation, so a
+	// domain with a manual cert never hits the ACME/ask path.
+	ManualCerts []ManualCertPEM
+}
+
+// ManualCertPEM is one operator-imported certificate for load_pem. CertPEM is
+// the leaf followed by any intermediate chain (concatenated); KeyPEM is the
+// decrypted private key. Both are PEM text.
+type ManualCertPEM struct {
+	CertPEM string
+	KeyPEM  string
 }
 
 // AccessLogFilePath is the on-node file both Caddy (writer) and the node-agent
@@ -315,6 +331,30 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		srv0["listener_wrappers"] = lw
 	}
 
+	tlsApp := map[string]any{
+		"automation": map[string]any{
+			// NOTE: Caddy 2.8+ removed on_demand.rate_limit (interval/burst)
+			// from the JSON schema in favour of the `permission` module.
+			// Re-adding it risks the node rejecting the whole config. Burst
+			// protection is enforced at the ask endpoint instead (per-IP
+			// rate limit + Redis allow/deny decision cache, see caddy_ask.go).
+			"on_demand": map[string]any{
+				"permission": map[string]any{
+					"module":   "http",
+					"endpoint": s.AskURL,
+				},
+			},
+			"policies": policies,
+		},
+	}
+	// Operator-imported certs: load them into the pool so the node serves them
+	// for their SNI without ACME. A pool cert matches before the subject-less
+	// on-demand catch-all fires, so these domains skip issuance entirely. Key
+	// omitted when empty so nodes without manual certs see byte-identical JSON.
+	if lp := buildLoadPEM(s.ManualCerts); lp != nil {
+		tlsApp["certificates"] = map[string]any{"load_pem": lp}
+	}
+
 	apps := map[string]any{
 		"http": map[string]any{
 			"servers": map[string]any{
@@ -322,22 +362,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 			},
 		},
 		// Caddy 2.10+ replaced on_demand.ask (string) with permission module.
-		"tls": map[string]any{
-			"automation": map[string]any{
-				// NOTE: Caddy 2.8+ removed on_demand.rate_limit (interval/burst)
-				// from the JSON schema in favour of the `permission` module.
-				// Re-adding it risks the node rejecting the whole config. Burst
-				// protection is enforced at the ask endpoint instead (per-IP
-				// rate limit + Redis allow/deny decision cache, see caddy_ask.go).
-				"on_demand": map[string]any{
-					"permission": map[string]any{
-						"module":   "http",
-						"endpoint": s.AskURL,
-					},
-				},
-				"policies": policies,
-			},
-		},
+		"tls": tlsApp,
 	}
 
 	// Souin cache module is opt-in per-node: stock caddy:2.8 rejects the
@@ -451,6 +476,25 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		}
 	}
 	return root
+}
+
+// buildLoadPEM turns operator-imported certs into the apps.tls.certificates
+// .load_pem array. Returns nil (not an empty slice) when there are none so the
+// key is omitted and manual-cert-less nodes keep byte-identical config. Entries
+// missing a cert or key are skipped rather than emitted half-formed, which would
+// make Caddy reject the whole /load and take the node offline.
+func buildLoadPEM(certs []ManualCertPEM) []any {
+	var out []any
+	for _, c := range certs {
+		if strings.TrimSpace(c.CertPEM) == "" || strings.TrimSpace(c.KeyPEM) == "" {
+			continue
+		}
+		out = append(out, map[string]any{
+			"certificate": c.CertPEM,
+			"key":         c.KeyPEM,
+		})
+	}
+	return out
 }
 
 // buildMTLSConnPolicies returns the tls_connection_policies array for every
