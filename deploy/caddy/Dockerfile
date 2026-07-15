@@ -57,4 +57,12 @@ COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 # a mount, this baked copy is used.
 COPY Caddyfile /etc/caddy/Caddyfile
 
+# Coraza's SecAuditLog writes /var/log/caddy/waf-audit.log when a route enables
+# the WAF. coraza-caddy opens that file at config-load: if the dir is missing
+# Caddy rejects the WHOLE /load (400), freezing the node on its old config -
+# same failure class as a missing geo mmdb. Compose normally mounts caddy_logs
+# here, but bake the dir into the image so enabling WAF can never brick a node
+# that runs without the mount.
+RUN mkdir -p /var/log/caddy
+
 EXPOSE 80 443 443/udp 2019
