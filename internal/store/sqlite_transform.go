@@ -8,6 +8,10 @@ import (
 // TransformForSQLite converts MySQL-dialect SQL to SQLite-compatible SQL.
 // Used at migration time when the active driver is "sqlite3".
 func TransformForSQLite(input string) string {
+	// Comments go first, so no later pattern can trip over their content: a
+	// comment carrying a ";" truncated the ALTER that followed it, one carrying
+	// a "," split a clause, and DDL-looking prose parsed as DDL.
+	input = stripSQLComments(input)
 	// Handle stored procedures first (they wrap everything).
 	if containsProcedure(input) {
 		input = unwrapProcedures(input)
@@ -30,6 +34,8 @@ func TransformForSQLite(input string) string {
 	input = fixOnDuplicateKey(input)
 	// Remove ON UPDATE CURRENT_TIMESTAMP (no DDL triggers in SQLite).
 	input = reOnUpdate.ReplaceAllString(input, "")
+	// NOW()/UTC_TIMESTAMP() -> CURRENT_TIMESTAMP (SQLite has neither).
+	input = reMySQLNow.ReplaceAllString(input, "${1}CURRENT_TIMESTAMP")
 	// ENUM(...) -> TEXT.
 	input = reEnum.ReplaceAllString(input, "TEXT")
 	// Remove any remaining information_schema references that slipped through.
@@ -40,10 +46,29 @@ func TransformForSQLite(input string) string {
 var (
 	reOnUpdate              = regexp.MustCompile(`(?i)\s+ON\s+UPDATE\s+CURRENT_TIMESTAMP`)
 	reEnum                  = regexp.MustCompile(`(?i)ENUM\s*\([^)]+\)`)
+	// Leading group keeps a qualified call like Go's time.Now() in a comment intact.
+	reMySQLNow              = regexp.MustCompile(`(?i)(^|[^.\w])(?:NOW|UTC_TIMESTAMP)\s*\(\s*\)`)
+	reInsertInto            = regexp.MustCompile(`(?i)^(\s*)INSERT\s+INTO\s+`)
 	// SQLite doesn't support precision args: DATETIME(3) → DATETIME, CURRENT_TIMESTAMP(3) → CURRENT_TIMESTAMP.
 	reDatetimePrecision     = regexp.MustCompile(`(?i)\b(DATETIME|TIMESTAMP|TIME|DATE)\s*\(\d+\)`)
 	reCurrentTimestampPrec  = regexp.MustCompile(`(?i)\bCURRENT_TIMESTAMP\s*\(\d+\)`)
 )
+
+// stripSQLComments removes `--` comments, keeping the "-- +goose" annotations
+// that delimit the Up/Down sections. No migration puts "--" inside a string
+// literal, so cutting at the first occurrence is safe.
+func stripSQLComments(input string) string {
+	lines := strings.Split(input, "\n")
+	for i, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "-- +goose") {
+			continue
+		}
+		if idx := strings.Index(line, "--"); idx >= 0 {
+			lines[i] = strings.TrimRight(line[:idx], " \t")
+		}
+	}
+	return strings.Join(lines, "\n")
+}
 
 // containsProcedure returns true if the SQL contains a stored procedure.
 func containsProcedure(sql string) bool {
@@ -60,10 +85,13 @@ func unwrapProcedures(input string) string {
 	inProcHeader := false
 	inProcBody := false
 	beginDepth := 0
-	// inInfoGuard tracks whether we're inside an information_schema IF block.
+	// inInfoGuard tracks whether we're inside an IF EXISTS/IF NOT EXISTS block.
 	inInfoGuard := false
 	// guardPastThen tracks whether we've seen THEN (and are now in the body).
 	guardPastThen := false
+	// guardNotExists records the guard's polarity, so a NOT EXISTS body can keep
+	// its "only if absent" intent via INSERT OR IGNORE once the guard is dropped.
+	guardNotExists := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		upper := strings.ToUpper(trimmed)
@@ -92,12 +120,13 @@ func unwrapProcedures(input string) string {
 					inProcBody = false
 					inInfoGuard = false
 					guardPastThen = false
+					guardNotExists = false
 				} else {
 					result = append(result, line)
 				}
 				continue
 			}
-			// Multi-line information_schema IF guard handling.
+			// Multi-line IF EXISTS/IF NOT EXISTS guard handling.
 			if inInfoGuard {
 				if !guardPastThen {
 					// Still in the SELECT condition; wait for THEN.
@@ -110,17 +139,22 @@ func unwrapProcedures(input string) string {
 				if upper == "END IF;" || upper == "END IF" {
 					inInfoGuard = false
 					guardPastThen = false
+					guardNotExists = false
 					continue
 				}
 				// Keep the inner DDL (ALTER TABLE, etc.).
 				if trimmed != "" {
+					if guardNotExists {
+						line = reInsertInto.ReplaceAllString(line, "${1}INSERT OR IGNORE INTO ")
+					}
 					result = append(result, line)
 				}
 				continue
 			}
-			if isInfoSchemaIf(upper) {
+			if isGuardIf(upper) {
 				inInfoGuard = true
 				guardPastThen = strings.HasSuffix(upper, "THEN")
+				guardNotExists = strings.HasPrefix(upper, "IF NOT EXISTS")
 				continue
 			}
 			result = append(result, line)
@@ -143,10 +177,13 @@ func isProceduralBoilerplate(upper string) bool {
 		strings.HasPrefix(upper, "CALL HPG_")
 }
 
-// isInfoSchemaIf returns true if the line starts an information_schema IF block.
-func isInfoSchemaIf(upper string) bool {
-	return strings.Contains(upper, "INFORMATION_SCHEMA") &&
-		(strings.HasPrefix(upper, "IF NOT EXISTS") || strings.HasPrefix(upper, "IF EXISTS"))
+// isGuardIf returns true if the line starts an IF (NOT) EXISTS guard. Both the
+// information_schema kind ("add the column unless present") and the plain-table
+// kind ("seed the row unless present") are dropped: goose applies a migration
+// once per DB, so on the fresh install SQLite always gets, the guard condition
+// holds by construction.
+func isGuardIf(upper string) bool {
+	return strings.HasPrefix(upper, "IF NOT EXISTS") || strings.HasPrefix(upper, "IF EXISTS")
 }
 
 var reInfoSchemaBlock = regexp.MustCompile(`(?is)IF\s+(NOT\s+)?EXISTS\s*\(\s*SELECT\s+1\s+FROM\s+information_schema[^;]*?\)\s*THEN([^;]*?;)\s*END\s+IF\s*;`)
@@ -176,54 +213,56 @@ func convertCreateTableIndexes(input string) string {
 	})
 }
 
-// reInlineIndex matches MySQL inline index lines in CREATE TABLE.
 var (
-	reUniqueKey = regexp.MustCompile("(?i),?\\s*(UNIQUE\\s+KEY\\s+(\\S+)\\s*\\(([^)]+)\\))")
-	reKey       = regexp.MustCompile("(?i),?\\s*((?:KEY|INDEX)\\s+(\\S+)\\s*\\(([^)]+)\\))")
+	// Anchored at clause start, so a column named e.g. "pubkey VARCHAR(64)"
+	// can never read as a KEY definition.
+	reKeyClause = regexp.MustCompile("(?is)^(UNIQUE\\s+)?(?:KEY|INDEX)\\s+([^\\s(]+)\\s*\\((.+)\\)$")
+	reLineComment = regexp.MustCompile(`(?m)--[^\n]*`)
+	reTableName   = regexp.MustCompile("(?i)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?[`\"]?(\\w+)[`\"]?\\s*\\(")
 )
 
+// transformCreateTable rewrites one CREATE TABLE: inline MySQL KEY/UNIQUE KEY
+// definitions become standalone CREATE INDEX statements.
+//
+// The body is split into top-level clauses and rebuilt rather than regex-erased
+// in place: erasing left the surviving clauses' commas dangling (a trailing
+// CONSTRAINT then parsed as a syntax error), and was blind to `--` comments,
+// which are dropped here since only SQLite reads this output.
 func transformCreateTable(stmt string) string {
-	// Extract table name for CREATE INDEX statements.
-	tableNameRe := regexp.MustCompile("(?i)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?[`\"]?(\\w+)[`\"]?\\s*\\(")
-	nameMatch := tableNameRe.FindStringSubmatch(stmt)
-	if nameMatch == nil {
+	nameMatch := reTableName.FindStringSubmatch(stmt)
+	sub := reCreateTable.FindStringSubmatch(stmt)
+	if nameMatch == nil || sub == nil {
 		return stmt
 	}
 	tableName := nameMatch[1]
+	header := strings.TrimRight(sub[1], " \t\n")
+	body := reLineComment.ReplaceAllString(sub[2], "")
 
-	var extraIndexes []string
-
-	// Remove UNIQUE KEY lines and collect them.
-	stmt = reUniqueKey.ReplaceAllStringFunc(stmt, func(m string) string {
-		sub := reUniqueKey.FindStringSubmatch(m)
-		if sub == nil {
-			return m
+	var kept, indexes []string
+	for _, clause := range splitAlterClauses(body) {
+		clause = strings.TrimSpace(clause)
+		if clause == "" {
+			continue
 		}
-		idxName := strings.Trim(sub[2], "`\"")
-		cols := sub[3]
-		extraIndexes = append(extraIndexes,
-			"CREATE UNIQUE INDEX IF NOT EXISTS "+idxName+" ON "+tableName+"("+cols+");")
-		return ""
-	})
-
-	// Remove KEY/INDEX lines and collect them.
-	stmt = reKey.ReplaceAllStringFunc(stmt, func(m string) string {
-		sub := reKey.FindStringSubmatch(m)
-		if sub == nil {
-			return m
+		km := reKeyClause.FindStringSubmatch(clause)
+		if km == nil {
+			kept = append(kept, clause)
+			continue
 		}
-		idxName := strings.Trim(sub[2], "`\"")
-		cols := sub[3]
-		extraIndexes = append(extraIndexes,
-			"CREATE INDEX IF NOT EXISTS "+idxName+" ON "+tableName+"("+cols+");")
-		return ""
-	})
-
-	if len(extraIndexes) == 0 {
+		unique := ""
+		if strings.TrimSpace(km[1]) != "" {
+			unique = "UNIQUE "
+		}
+		idxName := strings.Trim(km[2], "`\"")
+		indexes = append(indexes,
+			"CREATE "+unique+"INDEX IF NOT EXISTS "+idxName+" ON "+tableName+"("+km[3]+");")
+	}
+	if len(indexes) == 0 {
 		return stmt
 	}
-	// Append CREATE INDEX statements after the CREATE TABLE.
-	return stmt + "\n" + strings.Join(extraIndexes, "\n")
+
+	out := header + " (\n    " + strings.Join(kept, ",\n    ") + "\n);"
+	return out + "\n" + strings.Join(indexes, "\n")
 }
 
 // stripMySQLTableOptions removes ENGINE=..., CHARSET=..., COLLATE=... from CREATE TABLE endings.
@@ -341,11 +380,15 @@ func fixTableLevelAutoIncrementPK(input string) string {
 		reColDef := regexp.MustCompile(`(?i)\x60?` + regexp.QuoteMeta(autoIncCol) + `\x60?(\s+)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)(?:\s+UNSIGNED)?(?:\s+NOT\s+NULL|\s+NULL)?\s+AUTO_INCREMENT\b`)
 		m = reColDef.ReplaceAllString(m, autoIncCol+"${1}INTEGER PRIMARY KEY")
 
-		// Remove separate PRIMARY KEY (col) constraint, including preceding comma+newline.
-		reRemovePK := regexp.MustCompile(`(?i),?\s*\n\s*PRIMARY\s+KEY\s*\(\s*\x60?` + regexp.QuoteMeta(autoIncCol) + `\x60?\s*\)\s*,?`)
-		m = reRemovePK.ReplaceAllString(m, "")
-
-		return m
+		// Remove the now-redundant separate PRIMARY KEY (col) constraint. Take the
+		// comma on exactly one side: eating both would splice the neighbouring
+		// clauses together (a following CONSTRAINT then fails to parse).
+		pk := `PRIMARY\s+KEY\s*\(\s*\x60?` + regexp.QuoteMeta(autoIncCol) + `\x60?\s*\)`
+		if out := regexp.MustCompile(`(?i),\s*`+pk).ReplaceAllString(m, ""); out != m {
+			return out
+		}
+		// No preceding clause - drop the trailing comma instead.
+		return regexp.MustCompile(`(?i)`+pk+`\s*,\s*`).ReplaceAllString(m, "")
 	})
 }
 
@@ -362,7 +405,9 @@ func fixAlterTable(input string) string {
 			return m
 		}
 		tableName := strings.Trim(sub[1], "`")
-		body := sub[2]
+		// Drop `--` comments first: a comment sitting between two clauses would
+		// otherwise lead its clause and hide the ADD/DROP keyword behind it.
+		body := reLineComment.ReplaceAllString(sub[2], "")
 
 		clauses := splitAlterClauses(body)
 		var stmts []string
@@ -388,8 +433,17 @@ func fixAlterTable(input string) string {
 				if idxM != nil {
 					stmts = append(stmts, "DROP INDEX IF EXISTS "+strings.Trim(idxM[1], "`")+";")
 				}
-			case strings.HasPrefix(upper, "MODIFY COLUMN"), strings.HasPrefix(upper, "CHANGE "):
-				// SQLite does not support column type changes - skip.
+			case strings.HasPrefix(upper, "MODIFY"), strings.HasPrefix(upper, "CHANGE "):
+				// No column type changes in SQLite. Harmless to skip: storage is
+				// dynamically typed, so a VARCHAR widen/shrink is a no-op anyway.
+				// Covers bare "MODIFY col ..." as well as "MODIFY COLUMN ...".
+			case strings.HasPrefix(upper, "ADD CONSTRAINT"),
+				strings.HasPrefix(upper, "DROP CONSTRAINT"),
+				strings.HasPrefix(upper, "DROP FOREIGN KEY"),
+				strings.HasPrefix(upper, "DROP CHECK"):
+				// SQLite can't add or drop FK/CHECK constraints on an existing
+				// table (needs a full rebuild), and it enforces no FKs here
+				// anyway - the pool never sets PRAGMA foreign_keys=ON.
 			case strings.HasPrefix(upper, "ADD COLUMN"), strings.HasPrefix(upper, "ADD ") && !strings.HasPrefix(upper, "ADD PRIMARY"):
 				// Strip AFTER col_name and build individual ADD COLUMN.
 				clause = reAfterClause.ReplaceAllString(clause, "")

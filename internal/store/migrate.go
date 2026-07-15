@@ -7,9 +7,9 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
-	"io"
 	"io/fs"
-	"strings"
+	"sort"
+	"sync"
 	"time"
 
 	"github.com/pressly/goose/v3"
@@ -20,23 +20,45 @@ import (
 type MigrationsFS = embed.FS
 
 // sqliteFS wraps an fs.FS and transforms .sql files for SQLite compatibility.
-type sqliteFS struct{ base fs.FS }
+// Every migration is planned up front, in version order, because resolving the
+// guards SQLite can't express needs the schema built by the earlier ones
+// (see schemaTracker). Doing it here rather than per Open also keeps the result
+// stable no matter how often, or in what order, goose reads a file.
+type sqliteFS struct {
+	base fs.FS
+	once sync.Once
+	plan map[string]string
+	err  error
+}
 
-func (s sqliteFS) Open(name string) (fs.File, error) {
-	f, err := s.base.Open(name)
+func (s *sqliteFS) build() {
+	names, err := fs.Glob(s.base, "*.sql")
 	if err != nil {
-		return nil, err
+		s.err = fmt.Errorf("sqlite plan: glob: %w", err)
+		return
 	}
-	if !strings.HasSuffix(name, ".sql") {
-		return f, nil
+	sort.Strings(names)
+	tracker := newSchemaTracker()
+	s.plan = make(map[string]string, len(names))
+	for _, n := range names {
+		b, err := fs.ReadFile(s.base, n)
+		if err != nil {
+			s.err = fmt.Errorf("sqlite plan: read %s: %w", n, err)
+			return
+		}
+		s.plan[n] = tracker.apply(TransformForSQLite(string(b)))
 	}
-	b, err := io.ReadAll(f)
-	_ = f.Close()
-	if err != nil {
-		return nil, err
+}
+
+func (s *sqliteFS) Open(name string) (fs.File, error) {
+	s.once.Do(s.build)
+	if s.err != nil {
+		return nil, s.err
 	}
-	transformed := []byte(TransformForSQLite(string(b)))
-	return &memFile{name: name, r: bytes.NewReader(transformed)}, nil
+	if sqlText, ok := s.plan[name]; ok {
+		return &memFile{name: name, r: bytes.NewReader([]byte(sqlText))}, nil
+	}
+	return s.base.Open(name)
 }
 
 // memFile is an in-memory fs.File for transformed content.
@@ -77,7 +99,7 @@ func RunMigrations(ctx context.Context, db *sql.DB, fsys embed.FS, dir string) e
 	dialect := goose.DialectMySQL
 	if Driver() == "sqlite3" {
 		dialect = goose.DialectSQLite3
-		migFS = sqliteFS{base: subFS}
+		migFS = &sqliteFS{base: subFS}
 	}
 
 	p, err := goose.NewProvider(dialect, db, migFS,
