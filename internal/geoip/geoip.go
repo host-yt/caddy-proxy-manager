@@ -8,9 +8,21 @@
 package geoip
 
 import (
+	"os"
 	"sort"
 	"strings"
 )
+
+// HasCountryDB reports whether the GeoLite2-Country mmdb is present. The panel
+// is the source of truth: it downloads the db and provisions it to nodes, so if
+// the panel has no copy no node can either. Emitting a maxmind matcher whose
+// db_path does not exist makes Caddy reject the WHOLE node config (400 on
+// /load), taking every route on that node down - not just geo. Gating geo on
+// this keeps geo "off" instead of breaking the node when the db is absent.
+func HasCountryDB() bool {
+	info, err := os.Stat(DBPath)
+	return err == nil && !info.IsDir() && info.Size() > 0
+}
 
 // DBPath is where the GeoLite2-Country mmdb lives on each node (provisioned out
 // of band). Kept here so the builder and deploy path agree on one location.

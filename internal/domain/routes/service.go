@@ -26,6 +26,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/dns"
+	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
@@ -1653,7 +1654,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		Layer4ModuleAvailable:    probedOr(nodeHasL4, s.Layer4ModuleAvailable),
 		RateLimitModuleAvailable: probedOr(nodeHasRateLimit, s.RateLimitModuleAvailable),
 		WAFModuleAvailable:       probedOr(nodeHasWAF, s.WAFModuleAvailable),
-		GeoModuleAvailable:       probedOr(nodeHasGeoIP, s.GeoModuleAvailable),
+		GeoModuleAvailable:       probedOr(nodeHasGeoIP, s.GeoModuleAvailable) && geoip.HasCountryDB(),
 		DNS01ModuleAvailable:     probedOr(nodeHasDNS, s.DNS01ModuleAvailable),
 		WildcardPolicies:         s.buildWildcardPolicies(ctx, nodeID),
 		StreamRoutes:             streams,
@@ -1769,7 +1770,7 @@ func (s *Service) buildOneRoute(ctx context.Context, nodeID, routeID int64) (cad
 			r.CacheModuleAvailable = s.CacheModuleAvailable
 			r.RateLimitModuleAvailable = probedOr(nHasRate, s.RateLimitModuleAvailable)
 			r.WAFModuleAvailable = probedOr(nHasWAF, s.WAFModuleAvailable)
-			r.GeoModuleAvailable = probedOr(nHasGeoIP, s.GeoModuleAvailable)
+			r.GeoModuleAvailable = probedOr(nHasGeoIP, s.GeoModuleAvailable) && geoip.HasCountryDB()
 			return r, true, nil
 		}
 	}
@@ -2409,7 +2410,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			WAFModuleAvailable:       s.WAFModuleAvailable,
 			GeoMode:                  geoMode,
 			GeoCountries:             geoCountries,
-			GeoModuleAvailable:       s.GeoModuleAvailable,
+			GeoModuleAvailable:       s.GeoModuleAvailable && geoip.HasCountryDB(),
 			GeoResponseCode:          geoResponseCode,
 			GeoFailClosed:            geoFailClosed,
 			GeoAllowCIDRs:            geoAllowCIDRs,
