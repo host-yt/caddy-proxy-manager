@@ -66,6 +66,15 @@ services:
       # this compose because the bundled Caddy image already includes
       # caddy-l4 via xcaddy (deploy/caddy/Dockerfile).
       LAYER4_AVAILABLE: ${LAYER4_AVAILABLE:-1}
+      # The bundled edge image also carries coraza (WAF), maxmind (geo),
+      # rate_limit and weighted LB, so default these on too. Without passing
+      # them the app never sees the flag an admin sets in .env, and per-route
+      # WAF/geo/rate-limit silently no-op until the node module probe happens
+      # to flip the per-node capability instead.
+      WAF_MODULE_AVAILABLE: ${WAF_MODULE_AVAILABLE:-1}
+      GEOIP_AVAILABLE: ${GEOIP_AVAILABLE:-1}
+      RATE_LIMIT_AVAILABLE: ${RATE_LIMIT_AVAILABLE:-1}
+      WEIGHTED_LB_AVAILABLE: ${WEIGHTED_LB_AVAILABLE:-1}
     depends_on:
       mariadb:
         condition: service_healthy
