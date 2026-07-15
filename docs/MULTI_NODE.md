@@ -491,6 +491,11 @@ failover. When one peer in the group becomes unreachable, traffic can be routed
 to another peer in the same group without requiring manual intervention.
 
 **Current behavior:**
+- Route fan-out: a route on an `active_active` (or `failover`) node group is
+  compiled and pushed to **every** node in the group, not just the one matching
+  `routes.caddy_node_id`. Each peer receives the identical `reverse_proxy`
+  payload (`routes: 1`). (Before 1.4.0 only the anchor node got the route and
+  peers answered an empty `NOP` - fixed in #3.)
 - Route placement: manager picks the node in the group with the fewest active
   routes, weighted by `caddy_nodes.priority`.
 - Node health is tracked in `caddy_nodes.health_status`. The metrics scraper

@@ -2,6 +2,27 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## [1.4.0] - 2026-07-15
+
+### Added
+
+- **SQLite database engine**: the panel now runs its full MySQL-dialect query set on SQLite, so a homelab/single-node install needs no MariaDB - pick `db_driver=sqlite3` in the install wizard. Migrations, the missing SQL functions (`NOW`, `DATE_FORMAT`, `GREATEST`, `SHA2`, …), engine-native backup dump and restore-drill are all covered. MySQL/MariaDB stays the default for multi-writer/scale deployments; SQLite runs single-writer (`MaxOpenConns(1)`).
+- **Serve operator-imported TLS certs on the edge**: a manual certificate linked to a route is now pushed to that route's node(s) and served for its domain over TLS with no ACME (`apps.tls.certificates.load_pem`). Previously manual certs were only stored/monitored. A pooled cert matches its SNI before on-demand issuance, so private-CA / internal domains just work; unlinked certs stay import-only.
+- **Group-first add-host form**: `/admin/hosts/new` leads with the node group / mode, gates on the DNS-ownership check, and lands on the edit page - a clearer path than the old flat form.
+- **Health-driven DNS steering** and **RTT tracking from health probes**: nodes record round-trip latency and DNS can steer away from unhealthy nodes.
+- **Inbound PROXY protocol for HTTP**: read the real client IP from an upstream L4 balancer/tunnel (per-node, allow-listed).
+- **Doctor preflight checks** for the panel and node-agent.
+
+### Fixed
+
+- **Multi-node cluster drops routes on non-anchor nodes (#3)**: a route on a node group compiled `routes: 1` only for the node matching `caddy_node_id`; every other node in the group got `routes: 0` and answered `NOP`. The config builder now emits the route for every node serving it (direct assignment or `route_node_assignments` fan-out), so all peers in an `active_active`/`failover` group get the identical payload.
+- **Enabling WAF could brick a node**: Coraza's audit log opens `/var/log/caddy/waf-audit.log` at config-load; a missing dir made Caddy reject the whole `/load` (400) and freeze the node. The edge image now bakes the directory.
+- **Enabling GeoIP could brick a node**: the panel emitted a maxmind matcher even when the country DB was absent, so Caddy rejected the whole node config. Geo is now gated on the DB being present.
+- **Blank Manual Certificates page**: `/admin/manual-certs` rendered only chrome (no import form or table) because the page was missing from the admin layout's content dispatch. Added, plus a test that fails if any admin page is left undispatched.
+- **Already-expired auth tokens on non-UTC servers**: password-reset / node-join / registration tokens computed expiry in Go-UTC but checked it against DB-local `NOW()`, so a fresh token could be born expired on a non-UTC server. Expiry is now computed DB-side.
+- **Module capability flags not passed to the app**: the compose forwarded only `LAYER4`/`CACHE`; WAF/GeoIP/rate-limit/weighted-LB flags an operator set in `.env` are now honored.
+- **Compose network race**: `geoip-init` is pinned to the internal network so its implicit default network can't collide with the pinned `172.18.0.0/16` subnet.
+
 ## [1.3.4] - 2026-07-12
 
 ### Fixed

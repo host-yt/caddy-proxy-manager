@@ -16,6 +16,7 @@ Comparison of HPG with common alternatives.
 | AI assistant | yes | no | no | Scoped to role; per-user rate limit |
 | Analytics dashboard | yes | partial | no | HPG: Prometheus-backed charts + KPI cards |
 | mTLS per route | yes | no | no | Requires mTLS Caddy module |
+| Manual TLS certs (served) | yes | no | no | Import cert+key, link to a route, served on the edge with no ACME |
 | HTTP cache per route | yes | no | no | Souin module; per-route toggle |
 | Audit log | yes | no | no | All write ops logged with actor + IP |
 | REST API | yes | no | no | Bearer key auth; per-key RPM cap |
@@ -29,6 +30,7 @@ Comparison of HPG with common alternatives.
 | On-demand TLS | yes | yes | no | HPG: `/internal/ask` gate with DB check |
 | Backup / restore | yes | no | no | S3/SFTP/FTP; restore drill CLI |
 | Install wizard | yes | yes | no | |
+| SQLite or MariaDB/MySQL | yes | partial | partial | HPG: SQLite for single-node (no DB container), MariaDB/MySQL for multi-writer/scale |
 | Docker Compose deploy | yes | yes | partial | HPG: single compose for full stack |
 | Self-hostable | yes | yes | yes | All three are self-hosted |
 | Open source | yes | yes | yes | |

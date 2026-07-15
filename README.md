@@ -12,7 +12,7 @@ yourself, with WireGuard tunnels to origin and per-node failover. The
 control plane configures every node over WireGuard, drives Let's Encrypt
 issuance, runs a WAF + GeoIP, and surfaces traffic stats.
 
-**Status:** v1.3.2. Stack: Go 1.26.3, chi, MariaDB, Redis, Caddy 2.8.
+**Status:** v1.4.0. Stack: Go 1.26.3, chi, MariaDB/MySQL or SQLite, Redis, Caddy 2.11.
 Single binary ~21 MB image, ~28 MB idle RAM.
 
 ## Use cases
@@ -276,6 +276,7 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 | [`docs/GEOIP.md`](docs/GEOIP.md) | GeoIP country filtering |
 | [`docs/DNS_PROVIDERS.md`](docs/DNS_PROVIDERS.md) | DNS-01 challenge providers for wildcard TLS |
 | [`docs/MTLS.md`](docs/MTLS.md) | Mutual TLS / client certificate auth |
+| [`docs/MANUAL_CERTS.md`](docs/MANUAL_CERTS.md) | Import + serve your own TLS certificates (no ACME) |
 | [`docs/TERRAFORM.md`](docs/TERRAFORM.md) | Terraform provider (hpg_node, hpg_client, hpg_service, ...) |
 | [`docs/ANALYTICS.md`](docs/ANALYTICS.md) | Access log analytics |
 | [`docs/ROADMAP.md`](docs/ROADMAP.md) | Shipped features and planned work |
