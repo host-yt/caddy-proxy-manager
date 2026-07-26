@@ -112,6 +112,9 @@ func (s *Service) load(ctx context.Context) (ControlPlane, error) {
 				v = ""
 			}
 		}
+		// Values pasted into the panel (esp. from Windows) can carry \r or
+		// stray whitespace; a tainted endpoint corrupts every node's wg0.conf.
+		v = strings.TrimSpace(v)
 		switch k {
 		case "wireguard.enabled":
 			c.Enabled = v == "1"

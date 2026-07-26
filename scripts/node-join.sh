@@ -81,6 +81,10 @@ resp=$(curl -fsS --max-time 30 \
   -H 'Content-Type: application/json' \
   -X POST "$MANAGER/api/v1/nodes/join" \
   -d "$payload") || die "manager rejected the join request - check token + URL"
+# Strip CR defensively: a \r smuggled inside any JSON value (e.g. an endpoint
+# pasted into the panel on Windows) corrupts wg0.conf, docker-compose.yml and
+# the Caddyfile below ("Invalid handshake initiation" and friends).
+resp=${resp//$'\r'/}
 
 node_id=$(echo "$resp" | jq -r '.node_id')
 node_name=$(echo "$resp" | jq -r '.node_name')

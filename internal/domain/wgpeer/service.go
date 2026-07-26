@@ -153,8 +153,18 @@ func (s *Service) CreateHA(ctx context.Context, in CreateHAInput) (string, []Pee
 	if s.DB == nil {
 		return "", nil, "", errors.New("wgpeer: no db")
 	}
-	if len(in.NodeIDs) < 2 {
-		return "", nil, "", errors.New("wgpeer: HA needs at least 2 nodes")
+	// Dedupe node ids - a repeated node would insert two rows + burn two
+	// IPs for the same box and render a broken multi-peer config.
+	seenNode := make(map[int64]bool, len(in.NodeIDs))
+	nodeIDs := make([]int64, 0, len(in.NodeIDs))
+	for _, nid := range in.NodeIDs {
+		if !seenNode[nid] {
+			seenNode[nid] = true
+			nodeIDs = append(nodeIDs, nid)
+		}
+	}
+	if len(nodeIDs) < 2 {
+		return "", nil, "", errors.New("wgpeer: HA needs at least 2 distinct nodes")
 	}
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
@@ -182,9 +192,9 @@ func (s *Service) CreateHA(ctx context.Context, in CreateHAInput) (string, []Pee
 	}
 	groupID := hex.EncodeToString(groupRaw[:])
 
-	out := make([]Peer, 0, len(in.NodeIDs))
+	out := make([]Peer, 0, len(nodeIDs))
 	var firstPeerID int64
-	for _, nid := range in.NodeIDs {
+	for _, nid := range nodeIDs {
 		subnet, _, err := s.nodeTunnelConfig(ctx, nid)
 		if err != nil {
 			return "", nil, "", fmt.Errorf("node %d: %w", nid, err)
@@ -594,10 +604,17 @@ func RenderConfig(r BootstrapResult) string {
 	b.WriteString("\n")
 	b.WriteString("Address = ")
 	// HA: bind ALL assigned IPs so kernel routing picks the right one
-	// per outbound peer match.
+	// per outbound peer match. Dedupe: HA nodes sharing a tunnel subnet can
+	// allocate the same IP; a repeated Address makes wg-quick fail with
+	// "Address already assigned" (GH issue #5).
+	seenAddr := map[string]bool{r.Peer.AssignedIP: true}
 	b.WriteString(r.Peer.AssignedIP)
 	b.WriteString("/32")
 	for _, hp := range r.HAPeers {
+		if seenAddr[hp.AssignedIP] {
+			continue
+		}
+		seenAddr[hp.AssignedIP] = true
 		b.WriteString(", ")
 		b.WriteString(hp.AssignedIP)
 		b.WriteString("/32")
@@ -611,7 +628,15 @@ func RenderConfig(r BootstrapResult) string {
 	b.WriteString("PostDown = iptables -t mangle -D FORWARD -o %i -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true\n")
 	b.WriteString("PostDown = iptables -t mangle -D FORWARD -i %i -p tcp -m tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu || true\n\n")
 
+	// Skip fully-duplicate [Peer] blocks (same key + endpoint) - wg-quick
+	// tolerates them but cryptokey routing gets confusing; defensive only.
+	seenPeer := map[string]bool{}
 	writePeer := func(pub, endpoint, subnet string) {
+		if k := pub + "|" + endpoint; seenPeer[k] {
+			return
+		} else {
+			seenPeer[k] = true
+		}
 		b.WriteString("[Peer]\n")
 		b.WriteString("PublicKey = ")
 		b.WriteString(pub)
