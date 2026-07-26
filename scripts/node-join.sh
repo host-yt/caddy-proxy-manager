@@ -114,6 +114,11 @@ Endpoint   = ${peer_ep}
 AllowedIPs = ${peer_allowed}
 PersistentKeepalive = ${peer_keepalive}
 EOF
+###
+sed -i 's/\r$//' /etc/wireguard/wg0.conf
+###
+#  The key read by WG is linked to the comment content, causing errors like 'Invalid handshake initiation'.#
+###
 chmod 600 /etc/wireguard/wg0.conf
 
 log "Bringing up WireGuard"
