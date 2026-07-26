@@ -2,6 +2,13 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## [1.4.1] - 2026-07-27
+
+### Fixed
+
+- **Customer tunnel fails with `Error: ipv4: Address already assigned` (#5)**: HA tunnel nodes sharing a tunnel subnet could allocate the *same* customer IP (allocation is scoped per node), so the rendered `.conf` repeated it on the `Address` line and `wg-quick` refused to start. Duplicate IPs are now deduplicated (and fully-identical `[Peer]` blocks collapsed); an HA group also can't be created with the same node listed twice. Re-download the tunnel `.conf` from the panel to repair an affected install.
+- **Stray `\r` corrupting generated configs (#4)**: a carriage return smuggled inside a panel setting (e.g. a WireGuard endpoint pasted on Windows) flowed into `wg0.conf`, `docker-compose.yml` and the node `Caddyfile`, causing errors like `Invalid handshake initiation`. `node-join.sh` now strips CR from the manager response, and `wireguard.*` settings are whitespace-trimmed at load (repairs legacy rows too). Thanks @offzen for the report and the PR that pinpointed it.
+
 ## [1.4.0] - 2026-07-15
 
 ### Added
