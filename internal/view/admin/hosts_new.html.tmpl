@@ -51,6 +51,20 @@
         <p id="hpg-dns-result" class="t-caption mt-1">DNS A record for this domain must point at the serving node's public IP before Let's Encrypt will issue a cert. Pick a node group below to enable the check.</p>
       </div>
 
+      {{if .ClientTunnels}}
+      <div id="hpg-tunnel-field">
+        <label class="t-eyebrow mb-1 block">Backend via</label>
+        <select name="via_wg_peer_id" id="hpg-via-tunnel" class="r-select w-full">
+          <option value="">Direct IP / hostname (default)</option>
+          {{$sel := .Form.ViaWGPeerID}}
+          {{range .ClientTunnels}}
+          <option value="{{.ID}}" {{if eq $sel (printf "%d" .ID)}}selected{{end}}>WG tunnel #{{.ID}} · {{.Name}} ({{.AssignedIP}})</option>
+          {{end}}
+        </select>
+        <p class="t-caption mt-1">With tunnel: leave host empty to dial the peer IP, or type an IP/container name reachable through the tunnel. Container names resolve via peer-side DNS.</p>
+      </div>
+      {{end}}
+
       <div id="hpg-proxy-fields" class="grid grid-cols-6 gap-3">
         <div>
           <label class="t-eyebrow mb-1 block">Scheme</label>

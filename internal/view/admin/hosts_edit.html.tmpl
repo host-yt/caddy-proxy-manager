@@ -186,7 +186,7 @@
             <option value="">Direct IP / hostname (default)</option>
             {{range .ClientTunnels}}<option value="{{.ID}}" data-ip="{{.AssignedIP}}" {{if eq .ID $.ViaWGPeerID}}selected{{end}}>WG tunnel #{{.ID}} &middot; {{.Name}} ({{.AssignedIP}})</option>{{end}}
           </select>
-          <p class="t-caption text-muted mt-1">With tunnel: leave empty - dial peer IP, OR type a specific <strong>IP</strong> reachable through the tunnel (e.g. a docker bridge IP if AllowedIPs covers it). <strong>Hostnames are NOT supported yet</strong> - container DNS via tunnel needs peer-side dnsmasq which the install script doesn&apos;t ship. Expose the port on the peer&apos;s host network instead and use <code class="text-xs">peer_ip:port</code>.</p>
+          <p class="t-caption text-muted mt-1">With tunnel: leave empty - dial peer IP, OR type an <strong>IP</strong> reachable through the tunnel, OR a <strong>container/host name</strong>. Names are resolved through the tunnel via peer-side DNS (auto-bound to this peer unless a custom resolver is set under Routing rules). The peer must answer DNS on its tunnel IP - re-run the tunnel install script to get the container-DNS helper.</p>
         </div>
         {{end}}
         <div class="grid grid-cols-6 gap-3">
@@ -200,7 +200,7 @@
           <div class="col-span-3">
             <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Backend host (IP or hostname)</label>
             <input id="hpg-backend-ip" name="backend_ip" value="{{.BackendIP}}" placeholder="10.0.0.5 or backend.example.com" class="r-input w-full">
-            <p id="hpg-backend-ip-note" class="t-caption text-warning mt-1 hidden">Tunnel selected: leave empty to dial peer IP, or type an IP reachable through the tunnel. Hostnames are rejected (require peer DNS, not implemented).</p>
+            <p id="hpg-backend-ip-note" class="t-caption text-warning mt-1 hidden">Tunnel selected: leave empty to dial peer IP, or type an IP or container name reachable through the tunnel. Names resolve via peer DNS (auto-bound to this tunnel).</p>
           </div>
           <div class="col-span-2">
             <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Port</label>

@@ -403,6 +403,9 @@ type CreateInput struct {
 	// in the same INSERT so host metadata persists atomically with the route.
 	GroupID      int64
 	CustomFields string
+
+	// ViaWGPeerID binds the backend dial to a WG tunnel peer (0 = none).
+	ViaWGPeerID int64
 }
 
 // Validation errors exposed to handlers.
@@ -425,6 +428,9 @@ var (
 	// ErrWildcardZoneMismatch: the route domain is neither the zone nor a
 	// subdomain of it, so a *.zone cert would not cover it.
 	ErrWildcardZoneMismatch = errors.New("domain is not covered by the wildcard zone")
+	// ErrTunnelNotOnNode: selected WG peer missing, not the client's, or not
+	// present on the placed Caddy node.
+	ErrTunnelNotOnNode = errors.New("selected tunnel must belong to this client and exist on the placed node")
 )
 
 // ExternalHostAllowed is the exported wrapper so handlers can validate an
@@ -695,6 +701,24 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 	}
 	nodeID := primaryNode
 
+	// Tunnel guard: peer must belong to the owning client and cover the
+	// placed node (directly or via its peer group), else Caddy would dial
+	// through a nonexistent wg interface. Returns peer IP for the override
+	// dedupe below.
+	var tunnelPeerIP string
+	if in.ViaWGPeerID > 0 {
+		if err := s.DB.QueryRowContext(ctx,
+			`SELECT COALESCE(p_base.assigned_ip,'') FROM customer_wg_peer p_base
+			  WHERE p_base.id = ? AND p_base.client_id = ? AND p_base.status <> 'revoked'
+			    AND EXISTS (SELECT 1 FROM customer_wg_peer p_use
+			                 WHERE p_use.status <> 'revoked' AND p_use.node_id = ?
+			                   AND (p_use.id = p_base.id OR
+			                        (p_base.peer_group_id IS NOT NULL AND p_use.peer_group_id = p_base.peer_group_id)))`,
+			in.ViaWGPeerID, ownerClient, nodeID).Scan(&tunnelPeerIP); err != nil {
+			return 0, ErrTunnelNotOnNode
+		}
+	}
+
 	// Insert + increment counter in a transaction.
 	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
@@ -728,6 +752,20 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 	// External-route columns (NULL/0 for normal routes).
 	var backendOverride, hostHeader, secretEnc sql.NullString
 	extFlag := 0
+	// Tunnel route: per-route override beats peer IP in the build COALESCE;
+	// hostname backends also get the peer as DNS resolver (dynamic upstreams).
+	// No override when backend equals peer IP - fan-out nodes must pick their
+	// own group member's IP.
+	var viaPeer, dnsResolverPeer sql.NullInt64
+	if in.ViaWGPeerID > 0 && kind == "proxy" && !in.External {
+		viaPeer = sql.NullInt64{Int64: in.ViaWGPeerID, Valid: true}
+		if backendIP != "" && backendIP != tunnelPeerIP {
+			backendOverride = sql.NullString{String: backendIP, Valid: true}
+			if !looksLikeIP(backendIP) {
+				dnsResolverPeer = viaPeer
+			}
+		}
+	}
 	if in.External {
 		extFlag = 1
 		backendOverride = sql.NullString{String: externalHost, Valid: true}
@@ -790,13 +828,15 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		   kind, redirect_url, redirect_code, tag,
 		   backend_ip_override, upstream_external, upstream_host_header, proxy_secret_enc,
 		   wildcard_enabled, wildcard_zone, group_id, custom_fields,
+		   via_wg_peer_id, dns_resolver_via_wg_peer_id,
 		   domain_verified, verify_token)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, ?)`,
 		in.ServiceID, nodeID, domain, pathPrefix, in.UpstreamPort, scheme,
 		in.SSL, in.WebSocket, in.ForceHTTPS,
 		kind, redirURL, redirCode, tagVal,
 		backendOverride, extFlag, hostHeader, secretEnc,
 		wildFlag, wildZone, in.GroupID, in.CustomFields,
+		viaPeer, dnsResolverPeer,
 		verified, verifyToken)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
@@ -2345,11 +2385,12 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 				proxySecret = sec
 			}
 		}
-		// Defense in depth: if the DB still contains a hostname override
-		// from before the validation landed, drop it back to peer IP so
-		// the route doesn't 502 on an unresolvable name. External routes are
-		// exempt - their upstream is meant to be a public FQDN.
-		if !external && tunnelResolverIP != "" && ip != "" && !looksLikeIP(ip) {
+		// Hostname backend over tunnel needs a DNS resolver (dynamic
+		// upstreams resolve it via the peer). Without one, fall back to
+		// peer IP so the route doesn't 502 on an unresolvable name.
+		// External routes exempt - their upstream is a public FQDN.
+		if !external && tunnelResolverIP != "" && ip != "" && !looksLikeIP(ip) &&
+			dnsResolverIP == "" && dnsResolverPeerIP == "" {
 			ip = tunnelResolverIP
 		}
 		backendResolver := ""

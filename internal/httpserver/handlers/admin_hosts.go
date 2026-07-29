@@ -586,6 +586,8 @@ type hostsNewData struct {
 	Groups     []hostGroupOption
 	Form       hostsNewForm
 	CFViews    []customfields.View
+	// ClientTunnels: admin-self client's WG peers for the "Backend via" picker.
+	ClientTunnels []tunnelOption
 }
 
 type hostsNewNode struct {
@@ -626,6 +628,7 @@ type hostsNewForm struct {
 	WildcardEnabled bool
 	WildcardZone    string
 	GroupID         int64
+	ViaWGPeerID     string
 }
 
 // HostsNew renders /admin/hosts/new (GET).
@@ -642,6 +645,12 @@ func (h *AdminHandlers) HostsNew(w http.ResponseWriter, r *http.Request) {
 		d.Groups = loadHostGroups(ctx, db)
 		if defs, err := customfields.LoadDefs(ctx, db, "host"); err == nil {
 			d.CFViews = customfields.Merge(defs, nil)
+		}
+		// Tunnel picker: admin-self client's peers (route lands under that client).
+		if sess := middleware.SessionFromContext(r.Context()); sess != nil {
+			var cid int64
+			_ = db.QueryRowContext(ctx, "SELECT id FROM clients WHERE user_id = ?", sess.UserID).Scan(&cid)
+			d.ClientTunnels = loadClientTunnels(ctx, db, cid)
 		}
 	}
 	h.render(w, "hosts_new", d)
@@ -690,6 +699,11 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		UpstreamHostHeader: strings.TrimSpace(r.FormValue("upstream_host_header")),
 		WildcardEnabled:    r.FormValue("wildcard_enabled") == "1",
 		WildcardZone:       strings.ToLower(strings.TrimSpace(r.FormValue("wildcard_zone"))),
+		ViaWGPeerID:        strings.TrimSpace(r.FormValue("via_wg_peer_id")),
+	}
+	viaWGPeerID, _ := strconv.ParseInt(form.ViaWGPeerID, 10, 64)
+	if form.External {
+		viaWGPeerID = 0 // mutual exclusion, same as edit
 	}
 	if form.UpstreamScheme != "https" {
 		form.UpstreamScheme = "http"
@@ -726,11 +740,12 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		form.BackendIP = form.ExternalHost
 	} else if form.Kind == "proxy" {
-		if form.BackendIP == "" || port <= 0 || port > 65535 {
+		// With a tunnel the backend may stay empty (dial peer IP).
+		if (form.BackendIP == "" && viaWGPeerID == 0) || port <= 0 || port > 65535 {
 			h.renderHostsNewErr(w, r, form, "backend IP and port are required for proxy routes")
 			return
 		}
-		if !isValidUpstreamHost(form.BackendIP) {
+		if form.BackendIP != "" && !isValidUpstreamHost(form.BackendIP) {
 			h.renderHostsNewErr(w, r, form, "backend must be a valid IP or hostname")
 			return
 		}
@@ -760,7 +775,10 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	// SSRF screen: proxy backends and external upstreams must not target
 	// loopback/link-local/metadata (169.254.169.254). Redirect routes use a
 	// sentinel backend (0.0.0.0) that is never dialed, so skip them.
-	if form.Kind == "proxy" || form.External {
+	// Tunnel routes with empty/hostname backend resolve peer-side; public
+	// DNS screening would false-fail them.
+	tunnelPrivate := viaWGPeerID > 0 && (form.BackendIP == "" || net.ParseIP(form.BackendIP) == nil)
+	if (form.Kind == "proxy" || form.External) && !tunnelPrivate {
 		if err := screenBackendHost(ctx, form.BackendIP); err != nil {
 			h.Logger.Warn("backend host screen failed", "err", err)
 			h.renderHostsNewErr(w, r, form, "backend host is not reachable or not allowed")
@@ -809,6 +827,18 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Error("admin hosts: ensure plan", "err", err)
 		h.renderHostsNewErr(w, r, form, "could not provision admin plan")
 		return
+	}
+	// Tunnel with empty backend: key the bookkeeping service on peer IP.
+	if form.BackendIP == "" && viaWGPeerID > 0 {
+		var peerIP string
+		_ = db.QueryRowContext(ctx,
+			"SELECT COALESCE(assigned_ip,'') FROM customer_wg_peer WHERE id = ? AND client_id = ? AND status <> 'revoked'",
+			viaWGPeerID, clientID).Scan(&peerIP)
+		if peerIP == "" {
+			h.renderHostsNewErr(w, r, form, "selected tunnel not found or not yours")
+			return
+		}
+		form.BackendIP = peerIP
 	}
 	serviceID, err := ensureAdminService(ctx, db, clientID, form.BackendIP, planID, nodeGroupID)
 	if err != nil {
@@ -887,6 +917,7 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		// Persisted in the same INSERT so host metadata is atomic with the route.
 		GroupID:      groupID,
 		CustomFields: cfJSON,
+		ViaWGPeerID:  viaWGPeerID,
 	})
 	if err != nil {
 		h.Logger.Warn("admin hosts: route create", "err", err)
@@ -933,6 +964,11 @@ func (h *AdminHandlers) renderHostsNewErr(w http.ResponseWriter, r *http.Request
 			_ = r.ParseForm()
 			vals, _ := customfields.EncodeFromForm(defs, r.Form)
 			d.CFViews = customfields.Merge(defs, customfields.Decode(vals))
+		}
+		if sess := middleware.SessionFromContext(r.Context()); sess != nil {
+			var cid int64
+			_ = db.QueryRowContext(ctx, "SELECT id FROM clients WHERE user_id = ?", sess.UserID).Scan(&cid)
+			d.ClientTunnels = loadClientTunnels(ctx, db, cid)
 		}
 	}
 	h.render(w, "hosts_new", d)
@@ -3361,17 +3397,15 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "backend must be a valid IP or hostname")
 		return
 	}
-	// Tunnel + hostname auto-coerce: instead of rejecting the whole save
-	// (which would also drop scheme/header/SSO changes the admin made in
-	// the same form), silently clear the hostname → backend_ip_override
-	// stays NULL → build path falls back to peer IP. Defence-in-depth in
-	// routes/service.go already does the same at push time; doing it here
-	// too keeps the UI honest about what got persisted.
+	// Tunnel + hostname: keep the name and resolve it through the tunnel.
+	// If no DNS resolver is configured, auto-bind the tunnel peer as the
+	// resolver so dynamic upstreams query container DNS on the peer.
 	viaPeerPreview, _ := strconv.ParseInt(r.FormValue("via_wg_peer_id"), 10, 64)
-	if kind == "proxy" && backendIP != "" && viaPeerPreview > 0 && net.ParseIP(backendIP) == nil {
-		h.Logger.Info("host save: dropping hostname backend with tunnel set (peer IP will be used)",
-			"route_id", id, "dropped", backendIP)
-		backendIP = ""
+	if kind == "proxy" && backendIP != "" && viaPeerPreview > 0 && net.ParseIP(backendIP) == nil &&
+		dnsResolverIP == "" && dnsResolverViaWGID == 0 {
+		h.Logger.Info("host save: hostname backend with tunnel, auto-binding peer DNS resolver",
+			"route_id", id, "backend", backendIP, "peer", viaPeerPreview)
+		dnsResolverViaWGID = viaPeerPreview
 	}
 	upstreamScheme := strings.TrimSpace(r.FormValue("upstream_scheme"))
 	if upstreamScheme != "https" {

@@ -809,7 +809,11 @@ case "${1:-}" in
     echo "Removing hostyt tunnel…"
     systemctl disable --now wg-quick@hostyt 2>/dev/null || true
     systemctl disable --now hostyt-wstunnel.service 2>/dev/null || true
-    rm -f /etc/systemd/system/hostyt-wstunnel.service
+    systemctl disable --now hostyt-dns-sync.timer 2>/dev/null || true
+    rm -f /etc/systemd/system/hostyt-wstunnel.service /etc/systemd/system/hostyt-dns-sync.service /etc/systemd/system/hostyt-dns-sync.timer
+    rm -f /etc/dnsmasq.d/hostyt-tunnel.conf /usr/local/bin/hostyt-dns-sync
+    rm -rf /etc/hostyt-dns
+    systemctl restart dnsmasq 2>/dev/null || true
     systemctl daemon-reload 2>/dev/null || true
     wg-quick down hostyt 2>/dev/null || true
     rm -f /etc/wireguard/hostyt.conf
@@ -899,6 +903,90 @@ health_check() {
   echo "[health] PASS - tunnel is healthy."
   return 0
 }
+
+# docker_dns_install: dnsmasq on the WG IP answers container names so panel
+# routes can use them as backends. Best-effort; tunnel works without it.
+docker_dns_install() {
+  WG_IP=$(awk -F'= *' '/^Address/ { split($2, a, "/"); print a[1]; exit }' /etc/wireguard/${IFACE}.conf 2>/dev/null)
+  [ -n "$WG_IP" ] || { echo "[dns] no WG address found, skipping container DNS."; return 0; }
+  echo "[dns] Setting up container DNS on ${WG_IP}:53…"
+  if ! command -v dnsmasq >/dev/null 2>&1; then
+    if command -v apt >/dev/null 2>&1; then DEBIAN_FRONTEND=noninteractive apt-get install -y -qq dnsmasq
+    elif command -v dnf >/dev/null 2>&1; then dnf install -y -q dnsmasq
+    elif command -v yum >/dev/null 2>&1; then yum install -y -q dnsmasq
+    elif command -v apk >/dev/null 2>&1; then apk add --no-cache dnsmasq
+    else echo "[dns] no package manager for dnsmasq, skipping."; return 0; fi
+  fi
+  mkdir -p /etc/hostyt-dns
+  touch /etc/hostyt-dns/hosts
+  # Bind ONLY the WG IP so we never fight systemd-resolved/local resolvers.
+  cat >/etc/dnsmasq.d/hostyt-tunnel.conf <<DNSCONF
+listen-address=${WG_IP}
+bind-interfaces
+addn-hosts=/etc/hostyt-dns/hosts
+DNSCONF
+  # Sync script: container names + compose aliases -> WG IP (published ports)
+  # or container IP (routed subnets). SIGHUP dnsmasq only on change.
+  cat >/usr/local/bin/hostyt-dns-sync <<'SYNCEOF'
+#!/usr/bin/env bash
+set -u
+WG_IP="$1"
+OUT=/etc/hostyt-dns/hosts
+TMP=$(mktemp)
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  for id in $(docker ps -q); do
+    line=$(docker inspect --format '{{slice .Name 1}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{range .Aliases}}{{.}} {{end}}{{end}}|{{range $p, $b := .NetworkSettings.Ports}}{{if $b}}pub{{end}}{{end}}' "$id" 2>/dev/null) || continue
+    names_ips=${line%%|*}
+    pub=${line##*|}
+    cname=$(echo "$names_ips" | awk '{print $1}')
+    cip=$(echo "$names_ips" | awk '{print $2}')
+    target="$cip"
+    case "$pub" in *pub*) target="$WG_IP" ;; esac
+    [ -n "$target" ] || target="$WG_IP"
+    {
+      echo "$target $cname"
+      for a in $(echo "$names_ips" | cut -d' ' -f3-); do
+        case "$a" in "$cname"|"") ;; *) echo "$target $a" ;; esac
+      done
+    } >> "$TMP"
+  done
+fi
+sort -u "$TMP" > "${TMP}.s"
+if ! cmp -s "${TMP}.s" "$OUT" 2>/dev/null; then
+  mv "${TMP}.s" "$OUT"
+  pkill -HUP dnsmasq 2>/dev/null || true
+fi
+rm -f "$TMP" "${TMP}.s" 2>/dev/null
+exit 0
+SYNCEOF
+  chmod 755 /usr/local/bin/hostyt-dns-sync
+  cat >/etc/systemd/system/hostyt-dns-sync.service <<SVCEOF
+[Unit]
+Description=Hostyt container DNS sync
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/hostyt-dns-sync ${WG_IP}
+SVCEOF
+  cat >/etc/systemd/system/hostyt-dns-sync.timer <<'TIMEREOF'
+[Unit]
+Description=Hostyt container DNS sync timer
+[Timer]
+OnBootSec=30
+OnUnitActiveSec=15
+[Install]
+WantedBy=timers.target
+TIMEREOF
+  systemctl daemon-reload
+  /usr/local/bin/hostyt-dns-sync "$WG_IP" || true
+  systemctl enable --now hostyt-dns-sync.timer 2>/dev/null || true
+  systemctl enable dnsmasq 2>/dev/null || true
+  systemctl restart dnsmasq 2>/dev/null || rc-service dnsmasq restart 2>/dev/null || true
+  if systemctl is-active --quiet dnsmasq 2>/dev/null; then
+    echo "[dns] OK: container DNS live on ${WG_IP}:53 - use container names as backend hosts in the panel."
+  else
+    echo "[dns] WARN: dnsmasq not active; container names won't resolve (check: journalctl -u dnsmasq)."
+  fi
+}
 ` + wstFallback + `
 echo "[2/4] Fetching tunnel config…"
 mkdir -p /etc/wireguard
@@ -910,12 +998,14 @@ if [ -f /etc/wireguard/${IFACE}.conf ]; then
   echo "/etc/wireguard/${IFACE}.conf already exists - validating existing tunnel (token is single-shot, not refetching)."
 ` + wstRepairBlock + `  systemctl enable --now wg-quick@${IFACE}.service 2>/dev/null || wg-quick up ${IFACE} 2>/dev/null || true
   if health_check; then
+    docker_dns_install
     echo "Tunnel already provisioned and healthy. Nothing to do."
     exit 0
   fi
   echo "Existing tunnel is unhealthy - attempting restart…"
   systemctl restart wg-quick@${IFACE}.service 2>/dev/null || { wg-quick down ${IFACE} 2>/dev/null; wg-quick up ${IFACE} 2>/dev/null; }
   if health_check; then
+    docker_dns_install
     echo "Tunnel repaired."
     exit 0
   fi
@@ -949,6 +1039,7 @@ echo "[3/4] Bringing tunnel up…"
 ` + wstAutoBlock + `
 echo "[4/4] Verifying tunnel health…"
 if health_check; then HC=0; else HC=1; fi
+[ "$HC" = 0 ] && docker_dns_install
 wg show ${IFACE} | sed 's/^/  /'
 if [ "$HC" = 0 ]; then
   STATUS_LINE="✓ Hostyt tunnel installed and healthy."
