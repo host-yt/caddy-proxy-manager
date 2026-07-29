@@ -925,8 +925,9 @@ listen-address=${WG_IP}
 bind-interfaces
 addn-hosts=/etc/hostyt-dns/hosts
 DNSCONF
-  # Sync script: container names + compose aliases -> WG IP (published ports)
-  # or container IP (routed subnets). SIGHUP dnsmasq only on change.
+  # Sync script: container names + compose aliases -> WG IP. Container IPs
+  # are NOT used (node routes only the peer /32); backend port must be
+  # published on the peer host. SIGHUP dnsmasq only on change.
   cat >/usr/local/bin/hostyt-dns-sync <<'SYNCEOF'
 #!/usr/bin/env bash
 set -u
@@ -935,20 +936,10 @@ OUT=/etc/hostyt-dns/hosts
 TMP=$(mktemp)
 if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
   for id in $(docker ps -q); do
-    line=$(docker inspect --format '{{slice .Name 1}} {{range .NetworkSettings.Networks}}{{.IPAddress}} {{range .Aliases}}{{.}} {{end}}{{end}}|{{range $p, $b := .NetworkSettings.Ports}}{{if $b}}pub{{end}}{{end}}' "$id" 2>/dev/null) || continue
-    names_ips=${line%%|*}
-    pub=${line##*|}
-    cname=$(echo "$names_ips" | awk '{print $1}')
-    cip=$(echo "$names_ips" | awk '{print $2}')
-    target="$cip"
-    case "$pub" in *pub*) target="$WG_IP" ;; esac
-    [ -n "$target" ] || target="$WG_IP"
-    {
-      echo "$target $cname"
-      for a in $(echo "$names_ips" | cut -d' ' -f3-); do
-        case "$a" in "$cname"|"") ;; *) echo "$target $a" ;; esac
-      done
-    } >> "$TMP"
+    names=$(docker inspect --format '{{slice .Name 1}} {{range .NetworkSettings.Networks}}{{range .Aliases}}{{.}} {{end}}{{end}}' "$id" 2>/dev/null) || continue
+    for n in $names; do
+      echo "$WG_IP $n" >> "$TMP"
+    done
   done
 fi
 sort -u "$TMP" > "${TMP}.s"
@@ -983,6 +974,7 @@ TIMEREOF
   systemctl restart dnsmasq 2>/dev/null || rc-service dnsmasq restart 2>/dev/null || true
   if systemctl is-active --quiet dnsmasq 2>/dev/null; then
     echo "[dns] OK: container DNS live on ${WG_IP}:53 - use container names as backend hosts in the panel."
+    echo "[dns] NOTE: names resolve to this peer; the backend PORT must be published on the host (ports: in compose). For 8080:80 use port 8080."
   else
     echo "[dns] WARN: dnsmasq not active; container names won't resolve (check: journalctl -u dnsmasq)."
   fi

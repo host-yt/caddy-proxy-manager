@@ -2175,16 +2175,26 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		 LEFT JOIN customer_wg_peer sso_peer
 		   ON sso_peer.id = r.sso_via_wg_peer_id
 		      AND sso_peer.status <> 'revoked'
-		 LEFT JOIN customer_wg_peer dns_peer
-		   ON dns_peer.id = r.dns_resolver_via_wg_peer_id
-		      AND dns_peer.status <> 'revoked'
+		 -- DNS peer is node-scoped like p_use: fan-out nodes must query their
+		 -- own group member, not the primary's peer IP.
+		 LEFT JOIN customer_wg_peer dns_base
+		   ON dns_base.id = r.dns_resolver_via_wg_peer_id
+		 LEFT JOIN customer_wg_peer dns_peer ON (
+		     (dns_base.peer_group_id IS NOT NULL
+		         AND dns_peer.peer_group_id = dns_base.peer_group_id
+		         AND dns_peer.node_id = ?
+		         AND dns_peer.status <> 'revoked')
+		     OR (dns_base.peer_group_id IS NULL
+		         AND dns_peer.id = r.dns_resolver_via_wg_peer_id
+		         AND dns_peer.status <> 'revoked')
+		 )
 		 -- Anchor routes plus fan-out copies (active_active/failover peers live
 		 -- only in route_node_assignments; without this peers pushed routes: 0).
 		 WHERE (r.caddy_node_id = ?
 		        OR EXISTS (SELECT 1 FROM route_node_assignments rna
 		                    WHERE rna.route_id = r.id AND rna.node_id = ?))
 		   AND r.status IN ('dns_ok','active','pending_ssl')
-		 ORDER BY r.id ASC`, nodeID, nodeID, nodeID)
+		 ORDER BY r.id ASC`, nodeID, nodeID, nodeID, nodeID)
 	if err != nil {
 		return nil, nil, err
 	}

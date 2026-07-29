@@ -61,7 +61,7 @@
           <option value="{{.ID}}" {{if eq $sel (printf "%d" .ID)}}selected{{end}}>WG tunnel #{{.ID}} · {{.Name}} ({{.AssignedIP}})</option>
           {{end}}
         </select>
-        <p class="t-caption mt-1">With tunnel: leave host empty to dial the peer IP, or type an IP/container name reachable through the tunnel. Container names resolve via peer-side DNS.</p>
+        <p class="t-caption mt-1">With tunnel: leave host empty to dial the peer IP, or type an IP/container name. Names resolve via peer-side DNS to the peer - use the HOST-published port.</p>
       </div>
       {{end}}
 
