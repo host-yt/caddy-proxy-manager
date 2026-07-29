@@ -2,6 +2,18 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## [1.4.2] - 2026-07-29
+
+### Added
+
+- **Container-name backends over a WireGuard tunnel**: a host's backend can now be a container/compose name (e.g. `app`, `tunnora-controlplane`) instead of an IP. The panel binds the tunnel peer as the route's DNS resolver and Caddy resolves the name through the tunnel (dynamic upstreams). The tunnel installer now ships a container-DNS helper (dnsmasq bound to the peer's WireGuard IP, container names + compose aliases refreshed every 15s). The backend **port must be published on the peer host** (`ports:` in compose) - names resolve to the peer itself. Re-run the tunnel install script on an existing peer to add the helper; `install.sh ... -s -- remove` cleans it up.
+- **"Backend via" tunnel picker on the add-host form**: a route can be bound to a WG tunnel at creation time instead of creating it first and editing it afterwards. Leave the backend host empty to dial the peer IP. The selected tunnel must belong to the same client and exist on the placed node.
+
+### Fixed
+
+- **Hostname backends were silently discarded when a tunnel was selected**: saving a host with `Backend via = WG tunnel` and a non-IP backend cleared the field and fell back to the peer IP, so typing a container name appeared to "revert" on every save. The name is now kept and resolved through the tunnel.
+- **Fan-out routes used the primary node's peer as DNS resolver**: in `active_active`/`failover` groups the secondary nodes received the primary's peer IP as their resolver - a peer that has no interface on those nodes - so container-name routes 502'd on failover. The resolver peer is now selected per node from the same peer group as the backend tunnel.
+
 ## [1.4.1] - 2026-07-27
 
 ### Fixed
