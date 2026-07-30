@@ -840,6 +840,7 @@ func (s *Server) routes() {
 			})
 			r.Route("/nodes", func(r chi.Router) {
 				r.Use(mw.RequireScope("nodes"))
+				r.Use(mw.RequireUnrestrictedAPIOwner(s.deps.Wizard.DB))
 				r.Get("/", s.deps.API.NodesList)
 				r.Post("/", s.deps.API.NodeCreate)
 				r.Get("/{id}", s.deps.API.NodeGet)
@@ -849,6 +850,7 @@ func (s *Server) routes() {
 			})
 			r.Route("/node-pools", func(r chi.Router) {
 				r.Use(mw.RequireScope("nodes"))
+				r.Use(mw.RequireUnrestrictedAPIOwner(s.deps.Wizard.DB))
 				r.Get("/", s.deps.API.NodePoolsList)
 				r.Post("/", s.deps.API.NodePoolCreate)
 				r.Get("/{id}", s.deps.API.NodePoolGet)
@@ -857,6 +859,7 @@ func (s *Server) routes() {
 			})
 			r.Route("/plans", func(r chi.Router) {
 				r.Use(mw.RequireAdminScope())
+				r.Use(mw.RequireUnrestrictedAPIOwner(s.deps.Wizard.DB))
 				r.Get("/", s.deps.API.PlansList)
 				r.Post("/", s.deps.API.PlanCreate)
 				r.Get("/{id}", s.deps.API.PlanGet)
@@ -875,6 +878,7 @@ func (s *Server) routes() {
 			// requireGlobalAPIAdmin inside every handler).
 			r.Route("/resellers", func(r chi.Router) {
 				r.Use(mw.RequireAdminScope())
+				r.Use(mw.RequireUnrestrictedAPIOwner(s.deps.Wizard.DB))
 				r.Get("/", s.deps.API.ResellersList)
 				r.Post("/", s.deps.API.ResellerCreate)
 				r.Get("/{id}", s.deps.API.ResellerGet)
@@ -883,6 +887,7 @@ func (s *Server) routes() {
 			})
 			r.Route("/reseller-plans", func(r chi.Router) {
 				r.Use(mw.RequireAdminScope())
+				r.Use(mw.RequireUnrestrictedAPIOwner(s.deps.Wizard.DB))
 				r.Get("/", s.deps.API.ResellerPlansList)
 				r.Post("/", s.deps.API.ResellerPlanCreate)
 				r.Patch("/{id}", s.deps.API.ResellerPlanUpdate)
@@ -891,6 +896,9 @@ func (s *Server) routes() {
 			if s.deps.FOSSBilling != nil {
 				r.Route("/provisioning", func(r chi.Router) {
 					r.Use(mw.RequireAdminScope())
+					// Provisioning touches every tenant, so the key OWNER must be
+					// unrestricted - scope strings alone carry no tenancy (SEC-05).
+					r.Use(mw.RequireUnrestrictedAPIOwner(s.deps.Wizard.DB))
 					// Source-bind provisioning to the billing host when
 					// FOSSBILLING_ALLOW_IPS is set, so a leaked admin API key
 					// alone cannot provision from anywhere (BILL-01). Empty =

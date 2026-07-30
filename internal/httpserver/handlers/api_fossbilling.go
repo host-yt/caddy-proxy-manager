@@ -15,9 +15,11 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
@@ -26,6 +28,65 @@ import (
 type FOSSBillingHandlers struct {
 	DB     func() *sql.DB
 	Routes *routes.Service
+	// AdminScope resolves the key owner's tenancy. nil = no scoping (tests).
+	AdminScope *adminscope.Service
+}
+
+// fbScoped reports whether the caller's tenancy must be checked at all. A nil
+// caller counts as maximally limited so an unauthenticated path fails closed.
+func (h *FOSSBillingHandlers) fbScoped(r *http.Request) bool {
+	if h.AdminScope == nil {
+		return false
+	}
+	c := middleware.CallerFromContext(r.Context())
+	if c == nil {
+		return true
+	}
+	return c.Role != "super_admin" && c.Role != "api"
+}
+
+// fbAllowClient verifies a limited caller owns clientID. Unrestricted platform
+// keys short-circuit, so their behaviour is unchanged. Fails closed.
+func (h *FOSSBillingHandlers) fbAllowClient(ctx context.Context, r *http.Request, clientID int64) bool {
+	if !h.fbScoped(r) {
+		return true
+	}
+	c := middleware.CallerFromContext(r.Context())
+	if c == nil {
+		return false
+	}
+	ok, err := h.AdminScope.CanAccessClient(ctx, c.UserID, clientID)
+	return err == nil && ok
+}
+
+// fbUnrestricted reports whether the key owner is a full platform admin (used
+// for tenant-creating calls that have no client to scope against). Fails closed.
+func (h *FOSSBillingHandlers) fbUnrestricted(ctx context.Context, r *http.Request) bool {
+	if !h.fbScoped(r) {
+		return true
+	}
+	c := middleware.CallerFromContext(r.Context())
+	if c == nil {
+		return false
+	}
+	_, all, err := h.AdminScope.ScopeFilter(ctx, c.UserID)
+	return err == nil && all
+}
+
+// fbAllowService resolves a service to its owning client and checks access.
+func (h *FOSSBillingHandlers) fbAllowService(ctx context.Context, r *http.Request, svcID int64) bool {
+	if !h.fbScoped(r) {
+		return true
+	}
+	db := h.DB()
+	if db == nil {
+		return false
+	}
+	var cid int64
+	if err := db.QueryRowContext(ctx, "SELECT client_id FROM services WHERE id = ?", svcID).Scan(&cid); err != nil {
+		return false
+	}
+	return h.fbAllowClient(ctx, r, cid)
 }
 
 // ---- helpers ---------------------------------------------------------------
@@ -75,7 +136,6 @@ func (h *FOSSBillingHandlers) ProvisionClient(w http.ResponseWriter, r *http.Req
 		fbErr(w, http.StatusBadRequest, "email and name required")
 		return
 	}
-
 	db := h.DB()
 	if db == nil {
 		fbErr(w, http.StatusServiceUnavailable, "db not ready")
@@ -83,6 +143,12 @@ func (h *FOSSBillingHandlers) ProvisionClient(w http.ResponseWriter, r *http.Req
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
+
+	// Creating a tenant is global: a limited key has no client to own it.
+	if !h.fbUnrestricted(ctx, r) {
+		fbErr(w, http.StatusForbidden, "global admin scope required")
+		return
+	}
 
 	hash, err := auth.HashPassword(randPassword())
 	if err != nil {
@@ -187,6 +253,11 @@ func (h *FOSSBillingHandlers) ProvisionService(w http.ResponseWriter, r *http.Re
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 
+	if !h.fbAllowClient(ctx, r, in.ClientID) {
+		fbErr(w, http.StatusForbidden, "client not in scope")
+		return
+	}
+
 	var nodeGroupID int64
 	if err := db.QueryRowContext(ctx,
 		"SELECT node_group_id FROM plans WHERE id = ?", in.PlanID,
@@ -250,7 +321,12 @@ func (h *FOSSBillingHandlers) ProvisionRoute(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
-	// clientID=0 skips ownership check (admin/api scope).
+	if !h.fbAllowService(ctx, r, in.ServiceID) {
+		fbErr(w, http.StatusForbidden, "service not in scope")
+		return
+	}
+
+	// clientID=0 skips ownership check; tenancy was verified above.
 	id, err := h.Routes.Create(ctx, 0, routes.CreateInput{
 		ServiceID:    in.ServiceID,
 		UpstreamPort: in.UpstreamPort,
@@ -311,6 +387,11 @@ func (h *FOSSBillingHandlers) SuspendService(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	if !h.fbAllowService(ctx, r, svcID) {
+		fbErr(w, http.StatusForbidden, "service not in scope")
+		return
+	}
+
 	// Fetch all active route IDs for this service so we can delete them from Caddy.
 	rows, err := db.QueryContext(ctx, "SELECT id FROM routes WHERE service_id = ?", svcID)
 	if err != nil {
@@ -334,7 +415,7 @@ func (h *FOSSBillingHandlers) SuspendService(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Remove each route from Caddy nodes; clientID=0 = admin scope.
+	// Remove each route from Caddy nodes; clientID=0 = admin scope (verified above).
 	for _, rid := range routeIDs {
 		_ = h.Routes.Delete(ctx, 0, rid)
 	}
@@ -368,6 +449,11 @@ func (h *FOSSBillingHandlers) DeleteService(w http.ResponseWriter, r *http.Reque
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
 	defer cancel()
+
+	if !h.fbAllowService(ctx, r, svcID) {
+		fbErr(w, http.StatusForbidden, "service not in scope")
+		return
+	}
 
 	// Collect route IDs before deleting so we can push Caddy deletions.
 	rows, err := db.QueryContext(ctx, "SELECT id FROM routes WHERE service_id = ?", svcID)

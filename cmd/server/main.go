@@ -796,8 +796,9 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		StatusPage:      statusPageH,
 		AccessLogIngest: alIngest,
 		FOSSBilling: &handlers.FOSSBillingHandlers{
-			DB:     wizard.DB,
-			Routes: routesSvc,
+			DB:         wizard.DB,
+			Routes:     routesSvc,
+			AdminScope: adminscope.New(wizard.DB),
 		},
 		OAuthIdentity: &handlers.OAuthIdentityHandlers{
 			DB:     wizard.DB,

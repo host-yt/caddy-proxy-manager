@@ -175,6 +175,48 @@ func RequireAdminScope() func(http.Handler) http.Handler {
 	}
 }
 
+// RequireUnrestrictedAPIOwner gates global-infra API routes on WHO OWNS the key,
+// not just its scope strings: a tenant-limited owner (users.is_restricted or a
+// reseller binding) must never reach shared infra even with admin:write.
+// The owner is re-read per request so flipping is_restricted takes effect at
+// once; any DB/lookup failure denies (fail closed). Must sit behind APIKeyAuth.
+func RequireUnrestrictedAPIOwner(db func() *sql.DB) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c := CallerFromContext(r.Context())
+			if c == nil {
+				writeJSONErr(w, http.StatusForbidden, "global admin scope required")
+				return
+			}
+			// super_admin and machine (api) keys are platform-wide by design.
+			if c.Role == "super_admin" || c.Role == "api" {
+				next.ServeHTTP(w, r)
+				return
+			}
+			d := db()
+			if d == nil {
+				writeJSONErr(w, http.StatusServiceUnavailable, "db not ready")
+				return
+			}
+			ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+			defer cancel()
+			var restricted bool
+			var resellerID sql.NullInt64
+			if err := d.QueryRowContext(ctx,
+				"SELECT COALESCE(is_restricted, 0), reseller_id FROM users WHERE id = ?", c.UserID,
+			).Scan(&restricted, &resellerID); err != nil {
+				writeJSONErr(w, http.StatusForbidden, "global admin scope required")
+				return
+			}
+			if restricted || (resellerID.Valid && resellerID.Int64 != 0) {
+				writeJSONErr(w, http.StatusForbidden, "global admin scope required")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func writeJSONErr(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
