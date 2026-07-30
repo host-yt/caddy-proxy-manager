@@ -128,8 +128,9 @@ func (d *sftpDest) dial(ctx context.Context) (*ssh.Client, *sftp.Client, error) 
 		cfg.Auth = append(cfg.Auth, ssh.PublicKeys(signer))
 	}
 
-	var dialer net.Dialer
-	conn, err := dialer.DialContext(ctx, "tcp", d.addr)
+	// Pinned: revalidates the resolved IP against the SSRF check at connect
+	// time instead of trusting the hostname re-resolves the same way.
+	conn, err := pinnedDialContext(ctx, "tcp", d.addr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("sftp: dial: %w", err)
 	}

@@ -2,22 +2,23 @@ package middleware
 
 import "net/http"
 
-// ResellerAdminBoundary is a DEFAULT-DENY gate for reseller-admins (a session
-// carrying a non-zero ResellerID). They may reach only the allow-listed,
-// client-scoped surface; every other /admin path (global infra: nodes, settings,
-// branding, plans, users, backups, audit, ...) returns 403. Platform
-// admins/super_admins (ResellerID==0) pass untouched.
+// ResellerAdminBoundary is a DEFAULT-DENY gate for every limited admin: a
+// reseller-admin (ResellerID != 0) and a client-scoped restricted admin
+// (users.is_restricted, Restricted == true). They may reach only the
+// allow-listed, client-scoped surface; every other /admin path (global infra:
+// nodes, settings, branding, plans, users, backups, audit, ...) returns 403.
+// Full platform admins/super_admins pass untouched.
 //
 // Default-deny is deliberate: a forgotten client-scoped route over-restricts a
-// reseller-admin (annoying) instead of leaking global infra (a breach). The
+// limited admin (annoying) instead of leaking global infra (a breach). The
 // allow-list grows as the reseller panel adds per-resource ownership checks.
-// ResellerID is stamped on the session at login, so this costs no DB lookup.
+// Both flags are stamped on the session at login, so this costs no DB lookup.
 func ResellerAdminBoundary(allowed []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sess := SessionFromContext(r.Context())
-			if sess == nil || sess.ResellerID == 0 {
-				next.ServeHTTP(w, r) // not a reseller-admin
+			if sess == nil || (sess.ResellerID == 0 && !sess.Restricted) {
+				next.ServeHTTP(w, r) // full platform admin
 				return
 			}
 			if !pathAllowed(r.URL.Path, allowed) {

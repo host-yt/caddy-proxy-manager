@@ -54,9 +54,24 @@ func (h *AdminHandlers) fetchSSOSecret(ctx context.Context, nonce string) string
 	return s.Plaintext
 }
 
+// ssoJumpDenied gates the SSO-jump settings on super_admin. These endpoints
+// control a secret that mints sessions, so they never rely on the route
+// boundary alone.
+func ssoJumpDenied(w http.ResponseWriter, r *http.Request) bool {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil || sess.Role != "super_admin" || sess.IsImpersonating() {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return true
+	}
+	return false
+}
+
 // SettingsSSOJumpSave handles POST /admin/settings/sso-jump.
 // Saves the two boolean flags; secret is managed by Rotate only.
 func (h *AdminHandlers) SettingsSSOJumpSave(w http.ResponseWriter, r *http.Request) {
+	if ssoJumpDenied(w, r) {
+		return
+	}
 	db := h.DB()
 	if db == nil {
 		redirectWithFlash(w, r, "/admin/settings#sso-jump", "", "no db")
@@ -94,6 +109,9 @@ func (h *AdminHandlers) SettingsSSOJumpSave(w http.ResponseWriter, r *http.Reque
 // Generates a fresh 64-byte random secret, encrypts and stores it, then
 // stashes the plaintext in Redis under a nonce for one-time display.
 func (h *AdminHandlers) SettingsSSOJumpRotate(w http.ResponseWriter, r *http.Request) {
+	if ssoJumpDenied(w, r) {
+		return
+	}
 	db := h.DB()
 	if db == nil {
 		redirectWithFlash(w, r, "/admin/settings#sso-jump", "", "no db")

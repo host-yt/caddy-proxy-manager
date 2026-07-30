@@ -10,9 +10,26 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/manualcerts"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
+
+// manualCertRouteAllowed authorizes access to a manual cert by its linked
+// route. Fails closed for a scoped admin with no scope service wired or a
+// cert that isn't linked to any route (no ownership signal to check).
+func (h *AdminHandlers) manualCertRouteAllowed(ctx context.Context, sess *auth.Session, routeID int64) bool {
+	if sess == nil {
+		return false
+	}
+	if sess.Role == "super_admin" {
+		return true
+	}
+	if h.AdminScope == nil || routeID == 0 {
+		return false
+	}
+	return h.scopeCheckRoute(ctx, sess, routeID)
+}
 
 // manualCertRow is the display shape for one imported cert (no key material).
 type manualCertRow struct {
@@ -62,7 +79,15 @@ func (h *AdminHandlers) ManualCertsList(w http.ResponseWriter, r *http.Request) 
 		h.render(w, "manual_certs", d)
 		return
 	}
+	sess := middleware.SessionFromContext(r.Context())
 	for _, rec := range recs {
+		rid := int64(0)
+		if rec.RouteID.Valid {
+			rid = rec.RouteID.Int64
+		}
+		if !h.manualCertRouteAllowed(ctx, sess, rid) {
+			continue // out of scope: filter out, don't just block the whole page
+		}
 		d.Certs = append(d.Certs, manualCertRow{
 			ID:         rec.ID,
 			Name:       rec.Name,
@@ -107,6 +132,16 @@ func (h *AdminHandlers) ManualCertsImport(w http.ResponseWriter, r *http.Request
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	sess := middleware.SessionFromContext(r.Context())
+	targetRoute := int64(0)
+	if routeID.Valid {
+		targetRoute = routeID.Int64
+	}
+	if !h.manualCertRouteAllowed(ctx, sess, targetRoute) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	id, err := svc.Import(ctx, manualcerts.ImportInput{
 		Name:     name,
 		RouteID:  routeID,
@@ -120,7 +155,6 @@ func (h *AdminHandlers) ManualCertsImport(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "manual_cert.import", Entity: "manual_cert",
 		EntityID: strconv.FormatInt(id, 10),
@@ -170,6 +204,18 @@ func (h *AdminHandlers) ManualCertsReplace(w http.ResponseWriter, r *http.Reques
 	// gets re-pushed (drops the old cert) even if the link moved.
 	oldRoute := h.manualCertRouteID(ctx, id)
 
+	sess := middleware.SessionFromContext(r.Context())
+	newRoute := int64(0)
+	if routeID.Valid {
+		newRoute = routeID.Int64
+	}
+	// Scoped admin must own both the cert being replaced and its (possibly new) route.
+	if !h.manualCertRouteAllowed(ctx, sess, oldRoute) ||
+		(newRoute != oldRoute && !h.manualCertRouteAllowed(ctx, sess, newRoute)) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
 	// Import new first so a bad PEM never destroys the still-valid old cert.
 	// If Delete fails after a successful import we get a harmless duplicate row
 	// (name/CN are non-unique); log it and carry on.
@@ -190,7 +236,6 @@ func (h *AdminHandlers) ManualCertsReplace(w http.ResponseWriter, r *http.Reques
 			"old_id", id, "new_id", newID, "err", err)
 	}
 
-	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "manual_cert.replace", Entity: "manual_cert",
 		EntityID: strconv.FormatInt(newID, 10),
@@ -223,11 +268,15 @@ func (h *AdminHandlers) ManualCertsDelete(w http.ResponseWriter, r *http.Request
 	defer cancel()
 	// Capture the linked route before deletion so its node re-pushes without it.
 	routeID := h.manualCertRouteID(ctx, id)
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.manualCertRouteAllowed(ctx, sess, routeID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	if err := svc.Delete(ctx, id); err != nil {
 		redirectWithFlash(w, r, page, "", "delete failed: "+sanitizeErr(err))
 		return
 	}
-	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "manual_cert.delete", Entity: "manual_cert",
 		EntityID: strconv.FormatInt(id, 10),

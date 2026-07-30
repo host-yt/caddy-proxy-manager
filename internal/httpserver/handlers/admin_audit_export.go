@@ -8,11 +8,19 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
 // AuditExport streams audit_log rows as CSV or JSON.
 // GET /admin/audit/export — same filter params as AuditList plus format and limit.
+// Platform-wide log (up to 50k rows, actor IPs/UA): super_admin only, a scoped
+// admin has no legitimate need for cross-tenant audit data.
 func (h *AdminHandlers) AuditExport(w http.ResponseWriter, r *http.Request) {
+	if sess := middleware.SessionFromContext(r.Context()); sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "forbidden: super_admin only", http.StatusForbidden)
+		return
+	}
 	q := r.URL.Query()
 	entity := strings.TrimSpace(q.Get("entity"))
 	actionLike := strings.TrimSpace(q.Get("action"))

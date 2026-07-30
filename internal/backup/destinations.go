@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"time"
 
@@ -11,12 +12,14 @@ import (
 )
 
 // insecureTransportAllowed reports whether insecure backup transport opt-outs
-// (plaintext FTP, skip_verify, insecure_host_key) may be honoured. They are
-// refused in production so a misconfigured destination cannot silently ship
-// the DR artifact over a MITM-able channel (DB-02 / DB-03). APP_ENV defaults
-// to "production" (matches internal/config), so the safe default is deny.
+// (plaintext FTP, skip_verify, insecure_host_key) may be honoured. Unset/empty
+// APP_ENV must deny, same as internal/config's envOr("APP_ENV","production").
 func insecureTransportAllowed() bool {
-	return os.Getenv("APP_ENV") != "production"
+	env := os.Getenv("APP_ENV")
+	if env == "" {
+		env = "production"
+	}
+	return env != "production"
 }
 
 // validateDestHost rejects backup destination hostnames that resolve into
@@ -35,6 +38,34 @@ func validateDestHost(host string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return security.ValidateOutboundHost(ctx, host)
+}
+
+// pinnedDialContext resolves host once, validates the resolved address with
+// the same check validateDestHost used at config-save time, then dials that
+// exact address. Closes the DNS-rebinding gap between the SSRF check and the
+// actual connect (a re-resolve mid-flight could otherwise land on a private
+// IP). Shared by S3 (http.Transport.DialContext) and, via closures, SFTP/FTP.
+func pinnedDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return nil, err
+	}
+	ip := net.ParseIP(host)
+	if ip == nil {
+		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil {
+			return nil, err
+		}
+		if len(ips) == 0 {
+			return nil, fmt.Errorf("pinned dial: %s did not resolve", host)
+		}
+		ip = ips[0].IP
+	}
+	if err := validateDestHost(ip.String()); err != nil {
+		return nil, fmt.Errorf("pinned dial: %w", err)
+	}
+	d := &net.Dialer{Timeout: 15 * time.Second}
+	return d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
 }
 
 // Uploader is the destination-side write interface backups speak.

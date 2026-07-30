@@ -15,6 +15,11 @@ import (
 // Route builders. Produce Caddy JSON config fragments for reverse-proxy routes.
 // Reference schema: https://caddyserver.com/docs/json/apps/http/servers/routes/
 
+// authRequestBodyMaxBytes caps request buffering on forward_auth handlers that
+// run BEFORE the auth decision - unbounded (-1) lets an unauthenticated client
+// pin node memory with an arbitrary-size body.
+const authRequestBodyMaxBytes = 10 << 20 // 10 MiB
+
 // BasicAuthUser is one account entry for Caddy's http_basic provider.
 type BasicAuthUser struct {
 	Username string
@@ -266,6 +271,9 @@ type Route struct {
 	PortalDial    string // panel host:port reachable from the node
 	PortalTLS     bool   // dial the panel over https
 	PortalSNI     string // SNI for the panel TLS handshake (panel public host)
+	// PortalDenyOnMisconfig: operator asked for portal protection but the
+	// verifier dial is unavailable - serve a deny page, never the backend.
+	PortalDenyOnMisconfig bool
 
 	// mTLS client-cert enforcement. When RequireClientCert is set AND
 	// MTLSCACertPEM is non-empty, BuildNodeConfig emits a TLS connection
@@ -276,6 +284,10 @@ type Route struct {
 	// and we never want a missing trust anchor to brick the whole node /load).
 	RequireClientCert bool
 	MTLSCACertPEM     string // PEM bundle of the trust-anchor CA cert
+	// MTLSDenyOnMisconfig: require_client_cert=1 but no policy can be emitted
+	// (SSL off / no active CA / unparsable PEM) and mtls.fail_open=0 - deny
+	// instead of serving the upstream with no client-cert requirement.
+	MTLSDenyOnMisconfig bool
 
 	// MTLSPathRules drives per-path RBAC when RequireClientCert is true.
 	// Non-empty triggers a forward_auth check subroute before the backend.
@@ -340,6 +352,18 @@ func BuildRoute(r Route) map[string]any {
 	match := map[string]any{"host": r.Hosts}
 	if r.PathPrefix != "" {
 		match["path"] = []string{r.PathPrefix + "*"}
+	}
+
+	// Fail closed: an auth gate the operator enabled could not be emitted, so
+	// the domain resolves to a 503 error page instead of the naked upstream.
+	if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig {
+		return map[string]any{
+			"@id":    "route_" + r.ID,
+			"match":  []any{match},
+			"handle": []any{misconfigDenyHandler(r)},
+			// terminal so no later route (incl. a catch-all) can serve this host.
+			"terminal": true,
+		}
 	}
 
 	var primary map[string]any
@@ -638,11 +662,12 @@ func BuildRoute(r Route) map[string]any {
 	//
 	// Redirect routes are not cached: their handler already short-circuits
 	// at the edge and caching a 308 is generally pointless and footguny.
-	// Never cache an authed route: the cache handler short-circuits before
-	// the SSO forward_auth / basic_auth gates below, so a cache hit would
-	// serve one user's authenticated response to an unauthenticated client.
+	// Never cache an authed route: the cache handler short-circuits before ALL
+	// four auth gates below (SSO forward_auth, basic_auth, mTLS path RBAC,
+	// built-in portal), so a hit would serve one identity's response to another.
 	if r.CacheEnabled && r.Kind != "redirect" && !r.MaintenanceMode &&
-		r.SSOProviderURL == "" && r.BasicAuthUser == "" && len(r.BasicAuthUsers) == 0 {
+		r.SSOProviderURL == "" && r.BasicAuthUser == "" && len(r.BasicAuthUsers) == 0 &&
+		len(r.MTLSPathRules) == 0 && !r.PortalProtect {
 		ttl := r.CacheTTLSeconds
 		if ttl <= 0 {
 			ttl = 60
@@ -874,14 +899,11 @@ func BuildRoute(r Route) map[string]any {
 		// {http.request.uri} would evaluate to the rewritten URI (auth
 		// runs after rewrite) and send the user to /auth/caddy on the
 		// protected domain, which the backend treats as a 404.
-		// request_buffers: -1 tells Caddy to buffer the entire request body
-		// before sending it to the IdP. Without this the body is consumed
-		// by the auth subrequest and downstream backend reads EOF - the
-		// classic forward_auth + POST symptom (Proxmox's /api2/extjs/...
-		// returns 502 because the POST body is empty by the time it
-		// reaches port 8006).
+		// request_buffers keeps the body alive across the auth subrequest;
+		// without it the backend reads EOF (classic forward_auth + POST 502
+		// on Proxmox /api2/extjs/...). Bounded, not -1: this runs pre-auth.
 		fwd := mkRP(map[string]any{
-			"request_buffers": -1,
+			"request_buffers": authRequestBodyMaxBytes,
 			"headers": map[string]any{
 				"request": map[string]any{
 					"set": map[string]any{
@@ -1119,6 +1141,26 @@ func BuildRoute(r Route) map[string]any {
 		"match":    []any{match},
 		"handle":   handlers,
 		"terminal": true,
+	}
+}
+
+// misconfigDenyHandler is the fail-closed response for a route whose enabled
+// auth gate could not be emitted. 503 (not 403) so it reads as "server side
+// broken", and no-store so nothing caches the denial.
+func misconfigDenyHandler(r Route) map[string]any {
+	reason := "client certificate enforcement is unavailable"
+	if r.PortalDenyOnMisconfig {
+		reason = "access portal verifier is unavailable"
+	}
+	return map[string]any{
+		"handler":     "static_response",
+		"status_code": 503,
+		"headers": map[string]any{
+			"Content-Type":  []string{"text/plain; charset=utf-8"},
+			"Cache-Control": []string{"no-store"},
+			"Retry-After":   []string{"60"},
+		},
+		"body": "Service unavailable: " + reason + ".\n",
 	}
 }
 
@@ -1768,8 +1810,10 @@ func buildPortalForwardAuth(r Route) []any {
 	// (2) forward_auth: 2xx continues to the backend; any non-2xx (401/302)
 	// is returned to the client so the browser follows the redirect to login.
 	hr := map[string]any{"match": map[string]any{"status_code": []int{2}}}
+	// Bounded buffering: preserves the body across the verify subrequest
+	// without letting an unauthenticated client buffer unlimited bytes.
 	fwd := mkRP(map[string]any{
-		"request_buffers": -1,
+		"request_buffers": authRequestBodyMaxBytes,
 		"headers": map[string]any{
 			"request": map[string]any{
 				"set": map[string]any{
@@ -1785,8 +1829,11 @@ func buildPortalForwardAuth(r Route) []any {
 		},
 		"handle_response": []any{hr},
 	})
-	// All methods verified; skip only static file extensions (no auth bypass for POST/XHR).
-	portalMatch := map[string]any{
+	// All methods verified. The static-asset bypass (a hard refresh must not
+	// stampede the verifier) is restricted to GET/HEAD: a mutating request
+	// under a *.js-looking path is a handler, not a subresource.
+	staticBypass := map[string]any{
+		"method": []string{"GET", "HEAD"},
 		"not": []any{
 			map[string]any{"path": []string{
 				"*.js", "*.css", "*.map",
@@ -1797,8 +1844,12 @@ func buildPortalForwardAuth(r Route) []any {
 			}},
 		},
 	}
+	// Matcher sets OR together: gate every non-GET/HEAD request unconditionally.
+	unsafeMethods := map[string]any{
+		"not": []any{map[string]any{"method": []string{"GET", "HEAD"}}},
+	}
 	authRoute := map[string]any{
-		"match": []any{portalMatch},
+		"match": []any{staticBypass, unsafeMethods},
 		"handle": []any{
 			map[string]any{
 				"handler": "subroute",
@@ -1864,13 +1915,12 @@ func buildMTLSRBAC(r Route) map[string]any {
 						},
 					},
 					// forward_auth pattern: reverse_proxy rewritten to the check endpoint.
-					// request_buffers:-1 preserves POST/PUT/PATCH bodies for the backend
-					// after the auth subrequest (same pattern as SSO forward_auth).
-					// Non-2xx from panel blocks the request with 403.
+					// Bounded request_buffers preserves POST/PUT/PATCH bodies for the
+					// backend without unbounded pre-auth buffering. Non-2xx = 403.
 					map[string]any{
 						"handler":         "reverse_proxy",
 						"upstreams":       []any{map[string]any{"dial": panelDial(r.PanelBaseURL)}},
-						"request_buffers": -1,
+						"request_buffers": authRequestBodyMaxBytes,
 						"headers": map[string]any{
 							"request": map[string]any{
 								"set": map[string]any{

@@ -2106,6 +2106,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	// customised its own geo-block response. Loaded once per build.
 	geoDefault := s.loadGeoBlockDefault(ctx)
 	geoBrand := s.loadErrorBranding(ctx).Brand
+	// Operator's fail-open choice governs whether a route whose mTLS enforcement
+	// cannot be emitted is served open or denied. Loaded once per build.
+	mtlsFailOpen := s.loadMTLSFailOpen(ctx)
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT r.id, r.domain, COALESCE(r.aliases,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
 		        r.websocket, r.force_https,
@@ -2417,6 +2420,10 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		if strings.TrimSpace(clGeoAction) != "" {
 			gb = geoBlockCfg{clGeoAction, clGeoRedirect, clGeoTitle, clGeoMessage, clGeoLogo, clGeoBg}
 		}
+		// An enabled auth gate that cannot be emitted must not silently vanish.
+		// mTLS respects the operator's mtls.fail_open; the portal never does.
+		portalReady := s.PanelInternalHost != "" && s.PanelInternalPort != 0
+		mtlsEnforceable := sslEnabled && mtlsCACertPEM != "" && caddyapi.MTLSCAUsable(mtlsCACertPEM)
 		built = append(built, caddyapi.Route{
 			ID:                    fmt.Sprintf("%d", id),
 			Hosts:                 hosts,
@@ -2461,8 +2468,11 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			// panel (same internal host:port as the self-bootstrap route). Plain
 			// HTTP over the internal network; the panel sets the protected-host
 			// cookie itself. Skipped entirely when PanelInternalHost is unset.
-			PortalProtect: portalProtect && s.PanelInternalHost != "" && s.PanelInternalPort != 0,
+			PortalProtect: portalProtect && portalReady,
 			PortalDial:    s.portalDial(),
+			// Portal is an explicit per-route opt-in: no verifier means deny,
+			// never silently serve the protected backend to the public.
+			PortalDenyOnMisconfig: portalProtect && !portalReady,
 
 			// External HTTPS upstream: SNI + Host both use the stored header
 			// (falls back to the FQDN in the builder); ProxySecret gates inbound.
@@ -2525,21 +2535,23 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			DNSAddressFamily:       dnsAddressFamily,
 
 			// mTLS client-cert enforcement only over TLS, and only when the
-			// selected CA is still active (JOIN yields '' otherwise -> no policy
-			// emitted, fail open so a deleted CA can't brick the node /load).
-			RequireClientCert: requireClientCert && sslEnabled && mtlsCACertPEM != "",
+			// selected CA is still active AND parsable (JOIN yields '' otherwise).
+			RequireClientCert: requireClientCert && mtlsEnforceable,
 			MTLSCACertPEM:     mtlsCACertPEM,
-			PanelBaseURL:      panelBaseURL(s.AskURL),
+			// No enforceable policy + fail-closed operator setting = deny the
+			// route instead of serving it with no client-cert requirement.
+			MTLSDenyOnMisconfig: requireClientCert && !mtlsEnforceable && !mtlsFailOpen,
+			PanelBaseURL:        panelBaseURL(s.AskURL),
 		})
-		// Audit when require_client_cert=1 but enforcement is silently skipped
-		// (no active CA, SSL off, or mtls_ca_id NULL) - fail-open is a security gap.
-		if requireClientCert && !(sslEnabled && mtlsCACertPEM != "") {
+		// Audit when require_client_cert=1 but enforcement is skipped (no active
+		// CA, SSL off, unparsable PEM, or mtls_ca_id NULL).
+		if requireClientCert && !mtlsEnforceable {
 			audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
 				ActorType: audit.ActorSystem,
 				Action:    "route.mtls.pushed_without_tls",
 				Entity:    "route",
 				EntityID:  fmt.Sprintf("%d", id),
-				Meta:      map[string]any{"domain": domain},
+				Meta:      map[string]any{"domain": domain, "fail_open": mtlsFailOpen},
 			})
 		}
 		ids = append(ids, id)

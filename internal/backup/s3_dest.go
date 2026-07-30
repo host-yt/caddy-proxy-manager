@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"strings"
 
@@ -68,6 +69,11 @@ func newS3Dest(cfg map[string]string) (*s3Dest, error) {
 	if cfg["path_style"] == "1" {
 		opts.BucketLookup = minio.BucketLookupPath
 	}
+	// Pin the dial to the address we just SSRF-checked - the endpoint host
+	// could re-resolve elsewhere between here and every later PutObject.
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.DialContext = pinnedDialContext
+	opts.Transport = tr
 	cli, err := minio.New(endpoint, opts)
 	if err != nil {
 		return nil, fmt.Errorf("s3: new client: %w", err)

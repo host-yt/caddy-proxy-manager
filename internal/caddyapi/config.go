@@ -528,6 +528,13 @@ func buildMTLSConnPolicies(routes []Route, failOpen bool) []any {
 	return out
 }
 
+// MTLSCAUsable reports whether a CA PEM bundle yields at least one parsable
+// certificate, i.e. whether buildMTLSConnPolicies can emit a real trust anchor.
+// Callers use it to decide fail-open vs fail-closed before the config is built.
+func MTLSCAUsable(pemBundle string) bool {
+	return len(pemCertsToBase64DER(pemBundle)) > 0
+}
+
 // buildProxyProtocolWrappers returns the srv0 listener_wrappers array for a
 // node behind an L4 balancer, or nil when disabled. The stock
 // caddy.listeners.proxy_protocol wrapper must run BEFORE tls (it strips the

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -11,7 +12,19 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
+
+// requireSyncSuperAdmin gates instance-sync endpoints: global infrastructure,
+// no legitimate scoped-admin use case regardless of AdminScope wiring.
+func (h *AdminHandlers) requireSyncSuperAdmin(w http.ResponseWriter, r *http.Request) bool {
+	sess := middleware.SessionFromContext(r.Context())
+	if sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "forbidden: super_admin only", http.StatusForbidden)
+		return false
+	}
+	return true
+}
 
 // SyncSlaveView is template data for one row in the Instances settings tab.
 type SyncSlaveView struct {
@@ -25,6 +38,9 @@ type SyncSlaveView struct {
 
 // SlaveAdd POST /admin/settings/instances - register a new slave instance.
 func (h *AdminHandlers) SlaveAdd(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSyncSuperAdmin(w, r) {
+		return
+	}
 	db := h.DB()
 	if db == nil {
 		redirectWithFlash(w, r, "/admin/settings", "", "db not ready")
@@ -44,6 +60,17 @@ func (h *AdminHandlers) SlaveAdd(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+
+	// SSRF gate at save time: require https, reject private/loopback/metadata hosts.
+	u, err := url.Parse(slaveURL)
+	if err != nil || u.Scheme != "https" || u.Hostname() == "" {
+		redirectWithFlash(w, r, "/admin/settings#instances", "", "url must be https://")
+		return
+	}
+	if err := security.ValidateOutboundHost(ctx, u.Host); err != nil {
+		redirectWithFlash(w, r, "/admin/settings#instances", "", "url rejected: unsafe host")
+		return
+	}
 
 	enc, err := h.encryptSetting(token)
 	if err != nil {
@@ -68,6 +95,9 @@ func (h *AdminHandlers) SlaveAdd(w http.ResponseWriter, r *http.Request) {
 
 // SlaveDelete POST /admin/settings/instances/{id}/delete - remove a slave.
 func (h *AdminHandlers) SlaveDelete(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSyncSuperAdmin(w, r) {
+		return
+	}
 	db := h.DB()
 	if db == nil {
 		redirectWithFlash(w, r, "/admin/settings#instances", "", "db not ready")
@@ -97,6 +127,9 @@ func (h *AdminHandlers) SlaveDelete(w http.ResponseWriter, r *http.Request) {
 
 // SlaveSync POST /admin/settings/instances/{id}/sync - trigger immediate sync to all slaves.
 func (h *AdminHandlers) SlaveSync(w http.ResponseWriter, r *http.Request) {
+	if !h.requireSyncSuperAdmin(w, r) {
+		return
+	}
 	if h.SyncNotifier == nil {
 		redirectWithFlash(w, r, "/admin/settings#instances", "", "sync notifier not configured")
 		return

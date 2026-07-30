@@ -31,6 +31,12 @@ type Session struct {
 	// reseller); 0 = platform admin / non-reseller. Stamped at login so the
 	// reseller-admin route boundary needs no per-request DB lookup.
 	ResellerID         int64     `json:"reseller_id,omitempty"`
+	// Restricted mirrors users.is_restricted: a client-scoped admin with no
+	// reseller. Same default-deny route boundary as a reseller-admin.
+	Restricted         bool      `json:"restricted,omitempty"`
+	// Ver is the session schema version. Load rejects anything below
+	// sessionSchemaVer so a pre-Restricted session cannot fail open.
+	Ver                int       `json:"v,omitempty"`
 	CSRFToken          string    `json:"csrf"`
 	CreatedAt          time.Time `json:"created_at"`
 	ExpiresAt          time.Time `json:"expires_at"`
@@ -63,6 +69,10 @@ func NewSessionManager(rdb *redis.Client, cookieName string, secure bool, sameSi
 
 const sessionKeyPrefix = "hpg:sess:"
 
+// sessionSchemaVer invalidates sessions minted before a security-relevant
+// field was added. Bump it whenever a missing field would fail open.
+const sessionSchemaVer = 1
+
 // CookieSecure exposes the configured Secure flag for callers that issue
 // companion short-lived cookies (e.g. pending-2fa).
 func (m *Manager) CookieSecure() bool { return m.secure }
@@ -93,15 +103,16 @@ func requestIsHTTPS(r *http.Request) bool {
 
 // Create stores a new session in Redis and writes the cookie. resellerID is
 // non-zero only for a reseller-admin.
-func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, r *http.Request, userID int64, email, role string, clientID, resellerID int64) (*Session, error) {
-	return m.CreateImpersonated(ctx, w, r, userID, email, role, clientID, resellerID, 0, "")
+func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, r *http.Request, userID int64, email, role string, clientID, resellerID int64, restricted bool) (*Session, error) {
+	return m.CreateImpersonated(ctx, w, r, userID, email, role, clientID, resellerID, restricted, 0, "")
 }
 
 // CreateImpersonated mints a session whose effective identity is the
 // target client (userID/email/role/clientID) but which carries the
 // admin's id/email in ImpersonatorUserID for audit accountability.
-// Pass impersonatorID=0 for a normal login.
-func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter, r *http.Request, userID int64, email, role string, clientID, resellerID, impersonatorID int64, impersonatorEmail string) (*Session, error) {
+// Pass impersonatorID=0 for a normal login. restricted must describe the
+// effective identity (the target), never the impersonating admin.
+func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter, r *http.Request, userID int64, email, role string, clientID, resellerID int64, restricted bool, impersonatorID int64, impersonatorEmail string) (*Session, error) {
 	id, err := randomID(32)
 	if err != nil {
 		return nil, err
@@ -117,6 +128,8 @@ func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter,
 		Role:               role,
 		ClientID:           clientID,
 		ResellerID:         resellerID,
+		Restricted:         restricted,
+		Ver:                sessionSchemaVer,
 		CSRFToken:          csrf,
 		CreatedAt:          now,
 		ExpiresAt:          now.Add(m.ttl),
@@ -170,6 +183,12 @@ func (m *Manager) Load(ctx context.Context, r *http.Request) (*Session, error) {
 	var s Session
 	if err := json.Unmarshal(b, &s); err != nil {
 		return nil, err
+	}
+	// Stale schema: drop it and force a fresh login rather than trust
+	// zero-valued security fields.
+	if s.Ver < sessionSchemaVer {
+		m.rdb.Del(ctx, sessionKeyPrefix+c.Value)
+		return nil, nil
 	}
 	return &s, nil
 }

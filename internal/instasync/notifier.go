@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // Notifier pushes sync triggers to registered slave HPG instances.
@@ -28,7 +29,9 @@ func New(db func() *sql.DB, state *installstate.Manager, logger *slog.Logger) *N
 		DB:     db,
 		State:  state,
 		Logger: logger,
-		client: &http.Client{Timeout: 10 * time.Second},
+		// Slave URLs are admin-supplied; block private/loopback/metadata dials
+		// and non-http(s) redirects (defense in depth beyond SlaveAdd's save-time check).
+		client: security.SafeHTTPClient(10 * time.Second),
 	}
 }
 
@@ -91,10 +94,17 @@ func (n *Notifier) notify(ctx context.Context) {
 }
 
 func (n *Notifier) pushSlave(ctx context.Context, s slave) {
-	url := strings.TrimRight(s.url, "/") + "/internal/sync/push"
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
+	pushURL := strings.TrimRight(s.url, "/") + "/internal/sync/push"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, pushURL, nil)
 	if err != nil {
 		n.updateStatus(ctx, s.id, "error", err.Error())
+		return
+	}
+	// Re-validate at dial time: catches rows saved before this gate existed
+	// or written directly to the DB, not just ones created via SlaveAdd.
+	if verr := security.ValidateOutboundURL(req.URL); verr != nil || req.URL.Scheme != "https" {
+		n.Logger.Warn("sync push blocked: unsafe slave url", "slave", s.name)
+		n.updateStatus(ctx, s.id, "error", "url rejected: unsafe host or scheme")
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+s.token)

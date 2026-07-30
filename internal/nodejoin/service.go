@@ -137,28 +137,37 @@ func parseToken(plainWithPrefix string) (prefix, hashHex string, err error) {
 	return prefix, hex.EncodeToString(sum[:]), nil
 }
 
-// peekToken validates the token is unused + unexpired and returns its
-// resolved data WITHOUT marking it used. NODE_WG-04: burning the token here
-// (as the old `consume` did) meant a transient IP-allocation/insert failure
-// left the token permanently dead with no retry. Marking used_at is deferred
-// to markTokenUsed, called only after the node row is successfully inserted.
-func (s *Service) peekToken(ctx context.Context, db *sql.DB, plainWithPrefix string) (resolved, error) {
+// claimToken atomically marks a token used IFF it is currently unused and
+// unexpired, and returns its resolved data. NODE_WG-05: the old peekToken
+// read the row without locking, so two concurrent Redeem calls could both
+// pass the check, both allocate a WG IP, and both INSERT a disabled node
+// before either burned the token - the losers left orphaned rows behind and
+// exhausted the address pool. The UPDATE ... WHERE used_at IS NULL is a
+// single statement, so the DB engine (MySQL row lock, SQLite's serialized
+// writer) guarantees only one caller's UPDATE can affect the row: everyone
+// else gets RowsAffected==0 and never proceeds to allocation.
+func (s *Service) claimToken(ctx context.Context, db *sql.DB, plainWithPrefix string) (resolved, error) {
 	prefix, hashHex, err := parseToken(plainWithPrefix)
 	if err != nil {
 		return resolved{}, err
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE node_join_tokens SET used_at = NOW()
+		 WHERE token_prefix = ? AND token_hash = ? AND used_at IS NULL AND expires_at > NOW()`,
+		prefix, hashHex)
+	if err != nil {
+		return resolved{}, err
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return resolved{}, errors.New("token invalid, expired, or already used")
 	}
 	var r resolved
 	var nameHint sql.NullString
 	err = db.QueryRowContext(ctx,
 		`SELECT id, node_group_id, max_routes, priority, name_hint
-		 FROM node_join_tokens
-		 WHERE token_prefix = ? AND token_hash = ? AND used_at IS NULL AND expires_at > NOW()
-		 LIMIT 1`,
+		 FROM node_join_tokens WHERE token_prefix = ? AND token_hash = ? LIMIT 1`,
 		prefix, hashHex,
 	).Scan(&r.ID, &r.NodeGroupID, &r.MaxRoutes, &r.Priority, &nameHint)
-	if errors.Is(err, sql.ErrNoRows) {
-		return resolved{}, errors.New("token invalid, expired, or already used")
-	}
 	if err != nil {
 		return resolved{}, err
 	}
@@ -168,29 +177,12 @@ func (s *Service) peekToken(ctx context.Context, db *sql.DB, plainWithPrefix str
 	return r, nil
 }
 
-// markTokenUsed burns the token, re-checking used_at/expiry under FOR UPDATE
-// so two concurrent redemptions of the same token can't both succeed even
-// though peekToken didn't lock. Called only after node provisioning succeeds.
-func (s *Service) markTokenUsed(ctx context.Context, db *sql.DB, tokenID int64) error {
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	var used sql.NullTime
-	if err := tx.QueryRowContext(ctx,
-		"SELECT used_at FROM node_join_tokens WHERE id = ?"+store.ForUpdate(), tokenID,
-	).Scan(&used); err != nil {
-		return err
-	}
-	if used.Valid {
-		return errors.New("token already used")
-	}
-	if _, err := tx.ExecContext(ctx, "UPDATE node_join_tokens SET used_at = NOW() WHERE id = ?", tokenID); err != nil {
-		return err
-	}
-	return tx.Commit()
+// unclaimToken resets used_at so a transient failure AFTER the token was
+// claimed but BEFORE the node row exists can still be retried by the caller
+// (NODE_WG-04's original retry contract, preserved now that claiming happens
+// up front instead of after a successful insert).
+func (s *Service) unclaimToken(ctx context.Context, db *sql.DB, tokenID int64) {
+	_, _ = db.ExecContext(ctx, "UPDATE node_join_tokens SET used_at = NULL WHERE id = ?", tokenID)
 }
 
 // JoinRequest is what the bash bootstrap script sends in.
@@ -232,23 +224,27 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 	if db == nil {
 		return JoinResponse{}, "", errors.New("db not ready")
 	}
-	// NODE_WG-04: validate WITHOUT burning the token yet - it's only marked
-	// used after a node row is successfully inserted, so a transient
-	// IP-allocation/insert failure leaves the token retryable.
-	tk, err := s.peekToken(ctx, db, req.Token)
+	// NODE_WG-05: claim (burn) the token atomically BEFORE any allocation so
+	// concurrent redeems of the same token can't all pass and all insert a
+	// node row. unclaimToken restores NODE_WG-04's retry contract on any
+	// failure between here and a successful node insert.
+	tk, err := s.claimToken(ctx, db, req.Token)
 	if err != nil {
 		return JoinResponse{}, "", err
 	}
 
 	cp, err := s.WG.EnsureKeypair(ctx)
 	if err != nil {
+		s.unclaimToken(ctx, db, tk.ID)
 		return JoinResponse{}, "", fmt.Errorf("wg keypair: %w", err)
 	}
 	if cp.Endpoint == "" {
+		s.unclaimToken(ctx, db, tk.ID)
 		return JoinResponse{}, "", errors.New("wireguard.endpoint not configured — set it in admin Settings → WireGuard")
 	}
 	nodeKP, err := wireguard.GenerateKeypair()
 	if err != nil {
+		s.unclaimToken(ctx, db, tk.ID)
 		return JoinResponse{}, "", err
 	}
 
@@ -310,14 +306,10 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 		break
 	}
 	if nodeID == 0 {
+		s.unclaimToken(ctx, db, tk.ID)
 		return JoinResponse{}, "", fmt.Errorf("insert node: exhausted %d retries: %w", maxIPAllocAttempts, err)
 	}
 
-	// Node row exists - now safe to burn the token. A failure here just means
-	// the token stays valid for the caller to retry the whole /join call.
-	if err := s.markTokenUsed(ctx, db, tk.ID); err != nil {
-		return JoinResponse{}, "", fmt.Errorf("mark token used: %w", err)
-	}
 	_, _ = db.ExecContext(ctx, "UPDATE node_join_tokens SET used_node_id = ? WHERE id = ?", nodeID, tk.ID)
 
 	resp := JoinResponse{NodeID: nodeID, NodeName: nodeName, Fingerprint: fingerprint}

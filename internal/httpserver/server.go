@@ -353,9 +353,9 @@ func (s *Server) routes() {
 			"/admin/ai/chat/sessions/*",
 			"/admin/ai/chat/sessions/*/message",
 		}))
-		// Reseller-admin boundary (default-deny): a reseller-admin sees only the
-		// client-scoped surface below; global infra returns 403. Inert until a
-		// user carries a reseller_id. Allow-list expands with the reseller panel.
+		// Limited-admin boundary (default-deny): a reseller-admin OR a restricted
+		// (client-scoped) admin sees only the surface below; global infra 403s.
+		// Inert for full platform admins. Allow-list expands with the panel.
 		r.Use(mw.ResellerAdminBoundary([]string{
 			"/admin",              // dashboard
 			"/admin/2fa/required", // 2FA enrollment gate

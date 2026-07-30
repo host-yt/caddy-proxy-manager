@@ -13,9 +13,34 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
+
+// gdprExportAllowed authorizes GDPRExport. super_admin always passes; a scoped
+// admin must resolve the target user to an in-scope client. Fails closed when
+// no scope service is wired or the target has no resolvable client.
+func (h *AdminHandlers) gdprExportAllowed(ctx context.Context, sess *auth.Session, targetUserID int64) bool {
+	if sess == nil {
+		return false
+	}
+	if sess.Role == "super_admin" {
+		return true
+	}
+	if h.AdminScope == nil {
+		return false
+	}
+	db := h.DB()
+	if db == nil {
+		return false
+	}
+	var clientID int64
+	if err := db.QueryRowContext(ctx, "SELECT id FROM clients WHERE user_id = ?", targetUserID).Scan(&clientID); err != nil {
+		return false
+	}
+	return h.scopeCheckClient(ctx, sess, clientID)
+}
 
 // GDPRExport returns a JSON dump of every personally-identifiable row for
 // a single user: account data, sessions metadata, audit-log entries
@@ -36,6 +61,12 @@ func (h *AdminHandlers) GDPRExport(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
+
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.gdprExportAllowed(ctx, sess, id) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 
 	out := map[string]any{
 		"exported_at": time.Now().UTC().Format(time.RFC3339),
@@ -63,7 +94,6 @@ func (h *AdminHandlers) GDPRExport(w http.ResponseWriter, r *http.Request) {
 		`SELECT sv.id, sv.name, sv.backend_ip, sv.allowed_port_start, sv.allowed_port_end, sv.status, sv.created_at
 		 FROM services sv JOIN clients c ON c.id = sv.client_id WHERE c.user_id = ?`, id)
 
-	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "gdpr.export", Entity: "user",
 		EntityID: strconv.FormatInt(id, 10),
@@ -77,6 +107,11 @@ func (h *AdminHandlers) GDPRExport(w http.ResponseWriter, r *http.Request) {
 // (entity_id is masked). Cannot delete super_admin accounts to avoid
 // lockouts.
 func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
+	// Destructive + cross-tenant: super_admin only, regardless of scope wiring.
+	if sess := middleware.SessionFromContext(r.Context()); sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "forbidden: super_admin only", http.StatusForbidden)
+		return
+	}
 	db := h.DB()
 	if db == nil {
 		http.Error(w, "no db", http.StatusServiceUnavailable)

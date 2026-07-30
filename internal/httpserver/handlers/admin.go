@@ -3447,12 +3447,15 @@ func (h *AdminHandlers) UsersScopeUpdate(w http.ResponseWriter, r *http.Request)
 		redirectWithFlash(w, r, "/admin/users", "", "scope commit failed")
 		return
 	}
+	// Restricted is stamped on the session at login, so a live session would
+	// keep the old scope until it expires - force re-login.
+	h.revokeUsers(ctx, []int64{id})
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "user.scope.update", Entity: "user",
 		EntityID: strconv.FormatInt(id, 10),
 		Meta:     map[string]any{"email": email, "client_count": len(seen)},
 	})
-	redirectWithFlash(w, r, "/admin/users", "Access scope updated", "")
+	redirectWithFlash(w, r, "/admin/users", "Access scope updated; their sessions were revoked", "")
 }
 
 func (h *AdminHandlers) UsersToggle(w http.ResponseWriter, r *http.Request) {
@@ -3639,8 +3642,9 @@ func (h *AdminHandlers) UsersImpersonate(w http.ResponseWriter, r *http.Request)
 	adminID := sess.UserID
 	adminEmail := sess.Email
 	h.Sessions.Destroy(ctx, w, r)
-	// resellerID=0: the impersonated identity is a client, never a reseller-admin.
-	if _, err := h.Sessions.CreateImpersonated(ctx, w, r, id, email, role, clientID, 0, adminID, adminEmail); err != nil {
+	// resellerID=0/restricted=false: the effective identity is the target client
+	// (role=='client' enforced above), never the impersonating admin's scope.
+	if _, err := h.Sessions.CreateImpersonated(ctx, w, r, id, email, role, clientID, 0, false, adminID, adminEmail); err != nil {
 		h.Logger.Error("impersonate: session create", "err", err)
 		http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
 		return

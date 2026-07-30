@@ -420,29 +420,36 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 // (boundary denies, ScopeFilter matches no clients), never platform-admin.
 const resellerScopeUnknown = int64(-1)
 
-// lookupResellerID returns the user's reseller (0 = none). Fail-closed: a DB
-// error yields resellerScopeUnknown; only a clean NULL/no-row maps to 0.
-func lookupResellerID(ctx context.Context, db *sql.DB, userID int64) int64 {
+// lookupSessionScope returns the user's reseller (0 = none) and is_restricted
+// in one query. Fail-closed: a DB error yields resellerScopeUnknown +
+// restricted=true; only a clean NULL/no-row maps to (0, false).
+func lookupSessionScope(ctx context.Context, db *sql.DB, userID int64) (int64, bool) {
 	if db == nil {
-		return resellerScopeUnknown
+		return resellerScopeUnknown, true
 	}
-	var rid sql.NullInt64
-	err := db.QueryRowContext(ctx, "SELECT reseller_id FROM users WHERE id = ?", userID).Scan(&rid)
+	var (
+		rid        sql.NullInt64
+		restricted int64
+	)
+	err := db.QueryRowContext(ctx,
+		"SELECT reseller_id, COALESCE(is_restricted,0) FROM users WHERE id = ?", userID,
+	).Scan(&rid, &restricted)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
-			return 0
+			return 0, false
 		}
-		return resellerScopeUnknown // fail-closed on a real DB error
+		return resellerScopeUnknown, true // fail-closed on a real DB error
 	}
 	if rid.Valid {
-		return rid.Int64
+		return rid.Int64, restricted != 0
 	}
-	return 0
+	return 0, restricted != 0
 }
 
 func (h *AuthHandlers) finalizeLogin(ctx context.Context, w http.ResponseWriter, r *http.Request,
 	userID int64, email, role string, clientID int64, via, mfa string) {
-	if _, err := h.Sessions.Create(ctx, w, r, userID, email, role, clientID, lookupResellerID(ctx, h.DB(), userID)); err != nil {
+	resellerID, restricted := lookupSessionScope(ctx, h.DB(), userID)
+	if _, err := h.Sessions.Create(ctx, w, r, userID, email, role, clientID, resellerID, restricted); err != nil {
 		h.Logger.Error("session create", "err", err)
 		h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: email, Error: "Could not create session."}))
 		return
@@ -997,7 +1004,8 @@ func (h *AuthHandlers) EndImpersonation(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.Sessions.Destroy(ctx, w, r)
-	if _, err := h.Sessions.Create(ctx, w, r, sess.ImpersonatorUserID, adminEmail, adminRole, 0, lookupResellerID(ctx, db, sess.ImpersonatorUserID)); err != nil {
+	adminReseller, adminRestricted := lookupSessionScope(ctx, db, sess.ImpersonatorUserID)
+	if _, err := h.Sessions.Create(ctx, w, r, sess.ImpersonatorUserID, adminEmail, adminRole, 0, adminReseller, adminRestricted); err != nil {
 		h.Logger.Error("end impersonation: create admin session", "err", err)
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 		return
@@ -1978,7 +1986,8 @@ func (h *AuthHandlers) SSOJump(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// No second factor enrolled - create session and redirect.
-	if _, err := h.Sessions.Create(ctx, w, r, userID, email, role, clientID, lookupResellerID(ctx, h.DB(), userID)); err != nil {
+	jumpReseller, jumpRestricted := lookupSessionScope(ctx, h.DB(), userID)
+	if _, err := h.Sessions.Create(ctx, w, r, userID, email, role, clientID, jumpReseller, jumpRestricted); err != nil {
 		h.Logger.Error("sso_jump: session create", "err", err)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return

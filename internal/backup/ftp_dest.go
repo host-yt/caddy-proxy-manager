@@ -89,6 +89,12 @@ func (d *ftpDest) dial(ctx context.Context) (*ftp.ServerConn, error) {
 	var opts []ftp.DialOption
 	opts = append(opts, ftp.DialWithContext(ctx))
 	opts = append(opts, ftp.DialWithTimeout(20*time.Second))
+	// Pinned dial: revalidates the resolved IP at connect time (control AND
+	// PASV data connections both route through this) instead of trusting
+	// the hostname/PASV-advertised address re-resolves the same way.
+	opts = append(opts, ftp.DialWithDialFunc(func(network, address string) (net.Conn, error) {
+		return pinnedDialContext(ctx, network, address)
+	}))
 	if d.tlsMode == "implicit" {
 		opts = append(opts, ftp.DialWithTLS(&tls.Config{
 			ServerName:         host,

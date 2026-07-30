@@ -64,6 +64,22 @@ func bootstrapToken(r *http.Request) string {
 	return strings.TrimSpace(r.URL.Query().Get("token"))
 }
 
+// validBootstrapToken checks the token matches its known shape: 192 lowercase
+// hex chars (issueBootstrap in internal/domain/wgpeer hex-encodes 96 random
+// bytes). InstallScript interpolates the token into a root shell script, so a
+// length-only check let a 192-char `$(...)` payload through to root RCE.
+func validBootstrapToken(t string) bool {
+	if len(t) != 192 {
+		return false
+	}
+	for _, r := range t {
+		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
 func (h *WGBootstrapHandler) rateLimited(r *http.Request) bool {
 	if h.PerIPPerMin <= 0 || h.RDB == nil {
 		return false
@@ -89,6 +105,10 @@ func (h *WGBootstrapHandler) BootstrapConf(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	token := bootstrapToken(r)
+	if !validBootstrapToken(token) {
+		http.Error(w, "bootstrap token invalid or expired", http.StatusForbidden)
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	res, err := h.Peers.ConsumeBootstrap(ctx, token)
@@ -224,7 +244,7 @@ func (h *WGBootstrapHandler) InstallScript(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	token := bootstrapToken(r)
-	if len(token) != 192 {
+	if !validBootstrapToken(token) {
 		http.Error(w, "missing token", http.StatusBadRequest)
 		return
 	}
@@ -337,7 +357,7 @@ func (h *WGBootstrapHandler) PeerStatus(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	token := bootstrapToken(r)
-	if len(token) != 192 {
+	if !validBootstrapToken(token) {
 		http.Error(w, "missing token", http.StatusBadRequest)
 		return
 	}

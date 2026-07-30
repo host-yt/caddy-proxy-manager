@@ -8,30 +8,36 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 )
 
-// TestResellerAdminBoundary: a reseller-admin (ResellerID != 0) is confined to
-// the allow-list; global-infra paths 403. A platform admin (ResellerID == 0)
-// and an anonymous request pass through untouched.
+// TestResellerAdminBoundary: every limited admin (ResellerID != 0 or
+// Restricted) is confined to the allow-list; global-infra paths 403. A full
+// platform admin and an anonymous request pass through untouched.
 func TestResellerAdminBoundary(t *testing.T) {
 	allowed := []string{"/admin", "/admin/map", "/admin/ai/chat*", "/admin/2fa*"}
 
 	cases := []struct {
 		name       string
 		resellerID int64
+		restricted bool
 		method     string
 		path       string
 		noSession  bool
 		wantStatus int
 	}{
-		{"reseller-admin dashboard ok", 7, "GET", "/admin", false, http.StatusOK},
-		{"reseller-admin scoped map ok", 7, "GET", "/admin/map", false, http.StatusOK},
-		{"reseller-admin ai chat prefix ok", 7, "GET", "/admin/ai/chat/sessions", false, http.StatusOK},
-		{"reseller-admin 2fa prefix ok", 7, "POST", "/admin/2fa/confirm", false, http.StatusOK},
-		{"reseller-admin nodes blocked", 7, "GET", "/admin/nodes", false, http.StatusForbidden},
-		{"reseller-admin settings write blocked", 7, "POST", "/admin/settings/ai", false, http.StatusForbidden},
-		{"reseller-admin clients blocked", 7, "GET", "/admin/clients", false, http.StatusForbidden},
-		{"platform admin nodes ok", 0, "GET", "/admin/nodes", false, http.StatusOK},
-		{"platform admin settings ok", 0, "POST", "/admin/settings/ai", false, http.StatusOK},
-		{"no session passes", 0, "GET", "/admin/nodes", true, http.StatusOK},
+		{"reseller-admin dashboard ok", 7, false, "GET", "/admin", false, http.StatusOK},
+		{"reseller-admin scoped map ok", 7, false, "GET", "/admin/map", false, http.StatusOK},
+		{"reseller-admin ai chat prefix ok", 7, false, "GET", "/admin/ai/chat/sessions", false, http.StatusOK},
+		{"reseller-admin 2fa prefix ok", 7, false, "POST", "/admin/2fa/confirm", false, http.StatusOK},
+		{"reseller-admin nodes blocked", 7, false, "GET", "/admin/nodes", false, http.StatusForbidden},
+		{"reseller-admin settings write blocked", 7, false, "POST", "/admin/settings/ai", false, http.StatusForbidden},
+		{"reseller-admin clients blocked", 7, false, "GET", "/admin/clients", false, http.StatusForbidden},
+		// Restricted admin: reseller_id==0 but users.is_restricted=1.
+		{"restricted admin dashboard ok", 0, true, "GET", "/admin", false, http.StatusOK},
+		{"restricted admin map ok", 0, true, "GET", "/admin/map", false, http.StatusOK},
+		{"restricted admin nodes blocked", 0, true, "GET", "/admin/nodes", false, http.StatusForbidden},
+		{"restricted admin sso-jump rotate blocked", 0, true, "POST", "/admin/settings/sso-jump/rotate", false, http.StatusForbidden},
+		{"platform admin nodes ok", 0, false, "GET", "/admin/nodes", false, http.StatusOK},
+		{"platform admin settings ok", 0, false, "POST", "/admin/settings/ai", false, http.StatusOK},
+		{"no session passes", 0, false, "GET", "/admin/nodes", true, http.StatusOK},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -43,7 +49,7 @@ func TestResellerAdminBoundary(t *testing.T) {
 			req := httptest.NewRequest(tc.method, tc.path, nil)
 			if !tc.noSession {
 				req = req.WithContext(ContextWithSession(req.Context(),
-					&auth.Session{UserID: 1, Role: "admin", ResellerID: tc.resellerID}))
+					&auth.Session{UserID: 1, Role: "admin", ResellerID: tc.resellerID, Restricted: tc.restricted}))
 			}
 			rw := httptest.NewRecorder()
 			h.ServeHTTP(rw, req)

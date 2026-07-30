@@ -384,8 +384,7 @@ func TestBuildRoutePortalForwardAuth(t *testing.T) {
 		t.Errorf("portal must not emit when disabled\nfull: %s", s)
 	}
 
-	// Fail-closed: PortalProtect set but no dial => still no emission (we do
-	// NOT serve the route gated against a nonexistent verifier).
+	// Fail-closed: PortalProtect set but no dial => no gate emission.
 	noDial := base
 	noDial.PortalProtect = true
 	if s := mustJSON(noDial); strings.Contains(s, "/hpg-portal/verify") {
@@ -409,9 +408,94 @@ func TestBuildRoutePortalForwardAuth(t *testing.T) {
 			t.Errorf("portal emission missing %q\nfull: %s", want, s)
 		}
 	}
-	// All methods verified - no GET/HEAD restriction (POST/XHR must not bypass portal).
-	if strings.Contains(s, `"method":["GET","HEAD"]`) {
-		t.Errorf("portal gate must NOT restrict to GET/HEAD (auth bypass for POST/XHR)\nfull: %s", s)
+	// All methods verified. The static-asset bypass is GET/HEAD-scoped and a
+	// second matcher set catches every unsafe method unconditionally.
+	if !strings.Contains(s, `{"method":["GET","HEAD"]`) {
+		t.Errorf("portal static bypass must be GET/HEAD-scoped\nfull: %s", s)
+	}
+	if !strings.Contains(s, `{"not":[{"method":["GET","HEAD"]}]}`) {
+		t.Errorf("portal must gate all non-GET/HEAD methods with no path bypass\nfull: %s", s)
+	}
+}
+
+func TestBuildRouteMisconfigDeny(t *testing.T) {
+	base := Route{ID: "77", Hosts: []string{"d.example.com"}, UpstreamIP: "10.0.0.9", UpstreamPort: 8080}
+
+	// Portal opted in with no verifier: deny, never proxy to the backend.
+	pd := base
+	pd.PortalDenyOnMisconfig = true
+	s := mustJSON(pd)
+	if strings.Contains(s, "reverse_proxy") || strings.Contains(s, "10.0.0.9") {
+		t.Errorf("portal misconfig must not proxy upstream\nfull: %s", s)
+	}
+	for _, want := range []string{`"status_code":503`, `"no-store"`, `portal verifier is unavailable`, `"terminal":true`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("deny route missing %q\nfull: %s", want, s)
+		}
+	}
+
+	// mTLS misconfig with fail-closed: same deny, different reason text.
+	md := base
+	md.MTLSDenyOnMisconfig = true
+	s = mustJSON(md)
+	if strings.Contains(s, "reverse_proxy") {
+		t.Errorf("mtls misconfig must not proxy upstream\nfull: %s", s)
+	}
+	if !strings.Contains(s, "client certificate enforcement is unavailable") {
+		t.Errorf("mtls deny reason missing\nfull: %s", s)
+	}
+	// Must still be a valid, loadable route object.
+	if !strings.Contains(s, `"@id":"route_77"`) || !strings.Contains(s, `"d.example.com"`) {
+		t.Errorf("deny route must keep id + host match\nfull: %s", s)
+	}
+
+	// Neither flag: unchanged proxy route.
+	if s := mustJSON(base); !strings.Contains(s, "reverse_proxy") {
+		t.Errorf("plain route must still proxy\nfull: %s", s)
+	}
+}
+
+func TestBuildRouteCacheSuppressedForAuthGates(t *testing.T) {
+	base := Route{
+		ID: "88", Hosts: []string{"c.example.com"}, UpstreamIP: "10.0.0.9", UpstreamPort: 8080,
+		CacheEnabled: true, CacheTTLSeconds: 30, CacheModuleAvailable: true,
+	}
+	if s := mustJSON(base); !strings.Contains(s, `"handler":"cache"`) || !strings.Contains(s, "Cache-Control") {
+		t.Fatalf("baseline cache route must emit cache + Cache-Control\nfull: %s", s)
+	}
+	// A cache hit short-circuits before the mTLS RBAC and portal gates, so
+	// neither the cache handler nor the CDN hint may be emitted.
+	rbac := base
+	rbac.MTLSPathRules = []MTLSPathRule{{PathPattern: "/admin/*", RequiredRole: "admin"}}
+	rbac.PanelBaseURL = "http://app:8080"
+	if s := mustJSON(rbac); strings.Contains(s, `"handler":"cache"`) || strings.Contains(s, "Cache-Control") {
+		t.Errorf("mTLS RBAC route must not be cached\nfull: %s", s)
+	}
+	portal := base
+	portal.PortalProtect = true
+	portal.PortalDial = "app:8080"
+	if s := mustJSON(portal); strings.Contains(s, `"handler":"cache"`) || strings.Contains(s, "Cache-Control") {
+		t.Errorf("portal-protected route must not be cached\nfull: %s", s)
+	}
+}
+
+func TestForwardAuthRequestBuffersBounded(t *testing.T) {
+	// Pre-auth buffering must be finite on all three forward_auth emitters.
+	sso := Route{ID: "1", Hosts: []string{"s.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+		SSOProviderURL: "https://sso.example.com"}
+	portal := Route{ID: "2", Hosts: []string{"p.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+		PortalProtect: true, PortalDial: "app:8080"}
+	rbac := Route{ID: "3", Hosts: []string{"m.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+		PanelBaseURL: "http://app:8080", MTLSPathRules: []MTLSPathRule{{PathPattern: "/*", RequiredRole: "admin"}}}
+	want := `"request_buffers":10485760`
+	for _, r := range []Route{sso, portal, rbac} {
+		s := mustJSON(r)
+		if strings.Contains(s, `"request_buffers":-1`) {
+			t.Errorf("route %s still buffers unbounded pre-auth\nfull: %s", r.ID, s)
+		}
+		if !strings.Contains(s, want) {
+			t.Errorf("route %s missing %s\nfull: %s", r.ID, want, s)
+		}
 	}
 }
 

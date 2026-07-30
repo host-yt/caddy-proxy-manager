@@ -102,6 +102,37 @@ func TestBuildNodeConfig_EmitsConnPolicies(t *testing.T) {
 	}
 }
 
+func TestMTLSCAUsable(t *testing.T) {
+	if !MTLSCAUsable(testCAPEM(t)) {
+		t.Error("valid CA PEM must be usable")
+	}
+	for _, bad := range []string{"", "not a pem", "-----BEGIN CERTIFICATE-----\ngarbage\n-----END CERTIFICATE-----\n"} {
+		if MTLSCAUsable(bad) {
+			t.Errorf("unusable PEM reported usable: %q", bad)
+		}
+	}
+}
+
+func TestBuildNodeConfig_DenyRouteStillValid(t *testing.T) {
+	// Unparsable CA + fail-closed: route must be emitted as a deny, never as a
+	// naked proxy, and the config must contain no client_authentication policy.
+	routes := []Route{{
+		ID: "9", Hosts: []string{"x.example.com"}, UpstreamIP: "10.0.0.2", UpstreamPort: 443,
+		MTLSDenyOnMisconfig: true, MTLSCACertPEM: "-----BEGIN CERTIFICATE-----\nbad\n-----END CERTIFICATE-----\n",
+	}}
+	b, err := json.Marshal(BuildNodeConfig(routes, NodeSettings{ACMEEmail: "a@b.c"}))
+	if err != nil {
+		t.Fatalf("config must marshal: %v", err)
+	}
+	s := string(b)
+	if contains(s, `"handler":"reverse_proxy","upstreams":[{"dial":"10.0.0.2:443"}`) {
+		t.Errorf("misconfigured mTLS route must not proxy upstream\n%s", s)
+	}
+	if !contains(s, `"status_code":503`) {
+		t.Errorf("expected deny handler in config\n%s", s)
+	}
+}
+
 func contains(haystack, needle string) bool {
 	return len(haystack) >= len(needle) && indexOf(haystack, needle) >= 0
 }
