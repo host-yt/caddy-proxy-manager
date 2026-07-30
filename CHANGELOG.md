@@ -2,6 +2,18 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## [1.4.3] - 2026-07-31
+
+### Added
+
+- **`hpg-restore` ships in the app image** (`/app/hpg-restore`): standalone operator tool that decrypts + unpacks a `.tgz.age` backup artifact (custom `HPGBK2` chunked AES-256-GCM stream) into `dump.sql`, `install_state.json` and `wg/`. It never touches the live DB or filesystem - replay stays a manual step (#6).
+
+### Fixed
+
+- **Manual-restore instructions in the UI were wrong (#6)**: the backups page showed an `openssl enc -d -aes-256-cbc` command that can never decrypt the actual artifact format. The panel now documents the real `hpg-restore` procedure.
+- **Restore drill failed with `Error 1049: Unknown database` (#6)**: the drill connection put the not-yet-created `hpg_drill_*` schema in its DSN before `CREATE DATABASE`. Schema create/drop now run on a bootstrap connection with no default schema.
+- **ghcr images were private/unlinked (#7)**: all four images now carry the `org.opencontainers.image.source` OCI label and the packages are public - anonymous `docker pull` works again.
+
 ## [1.4.2] - 2026-07-29
 
 ### Added

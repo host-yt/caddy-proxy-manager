@@ -12,7 +12,7 @@ yourself, with WireGuard tunnels to origin and per-node failover. The
 control plane configures every node over WireGuard, drives Let's Encrypt
 issuance, runs a WAF + GeoIP, and surfaces traffic stats.
 
-**Status:** v1.4.2. Stack: Go 1.26.3, chi, MariaDB/MySQL or SQLite, Redis, Caddy 2.11.
+**Status:** v1.4.3. Stack: Go 1.26.3, chi, MariaDB/MySQL or SQLite, Redis, Caddy 2.11.
 Single binary ~21 MB image, ~28 MB idle RAM.
 
 ## Use cases
