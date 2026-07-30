@@ -179,13 +179,14 @@
     </p>
     <ol class="space-y-2 t-small list-decimal list-inside" style="color:rgb(var(--text))">
       <li>Download the backup archive from your configured destination (SFTP / S3 / FTP / Local).</li>
-      <li>If encrypted, decrypt:<br>
-        <code class="font-mono text-[11px] px-1.5 py-0.5 rounded break-all" style="background:rgb(var(--surface-2))">openssl enc -d -aes-256-cbc -pbkdf2 -k "$HPG_BACKUP_KEY" -in backup.enc | tar xz</code>
+      <li>Decrypt + unpack with the bundled <code class="font-mono text-[11px]">hpg-restore</code> tool (artifacts use a custom HPGBK2 AES-256-GCM stream, not OpenSSL):<br>
+        <code class="font-mono text-[11px] px-1.5 py-0.5 rounded break-all" style="background:rgb(var(--surface-2))">docker compose run --rm --entrypoint /app/hpg-restore -v "$PWD:/restore" app --in /restore/backup-XXX.tgz.age --secret "$APP_SECRET" --out /restore/restored</code><br>
+        <span style="color:rgb(var(--muted))">Plain <code class="font-mono text-[11px]">.tgz</code> artifacts skip decryption automatically. The tool never touches the live DB or filesystem.</span>
       </li>
       <li>Stop HPG, restore the MySQL dump:<br>
-        <code class="font-mono text-[11px] px-1.5 py-0.5 rounded break-all" style="background:rgb(var(--surface-2))">mysql -u root hpg &lt; dump.sql</code>
+        <code class="font-mono text-[11px] px-1.5 py-0.5 rounded break-all" style="background:rgb(var(--surface-2))">mysql -u root hpg &lt; restored/dump.sql</code>
       </li>
-      <li>Restart HPG service.</li>
+      <li>Copy back <code class="font-mono text-[11px]">install_state.json</code> and <code class="font-mono text-[11px]">wg/</code> from the restored directory, then restart HPG.</li>
     </ol>
   </section>
 

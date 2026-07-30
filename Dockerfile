@@ -72,6 +72,11 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
       -ldflags="-s -w -X main.version=${VERSION}" \
       -o /out/server ./cmd/server
 
+# Operator restore tool (issue #6): decrypts .tgz.age backup artifacts.
+RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" \
+      -o /out/hpg-restore ./cmd/restore
+
 # Prepare runtime data dir with correct ownership (distroless has no RUN).
 RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
 
@@ -80,6 +85,8 @@ FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 
 COPY --from=build /out/server /app/server
+# Operator restore tool (issue #6): decrypts .tgz.age backup artifacts.
+COPY --from=build /out/hpg-restore /app/hpg-restore
 COPY --from=build /src/web /app/web
 COPY --from=tailwind /out/tailwind.css /app/web/static/css/tailwind.css
 COPY --from=build /src/migrations /app/migrations

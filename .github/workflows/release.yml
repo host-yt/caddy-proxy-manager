@@ -49,6 +49,10 @@ jobs:
           context: .
           file: Dockerfile
           platforms: ${{ matrix.platform }}
+          # source label auto-links the ghcr package to this repo even when
+          # pushed with a PAT (GHCR_TOKEN); without it packages end up unlinked
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=app-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=app-${{ matrix.platform }}
@@ -119,6 +123,8 @@ jobs:
         with:
           context: deploy/caddy
           platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-edge,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=caddy-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=caddy-${{ matrix.platform }}
@@ -187,6 +193,8 @@ jobs:
         with:
           context: deploy/wireguard
           platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-wg,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=wireguard-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=wireguard-${{ matrix.platform }}
@@ -256,6 +264,8 @@ jobs:
           context: .
           file: deploy/node-agent/Dockerfile
           platforms: ${{ matrix.platform }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-node-agent,push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha,scope=node-agent-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=node-agent-${{ matrix.platform }}

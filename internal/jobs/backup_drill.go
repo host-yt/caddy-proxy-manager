@@ -243,6 +243,36 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	}
 	// Use full timestamp so re-runs on the same day get a fresh empty schema.
 	drillSchema := "hpg_drill_" + time.Now().UTC().Format("20060102_150405")
+	// Bootstrap connection with NO default schema: putting the not-yet-created
+	// drill schema in the DSN makes the first query fail with Error 1049.
+	bootDSN, err := j.drillDSN("")
+	if err != nil {
+		return 0, fmt.Errorf("build drill dsn: %w", err)
+	}
+	bootDB, err := sql.Open("mysql", bootDSN)
+	if err != nil {
+		return 0, fmt.Errorf("open drill bootstrap db: %w", err)
+	}
+	defer bootDB.Close()
+	bootDB.SetMaxOpenConns(1)
+	bootDB.SetConnMaxLifetime(5 * time.Minute)
+
+	// 7. Create temp schema — fail gracefully if the DB user lacks CREATE privilege.
+	if _, err := bootDB.ExecContext(ctx, "CREATE DATABASE IF NOT EXISTS `"+drillSchema+"`"); err != nil {
+		return 0, fmt.Errorf("CREATE DATABASE %s: %w (ensure DB user has CREATE privilege)", drillSchema, err)
+	}
+	j.Logger.Debug("backup-drill: schema created", "schema", drillSchema)
+
+	defer func() {
+		dropCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if _, err := bootDB.ExecContext(dropCtx, "DROP DATABASE IF EXISTS `"+drillSchema+"`"); err != nil {
+			j.Logger.Warn("backup-drill: DROP schema failed", "schema", drillSchema, "err", err)
+		} else {
+			j.Logger.Debug("backup-drill: schema dropped", "schema", drillSchema)
+		}
+	}()
+
 	drillDSN, err := j.drillDSN(drillSchema)
 	if err != nil {
 		return 0, fmt.Errorf("build drill dsn: %w", err)
@@ -254,22 +284,6 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	defer drillDB.Close()
 	drillDB.SetMaxOpenConns(1)
 	drillDB.SetConnMaxLifetime(5 * time.Minute)
-
-	// 7. Create temp schema — fail gracefully if the DB user lacks CREATE privilege.
-	if _, err := drillDB.ExecContext(ctx, "CREATE DATABASE IF NOT EXISTS `"+drillSchema+"`"); err != nil {
-		return 0, fmt.Errorf("CREATE DATABASE %s: %w (ensure DB user has CREATE privilege)", drillSchema, err)
-	}
-	j.Logger.Debug("backup-drill: schema created", "schema", drillSchema)
-
-	defer func() {
-		dropCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if _, err := drillDB.ExecContext(dropCtx, "DROP DATABASE IF EXISTS `"+drillSchema+"`"); err != nil {
-			j.Logger.Warn("backup-drill: DROP schema failed", "schema", drillSchema, "err", err)
-		} else {
-			j.Logger.Debug("backup-drill: schema dropped", "schema", drillSchema)
-		}
-	}()
 
 	// 8. Replay dump.
 	restoreCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
