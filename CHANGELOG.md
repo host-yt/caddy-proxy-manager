@@ -4,6 +4,10 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [1.4.5] - 2026-07-31
+
+Follow-up security release to 1.4.4. Closes review round 14, including one critical control-plane path that 1.4.4 left open on the resync path.
+
 ### Security
 
 - **Legacy stream targets bypassed the new screen on every push**: the create/update handlers screened stream destinations, but the config builder loaded every active stream and its stored upstreams straight from the DB, so a row written before the upgrade - or one whose destination only later became a managed node address - was re-emitted verbatim by boot push, manual resync and drift recovery, forwarding raw traffic to Caddy's unauthenticated admin API. Every stream destination (primary and each upstream) is now re-screened at emission time in the new `internal/streamguard` package, a deny set that cannot be loaded fails the whole push closed, and unsafe rows are quarantined (`stream_routes.quarantined_at` / `quarantine_reason`, migration `00137`) with an audit entry instead of being silently dropped.
