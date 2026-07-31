@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -265,7 +265,6 @@ func TestDestroyAllForUser_KillsImpersonationSessions(t *testing.T) {
 		t.Fatalf("want 1 killed, got killed=%d err=%v", killed, err)
 	}
 }
-
 
 // Leftover pre-upgrade keys are harmless; a NEW one proves an old replica is
 // live and minting sessions it will serve with the old boundary logic.

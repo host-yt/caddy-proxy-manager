@@ -105,4 +105,3 @@ func insertRow(t *testing.T, ctx context.Context, db *sql.DB, table, query strin
 	}
 	return id
 }
-
