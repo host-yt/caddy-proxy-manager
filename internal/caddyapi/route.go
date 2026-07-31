@@ -711,13 +711,15 @@ func BuildRoute(r Route) map[string]any {
 		})
 	}
 	// Custom handler chain (admin-supplied JSON array). Prepended before
-	// `primary` so request-shaping logic (rate_limit, request_body, encode,
-	// authentication) runs on the inbound side. Invalid JSON is rejected
-	// by the save handler, so we don't validate again here.
+	// `primary` so request-shaping logic (rate_limit, request_body, encode)
+	// runs on the inbound side. Re-validated HERE, not only on write: a chain
+	// stored before the allow-list existed must never reach a node.
 	if strings.TrimSpace(r.CustomHandlers) != "" {
-		var extra []any
-		if err := json.Unmarshal([]byte(r.CustomHandlers), &extra); err == nil {
-			handlers = append(handlers, extra...)
+		if safe, err := SanitizeCustomHandlers(r.CustomHandlers); err == nil && safe != "" {
+			var extra []any
+			if json.Unmarshal([]byte(safe), &extra) == nil {
+				handlers = append(handlers, extra...)
+			}
 		}
 	}
 
@@ -1217,7 +1219,7 @@ func RouteAuthGated(r Route) bool {
 // gate a response. Anything else - including a handler we simply don't know -
 // must suppress caching, because CustomHandlers runs AFTER the cache handler.
 var cacheSafeCustomHandlers = map[string]bool{
-	"headers": true, "encode": true, "templates": true,
+	"headers": true, "encode": true,
 	"rewrite": true, "vars": true, "request_body": true,
 }
 

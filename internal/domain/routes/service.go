@@ -928,12 +928,14 @@ func (s *Service) VerifyDomainToken(ctx context.Context, clientID, routeID int64
 		pathPrefix  sql.NullString
 		verified    int
 		tok         sql.NullString
+		aliases     sql.NullString
 	)
 	if err = s.DB.QueryRowContext(ctx,
-		`SELECT sv.client_id, r.domain, r.path_prefix, r.domain_verified, r.verify_token
+		`SELECT sv.client_id, r.domain, r.path_prefix, r.domain_verified, r.verify_token,
+		        COALESCE(r.aliases,'')
 		 FROM routes r JOIN services sv ON sv.id = r.service_id WHERE r.id = ?`,
 		routeID,
-	).Scan(&ownerClient, &domain, &pathPrefix, &verified, &tok); err != nil {
+	).Scan(&ownerClient, &domain, &pathPrefix, &verified, &tok, &aliases); err != nil {
 		return "", "", err
 	}
 	if clientID != 0 && ownerClient != clientID {
@@ -941,6 +943,9 @@ func (s *Service) VerifyDomainToken(ctx context.Context, clientID, routeID int64
 	}
 	token = tok.String
 	recordName = "_hpg-verify." + domain
+	// Aliases are proven independently of the primary domain, so sweep them on
+	// every attempt - including one on an already-verified route.
+	s.verifyAliases(ctx, routeID, aliases.String, token)
 	if verified == 1 {
 		return token, recordName, ErrAlreadyVerified
 	}
@@ -1002,6 +1007,52 @@ func (s *Service) VerifyDomainToken(ctx context.Context, clientID, routeID int64
 	}
 	s.advanceRoute(ctx, routeID)
 	return token, recordName, nil
+}
+
+// verifyAliases proves each alias with the same TXT nonce at _hpg-verify.<alias>
+// and records the proven subset in routes.aliases_verified. An alias that is not
+// proven is never emitted as a host matcher and never gets a certificate, so an
+// operator cannot bolt a victim hostname onto a route they already own.
+func (s *Service) verifyAliases(ctx context.Context, routeID int64, aliases, token string) {
+	list := splitHostList(aliases)
+	if token == "" || len(list) == 0 {
+		return
+	}
+	var prev sql.NullString
+	if err := s.DB.QueryRowContext(ctx,
+		"SELECT COALESCE(aliases_verified,'') FROM routes WHERE id = ?", routeID).Scan(&prev); err != nil {
+		return
+	}
+	proven := map[string]bool{}
+	for _, a := range splitHostList(prev.String) {
+		proven[a] = true
+	}
+	out := []string{}
+	changed := false
+	for _, a := range list {
+		if !proven[a] {
+			if !dns.TXTContains(ctx, "_hpg-verify."+a, token) {
+				continue
+			}
+			changed = true
+		}
+		out = append(out, a)
+	}
+	// Also collapses a stale entry for a removed alias.
+	joined := strings.Join(out, ",")
+	if !changed && joined == strings.Join(splitHostList(prev.String), ",") {
+		return
+	}
+	if _, err := s.DB.ExecContext(ctx,
+		"UPDATE routes SET aliases_verified = ? WHERE id = ?", joined, routeID); err != nil {
+		s.Logger.Warn("alias verification: persist", "route_id", routeID, "err", err)
+		return
+	}
+	var nodeID sql.NullInt64
+	if err := s.DB.QueryRowContext(ctx,
+		"SELECT caddy_node_id FROM routes WHERE id = ?", routeID).Scan(&nodeID); err == nil && nodeID.Int64 > 0 {
+		s.SchedulePush(nodeID.Int64)
+	}
 }
 
 // Delete removes the route, decrements the node counter, and rebuilds the
@@ -2106,7 +2157,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	// cannot be emitted is served open or denied. Loaded once per build.
 	mtlsFailOpen := s.loadMTLSFailOpen(ctx)
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT r.id, r.domain, COALESCE(r.aliases,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
+		`SELECT r.id, r.domain, COALESCE(r.aliases,''), COALESCE(r.aliases_verified,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
 		        r.websocket, r.force_https,
 		        r.http2_enabled, r.http3_enabled, r.ssl_enabled,
 		        -- Per-route backend_ip_override beats both peer IP and the
@@ -2205,6 +2256,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var (
 			id                             int64
 			domain, aliases                string
+			aliasesVerified                string
 			path                           string
 			port                           int
 			scheme                         string
@@ -2266,7 +2318,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var mtlsCACertPEM string
 		var dialTimeoutMs, responseHeaderTimeoutMs int
 		var clGeoAction, clGeoRedirect, clGeoTitle, clGeoMessage, clGeoLogo, clGeoBg string
-		if err := rows.Scan(&id, &domain, &aliases, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
+		if err := rows.Scan(&id, &domain, &aliases, &aliasesVerified, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
 			&tunnelResolverIP,
 			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &cachePublic, &headersJSON,
 			&maintMode, &maintMsg, &cacheVary, &accessAllow, &accessDeny,
@@ -2330,12 +2382,16 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 				"route_id", id, "domain", domain, "peer_id", viaPeerID.Int64)
 			continue
 		}
+		// Only PROVEN aliases become host matchers: an alias whose ownership was
+		// never demonstrated would otherwise intercept the real owner's traffic.
+		proven := map[string]bool{}
+		for _, a := range splitHostList(aliasesVerified) {
+			proven[a] = true
+		}
 		hosts := []string{domain}
-		for _, a := range strings.FieldsFunc(aliases, func(r rune) bool {
-			return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == ';'
-		}) {
-			if v := strings.ToLower(strings.TrimSpace(a)); v != "" && v != domain {
-				hosts = append(hosts, v)
+		for _, a := range splitHostList(aliases) {
+			if a != domain && proven[a] {
+				hosts = append(hosts, a)
 			}
 		}
 		var vary []string
@@ -3052,6 +3108,19 @@ func ensureStableHash(rs []caddyapi.Route) string {
 	copy(dup, rs)
 	sort.Slice(dup, func(i, j int) bool { return dup[i].ID < dup[j].ID })
 	return hashRoutes(dup)
+}
+
+// splitHostList explodes a stored comma/space separated hostname list.
+func splitHostList(raw string) []string {
+	out := []string{}
+	for _, p := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == ';'
+	}) {
+		if v := strings.ToLower(strings.TrimSpace(p)); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 // newVerifyToken returns a 32-hex-char (128-bit) random nonce the domain owner

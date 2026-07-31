@@ -72,7 +72,7 @@
       <div>
         <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Additional domains (aliases, comma-separated)</label>
         <textarea name="aliases" rows="2" placeholder="alias1.example.com, alias2.example.com" class="r-input w-full font-mono text-sm">{{.Aliases}}</textarea>
-        <p class="t-caption text-muted mt-1">Each alias gets its own Let's Encrypt cert on first hit (on-demand). Point DNS for each at this node before adding.</p>
+        <p class="t-caption text-muted mt-1">Each alias gets its own Let's Encrypt cert on first hit (on-demand). Point DNS for each at this node before adding. Unless you are a platform admin, a newly added alias stays inactive until you publish the route's verification TXT record at <code>_hpg-verify.&lt;alias&gt;</code> and re-run Verify.</p>
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>

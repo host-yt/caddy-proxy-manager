@@ -1185,9 +1185,13 @@ func (h *AdminHandlers) HostsClone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Columns excluded from the copy (auto-generated or intentionally reset).
+	// custom_config is dropped so a legacy chain cannot be replicated past the
+	// platform-admin gate; hostnames and their ownership proof are per-route.
 	skip := map[string]bool{
 		"id": true, "created_at": true, "updated_at": true,
 		"last_error": true, "last_push_at": true, "proxy_secret_hash": true,
+		"custom_config": true, "aliases": true, "aliases_verified": true,
+		"domain_verified": true, "verify_token": true,
 	}
 	// Columns where the cloned value differs from the source.
 	override := map[string]string{
@@ -3472,18 +3476,21 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	// Matcher (domain+path) change: load the stored pair so the collision checks
-	// and the ownership-proof reset below both key off a real diff.
+	// Matcher (domain+path+aliases) change: load the stored set so the collision
+	// checks and the ownership-proof reset below both key off a real diff.
+	// Aliases count: they are emitted into the same Caddy host matcher, so an
+	// alias-only edit is a hostname claim exactly like a domain change.
 	mctx, mcancel := context.WithTimeout(r.Context(), 5*time.Second)
-	var oldDomain, oldPath string
+	var oldDomain, oldPath, oldAliases, oldAliasesVerified string
 	if merr := h.DB().QueryRowContext(mctx,
-		"SELECT LOWER(domain), COALESCE(path_prefix,'') FROM routes WHERE id = ?", id,
-	).Scan(&oldDomain, &oldPath); merr != nil {
+		`SELECT LOWER(domain), COALESCE(path_prefix,''), COALESCE(aliases,''),
+		        COALESCE(aliases_verified,'') FROM routes WHERE id = ?`, id,
+	).Scan(&oldDomain, &oldPath, &oldAliases, &oldAliasesVerified); merr != nil {
 		mcancel()
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "route not found")
 		return
 	}
-	matcherChanged := domain != oldDomain || pathPrefix != oldPath
+	matcherChanged := matcherChangedForUpdate(oldDomain, oldPath, oldAliases, domain, pathPrefix, aliases)
 	if matcherChanged {
 		// The new hostname must not already be another route's domain or alias,
 		// regardless of path: a more specific path would still shadow it.
@@ -3781,6 +3788,17 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// and the next resync serves it. Reset rides the same tx as the edit so no
 	// resync window ever sees the new domain still flagged verified.
 	resetVerification := h.verificationResetRequired(ctx, sess, matcherChanged)
+	// Aliases carry their own proof. Only a full platform admin is trusted to
+	// name a hostname outright; for anyone else a newly added alias stays
+	// unproven, so it is neither emitted nor eligible for a certificate.
+	aliasesVerified := aliases
+	if h.verificationResetRequired(ctx, sess, true) {
+		aliasesVerified = keepProvenHosts(oldAliasesVerified, aliases)
+	}
+	var aliasesVerifiedVal sql.NullString
+	if aliasesVerified != "" {
+		aliasesVerifiedVal = sql.NullString{String: aliasesVerified, Valid: true}
+	}
 	var verifyToken string
 	if resetVerification {
 		t, terr := routes.NewVerifyToken()
@@ -3799,13 +3817,36 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback() }() // no-op once committed
 
+	// Re-check the hostname claims INSIDE the tx: the pre-checks above race a
+	// concurrent save that could land the same domain or alias in between.
+	if matcherChanged {
+		if clash, cerr := domainCollision(ctx, tx, domain, id); cerr != nil {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "domain collision check failed")
+			return
+		} else if clash {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "domain "+domain+" is already used by another route")
+			return
+		}
+	}
+	if aliases != "" {
+		clash, cerr := aliasCollision(ctx, tx, aliases, id)
+		if cerr != nil {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "aliases: collision check failed")
+			return
+		}
+		if clash != "" {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "alias "+clash+" is already used by another route")
+			return
+		}
+	}
+
 	// Two UPDATE branches: when 'keep current password' is ticked we
 	// must NOT touch basic_auth_bcrypt. Cleanest split is two queries.
 	var err error
 	if basicUser != "" && keepPass {
 		_, err = tx.ExecContext(ctx,
 			`UPDATE routes SET
-			   domain = ?, aliases = ?, path_prefix = ?, upstream_port = ?, upstream_scheme = ?, upstream_skip_tls_verify = ?,
+			   domain = ?, aliases = ?, aliases_verified = ?, path_prefix = ?, upstream_port = ?, upstream_scheme = ?, upstream_skip_tls_verify = ?,
 			   upstream_external = ?, upstream_host_header = ?,
 			   via_wg_peer_id = ?,
 			   kind = ?, redirect_url = ?, redirect_code = ?,
@@ -3842,7 +3883,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   custom_fields = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
-			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
+			domain, aliasesVal, aliasesVerifiedVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
 			external, extHostHeaderVal,
 			nullableInt64(viaPeerID),
 			kind, redirURLVal, redirCodeVal,
@@ -3881,7 +3922,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		_, err = tx.ExecContext(ctx,
 			`UPDATE routes SET
-			   domain = ?, aliases = ?, path_prefix = ?, upstream_port = ?, upstream_scheme = ?, upstream_skip_tls_verify = ?,
+			   domain = ?, aliases = ?, aliases_verified = ?, path_prefix = ?, upstream_port = ?, upstream_scheme = ?, upstream_skip_tls_verify = ?,
 			   upstream_external = ?, upstream_host_header = ?,
 			   via_wg_peer_id = ?,
 			   kind = ?, redirect_url = ?, redirect_code = ?,
@@ -3918,7 +3959,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   custom_fields = ?,
 			   updated_at = NOW()
 			 WHERE id = ?`,
-			domain, aliasesVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
+			domain, aliasesVal, aliasesVerifiedVal, pathPrefix, port, upstreamScheme, upstreamSkipTLS,
 			external, extHostHeaderVal,
 			nullableInt64(viaPeerID),
 			kind, redirURLVal, redirCodeVal,
@@ -4414,6 +4455,58 @@ func sanitizeAliases(raw, primary string) (string, error) {
 	return strings.Join(out, ","), nil
 }
 
+// splitHostCSV explodes a stored comma/space separated hostname list.
+func splitHostCSV(raw string) []string {
+	out := []string{}
+	for _, p := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == ';'
+	}) {
+		if v := strings.ToLower(strings.TrimSpace(p)); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// addedHosts returns entries present in next but not in prev. Only additions
+// are a hostname claim - dropping an alias releases one.
+func addedHosts(prev, next string) []string {
+	had := map[string]bool{}
+	for _, v := range splitHostCSV(prev) {
+		had[v] = true
+	}
+	added := []string{}
+	for _, v := range splitHostCSV(next) {
+		if !had[v] {
+			added = append(added, v)
+		}
+	}
+	return added
+}
+
+// matcherChangedForUpdate reports whether a save claims a hostname/path the
+// route did not already serve. Aliases land in the same Caddy host matcher as
+// the primary domain, so adding one is a claim and must re-arm ownership proof.
+func matcherChangedForUpdate(oldDomain, oldPath, oldAliases, domain, path, aliases string) bool {
+	return domain != oldDomain || path != oldPath || len(addedHosts(oldAliases, aliases)) > 0
+}
+
+// keepProvenHosts intersects the previously proven set with the new alias list,
+// so a removed alias drops its proof and an added one starts unproven.
+func keepProvenHosts(proven, next string) string {
+	ok := map[string]bool{}
+	for _, v := range splitHostCSV(proven) {
+		ok[v] = true
+	}
+	out := []string{}
+	for _, v := range splitHostCSV(next) {
+		if ok[v] {
+			out = append(out, v)
+		}
+	}
+	return strings.Join(out, ",")
+}
+
 // aliasCollision returns the first alias that already belongs to another route
 // (as its primary domain or in that route's alias list), or "" when none clash.
 // Prevents one route from shadowing another tenant's domain via aliases.
@@ -4422,12 +4515,12 @@ func sanitizeAliases(raw, primary string) (string, error) {
 // a more specific path on the same host still intercepts the incumbent's
 // traffic. Same-tenant path splitting stays allowed (unique domain+path
 // still applies).
-func domainCollision(ctx context.Context, db *sql.DB, hostname string, routeID int64) (bool, error) {
-	if db == nil || strings.TrimSpace(hostname) == "" {
+func domainCollision(ctx context.Context, q rowQuerier, hostname string, routeID int64) (bool, error) {
+	if q == nil || strings.TrimSpace(hostname) == "" {
 		return false, nil
 	}
 	var hit int
-	if err := db.QueryRowContext(ctx,
+	if err := q.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM routes r
 		   JOIN services s ON s.id = r.service_id
 		  WHERE r.id <> ? AND r.status <> 'deleted'
@@ -4441,8 +4534,8 @@ func domainCollision(ctx context.Context, db *sql.DB, hostname string, routeID i
 	return hit > 0, nil
 }
 
-func aliasCollision(ctx context.Context, db *sql.DB, aliasCSV string, excludeRouteID int64) (string, error) {
-	if db == nil || strings.TrimSpace(aliasCSV) == "" {
+func aliasCollision(ctx context.Context, q rowQuerier, aliasCSV string, excludeRouteID int64) (string, error) {
+	if q == nil || strings.TrimSpace(aliasCSV) == "" {
 		return "", nil
 	}
 	for _, a := range strings.Split(aliasCSV, ",") {
@@ -4451,7 +4544,7 @@ func aliasCollision(ctx context.Context, db *sql.DB, aliasCSV string, excludeRou
 			continue
 		}
 		var hit int
-		err := db.QueryRowContext(ctx,
+		err := q.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM routes
 			 WHERE id <> ? AND status <> 'deleted'
 			   AND (domain = ? OR FIND_IN_SET(?, aliases) > 0)`,
@@ -4712,56 +4805,6 @@ func isValidUpstreamHost(h string) bool {
 	return true
 }
 
-// customHandlerProps is the ALLOW-LIST of admin-supplied Caddy handlers and the
-// properties each may carry. Request/response shaping only: a handler able to
-// proxy, route, authenticate, execute or read the filesystem would hand the
-// route owner the node itself (reverse_proxy to Caddy's local admin API is a
-// full takeover). Names deliberately mirror caddyapi.cacheSafeCustomHandlers.
-var customHandlerProps = map[string]map[string]bool{
-	"headers": {"request": true, "response": true},
-	"encode":  {"encodings": true, "prefer": true, "minimum_length": true},
-	// No file_root: templates must not become a filesystem reader.
-	"templates": {"mime_types": true, "delimiters": true},
-	"rewrite": {"method": true, "uri": true, "strip_path_prefix": true,
-		"strip_path_suffix": true, "uri_substring": true, "path_regexp": true},
-	"vars":         nil, // free-form keys; scalar values only (checked below)
-	"request_body": {"max_size": true, "read_timeout": true, "write_timeout": true},
-}
-
-// nestedHandlerKeys embed further handlers/routes. The flat allow-list does not
-// walk them, so their presence anywhere below the top level is fatal.
-var nestedHandlerKeys = map[string]bool{
-	"handler": true, "handle": true, "routes": true, "handler_chain": true,
-	"error_routes": true, "match": true, "terminal": true, "group": true,
-}
-
-// rejectNestedHandlers walks a handler property and refuses any embedded
-// handler/route object, which would smuggle a denied capability past the
-// flat allow-list.
-func rejectNestedHandlers(v any, depth int) error {
-	if depth > 8 {
-		return errors.New("nested too deeply")
-	}
-	switch t := v.(type) {
-	case map[string]any:
-		for k, vv := range t {
-			if nestedHandlerKeys[k] {
-				return fmt.Errorf("nested %q is not permitted", k)
-			}
-			if err := rejectNestedHandlers(vv, depth+1); err != nil {
-				return err
-			}
-		}
-	case []any:
-		for _, vv := range t {
-			if err := rejectNestedHandlers(vv, depth+1); err != nil {
-				return err
-			}
-		}
-	}
-	return nil
-}
-
 // verificationResetRequired reports whether a matcher (domain/path) change must
 // re-arm the DNS ownership proof. Only a full platform admin is trusted to name
 // a domain (routes.Create lands theirs verified); everyone else must re-prove
@@ -4775,19 +4818,25 @@ func (h *AdminHandlers) verificationResetRequired(ctx context.Context, sess *aut
 }
 
 // resolveCustomConfig returns the custom_config value that may actually be
-// persisted for routeID. An unchanged chain is passed through as-is; any real
-// change is validated against the handler allow-list and then refused for
-// anyone but a full platform admin, because a raw Caddy handler reaches the
-// node's local admin API and every tenant on it.
+// persisted for routeID. Both the stored and the submitted chain go through the
+// allow-list: a chain written before the current policy is quarantined rather
+// than carried forward. Any real change is platform-admin only, because a raw
+// Caddy handler reaches the node's local admin API and every tenant on it.
 func (h *AdminHandlers) resolveCustomConfig(ctx context.Context, sess *auth.Session, routeID int64, raw string) (string, error) {
 	var stored sql.NullString
 	if err := h.DB().QueryRowContext(ctx,
 		"SELECT custom_config FROM routes WHERE id = ?", routeID).Scan(&stored); err != nil {
 		return "", errors.New("lookup failed")
 	}
-	current := strings.TrimSpace(stored.String)
-	if strings.TrimSpace(raw) == current {
-		return current, nil
+	storedRaw := strings.TrimSpace(stored.String)
+	current, cerr := sanitizeCustomConfig(storedRaw)
+	if cerr != nil {
+		// Legacy non-conforming chain: drop it instead of re-persisting it, and
+		// do not block an unrelated edit that resubmits the prefilled value.
+		current = ""
+		if strings.TrimSpace(raw) == storedRaw {
+			return "", nil
+		}
 	}
 	submitted, err := sanitizeCustomConfig(raw)
 	if err != nil {
@@ -4802,57 +4851,10 @@ func (h *AdminHandlers) resolveCustomConfig(ctx context.Context, sess *auth.Sess
 	return submitted, nil
 }
 
-// sanitizeCustomConfig validates and re-marshals an admin-supplied JSON
-// array of Caddy handler objects against customHandlerProps. Allow-list, not
-// deny-list: an unknown handler or property is rejected. 16 KiB hard cap.
-// Empty input is OK.
+// sanitizeCustomConfig is the write-side entry point for the shared Caddy
+// handler allow-list; caddyapi re-runs it at emission time.
 func sanitizeCustomConfig(raw string) (string, error) {
-	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return "", nil
-	}
-	if len(raw) > 16384 {
-		return "", fmt.Errorf("too large (16 KiB max)")
-	}
-	var arr []map[string]any
-	if err := json.Unmarshal([]byte(raw), &arr); err != nil {
-		return "", fmt.Errorf("must be a JSON array of objects: %v", err)
-	}
-	for i, h := range arr {
-		name, _ := h["handler"].(string)
-		if name == "" {
-			return "", fmt.Errorf("entry #%d missing required `handler` key", i)
-		}
-		props, allowed := customHandlerProps[name]
-		if !allowed {
-			return "", fmt.Errorf("entry #%d: handler %q is not permitted", i, name)
-		}
-		for k, v := range h {
-			if k == "handler" {
-				continue
-			}
-			if props != nil && !props[k] {
-				return "", fmt.Errorf("entry #%d: property %q is not permitted on handler %q", i, k, name)
-			}
-			if props == nil {
-				// vars: free-form names, so only scalars are safe to accept.
-				switch v.(type) {
-				case map[string]any, []any:
-					return "", fmt.Errorf("entry #%d: %q must be a scalar value", i, k)
-				}
-			}
-			if err := rejectNestedHandlers(v, 0); err != nil {
-				return "", fmt.Errorf("entry #%d: %q: %v", i, k, err)
-			}
-		}
-	}
-	// Re-marshal so we store a normalised form (and reject sneaky
-	// whitespace-only or BOM-prefixed inputs).
-	out, err := json.Marshal(arr)
-	if err != nil {
-		return "", fmt.Errorf("re-marshal failed: %v", err)
-	}
-	return string(out), nil
+	return caddyapi.SanitizeCustomHandlers(raw)
 }
 
 // parseHeaderLines turns textarea content ("Name: value\nOther: x")

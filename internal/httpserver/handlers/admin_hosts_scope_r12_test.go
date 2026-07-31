@@ -21,9 +21,10 @@ func hostsScopeDB(t *testing.T) *sql.DB {
 		`CREATE TABLE caddy_nodes (id INTEGER PRIMARY KEY, name TEXT, node_group_id INTEGER,
 		   approved_at TEXT, is_enabled INTEGER DEFAULT 1)`,
 		`CREATE TABLE routes (id INTEGER PRIMARY KEY, service_id INTEGER, caddy_node_id INTEGER,
-		   domain TEXT, path_prefix TEXT, aliases TEXT, status TEXT DEFAULT 'active',
+		   domain TEXT, path_prefix TEXT, aliases TEXT, aliases_verified TEXT,
+		   status TEXT DEFAULT 'active',
 		   custom_config TEXT, domain_verified INTEGER DEFAULT 0, verify_token TEXT,
-		   updated_at TEXT)`,
+		   ssl_enabled INTEGER DEFAULT 1, updated_at TEXT)`,
 		// Client 70 (reseller 7, the restricted admin's tenant) and client 90 (reseller 9).
 		`INSERT INTO services (id, client_id, plan_id, node_group_id) VALUES (1, 70, 7, 1), (2, 90, 9, 2)`,
 		`INSERT INTO caddy_nodes (id, name, node_group_id, approved_at, is_enabled)
@@ -119,12 +120,13 @@ func TestCustomConfigScopeEndToEnd(t *testing.T) {
 		t.Fatal("restricted admin stored the exploit chain")
 	}
 	// A legacy chain the allow-list now rejects must not lock a scoped admin out
-	// of unrelated edits - unchanged input is passed through.
+	// of unrelated edits, but it is quarantined rather than carried forward
+	// (r13 FINDING 2: the old passthrough kept the payload executable).
 	if _, err := db.Exec(`UPDATE routes SET custom_config=? WHERE id=10`, exploit); err != nil {
 		t.Fatalf("seed legacy: %v", err)
 	}
-	if got, err := h.resolveCustomConfig(ctx, restrictedSess, 10, exploit); err != nil || got != exploit {
-		t.Errorf("unchanged legacy chain = (%q,%v), want passthrough", got, err)
+	if got, err := h.resolveCustomConfig(ctx, restrictedSess, 10, exploit); err != nil || got != "" {
+		t.Errorf("unchanged legacy chain = (%q,%v), want quarantine ('',nil)", got, err)
 	}
 	if _, err := db.Exec(`UPDATE routes SET custom_config=NULL WHERE id=10`); err != nil {
 		t.Fatalf("clear legacy: %v", err)

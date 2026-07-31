@@ -165,13 +165,14 @@ func (h *AskHandler) domainAllowed(ctx context.Context, db *sql.DB, domain strin
 	if n > 0 {
 		return true
 	}
-	// Alias fallback. FIND_IN_SET ignores leading/trailing spaces only inside
-	// set entries, so aliases are stored space-stripped (admin_hosts). Narrow
-	// the scan to rows that actually have aliases to shrink the work.
+	// Alias fallback, keyed on aliases_verified: an alias inherits nothing from
+	// the parent route's proof, or bolting a victim hostname onto an owned route
+	// would mint a certificate for it. FIND_IN_SET ignores leading/trailing
+	// spaces only inside set entries, so the list is stored space-stripped.
 	if err := db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM routes
-		 WHERE aliases IS NOT NULL AND aliases <> ''
-		   AND FIND_IN_SET(?, REPLACE(aliases, ' ', '')) > 0
+		 WHERE aliases_verified IS NOT NULL AND aliases_verified <> ''
+		   AND FIND_IN_SET(?, REPLACE(aliases_verified, ' ', '')) > 0
 		   AND status IN ('dns_ok','active','pending_ssl') AND ssl_enabled = 1 AND domain_verified = 1`,
 		domain,
 	).Scan(&n); err != nil {

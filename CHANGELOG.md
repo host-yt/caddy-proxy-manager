@@ -4,6 +4,12 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Security
+
+- **Alias-only edits bypassed domain verification**: `HostsUpdate` diffed only the primary domain and path, so an owner could add an unregistered victim hostname as an alias while the route kept its verified state - the alias landed in Caddy's host matcher and the on-demand-TLS ask endpoint treated it as verified through the parent route. Any added alias now counts as a matcher change, aliases carry their own DNS-TXT proof in the new `routes.aliases_verified` column (migration `00136`), only proven aliases are emitted or become cert-eligible, and the collision checks are re-run inside the update transaction.
+- **Unchanged custom-handler chains were passed through unvalidated**: a chain stored before the allow-list existed stayed executable across edits, restarts and bulk resyncs, and `HostsClone` replicated it. The stored value is now validated on write *and* at emission time (`caddyapi.SanitizeCustomHandlers`), a non-conforming chain is quarantined instead of carried forward, and clone no longer copies `custom_config`, aliases or ownership proof.
+- **`templates` and header values could read node secrets**: Caddy 2.11.1's template FuncMap ships `env`, `readFile`, `httpInclude` and `placeholder` with no sandbox, and header values expand `{env.*}` / `{file.*}` placeholders - all around a response body the tenant's own upstream controls. `templates` is removed from the allow-list and env/file/system placeholders are rejected recursively from every string in a custom chain.
+
 ## [1.4.4] - 2026-07-31
 
 Security release. It closes a scan of 24 findings plus everything twelve rounds of adversarial review turned up on top of the fixes themselves.
