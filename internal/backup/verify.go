@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 )
 
 // Verify reads the most recent successful backup job for a destination,
@@ -64,11 +65,12 @@ func (s *Service) Verify(ctx context.Context, destID int64) error {
 			status, errText, sizeBytes, sum, "verify_"+artifactKey, verifyID)
 	}
 
-	body, size, sum, err := s.downloadAndHash(ctx, dest, artifactKey)
+	artPath, size, sum, err := s.downloadAndHash(ctx, dest, artifactKey, expectedSize)
 	if err != nil {
 		finish("failed", "download: "+err.Error(), 0, "")
 		return err
 	}
+	defer os.Remove(artPath)
 	if expectedSize > 0 && size != expectedSize {
 		msg := fmt.Sprintf("size mismatch: expected %d got %d", expectedSize, size)
 		finish("failed", msg, size, sum)
@@ -79,8 +81,16 @@ func (s *Service) Verify(ctx context.Context, destID int64) error {
 		finish("failed", msg, size, sum)
 		return errors.New(msg)
 	}
-	// Decrypt + walk.
-	src := io.Reader(bytes.NewReader(body))
+	f, err := os.Open(artPath)
+	if err != nil {
+		finish("failed", "open artifact: "+err.Error(), size, sum)
+		return err
+	}
+	defer f.Close()
+
+	// Decrypt + walk. Both stages read/write through disk, never buffering
+	// the whole artifact in memory (BACKUP-VERIFY-01).
+	src := io.Reader(f)
 	if encrypted {
 		if s.State == nil {
 			finish("failed", "encrypted but no state manager", size, sum)
@@ -91,12 +101,25 @@ func (s *Service) Verify(ctx context.Context, destID int64) error {
 			finish("failed", "derive key: "+err.Error(), size, sum)
 			return err
 		}
-		var dec bytes.Buffer
-		if err := StreamDecrypt(bytes.NewReader(body), &dec, key); err != nil {
+		decTmp, err := os.CreateTemp("", "hpg-verify-dec-*.bin")
+		if err != nil {
+			finish("failed", "temp: "+err.Error(), size, sum)
+			return err
+		}
+		decPath := decTmp.Name()
+		defer func() {
+			decTmp.Close()
+			os.Remove(decPath)
+		}()
+		if err := StreamDecrypt(f, decTmp, key); err != nil {
 			finish("failed", "decrypt: "+err.Error(), size, sum)
 			return err
 		}
-		src = &dec
+		if _, err := decTmp.Seek(0, io.SeekStart); err != nil {
+			finish("failed", "seek decrypted: "+err.Error(), size, sum)
+			return err
+		}
+		src = decTmp
 	}
 	gz, err := gzip.NewReader(src)
 	if err != nil {
@@ -133,37 +156,69 @@ func (s *Service) Verify(ctx context.Context, destID int64) error {
 	return nil
 }
 
-// maxVerifyBytes bounds how much of a remote artifact verify will buffer.
-// A malicious/misconfigured destination could otherwise serve an oversized
-// object and OOM the panel; the decrypt step downstream also needs the full
-// plaintext in memory, so this cap protects both passes.
+// maxVerifyBytes is the fallback ceiling used when the recorded artifact
+// size is unknown. A malicious/misconfigured destination could otherwise
+// serve an unbounded object and OOM the panel.
 const maxVerifyBytes = 2 << 30 // 2 GiB
 
-// downloadAndHash fetches the artifact into memory while computing SHA-256.
-// Bounded by maxVerifyBytes; anything larger fails closed instead of OOMing.
-func (s *Service) downloadAndHash(ctx context.Context, dest Destination, key string) ([]byte, int64, string, error) {
+// downloadAndHash streams the artifact into a bounded temp file while
+// hashing, never holding it in memory. expectedSize (from backup_jobs), when
+// known, is used as the read cap so an oversized/misbehaving destination is
+// cut off right at the recorded size rather than after buffering up to
+// maxVerifyBytes. Caller owns the returned path and must remove it.
+func (s *Service) downloadAndHash(ctx context.Context, dest Destination, key string, expectedSize int64) (string, int64, string, error) {
 	u, err := newDestination(dest)
 	if err != nil {
-		return nil, 0, "", err
+		return "", 0, "", err
 	}
 	d, ok := u.(downloader)
 	if !ok {
-		return nil, 0, "", fmt.Errorf("destination kind %s does not support verification", dest.Kind)
+		return "", 0, "", fmt.Errorf("destination kind %s does not support verification", dest.Kind)
 	}
 	r, err := d.Download(ctx, key)
 	if err != nil {
-		return nil, 0, "", err
+		return "", 0, "", err
 	}
 	defer r.Close()
-	h := sha256.New()
-	body, err := io.ReadAll(io.LimitReader(io.TeeReader(r, h), maxVerifyBytes+1))
+	return streamToTempFile(r, expectedSize)
+}
+
+// streamToTempFile copies r into a bounded temp file while hashing, capped
+// at expectedSize (when known and smaller) or maxVerifyBytes otherwise.
+// io.LimitReader stops pulling from r as soon as the cap is crossed, so a
+// reader that never EOFs (a hostile/broken destination) can't be drained
+// into memory or disk beyond the cap. Split out from downloadAndHash so the
+// bounding behavior is directly testable without a fake Destination.
+func streamToTempFile(r io.Reader, expectedSize int64) (string, int64, string, error) {
+	limit := int64(maxVerifyBytes)
+	if expectedSize > 0 && expectedSize < limit {
+		limit = expectedSize
+	}
+
+	tmp, err := os.CreateTemp("", "hpg-verify-*.bin")
 	if err != nil {
-		return nil, 0, "", err
+		return "", 0, "", err
 	}
-	if int64(len(body)) > maxVerifyBytes {
-		return nil, 0, "", fmt.Errorf("artifact exceeds verify size limit of %d bytes", maxVerifyBytes)
+	tmpPath := tmp.Name()
+	fail := func(err error) (string, int64, string, error) {
+		tmp.Close()
+		os.Remove(tmpPath)
+		return "", 0, "", err
 	}
-	return body, int64(len(body)), hex.EncodeToString(h.Sum(nil)), nil
+
+	h := sha256.New()
+	n, err := io.Copy(io.MultiWriter(tmp, h), io.LimitReader(r, limit+1))
+	if err != nil {
+		return fail(err)
+	}
+	if n > limit {
+		return fail(fmt.Errorf("artifact exceeds verify size limit of %d bytes", limit))
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpPath)
+		return "", 0, "", err
+	}
+	return tmpPath, n, hex.EncodeToString(h.Sum(nil)), nil
 }
 
 // downloader is implemented by destinations that can read back their
