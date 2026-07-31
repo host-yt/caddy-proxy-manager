@@ -42,9 +42,41 @@ func init() {
 	sqlite3.MustRegisterScalarFunction("LEFT", 2, leftFunc)
 	sqlite3.MustRegisterScalarFunction("LOCATE", 2, locateFunc)
 	sqlite3.MustRegisterScalarFunction("SUBSTRING_INDEX", 3, substringIndex)
+	sqlite3.MustRegisterScalarFunction("FIND_IN_SET", 2, findInSet)
 	// CONCAT, GROUP_CONCAT, IF and IFNULL already resolve natively, and integer
 	// division is what "/" does on integers here, so MySQL's DIV needs no
 	// function - see IntDiv in driver.go.
+}
+
+// findInSet implements MySQL's FIND_IN_SET(needle, csv): 1-based position or 0.
+// The alias/domain collision guards depend on it, so without it a SQLite
+// deployment would fail those checks closed on every edit.
+func findInSet(_ *sqlite3.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if args[0] == nil || args[1] == nil {
+		return nil, nil
+	}
+	needle, ok1 := toStr(args[0])
+	csv, ok2 := toStr(args[1])
+	if !ok1 || !ok2 {
+		return int64(0), nil
+	}
+	for i, part := range strings.Split(csv, ",") {
+		if strings.TrimSpace(part) == strings.TrimSpace(needle) {
+			return int64(i + 1), nil
+		}
+	}
+	return int64(0), nil
+}
+
+// toStr coerces a driver value SQLite may hand over as string or []byte.
+func toStr(v driver.Value) (string, bool) {
+	switch x := v.(type) {
+	case string:
+		return x, true
+	case []byte:
+		return string(x), true
+	}
+	return "", false
 }
 
 // sha2Func implements MySQL's SHA2(str, bits) for the widths the panel uses.

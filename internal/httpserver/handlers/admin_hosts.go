@@ -22,6 +22,7 @@ import (
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/customfields"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
@@ -321,7 +322,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 	        SELECT route_id, SUM(requests) AS req24h,
 	               SUM(errors_4xx+errors_5xx) AS err24h
 	        FROM log_rollups
-	        WHERE bucket_start >= `+store.DateSub(1, "DAY")+`
+	        WHERE bucket_start >= ` + store.DateSub(1, "DAY") + `
 	        GROUP BY route_id
 	      ) lr ON lr.route_id = r.id
 	      LEFT JOIN host_groups hg ON hg.id = r.group_id
@@ -2071,11 +2072,9 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 				fail++
 				continue
 			}
-			// capture old node for resync
-			var oldNodeID int64
-			_ = h.DB().QueryRowContext(ctx, "SELECT caddy_node_id FROM routes WHERE id=?", id).Scan(&oldNodeID)
-			if _, derr := h.DB().ExecContext(ctx,
-				"UPDATE routes SET caddy_node_id=?, updated_at=NOW() WHERE id=?", destNodeID, id); derr != nil {
+			oldNodeID, merr := h.moveRouteToNode(ctx, sess, id, destNodeID)
+			if merr != nil {
+				h.Logger.Warn("admin host bulk: move rejected", "route_id", id, "node_id", destNodeID, "err", merr)
 				fail++
 				continue
 			}
@@ -2132,6 +2131,52 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 		msg += "; " + strconv.Itoa(fail) + " failed"
 	}
 	redirectWithFlash(w, r, "/admin/hosts", msg, "")
+}
+
+// moveRouteToNode repoints a route at destNodeID and returns the previous node.
+// Destination is resolved and authorized INSIDE the tx: it must exist, be
+// approved and enabled, and - for anyone who is not a full platform admin -
+// live in the same node group the route's service is placed in. Owning the
+// route is not owning the fleet; a cross-group move lands a tenant's config on
+// another tenant's (or a platform) node.
+func (h *AdminHandlers) moveRouteToNode(ctx context.Context, sess *auth.Session, routeID, destNodeID int64) (oldNodeID int64, err error) {
+	tenantScoped, provOK := h.selfProvisionScope(ctx, sess)
+	platform := provOK && !tenantScoped
+
+	tx, err := h.DB().BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+
+	var srcGroupID sql.NullInt64
+	if err = tx.QueryRowContext(ctx,
+		`SELECT r.caddy_node_id, s.node_group_id
+		   FROM routes r JOIN services s ON s.id = r.service_id
+		  WHERE r.id = ?`, routeID).Scan(&oldNodeID, &srcGroupID); err != nil {
+		return 0, err
+	}
+	var destGroupID sql.NullInt64
+	if err = tx.QueryRowContext(ctx,
+		`SELECT node_group_id FROM caddy_nodes
+		  WHERE id = ? AND approved_at IS NOT NULL AND is_enabled = 1`,
+		destNodeID).Scan(&destGroupID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, errors.New("destination node not found, not approved or disabled")
+		}
+		return 0, err
+	}
+	if !platform && (!srcGroupID.Valid || !destGroupID.Valid || srcGroupID.Int64 != destGroupID.Int64) {
+		return 0, errors.New("destination node is outside the route's placement group")
+	}
+	if _, err = tx.ExecContext(ctx,
+		"UPDATE routes SET caddy_node_id=?, updated_at=NOW() WHERE id=?", destNodeID, routeID); err != nil {
+		return 0, err
+	}
+	if err = tx.Commit(); err != nil {
+		return 0, err
+	}
+	return oldNodeID, nil
 }
 
 // ensureAdminClient returns the clients.id for the admin user, creating
@@ -2365,6 +2410,9 @@ type hostEditData struct {
 	MaintenanceAllow string // CIDR list of IPs that bypass the maintenance page
 
 	CustomConfig string // raw JSON array of Caddy handler objects
+	// CustomConfigEditable gates the Custom JSON pane: raw handlers are
+	// node-operator power, so limited admins never see the field.
+	CustomConfigEditable bool
 
 	CompressDisabled bool // true = opt out of stock encode (gzip/zstd)
 
@@ -2782,6 +2830,9 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	if customCfg.Valid {
 		d.CustomConfig = customCfg.String
+	}
+	if tenantScoped, provOK := h.selfProvisionScope(ctx, sess); provOK && !tenantScoped {
+		d.CustomConfigEditable = true
 	}
 	if aliases.Valid {
 		d.Aliases = aliases.String
@@ -3312,7 +3363,11 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			portalGroupIDs = append(portalGroupIDs, gid)
 		}
 	}
-	customCfg, err3 := sanitizeCustomConfig(r.FormValue("custom_config"))
+	// Raw Caddy handlers are node-operator power, not route-owner power: only a
+	// full platform admin may change them. Limited admins keep the stored chain.
+	cfgCtx, cfgCancel := context.WithTimeout(r.Context(), 3*time.Second)
+	customCfg, err3 := h.resolveCustomConfig(cfgCtx, sess, id, r.FormValue("custom_config"))
+	cfgCancel()
 	if err3 != nil {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "custom config: "+sanitizeErr(err3))
 		return
@@ -3401,6 +3456,47 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "domain required")
 		return
 	}
+	// Same shape check Create enforces: an unvalidated edit let a verified route
+	// be re-pointed at any hostname (domain takeover).
+	if !routes.ValidDomain(domain) {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "invalid domain")
+		return
+	}
+	if pathPrefix != "" {
+		if !strings.HasPrefix(pathPrefix, "/") {
+			pathPrefix = "/" + pathPrefix
+		}
+		if strings.Contains(pathPrefix, "..") {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "invalid path prefix")
+			return
+		}
+	}
+	// Matcher (domain+path) change: load the stored pair so the collision checks
+	// and the ownership-proof reset below both key off a real diff.
+	mctx, mcancel := context.WithTimeout(r.Context(), 5*time.Second)
+	var oldDomain, oldPath string
+	if merr := h.DB().QueryRowContext(mctx,
+		"SELECT LOWER(domain), COALESCE(path_prefix,'') FROM routes WHERE id = ?", id,
+	).Scan(&oldDomain, &oldPath); merr != nil {
+		mcancel()
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "route not found")
+		return
+	}
+	matcherChanged := domain != oldDomain || pathPrefix != oldPath
+	if matcherChanged {
+		// The new hostname must not already be another route's domain or alias,
+		// regardless of path: a more specific path would still shadow it.
+		if clash, cerr := domainCollision(mctx, h.DB(), domain, id); cerr != nil {
+			mcancel()
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "domain collision check failed")
+			return
+		} else if clash {
+			mcancel()
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "domain "+domain+" is already used by another route")
+			return
+		}
+	}
+	mcancel()
 	if kind == "proxy" && !external && (port <= 0 || port > 65535) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "port invalid for proxy route")
 		return
@@ -3679,11 +3775,34 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		cfVal = sql.NullString{String: cfJSON, Valid: true}
 	}
 
+	// A matcher change re-arms ownership proof for every non-platform caller:
+	// otherwise a scoped admin re-points a verified route at a victim hostname
+	// and the next resync serves it. Reset rides the same tx as the edit so no
+	// resync window ever sees the new domain still flagged verified.
+	resetVerification := h.verificationResetRequired(ctx, sess, matcherChanged)
+	var verifyToken string
+	if resetVerification {
+		t, terr := routes.NewVerifyToken()
+		if terr != nil {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
+			return
+		}
+		verifyToken = t
+	}
+
+	tx, txErr := h.DB().BeginTx(ctx, nil)
+	if txErr != nil {
+		h.Logger.Warn("host update: begin tx", "id", id, "err", txErr)
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+
 	// Two UPDATE branches: when 'keep current password' is ticked we
 	// must NOT touch basic_auth_bcrypt. Cleanest split is two queries.
 	var err error
 	if basicUser != "" && keepPass {
-		_, err = h.DB().ExecContext(ctx,
+		_, err = tx.ExecContext(ctx,
 			`UPDATE routes SET
 			   domain = ?, aliases = ?, path_prefix = ?, upstream_port = ?, upstream_scheme = ?, upstream_skip_tls_verify = ?,
 			   upstream_external = ?, upstream_host_header = ?,
@@ -3759,7 +3878,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			cfVal,
 			id)
 	} else {
-		_, err = h.DB().ExecContext(ctx,
+		_, err = tx.ExecContext(ctx,
 			`UPDATE routes SET
 			   domain = ?, aliases = ?, path_prefix = ?, upstream_port = ?, upstream_scheme = ?, upstream_skip_tls_verify = ?,
 			   upstream_external = ?, upstream_host_header = ?,
@@ -3841,6 +3960,25 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.Logger.Warn("host update", "id", id, "err", err)
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
+		return
+	}
+	if resetVerification {
+		if _, rerr := tx.ExecContext(ctx,
+			`UPDATE routes SET domain_verified=0, verify_token=?, status='pending_dns',
+			        ssl_issued_at=NULL, last_error='domain ownership not verified'
+			 WHERE id=?`, verifyToken, id); rerr != nil {
+			h.Logger.Warn("host update: verification reset", "id", id, "err", rerr)
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
+			return
+		}
+	}
+	if cerr := tx.Commit(); cerr != nil {
+		if strings.Contains(cerr.Error(), "Duplicate entry") {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "another route already owns this domain+path")
+			return
+		}
+		h.Logger.Warn("host update: commit", "id", id, "err", cerr)
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
 		return
 	}
@@ -4284,6 +4422,30 @@ func sanitizeAliases(raw, primary string) (string, error) {
 // aliasCollision returns the first alias that already belongs to another route
 // (as its primary domain or in that route's alias list), or "" when none clash.
 // Prevents one route from shadowing another tenant's domain via aliases.
+// domainCollision reports whether hostname is already served by a route of a
+// DIFFERENT tenant, as primary domain or alias. Path is deliberately ignored:
+// a more specific path on the same host still intercepts the incumbent's
+// traffic. Same-tenant path splitting stays allowed (unique domain+path
+// still applies).
+func domainCollision(ctx context.Context, db *sql.DB, hostname string, routeID int64) (bool, error) {
+	if db == nil || strings.TrimSpace(hostname) == "" {
+		return false, nil
+	}
+	var hit int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM routes r
+		   JOIN services s ON s.id = r.service_id
+		  WHERE r.id <> ? AND r.status <> 'deleted'
+		    AND (r.domain = ? OR FIND_IN_SET(?, r.aliases) > 0)
+		    AND s.client_id <> (SELECT s2.client_id FROM routes r2
+		                          JOIN services s2 ON s2.id = r2.service_id
+		                         WHERE r2.id = ?)`,
+		routeID, hostname, hostname, routeID).Scan(&hit); err != nil {
+		return false, err
+	}
+	return hit > 0, nil
+}
+
 func aliasCollision(ctx context.Context, db *sql.DB, aliasCSV string, excludeRouteID int64) (string, error) {
 	if db == nil || strings.TrimSpace(aliasCSV) == "" {
 		return "", nil
@@ -4555,10 +4717,100 @@ func isValidUpstreamHost(h string) bool {
 	return true
 }
 
+// customHandlerProps is the ALLOW-LIST of admin-supplied Caddy handlers and the
+// properties each may carry. Request/response shaping only: a handler able to
+// proxy, route, authenticate, execute or read the filesystem would hand the
+// route owner the node itself (reverse_proxy to Caddy's local admin API is a
+// full takeover). Names deliberately mirror caddyapi.cacheSafeCustomHandlers.
+var customHandlerProps = map[string]map[string]bool{
+	"headers": {"request": true, "response": true},
+	"encode":  {"encodings": true, "prefer": true, "minimum_length": true},
+	// No file_root: templates must not become a filesystem reader.
+	"templates": {"mime_types": true, "delimiters": true},
+	"rewrite": {"method": true, "uri": true, "strip_path_prefix": true,
+		"strip_path_suffix": true, "uri_substring": true, "path_regexp": true},
+	"vars":         nil, // free-form keys; scalar values only (checked below)
+	"request_body": {"max_size": true, "read_timeout": true, "write_timeout": true},
+}
+
+// nestedHandlerKeys embed further handlers/routes. The flat allow-list does not
+// walk them, so their presence anywhere below the top level is fatal.
+var nestedHandlerKeys = map[string]bool{
+	"handler": true, "handle": true, "routes": true, "handler_chain": true,
+	"error_routes": true, "match": true, "terminal": true, "group": true,
+}
+
+// rejectNestedHandlers walks a handler property and refuses any embedded
+// handler/route object, which would smuggle a denied capability past the
+// flat allow-list.
+func rejectNestedHandlers(v any, depth int) error {
+	if depth > 8 {
+		return errors.New("nested too deeply")
+	}
+	switch t := v.(type) {
+	case map[string]any:
+		for k, vv := range t {
+			if nestedHandlerKeys[k] {
+				return fmt.Errorf("nested %q is not permitted", k)
+			}
+			if err := rejectNestedHandlers(vv, depth+1); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, vv := range t {
+			if err := rejectNestedHandlers(vv, depth+1); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// verificationResetRequired reports whether a matcher (domain/path) change must
+// re-arm the DNS ownership proof. Only a full platform admin is trusted to name
+// a domain (routes.Create lands theirs verified); everyone else must re-prove
+// control, or an owned route becomes a takeover of any hostname they type.
+func (h *AdminHandlers) verificationResetRequired(ctx context.Context, sess *auth.Session, matcherChanged bool) bool {
+	if !matcherChanged {
+		return false
+	}
+	tenantScoped, provOK := h.selfProvisionScope(ctx, sess)
+	return !provOK || tenantScoped
+}
+
+// resolveCustomConfig returns the custom_config value that may actually be
+// persisted for routeID. An unchanged chain is passed through as-is; any real
+// change is validated against the handler allow-list and then refused for
+// anyone but a full platform admin, because a raw Caddy handler reaches the
+// node's local admin API and every tenant on it.
+func (h *AdminHandlers) resolveCustomConfig(ctx context.Context, sess *auth.Session, routeID int64, raw string) (string, error) {
+	var stored sql.NullString
+	if err := h.DB().QueryRowContext(ctx,
+		"SELECT custom_config FROM routes WHERE id = ?", routeID).Scan(&stored); err != nil {
+		return "", errors.New("lookup failed")
+	}
+	current := strings.TrimSpace(stored.String)
+	if strings.TrimSpace(raw) == current {
+		return current, nil
+	}
+	submitted, err := sanitizeCustomConfig(raw)
+	if err != nil {
+		return "", err
+	}
+	if submitted == current {
+		return current, nil
+	}
+	if tenantScoped, provOK := h.selfProvisionScope(ctx, sess); !provOK || tenantScoped {
+		return "", errors.New("custom Caddy handlers are platform-admin only")
+	}
+	return submitted, nil
+}
+
 // sanitizeCustomConfig validates and re-marshals an admin-supplied JSON
-// array of Caddy handler objects. Rejects anything that isn't a valid
-// JSON array, or whose elements aren't objects (Caddy expects `{...}` per
-// handler, not bare strings/numbers). 16 KiB hard cap. Empty input is OK.
+// array of Caddy handler objects against customHandlerProps. Allow-list, not
+// deny-list: an unknown handler or property is rejected. 16 KiB hard cap.
+// Empty input is OK.
 func sanitizeCustomConfig(raw string) (string, error) {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {
@@ -4572,8 +4824,31 @@ func sanitizeCustomConfig(raw string) (string, error) {
 		return "", fmt.Errorf("must be a JSON array of objects: %v", err)
 	}
 	for i, h := range arr {
-		if _, ok := h["handler"]; !ok {
+		name, _ := h["handler"].(string)
+		if name == "" {
 			return "", fmt.Errorf("entry #%d missing required `handler` key", i)
+		}
+		props, allowed := customHandlerProps[name]
+		if !allowed {
+			return "", fmt.Errorf("entry #%d: handler %q is not permitted", i, name)
+		}
+		for k, v := range h {
+			if k == "handler" {
+				continue
+			}
+			if props != nil && !props[k] {
+				return "", fmt.Errorf("entry #%d: property %q is not permitted on handler %q", i, k, name)
+			}
+			if props == nil {
+				// vars: free-form names, so only scalars are safe to accept.
+				switch v.(type) {
+				case map[string]any, []any:
+					return "", fmt.Errorf("entry #%d: %q must be a scalar value", i, k)
+				}
+			}
+			if err := rejectNestedHandlers(v, 0); err != nil {
+				return "", fmt.Errorf("entry #%d: %q: %v", i, k, err)
+			}
 		}
 	}
 	// Re-marshal so we store a normalised form (and reject sneaky

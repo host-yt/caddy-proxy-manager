@@ -52,7 +52,7 @@
     <button type="button" data-tab="portal"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Portal</button>
     <button type="button" data-tab="maint"     class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Maintenance</button>
     <button type="button" data-tab="headers"   class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Headers</button>
-    <button type="button" data-tab="custom"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Custom JSON</button>
+    {{if .CustomConfigEditable}}<button type="button" data-tab="custom"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Custom JSON</button>{{end}}
     <button type="button" data-tab="egress"    class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Egress IP</button>
     <button type="button" data-tab="dns"       class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">DNS</button>
     {{if .CFViews}}<button type="button" data-tab="customfields" class="hpg-tab w-full text-left px-3 py-2 rounded-md border-l-2 border-transparent text-muted hover:text-[rgb(var(--text))] hover:bg-[rgb(var(--surface-2))] t-small">Custom fields</button>{{end}}
@@ -1078,11 +1078,13 @@ X-Authentik-Meta-Version</pre>
     </section>
 
     <!-- Custom JSON -->
+    {{if .CustomConfigEditable}}
     <section data-pane="custom" class="hpg-pane hidden r-card space-y-3">
       <p class="t-eyebrow">Custom handler chain (Caddy JSON)</p>
-      <textarea name="custom_config" rows="8" placeholder='[{"handler":"rate_limit","zone":"per_ip","window":"1m","max_events":120}]' class="r-input w-full font-mono text-xs">{{.CustomConfig}}</textarea>
-      <p class="t-caption text-muted">JSON array of handler objects. Each needs <code class="text-xs">"handler"</code> key. Runs before proxy primary. Validated on save. 16 KiB max.</p>
+      <textarea name="custom_config" rows="8" placeholder='[{"handler":"headers","response":{"set":{"X-Frame-Options":["DENY"]}}}]' class="r-input w-full font-mono text-xs">{{.CustomConfig}}</textarea>
+      <p class="t-caption text-muted">JSON array of handler objects. Allow-listed handlers only: <code class="text-xs">headers, encode, templates, rewrite, vars, request_body</code>. Nested routes/handlers are rejected. Runs before proxy primary. 16 KiB max.</p>
     </section>
+    {{end}}
 
     <!-- Egress IP -->
     <section data-pane="egress" class="hpg-pane hidden r-card space-y-4">
