@@ -658,6 +658,27 @@ func BuildRoute(r Route) map[string]any {
 	if early := buildEarlyLocationSubroute(r); early != nil {
 		handlers = append(handlers, early)
 	}
+	// First-class rate_limit handler (mholt/caddy-ratelimit). Must run before
+	// the cache handler below: a cache hit short-circuits the chain, so a
+	// rate_limit emitted after it would never see repeat requests.
+	if r.RateLimitEnabled && r.RateLimitModuleAvailable {
+		window := firstNonEmpty(r.RateLimitWindow, "1m")
+		maxEvents := r.RateLimitMaxEvents
+		if maxEvents <= 0 {
+			maxEvents = 100
+		}
+		key := firstNonEmpty(r.RateLimitKey, "{http.request.remote.host}")
+		handlers = append(handlers, map[string]any{
+			"handler": "rate_limit",
+			"rate_limits": map[string]any{
+				"route_" + r.ID: map[string]any{
+					"key":        key,
+					"window":     window,
+					"max_events": maxEvents,
+				},
+			},
+		})
+	}
 	// Cache: real origin cache via the Souin cache-handler module that the
 	// custom Caddy image (deploy/caddy/Dockerfile, xcaddy build with
 	// caddy-cache-handler) embeds. The `cache` handler short-circuits
@@ -698,27 +719,6 @@ func BuildRoute(r Route) map[string]any {
 		if err := json.Unmarshal([]byte(r.CustomHandlers), &extra); err == nil {
 			handlers = append(handlers, extra...)
 		}
-	}
-	// First-class rate_limit handler (mholt/caddy-ratelimit). Per-route zone so
-	// counters never bleed across routes. Module-gated: without the module
-	// stock Caddy rejects the unknown handler and the node goes offline.
-	if r.RateLimitEnabled && r.RateLimitModuleAvailable {
-		window := firstNonEmpty(r.RateLimitWindow, "1m")
-		maxEvents := r.RateLimitMaxEvents
-		if maxEvents <= 0 {
-			maxEvents = 100
-		}
-		key := firstNonEmpty(r.RateLimitKey, "{http.request.remote.host}")
-		handlers = append(handlers, map[string]any{
-			"handler": "rate_limit",
-			"rate_limits": map[string]any{
-				"route_" + r.ID: map[string]any{
-					"key":        key,
-					"window":     window,
-					"max_events": maxEvents,
-				},
-			},
-		})
 	}
 
 	// WebSocket gate: Caddy v2 passes WS by default. When operator

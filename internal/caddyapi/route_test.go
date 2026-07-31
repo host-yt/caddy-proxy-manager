@@ -509,6 +509,25 @@ func TestBuildRouteCacheSuppressedForAuthGates(t *testing.T) {
 	}
 }
 
+// A cache hit short-circuits the handler chain, so rate_limit must be emitted
+// before the cache handler or hits would never count against the limit.
+func TestBuildRouteRateLimitBeforeCache(t *testing.T) {
+	r := Route{
+		ID: "90", Hosts: []string{"rl.example.com"}, UpstreamIP: "10.0.0.9", UpstreamPort: 8080,
+		CacheEnabled: true, CacheTTLSeconds: 30, CacheModuleAvailable: true, CachePublic: true,
+		RateLimitEnabled: true, RateLimitModuleAvailable: true,
+	}
+	s := mustJSON(r)
+	rl := strings.Index(s, `"handler":"rate_limit"`)
+	c := strings.Index(s, `"handler":"cache"`)
+	if rl == -1 || c == -1 {
+		t.Fatalf("expected both rate_limit and cache handlers\nfull: %s", s)
+	}
+	if rl > c {
+		t.Errorf("rate_limit must precede cache in the handler chain\nfull: %s", s)
+	}
+}
+
 // An IP- or geo-restricted route may still use the node cache (Caddy enforces
 // first) but must never be advertised as publicly cacheable.
 func TestBuildRouteCachePrivateForRestrictedAudience(t *testing.T) {
