@@ -124,20 +124,27 @@ func wildcardCovers(pattern, host string) bool {
 	return label != "" && !strings.Contains(label, ".")
 }
 
-// pathSpecificity ranks a route's path matcher: longer prefix = narrower match,
-// empty prefix = host catch-all (must be emitted last within its host group).
+// pathSpecificity ranks a route's path matcher by prefix containment: a longer
+// prefix matches a strict subset, so it must be emitted first. The trailing
+// slash is significant - /api* is broader than /api/* and must not tie with it.
+// Empty or "/" is the host catch-all and sorts last within its group.
 func pathSpecificity(r Route) int {
 	p := strings.TrimSpace(r.PathPrefix)
 	if p == "/" {
 		return 0
 	}
-	return len(strings.TrimSuffix(p, "/"))
+	return len(p)
 }
 
-// denyRank sorts fail-closed deny routes ahead of equally specific siblings.
+// denyRank sorts fail-closed deny routes, then gated ones, ahead of equally
+// specific siblings: at equal specificity the guarded route must win.
 func denyRank(r Route) int {
-	if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig {
+	switch {
+	case r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig:
 		return 0
+	case RouteAuthGated(r):
+		return 1
+	default:
+		return 2
 	}
-	return 1
 }

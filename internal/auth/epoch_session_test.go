@@ -19,6 +19,7 @@ type fakeRedis struct {
 	vals   map[string]string
 	delErr error
 	getErr error
+	setErr error
 	dels   int
 }
 
@@ -36,6 +37,9 @@ func (f *fakeRedis) Get(_ context.Context, key string) *redis.StringCmd {
 }
 
 func (f *fakeRedis) Set(_ context.Context, key string, value any, _ time.Duration) *redis.StatusCmd {
+	if f.setErr != nil {
+		return redis.NewStatusResult("", f.setErr)
+	}
 	switch v := value.(type) {
 	case string:
 		f.vals[key] = v
@@ -213,5 +217,51 @@ func TestDestroyAllForUser_KillsImpersonationSessions(t *testing.T) {
 	killed, err := m.DestroyAllForUser(context.Background(), 2)
 	if err != nil || killed != 1 {
 		t.Fatalf("want 1 killed, got killed=%d err=%v", killed, err)
+	}
+}
+
+// A revocation whose cache write is lost must not leave the old epoch readable
+// as agreement: the session dies even though Redis still answers.
+func TestEpochUnconfirmedPublishFailsClosed(t *testing.T) {
+	f := newFakeRedis()
+	m := testManager(f)
+	// Cache already agrees with the live session.
+	f.vals[epochKey(7)] = "3"
+	storeSession(t, f, "sid7", Session{
+		UserID: 7, Role: "admin", Ver: sessionSchemaVer, Epoch: 3,
+		ExpiresAt: time.Now().Add(time.Hour),
+	})
+	// The bump lands in the DB, but neither the SET nor the DEL reaches Redis.
+	f.setErr = errors.New("redis down")
+	f.delErr = errors.New("redis down")
+	m.PublishEpoch(context.Background(), 7, 4)
+
+	if !m.epochPending(7) {
+		t.Fatal("unconfirmed publish must mark the user unresolved")
+	}
+	// Redis recovers with the stale value still present and no DB wired: the
+	// session must not be honoured on cached equality alone.
+	f.setErr, f.delErr = nil, nil
+	if m.epochOK(context.Background(), 7, 3) {
+		t.Error("stale cached epoch accepted after an unconfirmed invalidation")
+	}
+}
+
+// A confirmed write clears the unresolved mark so the fast path resumes.
+func TestEpochConfirmClearsPending(t *testing.T) {
+	f := newFakeRedis()
+	m := testManager(f)
+	f.setErr = errors.New("redis down")
+	m.PublishEpoch(context.Background(), 8, 2)
+	if !m.epochPending(8) {
+		t.Fatal("expected unresolved after failed publish")
+	}
+	f.setErr = nil
+	m.PublishEpoch(context.Background(), 8, 2)
+	if m.epochPending(8) {
+		t.Error("confirmed publish must clear the unresolved mark")
+	}
+	if !m.epochOK(context.Background(), 8, 2) {
+		t.Error("confirmed cache should be trusted again")
 	}
 }

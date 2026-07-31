@@ -129,3 +129,32 @@ func TestClaimsForPending_DeactivatedUserDenied(t *testing.T) {
 		t.Fatal("deactivated user completed 2FA")
 	}
 }
+
+// A password proof must not be restampable with the epoch of the reset that
+// was meant to invalidate it.
+func TestFinalizeLoginAtRejectsMovedEpoch(t *testing.T) {
+	db := openTestDBHandlers(t)
+	uid, _, cleanup := insertEpochTestUser(t, db, "admin")
+	defer cleanup()
+	h := epochTestHandlers(db)
+	ctx := context.Background()
+	proof, err := auth.UserEpoch(ctx, db, uid)
+	if err != nil {
+		t.Fatalf("user epoch: %v", err)
+	}
+	// A password reset lands between the proof and the mint.
+	if _, err := db.ExecContext(ctx, "UPDATE users SET auth_epoch = auth_epoch + 1 WHERE id = ?", uid); err != nil {
+		t.Fatalf("bump: %v", err)
+	}
+
+	rr := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/auth/login", nil)
+	// Sessions is nil: reaching the mint would panic, so surviving proves denial.
+	h.finalizeLoginAt(ctx, rr, req, uid, proof, "password", "none")
+
+	for _, ck := range rr.Result().Cookies() {
+		if ck.Name == "hpg_session" && ck.Value != "" {
+			t.Fatal("session minted from a proof whose epoch had moved")
+		}
+	}
+}

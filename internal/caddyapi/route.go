@@ -58,11 +58,16 @@ type Route struct {
 
 	CacheEnabled    bool
 	CacheTTLSeconds int
+	// CachePublic is the explicit "this content does not depend on the caller"
+	// opt-in. Without it a cached route is only ever advertised as `private`,
+	// because the panel cannot see auth the upstream does itself (cookie
+	// session, bearer, API key header). Ignored when the route is auth-gated or
+	// audience-restricted. Not yet wired to the DB/UI: defaults to off.
+	CachePublic bool
 	// CacheVary lists request header names that should be part of the
 	// cache key (Souin emits one cached entry per distinct combination).
 	// Use this for routes that need cache-by-Accept-Encoding or
-	// cache-by-Accept-Language; do NOT include Cookie or Authorization
-	// unless you understand the cardinality blow-up.
+	// cache-by-Accept-Language; credential headers are always added on top.
 	CacheVary []string
 	// CacheModuleAvailable mirrors NodeSettings.CacheModuleAvailable so
 	// BuildRoute can decide whether to emit the real cache handler or
@@ -662,60 +667,8 @@ func BuildRoute(r Route) map[string]any {
 	//
 	// Redirect routes are not cached: their handler already short-circuits
 	// at the edge and caching a 308 is generally pointless and footguny.
-	// Never cache an authed route: the cache handler short-circuits before every
-	// auth gate below, and a `public` response can be replayed by a downstream
-	// shared cache without ever reaching this node's gate (see RouteAuthGated).
 	if r.CacheEnabled && r.Kind != "redirect" && !r.MaintenanceMode {
-		ttl := r.CacheTTLSeconds
-		if ttl <= 0 {
-			ttl = 60
-		}
-		if RouteAuthGated(r) {
-			// No cache handler, plus an explicit private/no-store so a CDN in
-			// front of the node cannot serve an authed response to anyone else.
-			handlers = append(handlers, map[string]any{
-				"handler": "headers",
-				"response": map[string]any{
-					"set": map[string]any{
-						"Cache-Control": []string{"private, no-store"},
-					},
-				},
-			})
-		} else {
-			if r.CacheModuleAvailable {
-				ttlStr := itoa(ttl) + "s"
-				cacheH := map[string]any{
-					"handler": "cache",
-					"ttl":     ttlStr,
-					"stale":   ttlStr,
-				}
-				if len(r.CacheVary) > 0 {
-					// Souin reads `key.headers` to fold the listed request
-					// headers into the cache key (one entry per combination).
-					cacheH["key"] = map[string]any{
-						"headers": r.CacheVary,
-					}
-				}
-				handlers = append(handlers, cacheH)
-			}
-			// Downstream Cache-Control header is always safe to emit (no
-			// module dependency); browsers + CDNs cache regardless of the
-			// module's presence on this node.
-			scope := "public"
-			if routeAudienceRestricted(r) {
-				// IP/geo limited: Caddy enforces before the cache handler, a shared
-				// cache downstream cannot - so never advertise it as public.
-				scope = "private"
-			}
-			handlers = append(handlers, map[string]any{
-				"handler": "headers",
-				"response": map[string]any{
-					"set": map[string]any{
-						"Cache-Control": []string{scope + ", max-age=" + itoa(ttl)},
-					},
-				},
-			})
-		}
+		handlers = append(handlers, buildCacheHandlers(r)...)
 	}
 	// Response compression: stock Caddy `encode` (gzip+zstd), no module gate.
 	// Emitted after the cache block so a cache hit is compressed on the way
@@ -1161,6 +1114,71 @@ func BuildRoute(r Route) map[string]any {
 	}
 }
 
+// credentialledMatch matches a request carrying caller credentials. Such a
+// request must never be answered from, or stored into, a shared cache - the
+// panel cannot see auth the upstream does itself (cookie session, bearer, API
+// key header), so this is enforced on the request, not on Route flags.
+func credentialledMatch() []any {
+	return []any{
+		map[string]any{"header": map[string]any{"Cookie": []string{"*"}}},
+		map[string]any{"header": map[string]any{"Authorization": []string{"*"}}},
+	}
+}
+
+// cacheControlHandler emits a fixed Cache-Control response header.
+func cacheControlHandler(value string) map[string]any {
+	return map[string]any{
+		"handler": "headers",
+		"response": map[string]any{
+			"set": map[string]any{"Cache-Control": []string{value}},
+		},
+	}
+}
+
+// buildCacheHandlers implements the caching policy: private by default, public
+// only on an explicit opt-in, never for a gated, audience-restricted or
+// credentialled request. Enumerating known auth gates is not sufficient - a
+// plain upstream that authenticates a cookie carries no Route flag at all.
+func buildCacheHandlers(r Route) []any {
+	ttl := r.CacheTTLSeconds
+	if ttl <= 0 {
+		ttl = 60
+	}
+	if RouteAuthGated(r) {
+		return []any{cacheControlHandler("private, no-store")}
+	}
+	scope := "private, max-age=" + itoa(ttl)
+	// Audience-restricted routes may still use the node cache (Caddy enforces
+	// the ACL before it), but a shared cache downstream cannot - never public.
+	if r.CachePublic && !routeAudienceRestricted(r) {
+		scope = "public, max-age=" + itoa(ttl)
+	}
+	fresh := []any{}
+	if r.CacheModuleAvailable {
+		ttlStr := itoa(ttl) + "s"
+		cacheH := map[string]any{"handler": "cache", "ttl": ttlStr, "stale": ttlStr}
+		// Credential headers stay in the key even when an operator sets
+		// CacheVary, so a vary list can never widen an entry's audience.
+		keyHeaders := append(append([]string{}, r.CacheVary...), "Cookie", "Authorization")
+		cacheH["key"] = map[string]any{"headers": keyHeaders}
+		fresh = append(fresh, cacheH)
+	}
+	fresh = append(fresh, cacheControlHandler(scope))
+	return []any{map[string]any{
+		"handler": "subroute",
+		"routes": []any{
+			map[string]any{
+				"match":  []any{map[string]any{"not": credentialledMatch()}},
+				"handle": fresh,
+			},
+			map[string]any{
+				"match":  credentialledMatch(),
+				"handle": []any{cacheControlHandler("private, no-store")},
+			},
+		},
+	}}
+}
+
 // RouteAuthGated reports whether the route carries a per-caller credential
 // check. Such responses must never enter a cache (local or downstream): the
 // cache handler runs before every gate listed here.
@@ -1175,8 +1193,17 @@ func RouteAuthGated(r Route) bool {
 		customHandlersAuth(r.CustomHandlers)
 }
 
-// customHandlersAuth spots an admin-supplied auth handler: CustomHandlers runs
-// AFTER the cache handler, so a hit would bypass it entirely.
+// cacheSafeCustomHandlers are the only admin-supplied handlers known not to
+// gate a response. Anything else - including a handler we simply don't know -
+// must suppress caching, because CustomHandlers runs AFTER the cache handler.
+var cacheSafeCustomHandlers = map[string]bool{
+	"headers": true, "encode": true, "templates": true,
+	"rewrite": true, "vars": true, "request_body": true,
+}
+
+// customHandlersAuth reports whether a custom chain might gate the response.
+// Allow-list, not deny-list: an unrecognised or nested handler counts as
+// gating, so an auth handler we failed to anticipate cannot be cached past.
 func customHandlersAuth(raw string) bool {
 	if strings.TrimSpace(raw) == "" {
 		return false
@@ -1186,8 +1213,23 @@ func customHandlersAuth(raw string) bool {
 		return true // unparsable: assume the worst, don't cache
 	}
 	for _, h := range hs {
-		switch name, _ := h["handler"].(string); name {
-		case "authentication", "forward_auth", "jwtauth", "security", "authorize":
+		name, _ := h["handler"].(string)
+		if !cacheSafeCustomHandlers[name] {
+			return true
+		}
+		// A safe-named handler carrying nested routes can still hide a gate.
+		if handlerHasNested(h) {
+			return true
+		}
+	}
+	return false
+}
+
+// handlerHasNested reports whether a handler embeds further routes/handlers,
+// which this allow-list does not attempt to walk.
+func handlerHasNested(h map[string]any) bool {
+	for _, k := range []string{"routes", "handle", "handler_chain", "error_routes"} {
+		if _, ok := h[k]; ok {
 			return true
 		}
 	}

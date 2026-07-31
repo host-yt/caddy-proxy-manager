@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -70,6 +71,9 @@ type Manager struct {
 	rdb        sessionRedis
 	// db is the authoritative auth-epoch source; nil disables the DB fallback.
 	db         *sql.DB
+	// epochUnresolved holds users whose cache invalidation this process could
+	// not confirm; they take the DB path until a write succeeds.
+	epochUnresolved sync.Map
 	cookieName string
 	secure     bool
 	sameSite   http.SameSite

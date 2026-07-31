@@ -317,11 +317,14 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		totpEnabled     bool
 		smsOTPEnabled   bool
 		emailOTPEnabled bool
+		// proofEpoch is the epoch this password proof is bound to: minting must
+		// abort if a reset/demotion lands before the session or ticket exists.
+		proofEpoch int64
 	)
 	err := db.QueryRowContext(ctx,
-		"SELECT id, password_hash, role, is_active, totp_enabled, sms_otp_enabled, email_otp_enabled FROM users WHERE email = ? LIMIT 1",
+		"SELECT id, password_hash, role, is_active, totp_enabled, sms_otp_enabled, email_otp_enabled, auth_epoch FROM users WHERE email = ? LIMIT 1",
 		email,
-	).Scan(&userID, &hash, &role, &isActive, &totpEnabled, &smsOTPEnabled, &emailOTPEnabled)
+	).Scan(&userID, &hash, &role, &isActive, &totpEnabled, &smsOTPEnabled, &emailOTPEnabled, &proofEpoch)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Equalize timing: a real account spends ~150ms in Argon2 verify, an
 		// unknown email would return in microseconds and leak account existence.
@@ -387,14 +390,14 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 			audit.Write(ctx, db, h.Logger, r, audit.Entry{
 				UserID: &userID, Action: "2fa.skip.trusted_device", Entity: "auth", EntityID: email,
 			})
-			h.finalizeLogin(ctx, w, r, userID, "password", "trusted")
+			h.finalizeLoginAt(ctx, w, r, userID, proofEpoch, "password", "trusted")
 			return
 		}
 	}
 
 	// Any 2FA enrolled → unified picker at /auth/2fa.
 	if totpEnabled || smsOTPEnabled || emailOTPEnabled {
-		ticket, err := h.issuePending2FA(ctx, userID, email, role, clientID)
+		ticket, err := h.issuePending2FAAt(ctx, userID, email, role, clientID, proofEpoch)
 		if err != nil {
 			h.Logger.Error("pending 2fa issue", "err", err)
 			h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: email, Error: "Server error."}))
@@ -409,7 +412,7 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.finalizeLogin(ctx, w, r, userID, "password", "none")
+	h.finalizeLoginAt(ctx, w, r, userID, proofEpoch, "password", "none")
 }
 
 // sessionClaims is the authoritative identity for a session, read fresh from
@@ -478,9 +481,24 @@ func newSessionFor(c sessionClaims) auth.NewSession {
 // with via="oidc" so the dashboard can distinguish them.
 func (h *AuthHandlers) finalizeLogin(ctx context.Context, w http.ResponseWriter, r *http.Request,
 	userID int64, via, mfa string) {
+	h.finalizeLoginAt(ctx, w, r, userID, epochUnbound, via, mfa)
+}
+
+// epochUnbound marks a caller that holds no epoch from its credential check.
+const epochUnbound = int64(-1)
+
+// finalizeLoginAt mints only if the authoritative epoch still equals the one
+// observed when the credential was proven. Without this an old password proof
+// could be restamped with the epoch of the reset that was meant to kill it.
+func (h *AuthHandlers) finalizeLoginAt(ctx context.Context, w http.ResponseWriter, r *http.Request,
+	userID, proofEpoch int64, via, mfa string) {
 	c, err := loadSessionClaims(ctx, h.DB(), userID)
 	if err != nil {
 		h.denyStaleLogin(w, r, err)
+		return
+	}
+	if proofEpoch != epochUnbound && c.Epoch != proofEpoch {
+		h.denyStaleLogin(w, r, auth.ErrUserGone)
 		return
 	}
 	h.finalizeLoginClaims(ctx, w, r, c, via, mfa)
@@ -1384,6 +1402,11 @@ type pending2FA struct {
 }
 
 func (h *AuthHandlers) issuePending2FA(ctx context.Context, userID int64, email, role string, clientID int64, via ...string) (string, error) {
+	return h.issuePending2FAAt(ctx, userID, email, role, clientID, epochUnbound, via...)
+}
+
+// issuePending2FAAt binds the ticket to the epoch proven by the credential.
+func (h *AuthHandlers) issuePending2FAAt(ctx context.Context, userID int64, email, role string, clientID, proofEpoch int64, via ...string) (string, error) {
 	id := make([]byte, 24)
 	if _, err := rand.Read(id); err != nil {
 		return "", err
@@ -1393,10 +1416,15 @@ func (h *AuthHandlers) issuePending2FA(ctx context.Context, userID int64, email,
 	if len(via) > 0 && via[0] != "" {
 		v = via[0]
 	}
-	epoch, err := auth.UserEpoch(ctx, h.DB(), userID)
-	if err != nil {
-		return "", err
+	if proofEpoch == epochUnbound {
+		var err error
+		if proofEpoch, err = auth.UserEpoch(ctx, h.DB(), userID); err != nil {
+			return "", err
+		}
+	} else if cur, err := auth.UserEpoch(ctx, h.DB(), userID); err != nil || cur != proofEpoch {
+		return "", auth.ErrUserGone // credentials changed mid-login
 	}
+	epoch := proofEpoch
 	payload := pending2FA{UserID: userID, Email: email, Role: role, ClientID: clientID, Epoch: epoch, Ver: pending2FAVer, Via: v}
 	b, _ := json.Marshal(payload)
 	if err := h.RDB.Set(ctx, "hpg:2fa:"+ticket, b, pending2FATTL).Err(); err != nil {

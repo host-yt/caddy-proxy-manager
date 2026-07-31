@@ -17,6 +17,12 @@ var ErrUserGone = errors.New("auth: user no longer exists")
 // Redis GET instead of a DB round-trip.
 const epochKeyPrefix = "hpg:uepoch:"
 
+// epochCacheTTL bounds how long a lost invalidation can go unnoticed. The
+// cache is best-effort, so a dropped SET must decay into a cache miss (which
+// re-reads the DB) rather than linger as agreement for the session's lifetime.
+// Costs one DB read per active user per interval, not per request.
+const epochCacheTTL = 30 * time.Second
+
 // epochDeleted is cached for a user whose row was removed; it can never equal
 // a stamped epoch (those are >= 0), so every live session fails the check.
 const epochDeleted = int64(-1)
@@ -85,13 +91,32 @@ func (m *Manager) BumpEpoch(ctx context.Context, db *sql.DB, userID int64) (int6
 	return ep, nil
 }
 
-// PublishEpoch writes the epoch to the Redis cache. A write failure is not
-// fatal: the DB stays authoritative and a cache miss falls back to it.
+// PublishEpoch refreshes the cached epoch after a bump.
 func (m *Manager) PublishEpoch(ctx context.Context, userID, epoch int64) {
+	_ = m.confirmEpoch(ctx, userID, epoch)
+}
+
+// confirmEpoch writes the epoch and reports whether Redis acknowledged it.
+// An unacknowledged write must not leave a stale entry readable as agreement:
+// the key is dropped, this process marks the user unresolved, and epochCacheTTL
+// caps how long any other replica can keep trusting its copy.
+func (m *Manager) confirmEpoch(ctx context.Context, userID, epoch int64) bool {
 	if m == nil || m.rdb == nil {
-		return
+		return false
 	}
-	_ = m.rdb.Set(ctx, epochKey(userID), epoch, m.ttl+time.Hour).Err()
+	if err := m.rdb.Set(ctx, epochKey(userID), epoch, epochCacheTTL).Err(); err != nil {
+		m.rdb.Del(ctx, epochKey(userID))
+		m.epochUnresolved.Store(userID, struct{}{})
+		return false
+	}
+	m.epochUnresolved.Delete(userID)
+	return true
+}
+
+// epochPending reports an invalidation this process could not confirm.
+func (m *Manager) epochPending(userID int64) bool {
+	_, pending := m.epochUnresolved.Load(userID)
+	return pending
 }
 
 // RevokeUser invalidates every live session of a user. The DB epoch bump is
@@ -135,6 +160,11 @@ func (m *Manager) epochOK(ctx context.Context, userID, stamped int64) bool {
 	if m.rdb == nil {
 		return m.epochOKFromDB(ctx, userID, stamped, true)
 	}
+	// An invalidation we could not confirm means the cache may still hold the
+	// pre-revoke value: never read that as agreement.
+	if m.epochPending(userID) {
+		return m.epochOKFromDB(ctx, userID, stamped, false)
+	}
 	cached, err := m.rdb.Get(ctx, epochKey(userID)).Int64()
 	switch {
 	case err == nil && cached == stamped:
@@ -157,12 +187,12 @@ func (m *Manager) epochOKFromDB(ctx context.Context, userID, stamped int64, cach
 	}
 	cur, err := UserEpoch(ctx, m.db, userID)
 	if errors.Is(err, ErrUserGone) {
-		m.PublishEpoch(ctx, userID, epochDeleted)
+		m.confirmEpoch(ctx, userID, epochDeleted)
 		return false
 	}
 	if err != nil {
 		return false
 	}
-	m.PublishEpoch(ctx, userID, cur)
+	m.confirmEpoch(ctx, userID, cur)
 	return cur == stamped
 }
