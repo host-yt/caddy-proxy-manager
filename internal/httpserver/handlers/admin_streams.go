@@ -339,10 +339,24 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := screenStreamUpstreams(ctx, h.Logger, extraUpstreams); err != nil {
+	// Infra deny list is independent of the permissive RFC1918 policy: a node's
+	// own WG/private address hosts an unauthenticated Caddy admin API.
+	infra, infraErr := loadInfraTargets(ctx, db)
+	if infraErr != nil {
+		h.Logger.Warn("stream create: infra deny list unavailable", "err", infraErr)
+		redirectWithFlash(w, r, "/admin/streams", "", "backend screening unavailable, try again")
+		return
+	}
+	if err := infra.screenStreamTarget(upstreamPort, form.BackendIP); err != nil {
+		redirectWithFlash(w, r, "/admin/streams", "", "backend "+err.Error())
+		return
+	}
+	screened, err := screenStreamUpstreamsWith(ctx, infra, h.Logger, extraUpstreams)
+	if err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", err.Error())
 		return
 	}
+	extraUpstreams = screened
 
 	var nodeGroupID int64
 	if err := db.QueryRowContext(ctx,
@@ -549,10 +563,12 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// SSRF: same fail-closed screen as create, so edits can't smuggle internal addresses.
-	if err := screenStreamUpstreams(ctx, h.Logger, extraUpstreams); err != nil {
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", err.Error())
+	screened, screenErr := screenStreamUpstreams(ctx, db, h.Logger, extraUpstreams)
+	if screenErr != nil {
+		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", screenErr.Error())
 		return
 	}
+	extraUpstreams = screened
 
 	// Confirm the stream exists and get the node ID for resync.
 	var nodeID int64
@@ -669,16 +685,52 @@ type upstreamEntry struct {
 }
 
 // screenStreamUpstreams applies the same fail-closed SSRF check to every extra
-// upstream on both create and update paths, so they can't drift apart.
-func screenStreamUpstreams(ctx context.Context, logger *slog.Logger, upstreams []upstreamEntry) error {
+// upstream on both create and update paths, so they can't drift apart. Loading
+// the infra deny list is part of the check: a lookup failure blocks the write.
+func screenStreamUpstreams(ctx context.Context, db *sql.DB, logger *slog.Logger, upstreams []upstreamEntry) ([]upstreamEntry, error) {
+	if len(upstreams) == 0 {
+		return upstreams, nil
+	}
+	infra, err := loadInfraTargets(ctx, db)
+	if err != nil {
+		logger.Warn("stream upstream screen: infra deny list unavailable", "err", err)
+		return nil, errors.New("upstream screening unavailable, try again")
+	}
+	return screenStreamUpstreamsWith(ctx, infra, logger, upstreams)
+}
+
+// screenStreamUpstreamsWith screens against an already-built deny set and
+// returns the upstreams with hostnames pinned to a validated literal address.
+func screenStreamUpstreamsWith(ctx context.Context, infra *infraTargets, logger *slog.Logger, upstreams []upstreamEntry) ([]upstreamEntry, error) {
+	out := make([]upstreamEntry, 0, len(upstreams))
 	for _, u := range upstreams {
-		host, _, _ := net.SplitHostPort(u.Address)
+		host, port, splitErr := net.SplitHostPort(u.Address)
+		if splitErr != nil || host == "" {
+			return nil, fmt.Errorf("upstream %s: invalid address", u.Address)
+		}
 		if err := screenBackendHost(ctx, host); err != nil {
 			logger.Warn("stream upstream screen failed", "addr", u.Address, "err", err)
-			return fmt.Errorf("upstream %s: blocked or unresolvable", u.Address)
+			return nil, fmt.Errorf("upstream %s: blocked or unresolvable", u.Address)
 		}
+		resolved, rerr := resolveStreamHost(ctx, host)
+		if rerr != nil {
+			logger.Warn("stream upstream resolve failed", "addr", u.Address, "err", rerr)
+			return nil, fmt.Errorf("upstream %s: blocked or unresolvable", u.Address)
+		}
+		portNum, perr := strconv.Atoi(port)
+		if perr != nil || portNum <= 0 || portNum > 65535 {
+			return nil, fmt.Errorf("upstream %s: invalid port", u.Address)
+		}
+		if err := infra.screenStreamTarget(portNum, append(resolved, host)...); err != nil {
+			logger.Warn("stream upstream hits infra deny list", "addr", u.Address, "err", err)
+			return nil, fmt.Errorf("upstream %s: %v", u.Address, err)
+		}
+		// Pin the resolution: Caddy re-resolves at dial time, so a hostname
+		// upstream would otherwise be a DNS-rebinding window after validation.
+		u.Address = net.JoinHostPort(resolved[0], port)
+		out = append(out, u)
 	}
-	return nil
+	return out, nil
 }
 
 // parseUpstreamsRaw parses the multi-upstream textarea: each non-empty line is
