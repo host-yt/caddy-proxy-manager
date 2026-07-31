@@ -3522,17 +3522,32 @@ func (h *AdminHandlers) UsersToggle(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/users", "", "only super_admin can act on super_admin")
 		return
 	}
-	if _, err := db.ExecContext(ctx, "UPDATE users SET is_active = NOT is_active WHERE id = ?", id); err != nil {
+	// A just-deactivated user must lose access now, not at session TTL: the
+	// toggle and its epoch bump commit together or not at all.
+	tx, txErr := db.BeginTx(ctx, nil)
+	if txErr != nil {
 		redirectWithFlash(w, r, "/admin/users", "", "update failed")
 		return
 	}
-	// A just-deactivated user must lose access now, not at session TTL (the
-	// cookie path doesn't re-check is_active). Harmless when re-activating.
+	if _, err := tx.ExecContext(ctx, "UPDATE users SET is_active = NOT is_active WHERE id = ?", id); err != nil {
+		_ = tx.Rollback()
+		redirectWithFlash(w, r, "/admin/users", "", "update failed")
+		return
+	}
+	if _, err := auth.BumpEpochTx(ctx, tx, id); err != nil {
+		_ = tx.Rollback()
+		redirectWithFlash(w, r, "/admin/users", "", "update failed")
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "update failed")
+		return
+	}
 	var killed int
 	if h.Sessions != nil {
 		var rerr error
-		if killed, rerr = h.Sessions.RevokeUser(ctx, db, id); rerr != nil {
-			h.Logger.Error("user toggle: session revoke", "user", id, "err", rerr)
+		if killed, rerr = h.Sessions.PurgeUserSessions(ctx, id); rerr != nil {
+			h.Logger.Error("user toggle: session purge", "user", id, "err", rerr)
 		}
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{

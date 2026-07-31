@@ -358,10 +358,7 @@ func (h *AdminHandlers) ResellerProvisionAdmin(w http.ResponseWriter, r *http.Re
 	if !release {
 		rid = &id
 	}
-	if err := h.Resellers.AssignAdmin(ctx, userID, rid); err != nil {
-		redirectWithFlash(w, r, "/admin/resellers", "", "could not update reseller-admin")
-		return
-	}
+
 	// Keep role in sync with the binding. Release lands on a RESTRICTED admin
 	// (is_restricted=1, empty scope) - never silently mint an unrestricted
 	// platform admin out of an ex-reseller account. The role change and the
@@ -373,11 +370,13 @@ func (h *AdminHandlers) ResellerProvisionAdmin(w http.ResponseWriter, r *http.Re
 			redirectWithFlash(w, r, "/admin/resellers", "", "could not update reseller-admin")
 			return
 		}
-		var uerr error
-		if release {
+		// Scope, role and epoch in one transaction: a committed scope with an
+		// unchanged role/epoch would leave an open session unconfined.
+		uerr := reseller.AssignAdminTx(ctx, tx, userID, rid)
+		if uerr == nil && release {
 			_, uerr = tx.ExecContext(ctx,
 				`UPDATE users SET role='admin', is_restricted=1 WHERE id=? AND role='reseller'`, userID)
-		} else {
+		} else if uerr == nil {
 			_, uerr = tx.ExecContext(ctx,
 				`UPDATE users SET role='reseller' WHERE id=? AND role IN ('admin','support')`, userID)
 		}

@@ -124,3 +124,22 @@ func TestGatedWinsAtEqualSpecificity(t *testing.T) {
 		t.Fatalf("gated route must sort first, got %q", sorted[0].PathPrefix)
 	}
 }
+
+// A public cache must never store or replay an upstream Set-Cookie: one
+// visitor's session cookie handed to the next is session fixation.
+func TestPublicCacheStripsSetCookie(t *testing.T) {
+	got := routeJSON(t, Route{
+		ID: "5", Hosts: []string{"e.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+		CacheEnabled: true, CacheTTLSeconds: 60, CacheModuleAvailable: true,
+		CachePublic: true,
+	})
+	if !strings.Contains(got, `"Set-Cookie"`) || !strings.Contains(got, `"deferred":true`) {
+		t.Errorf("public cache route must strip Set-Cookie before the cache: %s", got)
+	}
+	// The stripper must sit after the cache handler, i.e. between it and the
+	// upstream, so Souin never sees the header at all.
+	ci, si := strings.Index(got, `"handler":"cache"`), strings.Index(got, `"Set-Cookie"`)
+	if ci < 0 || si < 0 || si < ci {
+		t.Errorf("Set-Cookie stripper must follow the cache handler: cache=%d strip=%d", ci, si)
+	}
+}

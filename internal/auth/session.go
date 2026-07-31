@@ -231,8 +231,13 @@ func (m *Manager) Load(ctx context.Context, r *http.Request) (*Session, error) {
 		return nil, nil
 	}
 	// Durable revocation: a stale session dies here even when the Redis purge
-	// that should have deleted it failed.
-	if !m.epochValid(ctx, &s) {
+	// that should have deleted it failed. An indeterminate read (DB blip) denies
+	// the request but keeps the session, so an outage cannot log everyone out.
+	ok, eerr := m.epochValid(ctx, &s)
+	if eerr != nil {
+		return nil, fmt.Errorf("epoch check: %w", eerr)
+	}
+	if !ok {
 		m.rdb.Del(ctx, sessionKeyPrefix+c.Value)
 		return nil, nil
 	}

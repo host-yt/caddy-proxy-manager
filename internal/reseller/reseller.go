@@ -308,7 +308,20 @@ func (s *Store) AssignAdmin(ctx context.Context, userID int64, resellerID *int64
 	if db == nil {
 		return errors.New("reseller: no db")
 	}
-	res, err := db.ExecContext(ctx,
+	return AssignAdminTx(ctx, db, userID, resellerID)
+}
+
+// execer is the *sql.DB / *sql.Tx subset AssignAdminTx needs, so the scope
+// change can join the caller's transaction with the role and epoch updates.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// AssignAdminTx sets users.reseller_id inside the caller's transaction. The
+// scope, the role and the epoch bump must commit together: a committed scope
+// with an unchanged role and epoch leaves an open session unconfined.
+func AssignAdminTx(ctx context.Context, ex execer, userID int64, resellerID *int64) error {
+	res, err := ex.ExecContext(ctx,
 		`UPDATE users SET reseller_id = ? WHERE id = ?`, resellerID, userID)
 	if err != nil {
 		return fmt.Errorf("reseller: assign admin: %w", err)

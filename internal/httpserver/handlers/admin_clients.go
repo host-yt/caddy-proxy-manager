@@ -14,6 +14,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/customfields"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -409,13 +410,30 @@ func (h *AdminHandlers) ClientsBulk(w http.ResponseWriter, r *http.Request) {
 		}
 		switch action {
 		case "suspend":
-			if _, err := h.DB().ExecContext(ctx, "UPDATE users SET is_active=0 WHERE id=?", userID); err != nil {
+			// Deactivation and epoch bump commit together, else the suspended
+			// client keeps its open session until TTL.
+			tx, txErr := h.DB().BeginTx(ctx, nil)
+			if txErr != nil {
+				fail++
+				continue
+			}
+			if _, err := tx.ExecContext(ctx, "UPDATE users SET is_active=0 WHERE id=?", userID); err != nil {
+				_ = tx.Rollback()
+				fail++
+				continue
+			}
+			if _, err := auth.BumpEpochTx(ctx, tx, userID); err != nil {
+				_ = tx.Rollback()
+				fail++
+				continue
+			}
+			if err := tx.Commit(); err != nil {
 				fail++
 				continue
 			}
 			if h.Sessions != nil {
-				if _, rerr := h.Sessions.RevokeUser(ctx, h.DB(), userID); rerr != nil {
-					h.Logger.Error("client suspend: session revoke", "user", userID, "err", rerr)
+				if _, rerr := h.Sessions.PurgeUserSessions(ctx, userID); rerr != nil {
+					h.Logger.Error("client suspend: session purge", "user", userID, "err", rerr)
 				}
 			}
 		case "activate":

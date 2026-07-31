@@ -174,6 +174,13 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 	// Audit rows: keep for legal hold but blank identifiable bits.
 	_, _ = tx.ExecContext(ctx,
 		"UPDATE audit_log SET ip = NULL, user_agent = NULL WHERE user_id = ?", id)
+	// The epoch bump belongs to the same commit: a masked account whose bump
+	// was lost would keep serving its old session until TTL.
+	if _, err := auth.BumpEpochTx(ctx, tx, id); err != nil {
+		h.Logger.Warn("gdpr epoch bump failed", "id", id, "err", err)
+		http.Error(w, "epoch bump failed", http.StatusInternalServerError)
+		return
+	}
 
 	if err := tx.Commit(); err != nil {
 		http.Error(w, "commit failed", http.StatusInternalServerError)
@@ -182,8 +189,8 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 	// The account is now masked + is_active=0; drop any live sessions so the
 	// cookie path can't keep serving the erased user until session TTL.
 	if h.Sessions != nil {
-		if _, rerr := h.Sessions.RevokeUser(ctx, db, id); rerr != nil {
-			h.Logger.Error("gdpr erase: session revoke", "user", id, "err", rerr)
+		if _, rerr := h.Sessions.PurgeUserSessions(ctx, id); rerr != nil {
+			h.Logger.Error("gdpr erase: session purge", "user", id, "err", rerr)
 		}
 	}
 

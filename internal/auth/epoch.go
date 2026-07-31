@@ -115,25 +115,31 @@ func (m *Manager) MarkUserDeleted(ctx context.Context, userID int64) (int, error
 
 // epochValid reports whether every identity carried by the session still holds
 // the epoch it was minted with.
-func (m *Manager) epochValid(ctx context.Context, s *Session) bool {
-	if !m.epochOK(ctx, s.UserID, s.Epoch) {
-		return false
+func (m *Manager) epochValid(ctx context.Context, s *Session) (bool, error) {
+	ok, err := m.epochOK(ctx, s.UserID, s.Epoch)
+	if err != nil || !ok {
+		return false, err
 	}
 	if s.ImpersonatorUserID > 0 {
 		return m.epochOK(ctx, s.ImpersonatorUserID, s.ImpersonatorEpoch)
 	}
-	return true
+	return true, nil
 }
 
 // epochOK resolves the stamped epoch against the authoritative row on every
-// call. A missing user or an unreadable row denies; only an exact match passes.
-func (m *Manager) epochOK(ctx context.Context, userID, stamped int64) bool {
+// call. A missing user or a mismatch is a definitive denial; an unreadable row
+// is returned as an error so callers deny the request WITHOUT destroying a
+// session that may still be valid once the database recovers.
+func (m *Manager) epochOK(ctx context.Context, userID, stamped int64) (bool, error) {
 	if m.db == nil {
-		return true // no epoch source wired (tests, first-run before migrate)
+		return true, nil // no epoch source wired (tests, first-run before migrate)
 	}
 	cur, err := UserEpoch(ctx, m.db, userID)
-	if err != nil {
-		return false
+	if errors.Is(err, ErrUserGone) {
+		return false, nil
 	}
-	return cur == stamped
+	if err != nil {
+		return false, err
+	}
+	return cur == stamped, nil
 }

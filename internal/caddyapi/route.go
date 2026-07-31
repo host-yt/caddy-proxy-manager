@@ -1165,6 +1165,16 @@ func buildCacheHandlers(r Route) []any {
 		keyHeaders := append(append([]string{}, r.CacheVary...), "Cookie", "Authorization")
 		cacheH["key"] = map[string]any{"headers": keyHeaders}
 		fresh = append(fresh, cacheH)
+		// Sits between the cache and the upstream, so Souin never sees a
+		// Set-Cookie and cannot replay one visitor's session cookie to the
+		// next. Public content that sets cookies is a contradiction anyway.
+		fresh = append(fresh, map[string]any{
+			"handler": "headers",
+			"response": map[string]any{
+				"deferred": true,
+				"delete":   []string{"Set-Cookie"},
+			},
+		})
 	}
 	fresh = append(fresh, cacheControlHandler(scope))
 	return []any{map[string]any{
