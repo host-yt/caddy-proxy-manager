@@ -10,6 +10,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jlaffaye/ftp"
@@ -86,29 +87,46 @@ func newFTPDest(cfg map[string]string) (*ftpDest, error) {
 
 func (d *ftpDest) dial(ctx context.Context) (*ftp.ServerConn, error) {
 	host := strings.SplitN(d.addr, ":", 2)[0]
-	var opts []ftp.DialOption
-	opts = append(opts, ftp.DialWithContext(ctx))
-	opts = append(opts, ftp.DialWithTimeout(20*time.Second))
-	// Pin by dialing the validated IP directly. Overriding the library dialer
-	// would hand back a raw socket and defeat its TLS wrapping: implicit FTPS
-	// would read the handshake as plaintext and explicit FTPS would send data
-	// unencrypted. ServerName keeps certificate validation on the real host.
-	pinned, perr := pinnedAddr(ctx, d.addr)
-	if perr != nil {
-		return nil, fmt.Errorf("ftp: %w", perr)
+	tlsCfg := &tls.Config{
+		ServerName:         host,
+		InsecureSkipVerify: d.skipVerify, // #nosec G402 — gated by explicit config
 	}
+	// A custom dialFunc is the only hook that sees the PASV address, so every
+	// data connection gets validated too - a malicious server cannot steer us
+	// at loopback or link-local by failing EPSV. The library skips its own TLS
+	// wrapping once dialFunc is set, so we must apply it here: implicit wraps
+	// the control channel as well, explicit only the data channels (its control
+	// channel starts plain and is upgraded by AUTH TLS).
+	var controlDialed atomic.Bool
+	dialFn := func(network, address string) (net.Conn, error) {
+		pinned, perr := pinnedAddr(ctx, address)
+		if perr != nil {
+			return nil, perr
+		}
+		dialer := &net.Dialer{Timeout: 20 * time.Second}
+		conn, cerr := dialer.DialContext(ctx, network, pinned)
+		if cerr != nil {
+			return nil, cerr
+		}
+		isControl := controlDialed.CompareAndSwap(false, true)
+		if d.tlsMode == "implicit" || (!isControl && d.tlsMode == "explicit") {
+			return tls.Client(conn, tlsCfg), nil
+		}
+		return conn, nil
+	}
+
+	opts := []ftp.DialOption{
+		ftp.DialWithContext(ctx),
+		ftp.DialWithTimeout(20 * time.Second),
+		ftp.DialWithDialFunc(dialFn),
+	}
+	// Still declare the mode so the library performs AUTH TLS / PBSZ / PROT.
 	if d.tlsMode == "implicit" {
-		opts = append(opts, ftp.DialWithTLS(&tls.Config{
-			ServerName:         host,
-			InsecureSkipVerify: d.skipVerify, // #nosec G402 — gated by explicit config
-		}))
+		opts = append(opts, ftp.DialWithTLS(tlsCfg))
 	} else if d.tlsMode == "explicit" {
-		opts = append(opts, ftp.DialWithExplicitTLS(&tls.Config{
-			ServerName:         host,
-			InsecureSkipVerify: d.skipVerify, // #nosec G402 — gated by explicit config
-		}))
+		opts = append(opts, ftp.DialWithExplicitTLS(tlsCfg))
 	}
-	c, err := ftp.Dial(pinned, opts...)
+	c, err := ftp.Dial(d.addr, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("ftp: dial: %w", err)
 	}

@@ -1,6 +1,7 @@
 package backup
 
 import (
+	"context"
 	"os"
 	"testing"
 )
@@ -75,5 +76,22 @@ func TestS3UseSSLGate(t *testing.T) {
 	os.Setenv("APP_ENV", "development")
 	if _, err := newS3Dest(cfg); err != nil {
 		t.Errorf("use_ssl=0 outside production: want nil, got %v", err)
+	}
+}
+
+// The FTP dial hook must validate every address it is handed, not just the
+// control one: a malicious server can fail EPSV and advertise a private PASV
+// host to steer the panel at internal services.
+func TestPinnedAddrRejectsPrivateTargets(t *testing.T) {
+	ctx := context.Background()
+	for _, addr := range []string{
+		"127.0.0.1:21", "10.0.0.5:2121", "169.254.169.254:80", "192.168.1.1:21",
+	} {
+		if _, err := pinnedAddr(ctx, addr); err == nil {
+			t.Errorf("pinnedAddr(%q) must be refused", addr)
+		}
+	}
+	if _, err := pinnedAddr(ctx, "8.8.8.8:21"); err != nil {
+		t.Errorf("public address must be allowed, got %v", err)
 	}
 }

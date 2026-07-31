@@ -240,6 +240,9 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	bindDBWhenReady(func(db *sql.DB) { routesSvc.DB = db })
 	// Authoritative auth-epoch source for the per-request session check.
 	bindDBWhenReady(func(db *sql.DB) { sessions.SetEpochSource(db) })
+	// A pre-upgrade replica still serving traffic ignores restricted-admin
+	// confinement and auth epochs; this side can only shout about it.
+	sessions.StartLegacyWatch(context.Background(), logger)
 
 	// Seed ACME CA settings from DB so they survive restarts without env vars.
 	bindDBWhenReady(func(db *sql.DB) {

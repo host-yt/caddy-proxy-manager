@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -90,10 +91,13 @@ func (f *fakeRedis) Del(_ context.Context, keys ...string) *redis.IntCmd {
 	return redis.NewIntResult(n, nil)
 }
 
-func (f *fakeRedis) Scan(_ context.Context, _ uint64, _ string, _ int64) *redis.ScanCmd {
+// Honours the match pattern (prefix + "*") so namespace-scoped scans are
+// actually exercised, not silently collapsed onto one prefix.
+func (f *fakeRedis) Scan(_ context.Context, _ uint64, match string, _ int64) *redis.ScanCmd {
+	prefix := strings.TrimSuffix(match, "*")
 	var keys []string
 	for k := range f.vals {
-		if len(k) > len(sessionKeyPrefix) && k[:len(sessionKeyPrefix)] == sessionKeyPrefix {
+		if strings.HasPrefix(k, prefix) {
 			keys = append(keys, k)
 		}
 	}
@@ -262,3 +266,24 @@ func TestDestroyAllForUser_KillsImpersonationSessions(t *testing.T) {
 	}
 }
 
+
+// Leftover pre-upgrade keys are harmless; a NEW one proves an old replica is
+// live and minting sessions it will serve with the old boundary logic.
+func TestLegacyMintingDetection(t *testing.T) {
+	f := newFakeRedis()
+	m := testManager(f)
+	since := time.Now().UTC()
+	ctx := context.Background()
+
+	old, _ := json.Marshal(Session{UserID: 1, CreatedAt: since.Add(-time.Hour)})
+	f.vals[legacySessionKeyPrefix+"stale"] = string(old)
+	if m.LegacyMintingDetected(ctx, since) {
+		t.Error("a pre-upgrade leftover must not read as an active old replica")
+	}
+
+	fresh, _ := json.Marshal(Session{UserID: 2, CreatedAt: since.Add(time.Minute)})
+	f.vals[legacySessionKeyPrefix+"new"] = string(fresh)
+	if !m.LegacyMintingDetected(ctx, since) {
+		t.Error("a legacy session minted after startup must be detected")
+	}
+}
