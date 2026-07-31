@@ -91,20 +91,9 @@ func APIKeyAuth(db func() *sql.DB) func(http.Handler) http.Handler {
 			if r.Body != nil {
 				r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 			}
-			// Re-fetch role/is_active from DB on each request: if an admin
-			// demoted the underlying user (role change or is_active = 0),
-			// existing sessions/tokens must immediately stop working
-			// rather than waiting for the bearer to expire (security
-			// review P2: stale-role).
-			var stillActive bool
-			var freshRole string
-			if err := d.QueryRowContext(authCtx,
-				"SELECT role, is_active FROM users WHERE id = ?", uid,
-			).Scan(&freshRole, &stillActive); err != nil || !stillActive {
-				writeJSONErr(w, http.StatusUnauthorized, "user disabled")
-				return
-			}
-			role = freshRole
+			// role/is_active/auth_epoch are re-read inside VerifyAPIKey in the
+			// same joined query, so a demoted or deactivated owner is already
+			// denied above; no second round trip here.
 			ctx := context.WithValue(r.Context(), apiCallerKey, &APICaller{UserID: uid, KeyID: keyID, Role: role, Scopes: parseScopes(scopes)})
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

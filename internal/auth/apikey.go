@@ -73,9 +73,11 @@ func CreateAPIKey(ctx context.Context, db *sql.DB, userID int64, name, scopes st
 	// the loop makes correctness obvious to a reader.
 	var res sql.Result
 	for attempt := 0; attempt < 5; attempt++ {
+		// Stamp the owner's current epoch in the same statement: a privilege
+		// change racing the insert must not mint a key that outlives it.
 		res, err = db.ExecContext(ctx,
-			"INSERT INTO api_keys (user_id, name, key_prefix, key_hash, key_hmac, scopes) VALUES (?, ?, ?, ?, ?, ?)",
-			userID, name, prefix, hash, nullableStr(mac), scopes)
+			"INSERT INTO api_keys (user_id, name, key_prefix, key_hash, key_hmac, scopes, auth_epoch) VALUES (?, ?, ?, ?, ?, ?, (SELECT auth_epoch FROM users WHERE id = ?))",
+			userID, name, prefix, hash, nullableStr(mac), scopes, userID)
 		if err == nil {
 			break
 		}
@@ -111,27 +113,42 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (user
 	prefix, secret := parts[0], parts[1]
 
 	var (
-		id, uid  int64
-		hash     string
-		hmacCol  sql.NullString
-		scopeCol sql.NullString
-		revoked  sql.NullTime
-		expires  sql.NullTime
+		id, uid   int64
+		hash      string
+		hmacCol   sql.NullString
+		scopeCol  sql.NullString
+		revoked   sql.NullTime
+		expires   sql.NullTime
+		keyEpoch  int64
+		userEpoch int64
+		active    bool
 	)
+	// One joined read carries the owner's live state too: role, activation and
+	// authorization epoch, so no request pays a second round trip. The INNER
+	// JOIN also makes a deleted owner a no-rows denial.
 	err = db.QueryRowContext(ctx,
-		`SELECT id, user_id, key_hash, key_hmac, scopes, revoked_at, expires_at FROM api_keys WHERE key_prefix = ? LIMIT 1`,
+		`SELECT k.id, k.user_id, k.key_hash, k.key_hmac, k.scopes, k.revoked_at, k.expires_at, k.auth_epoch,
+		        u.role, u.is_active, u.auth_epoch
+		   FROM api_keys k JOIN users u ON u.id = k.user_id
+		  WHERE k.key_prefix = ? LIMIT 1`,
 		prefix,
-	).Scan(&id, &uid, &hash, &hmacCol, &scopeCol, &revoked, &expires)
+	).Scan(&id, &uid, &hash, &hmacCol, &scopeCol, &revoked, &expires, &keyEpoch, &role, &active, &userEpoch)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	if err != nil {
+		// Indeterminate, never permissive: the caller denies on any error.
 		return 0, 0, "", "", err
 	}
 	if revoked.Valid {
 		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	if expires.Valid && time.Now().UTC().After(expires.Time) {
+		return 0, 0, "", "", ErrAPIKeyInvalid
+	}
+	// The key is a snapshot of the owner's privileges at issue time; any epoch
+	// bump (role, scope, activation, reseller, password, delete) retires it.
+	if !active || keyEpoch != userEpoch {
 		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	scopes = scopeCol.String
@@ -142,8 +159,7 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (user
 		got, gerr := hex.DecodeString(hmacHex(secret))
 		if derr == nil && gerr == nil && subtle.ConstantTimeCompare(want, got) == 1 {
 			finalizeAPIKey(ctx, db, id, uid, secret, hmacCol.String, clientIP)
-			role, err = lookupRole(ctx, db, uid)
-			return uid, id, role, scopes, err
+			return uid, id, role, scopes, nil
 		}
 		// HMAC present + mismatch → still try Argon2id below in case the
 		// stored HMAC was written with a different key (post-rotation).
@@ -155,8 +171,7 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (user
 		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	finalizeAPIKey(ctx, db, id, uid, secret, "", clientIP)
-	role, err = lookupRole(ctx, db, uid)
-	return uid, id, role, scopes, err
+	return uid, id, role, scopes, nil
 }
 
 func finalizeAPIKey(ctx context.Context, db *sql.DB, id, uid int64, secret, existingHMAC, clientIP string) {
@@ -174,12 +189,6 @@ func finalizeAPIKey(ctx context.Context, db *sql.DB, id, uid int64, secret, exis
 		return
 	}
 	_, _ = db.ExecContext(ctx, "UPDATE api_keys SET key_hmac = ? WHERE id = ?", mac, id)
-}
-
-func lookupRole(ctx context.Context, db *sql.DB, uid int64) (string, error) {
-	var role string
-	err := db.QueryRowContext(ctx, "SELECT role FROM users WHERE id = ?", uid).Scan(&role)
-	return role, err
 }
 
 func nullableStr(s string) sql.NullString {
