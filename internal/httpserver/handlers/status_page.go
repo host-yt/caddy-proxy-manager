@@ -227,15 +227,16 @@ func (h *StatusPageHandlers) trafficSparkline(
 		 GROUP BY DATE(lr.bucket_start)`,
 		clientID,
 	)
-	// DB conn uses parseTime=true, so DATE() comes back as time.Time, not string.
 	buckets := map[string]uint64{}
 	if err == nil {
 		defer rows.Close()
 		for rows.Next() {
-			var day time.Time
+			var day any
 			var reqs uint64
 			if rows.Scan(&day, &reqs) == nil {
-				buckets[day.Format("2006-01-02")] = reqs
+				if d, ok := scanDayKey(day); ok {
+					buckets[d] = reqs
+				}
 			}
 		}
 	}

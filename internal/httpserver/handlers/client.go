@@ -222,10 +222,14 @@ func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 		 ORDER BY day ASC`, clientID)
 	if err2 == nil {
 		for rows.Next() {
-			var day string
+			var day any
 			var bytes int64
 			if rows.Scan(&day, &bytes) == nil {
-				t, terr := time.Parse("2006-01-02", day)
+				key, ok := scanDayKey(day)
+				if !ok {
+					continue
+				}
+				t, terr := time.Parse("2006-01-02", key)
 				if terr != nil {
 					continue
 				}
