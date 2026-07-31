@@ -46,15 +46,15 @@ func EmissionOrder(routes []Route) []int {
 	}
 
 	byHost := make(map[string][]int)
-	var wildcards []string
+	var hosts []string
 	for i, r := range routes {
 		for _, h := range r.Hosts {
-			h = strings.ToLower(strings.TrimSpace(h))
+			h = NormalizeHost(h)
 			if h == "" {
 				continue
 			}
-			if _, seen := byHost[h]; !seen && strings.HasPrefix(h, "*.") {
-				wildcards = append(wildcards, h)
+			if _, seen := byHost[h]; !seen {
+				hosts = append(hosts, h)
 			}
 			byHost[h] = append(byHost[h], i)
 		}
@@ -64,11 +64,11 @@ func EmissionOrder(routes []Route) []int {
 			union(idxs[0], j)
 		}
 	}
-	// A wildcard host also overlaps every concrete host it covers.
-	for _, w := range wildcards {
-		for h, idxs := range byHost {
-			if h != w && wildcardCovers(w, h) {
-				union(byHost[w][0], idxs[0])
+	// Distinct host strings can still collide (wildcard covers concrete).
+	for i := 0; i < len(hosts); i++ {
+		for j := i + 1; j < len(hosts); j++ {
+			if HostsOverlap(hosts[i], hosts[j]) {
+				union(byHost[hosts[i]][0], byHost[hosts[j]][0])
 			}
 		}
 	}
@@ -108,6 +108,36 @@ func SortRoutesForEmission(routes []Route) []Route {
 		out[k] = routes[i]
 	}
 	return out
+}
+
+// NormalizeHost canonicalises a host matcher string for comparison.
+func NormalizeHost(h string) string {
+	return strings.ToLower(strings.TrimSpace(h))
+}
+
+// HostsOverlap reports whether two host matchers can match the same request
+// host. Single source of truth: the full-config ordering and the incremental
+// clash probe must never disagree, or a permissive wildcard silently shadows a
+// newly appended gated route.
+func HostsOverlap(a, b string) bool {
+	a, b = NormalizeHost(a), NormalizeHost(b)
+	if a == "" || b == "" {
+		return false
+	}
+	return a == b || wildcardCovers(a, b) || wildcardCovers(b, a)
+}
+
+// HostSetsOverlap reports whether any host in a can match the same request host
+// as some host in b.
+func HostSetsOverlap(a, b []string) bool {
+	for _, x := range a {
+		for _, y := range b {
+			if HostsOverlap(x, y) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // wildcardCovers reports whether pattern "*.example.com" matches host, i.e. the

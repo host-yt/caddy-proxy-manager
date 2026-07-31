@@ -1890,19 +1890,15 @@ func (s *Service) routePresenceAndHostClash(ctx context.Context, client *caddyap
 		return false, false, err
 	}
 	caddyID := fmt.Sprintf("route_%d", routeID)
-	want := make(map[string]bool, len(hosts))
-	for _, h := range hosts {
-		want[h] = true
-	}
 	for _, obj := range arr {
 		if id, _ := obj["@id"].(string); id == caddyID {
 			present = true
 			continue
 		}
-		for _, h := range routeMatchHosts(obj) {
-			if want[h] {
-				sharesHost = true
-			}
+		// Wildcard-aware: an existing "*.example.com" catch-all also matches a
+		// new "app.example.com" and would shadow it if we merely appended.
+		if caddyapi.HostSetsOverlap(hosts, routeMatchHosts(obj)) {
+			sharesHost = true
 		}
 	}
 	return present, sharesHost, nil

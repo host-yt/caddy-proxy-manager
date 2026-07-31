@@ -137,3 +137,32 @@ func TestEmissionOrderDenyBeatsEqualSibling(t *testing.T) {
 		t.Fatalf("deny route not hoisted: %v", got)
 	}
 }
+
+func TestHostsOverlap(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want bool
+	}{
+		{"app.example.com", "app.example.com", true},
+		{"App.Example.com", " app.example.com ", true},
+		{"*.example.com", "app.example.com", true},
+		{"app.example.com", "*.example.com", true},
+		{"*.example.com", "*.example.com", true},
+		{"*.example.com", "a.b.example.com", false},
+		{"*.example.com", "example.com", false},
+		{"*.example.com", "*.other.com", false},
+		{"app.example.com", "other.example.com", false},
+		{"", "app.example.com", false},
+	}
+	for _, c := range cases {
+		if got := HostsOverlap(c.a, c.b); got != c.want {
+			t.Errorf("HostsOverlap(%q,%q) = %v, want %v", c.a, c.b, got, c.want)
+		}
+	}
+	if !HostSetsOverlap([]string{"x.test", "app.example.com"}, []string{"*.example.com"}) {
+		t.Error("HostSetsOverlap should find the wildcard pair")
+	}
+	if HostSetsOverlap([]string{"x.test"}, []string{"*.example.com"}) {
+		t.Error("HostSetsOverlap false positive")
+	}
+}

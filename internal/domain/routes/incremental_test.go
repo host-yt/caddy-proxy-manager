@@ -1,8 +1,14 @@
 package routes
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 )
 
 func TestRouteMatchHosts(t *testing.T) {
@@ -35,5 +41,62 @@ func TestIsNotFound(t *testing.T) {
 	}
 	if isNotFound(errors.New("caddy DELETE /id/route_1: 500 Internal Server Error")) {
 		t.Error("500 is not a 404")
+	}
+}
+
+// A permissive "*.example.com" catch-all already on the node must be detected as
+// a clash for a new concrete "app.example.com" route, forcing a full resync -
+// otherwise the append lands after the wildcard and the gate never runs.
+func TestRoutePresenceAndHostClashWildcardOverlap(t *testing.T) {
+	node := []map[string]any{
+		{"@id": "route_1", "match": []any{map[string]any{"host": []any{"*.example.com"}}}},
+		{"@id": "route_9", "match": []any{map[string]any{"host": []any{"other.test"}}}},
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/config/apps/http/servers/srv0/routes" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(node)
+	}))
+	defer srv.Close()
+
+	s := &Service{}
+	client := caddyapi.New(srv.URL)
+
+	cases := []struct {
+		name  string
+		hosts []string
+		want  bool
+	}{
+		{"concrete under existing wildcard", []string{"app.example.com"}, true},
+		{"case-insensitive", []string{"APP.Example.COM"}, true},
+		{"exact wildcard twin", []string{"*.example.com"}, true},
+		{"deeper label not covered", []string{"a.b.example.com"}, false},
+		{"unrelated host", []string{"nope.test"}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			_, sharesHost, err := s.routePresenceAndHostClash(context.Background(), client, 42, tc.hosts)
+			if err != nil {
+				t.Fatalf("probe: %v", err)
+			}
+			if sharesHost != tc.want {
+				t.Fatalf("sharesHost = %v, want %v", sharesHost, tc.want)
+			}
+		})
+	}
+}
+
+// Full-config ordering must put the gated concrete host ahead of the permissive
+// wildcard - the invariant the incremental clash probe falls back to.
+func TestEmissionOrderGatedHostBeforeWildcard(t *testing.T) {
+	rs := []caddyapi.Route{
+		{Hosts: []string{"*.example.com"}},
+		{Hosts: []string{"app.example.com"}, PathPrefix: "/secure", BasicAuthUser: "admin"},
+	}
+	got := caddyapi.SortRoutesForEmission(rs)
+	if got[0].PathPrefix != "/secure" {
+		t.Fatalf("gated route must be emitted first, got %+v", got[0].Hosts)
 	}
 }
