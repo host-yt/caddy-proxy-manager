@@ -243,10 +243,6 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// A pre-upgrade replica still serving traffic ignores restricted-admin
 	// confinement and auth epochs; this side can only shout about it.
 	sessions.StartLegacyWatch(context.Background(), logger)
-	// Announce our session generation so a FUTURE upgrade (one where both
-	// binaries know about this heartbeat) can fence readiness on it - this
-	// release's old binary predates the mechanism and cannot be fenced.
-	sessions.StartGenerationHeartbeat(context.Background(), logger)
 
 	// Seed ACME CA settings from DB so they survive restarts without env vars.
 	bindDBWhenReady(func(db *sql.DB) {
@@ -646,6 +642,23 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		GenerationCheck: sessions.FleetGenerationReady,
 		Logger:          logger,
 	}
+
+	// Announce our session generation so a FUTURE upgrade (one where both
+	// binaries know about this heartbeat) can fence readiness on it - this
+	// release's old binary predates the mechanism and cannot be fenced. Bound
+	// to rootCtx and gated on local readiness: an instance that cannot serve
+	// must never hold the fleet's newest generation.
+	sessions.StartGenerationHeartbeat(rootCtx, logger, health.LocalServingReady)
+	// A newer generation owning the fleet means this binary's more permissive
+	// session handling must stop now; drain via the normal shutdown path.
+	go func() {
+		select {
+		case <-rootCtx.Done():
+		case <-sessions.FleetFenceTripped():
+			logger.Error("newer session generation is live in the fleet - draining this replica")
+			stop()
+		}
+	}()
 
 	// Boot push: re-pushes DB config to every enabled node so a Caddy
 	// restart (lost autosave) self-heals without waiting for drift probe.

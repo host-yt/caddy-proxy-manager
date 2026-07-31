@@ -297,22 +297,30 @@ Remote Caddy nodes are stateless and scale horizontally. Each node is a single C
 ### Upgrades after this one: the generation fence
 
 From this release on, every `app` replica heartbeats its session-schema *generation* into Redis
-(`hpg:fleet:<gen>:<id>`, 20s TTL) and `/readyz` uses it. The fence is **ordered, not symmetric**:
+(`hpg:fleet:<gen>:<id>`, 20s TTL) and both `/readyz` and the request path use it. The fence is
+**ordered, not symmetric**:
 
+- A replica **advertises** its generation only while its own serving prerequisites pass (DB
+  reachable, Redis reachable, install state sane). A replica that cannot serve withdraws its key
+  immediately, so a broken new replica can never take the fleet's newest generation hostage.
 - A replica is ready only while (a) its own heartbeat is published and fresh, and (b) **no strictly
-  newer generation** is live in the fleet.
-- So during a rolling upgrade the *new* replicas go ready immediately and the *old* ones drop out of
-  the load balancer as soon as the first new replica publishes. Traffic is never served by the more
-  lenient binary, and there is always at least one ready replica - a plain rolling deploy converges
-  on its own once the old replicas are retired and their keys expire.
+  newer generation** is advertised in the fleet.
+- Once an older replica sees a newer generation it stops serving **at once**: requests get
+  `503` (including on already-open keep-alive/HTTP2 connections) and the process starts a graceful
+  shutdown instead of waiting for the load balancer to notice `/readyz`. Expect old containers to
+  exit shortly after the first healthy new replica publishes - remove them rather than leaving a
+  restart policy to loop them.
+- So during a rolling upgrade the *new* replicas go ready as soon as they are healthy and the *old*
+  ones drain. Traffic is never served by the more lenient binary, and there is always at least one
+  ready replica as long as one replica is healthy.
 - A replica that cannot write its heartbeat (Redis down, read-only replica, wiped keyspace) stays
   **unready**. If `/readyz` reports `cluster-generation: fail` on every replica, check Redis
   write availability first.
 
-**Rolling *back* to an older generation is not automatic.** Older replicas will refuse to serve
-while any newer-generation replica is still heartbeating (that is the point - the older binary is
-the lenient one). To downgrade: stop *all* replicas of the newer generation, wait ~20s for their
-fleet keys to expire, then start the older ones.
+**Rolling *back* to an older generation is not automatic.** Older replicas refuse to serve while any
+newer-generation replica is advertising (that is the point - the older binary is the lenient one),
+and the refusal latches for the life of the process. To downgrade: stop *all* replicas of the newer
+generation, wait ~20s for their fleet keys to expire, then start the older ones fresh.
 
 Always take a database backup before upgrading (see section 6). Migrations run automatically on startup via the embedded goose runner and are idempotent.
 

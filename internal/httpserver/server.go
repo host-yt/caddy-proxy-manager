@@ -147,6 +147,9 @@ func (s *Server) routes() {
 	r.Use(slogRequestLogger(s.deps.Logger))
 	r.Use(chimw.Timeout(30_000_000_000))
 	r.Use(installRedirectMiddleware(s.deps.InstallState))
+	// Enforce the session-generation fence before any session is loaded, so a
+	// pre-existing connection cannot keep authenticating against this replica.
+	r.Use(mw.GenerationFence(s.deps.Sessions.FleetFenceActive))
 	r.Use(mw.LoadSession(s.deps.Sessions))
 	if s.deps.SlaveMode {
 		r.Use(mw.SlaveReadOnly)

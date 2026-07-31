@@ -3,19 +3,35 @@ package auth
 import (
 	"context"
 	"errors"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // startedManager brings up a replica on gen with its heartbeat already
-// published; the context is cancelled so the ticker goroutine cannot race the
-// non-locking fakeRedis map.
+// published. The context is cancelled only at cleanup, so the ticker goroutine
+// cannot race the non-locking fakeRedis map during the test.
 func startedManager(t *testing.T, f *fakeRedis, gen int) *Manager {
 	t.Helper()
-	m := testManager(f)
+	return startedManagerReady(t, f, gen, nil)
+}
+
+func startedManagerReady(t *testing.T, r sessionRedis, gen int, localReady func(context.Context) error) *Manager {
+	t.Helper()
+	m := NewSessionManager(nil, "hpg_session", false, "lax", time.Hour)
+	m.rdb = r
 	ctx, cancel := context.WithCancel(context.Background())
-	m.startFleetBeacon(ctx, nil, gen)
-	cancel()
+	m.startFleetBeacon(ctx, nil, gen, localReady)
+	// Wait for the beacon goroutine to finish withdrawing, so its Redis writes
+	// cannot race a peer's cleanup on the same fake.
+	t.Cleanup(func() {
+		cancel()
+		<-m.fleet.Load().stopped
+	})
 	return m
 }
 
@@ -128,6 +144,191 @@ func TestFleetGenerationScanError(t *testing.T) {
 
 	if err := m.FleetGenerationReady(context.Background()); err == nil {
 		t.Fatal("a scan failure must not be reported as ready")
+	}
+}
+
+// ttlRedis is a sessionRedis with real key expiry on a manual clock, so a
+// surge/drain rollout can be replayed without sleeping 20 real seconds.
+type ttlRedis struct {
+	mu   sync.Mutex
+	now  time.Time
+	vals map[string]ttlVal
+}
+
+type ttlVal struct {
+	v   string
+	exp time.Time
+}
+
+func newTTLRedis() *ttlRedis {
+	return &ttlRedis{now: time.Unix(1_700_000_000, 0), vals: map[string]ttlVal{}}
+}
+
+func (r *ttlRedis) advance(d time.Duration) {
+	r.mu.Lock()
+	r.now = r.now.Add(d)
+	r.mu.Unlock()
+}
+
+func (r *ttlRedis) live() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var keys []string
+	for k, v := range r.vals {
+		if v.exp.After(r.now) {
+			keys = append(keys, k)
+		}
+	}
+	return keys
+}
+
+func (r *ttlRedis) Get(_ context.Context, key string) *redis.StringCmd {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	v, ok := r.vals[key]
+	if !ok || !v.exp.After(r.now) {
+		return redis.NewStringResult("", redis.Nil)
+	}
+	return redis.NewStringResult(v.v, nil)
+}
+
+func (r *ttlRedis) Set(_ context.Context, key string, value any, ttl time.Duration) *redis.StatusCmd {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	s, _ := value.(string)
+	r.vals[key] = ttlVal{v: s, exp: r.now.Add(ttl)}
+	return redis.NewStatusResult("OK", nil)
+}
+
+func (r *ttlRedis) Del(_ context.Context, keys ...string) *redis.IntCmd {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var n int64
+	for _, k := range keys {
+		if _, ok := r.vals[k]; ok {
+			delete(r.vals, k)
+			n++
+		}
+	}
+	return redis.NewIntResult(n, nil)
+}
+
+func (r *ttlRedis) Scan(_ context.Context, _ uint64, match string, _ int64) *redis.ScanCmd {
+	prefix := strings.TrimSuffix(match, "*")
+	var keys []string
+	for _, k := range r.live() {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
+		}
+	}
+	return redis.NewScanCmdResult(keys, 0, nil)
+}
+
+// TestUnhealthyNewerReplicaDoesNotWedgeFleet is the surge-then-drain case: a
+// newer replica whose DB never comes up must not advertise its generation,
+// or every healthy older replica yields to it and the fleet has zero ready
+// instances for as long as the broken process keeps refreshing its key.
+func TestUnhealthyNewerReplicaDoesNotWedgeFleet(t *testing.T) {
+	r := newTTLRedis()
+	ctx := context.Background()
+	broken := errors.New("db: connection refused")
+	newReady := func(context.Context) error { return broken }
+
+	oldA := startedManagerReady(t, r, ClusterGeneration, nil)
+	oldB := startedManagerReady(t, r, ClusterGeneration, nil)
+	newC := startedManagerReady(t, r, ClusterGeneration+1, func(c context.Context) error { return newReady(c) })
+
+	mustReady := func(step string, m *Manager) {
+		t.Helper()
+		if err := m.FleetGenerationReady(ctx); err != nil {
+			t.Fatalf("%s: expected ready, got %v", step, err)
+		}
+	}
+
+	mustReady("surge with broken new replica: old A", oldA)
+	mustReady("surge with broken new replica: old B", oldB)
+	if err := newC.FleetGenerationReady(ctx); !errors.Is(err, ErrFleetNotPublished) {
+		t.Fatalf("unhealthy replica must not be ready, got %v", err)
+	}
+	if len(r.live()) != 2 {
+		t.Fatalf("broken replica must not advertise; live keys = %v", r.live())
+	}
+
+	// Past the 20s TTL the old replicas keep beating and stay ready - the
+	// broken one never converts its unreadiness into a fleet-wide outage.
+	for i := 0; i < 3; i++ {
+		r.advance(fleetHeartbeatEvery)
+		oldA.refreshFleetBeat(ctx, nil)
+		oldB.refreshFleetBeat(ctx, nil)
+		newC.refreshFleetBeat(ctx, nil)
+	}
+	mustReady("after TTL window: old A", oldA)
+	mustReady("after TTL window: old B", oldB)
+
+	// The new replica recovers, advertises, and only then do the old ones yield.
+	newReady = func(context.Context) error { return nil }
+	newC.refreshFleetBeat(ctx, nil)
+	mustReady("recovered new replica", newC)
+	if err := oldA.FleetGenerationReady(ctx); !errors.Is(err, ErrFleetNewerGeneration) {
+		t.Fatalf("old replica must yield once a healthy newer one advertises, got %v", err)
+	}
+}
+
+// TestFleetBeaconWithdrawsWhenReadinessLost: losing local readiness must pull
+// the advertisement out of Redis, not just stop refreshing it.
+func TestFleetBeaconWithdrawsWhenReadinessLost(t *testing.T) {
+	r := newTTLRedis()
+	ctx := context.Background()
+	var healthy atomic.Bool
+	healthy.Store(true)
+	m := startedManagerReady(t, r, ClusterGeneration, func(context.Context) error {
+		if healthy.Load() {
+			return nil
+		}
+		return errors.New("db down")
+	})
+	if err := m.FleetGenerationReady(ctx); err != nil {
+		t.Fatalf("precondition: healthy replica should be ready, got %v", err)
+	}
+
+	healthy.Store(false)
+	m.refreshFleetBeat(ctx, nil)
+	if len(r.live()) != 0 {
+		t.Fatalf("advertisement must be withdrawn, live keys = %v", r.live())
+	}
+	if err := m.FleetGenerationReady(ctx); !errors.Is(err, ErrFleetNotPublished) {
+		t.Fatalf("want ErrFleetNotPublished after withdrawal, got %v", err)
+	}
+}
+
+// TestFleetFenceLatchesForRequestPath: the request-path fence is cached (no
+// Redis per request), trips a drain signal, and never un-latches - a replica
+// that once saw a newer generation must not resume serving.
+func TestFleetFenceLatchesForRequestPath(t *testing.T) {
+	f := newFakeRedis()
+	m := startedManager(t, f, ClusterGeneration)
+	if m.FleetFenceActive() {
+		t.Fatal("fence must be inactive on a clean fleet")
+	}
+
+	f.vals[fleetKeyPrefix+"99:cafe"] = "1"
+	m.refreshFleetBeat(context.Background(), nil)
+	if !m.FleetFenceActive() {
+		t.Fatal("fence must trip once a newer generation is live")
+	}
+	select {
+	case <-m.FleetFenceTripped():
+	default:
+		t.Fatal("drain signal must fire when the fence trips")
+	}
+
+	delete(f.vals, fleetKeyPrefix+"99:cafe")
+	m.refreshFleetBeat(context.Background(), nil)
+	if !m.FleetFenceActive() {
+		t.Fatal("fence must stay latched after the newer peer disappears")
+	}
+	if err := m.FleetGenerationReady(context.Background()); !errors.Is(err, ErrFleetNewerGeneration) {
+		t.Fatalf("readiness must stay fenced, got %v", err)
 	}
 }
 

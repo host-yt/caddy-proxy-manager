@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"sync/atomic"
@@ -48,47 +50,10 @@ func (h *Health) Live(w http.ResponseWriter, _ *http.Request) {
 // and that the install state is healthy. 503 on any check failure.
 func (h *Health) Ready(w http.ResponseWriter, r *http.Request) {
 	checks := map[string]string{}
-	allOK := true
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 
-	// DB.
-	if db := h.DB(); db != nil {
-		if err := db.PingContext(ctx); err != nil {
-			h.logCheckFail("db", err)
-			checks["db"] = "fail"
-			allOK = false
-		} else {
-			checks["db"] = "ok"
-		}
-	} else if h.Installed != nil && h.Installed() {
-		checks["db"] = "fail"
-		allOK = false
-	} else {
-		checks["db"] = "skip: pre-install"
-	}
-
-	// Redis.
-	if h.RDB != nil {
-		if err := h.RDB.Ping(ctx).Err(); err != nil {
-			h.logCheckFail("redis", err)
-			checks["redis"] = "fail"
-			allOK = false
-		} else {
-			checks["redis"] = "ok"
-		}
-	}
-
-	// Install state.
-	if h.Installed != nil {
-		if h.Installed() {
-			checks["install"] = "ok"
-		} else {
-			checks["install"] = "pending"
-			// Pre-install panel is still "ready to serve the wizard",
-			// just not the full app. Don't fail readyz for it.
-		}
-	}
+	allOK := h.checkLocal(ctx, checks) == nil
 
 	// Fleet generation. Serving while a newer generation is live would let a
 	// confined admin reach this more lenient replica; not being visible to the
@@ -119,6 +84,68 @@ func (h *Health) Ready(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusServiceUnavailable, HealthResponse{Status: "degraded", Checks: checks})
+}
+
+// LocalServingReady reports this process's own serving prerequisites, i.e.
+// everything /readyz checks except the fleet fence. The generation beacon uses
+// it so a replica that cannot serve never advertises its generation and so
+// cannot wedge healthy older replicas into permanent unreadiness.
+func (h *Health) LocalServingReady(ctx context.Context) error {
+	return h.checkLocal(ctx, nil)
+}
+
+// checkLocal runs the DB/Redis/install prerequisites, recording each outcome in
+// checks when non-nil, and returns the first failure.
+func (h *Health) checkLocal(ctx context.Context, checks map[string]string) error {
+	set := func(k, v string) {
+		if checks != nil {
+			checks[k] = v
+		}
+	}
+	var firstErr error
+	fail := func(name string, err error) {
+		h.logCheckFail(name, err)
+		set(name, "fail")
+		if firstErr == nil {
+			firstErr = fmt.Errorf("%s: %w", name, err)
+		}
+	}
+
+	var db *sql.DB
+	if h.DB != nil {
+		db = h.DB()
+	}
+	switch {
+	case db != nil:
+		if err := db.PingContext(ctx); err != nil {
+			fail("db", err)
+		} else {
+			set("db", "ok")
+		}
+	case h.Installed != nil && h.Installed():
+		fail("db", errors.New("no pool after install"))
+	default:
+		set("db", "skip: pre-install")
+	}
+
+	if h.RDB != nil {
+		if err := h.RDB.Ping(ctx).Err(); err != nil {
+			fail("redis", err)
+		} else {
+			set("redis", "ok")
+		}
+	}
+
+	// Pre-install panel is still "ready to serve the wizard", just not the
+	// full app - not a failure.
+	if h.Installed != nil {
+		if h.Installed() {
+			set("install", "ok")
+		} else {
+			set("install", "pending")
+		}
+	}
+	return firstErr
 }
 
 // logCheckFail keeps infra error detail (hostnames, ports, driver errors)

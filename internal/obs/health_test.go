@@ -54,6 +54,26 @@ func TestReadyFailsOnGenerationCheckError(t *testing.T) {
 	}
 }
 
+// TestLocalServingReadyGatesTheBeacon: the generation beacon must advertise
+// only when this process can serve on its own merits, and must ignore the
+// fence itself (otherwise a fenced replica could never withdraw cleanly).
+func TestLocalServingReadyGatesTheBeacon(t *testing.T) {
+	installed := true
+	h := &Health{
+		DB:              noDB,
+		Installed:       func() bool { return installed },
+		GenerationCheck: func(context.Context) error { return errors.New("newer generation live") },
+	}
+	if err := h.LocalServingReady(context.Background()); err == nil {
+		t.Fatal("installed panel without a DB pool must not advertise a generation")
+	}
+
+	installed = false
+	if err := h.LocalServingReady(context.Background()); err != nil {
+		t.Fatalf("pre-install panel serves the wizard and must advertise, got %v", err)
+	}
+}
+
 // TestReadyOKWithoutIncompatiblePeer confirms a clean fleet (or no check
 // wired at all) still passes readiness.
 func TestReadyOKWithoutIncompatiblePeer(t *testing.T) {

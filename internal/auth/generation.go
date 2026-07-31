@@ -25,6 +25,10 @@ const (
 	// One missed beat is tolerated; past this the fleet is about to lose our
 	// key (TTL 20s) and we must stop admitting traffic before it does.
 	fleetPublishGrace = 16 * time.Second
+	// Withdrawal must still land after the serving context is cancelled.
+	fleetWithdrawTimeout = 2 * time.Second
+	// A hung DB must not stall the beacon loop; a timeout counts as unready.
+	fleetReadyTimeout = 3 * time.Second
 )
 
 var (
@@ -40,15 +44,32 @@ var (
 // publish actually succeeded. gen is a field, not the constant, so a
 // two-generation rollout is testable in one process.
 type fleetBeacon struct {
-	key    string
-	gen    int
-	mu     sync.Mutex
-	lastOK time.Time
+	key string
+	gen int
+	// localReady gates advertising: we must not claim a generation we cannot
+	// actually serve, or every older peer yields to a replica that never works.
+	localReady func(context.Context) error
+	mu         sync.Mutex
+	lastOK     time.Time
+	// fenced latches once a newer generation is seen; the request path reads it
+	// without touching Redis, and it never un-latches (no flapping mid-drain).
+	fenced    bool
+	fencedCh  chan struct{}
+	fenceOnce sync.Once
+	// stopped closes once the beacon loop has withdrawn and exited.
+	stopped chan struct{}
 }
 
 func (b *fleetBeacon) markPublished(now time.Time) {
 	b.mu.Lock()
 	b.lastOK = now
+	b.mu.Unlock()
+}
+
+// markWithdrawn drops our advertisement so peers stop fencing against us.
+func (b *fleetBeacon) markWithdrawn() {
+	b.mu.Lock()
+	b.lastOK = time.Time{}
 	b.mu.Unlock()
 }
 
@@ -58,38 +79,88 @@ func (b *fleetBeacon) fresh(now time.Time) bool {
 	return !b.lastOK.IsZero() && now.Sub(b.lastOK) <= fleetPublishGrace
 }
 
+func (b *fleetBeacon) trip() {
+	b.mu.Lock()
+	b.fenced = true
+	b.mu.Unlock()
+	b.fenceOnce.Do(func() { close(b.fencedCh) })
+}
+
+func (b *fleetBeacon) isFenced() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.fenced
+}
+
 // StartGenerationHeartbeat announces this replica's generation in shared
 // state (TTL key, self-expiring on crash) so FleetGenerationReady can order
 // the fleet - the fence future rolling upgrades need but this release's old
-// binary predates.
-func (m *Manager) StartGenerationHeartbeat(ctx context.Context, logger *slog.Logger) {
-	m.startFleetBeacon(ctx, logger, ClusterGeneration)
+// binary predates. localReady must report this process's own serving
+// prerequisites (DB, Redis, install state); nil means "always ready".
+func (m *Manager) StartGenerationHeartbeat(ctx context.Context, logger *slog.Logger, localReady func(context.Context) error) {
+	m.startFleetBeacon(ctx, logger, ClusterGeneration, localReady)
 }
 
-func (m *Manager) startFleetBeacon(ctx context.Context, logger *slog.Logger, gen int) {
+func (m *Manager) startFleetBeacon(ctx context.Context, logger *slog.Logger, gen int, localReady func(context.Context) error) {
 	if m == nil || m.rdb == nil {
 		return
 	}
 	idBytes := make([]byte, 8)
 	_, _ = rand.Read(idBytes)
 	b := &fleetBeacon{
-		key: fmt.Sprintf("%s%d:%s", fleetKeyPrefix, gen, hex.EncodeToString(idBytes)),
-		gen: gen,
+		key:        fmt.Sprintf("%s%d:%s", fleetKeyPrefix, gen, hex.EncodeToString(idBytes)),
+		gen:        gen,
+		localReady: localReady,
+		fencedCh:   make(chan struct{}),
+		stopped:    make(chan struct{}),
 	}
 	m.fleet.Store(b)
-	m.publishFleetBeat(ctx, logger)
+	m.refreshFleetBeat(ctx, logger)
 	go func() {
+		defer close(b.stopped)
 		t := time.NewTicker(fleetHeartbeatEvery)
 		defer t.Stop()
 		for {
 			select {
 			case <-ctx.Done():
+				// Tie the advertisement to the serving lifecycle: on shutdown
+				// peers must see us leave immediately, not after the TTL.
+				m.withdrawFleetBeat(logger, "shutdown")
 				return
 			case <-t.C:
-				m.publishFleetBeat(ctx, logger)
+				m.refreshFleetBeat(ctx, logger)
 			}
 		}
 	}()
+}
+
+// refreshFleetBeat publishes (or withdraws) our advertisement and refreshes
+// the cached fence state the request path reads.
+func (m *Manager) refreshFleetBeat(ctx context.Context, logger *slog.Logger) {
+	b := m.fleet.Load()
+	if b == nil {
+		return
+	}
+	if b.localReady != nil {
+		rctx, cancel := context.WithTimeout(ctx, fleetReadyTimeout)
+		err := b.localReady(rctx)
+		cancel()
+		if err != nil {
+			m.withdrawFleetBeat(logger, err.Error())
+			m.refreshFleetFence(ctx, b)
+			return
+		}
+	}
+	m.publishFleetBeat(ctx, logger)
+	m.refreshFleetFence(ctx, b)
+}
+
+// refreshFleetFence caches whether a strictly newer generation is live so
+// per-request enforcement costs no Redis round-trip.
+func (m *Manager) refreshFleetFence(ctx context.Context, b *fleetBeacon) {
+	if _, newest, err := m.scanFleet(ctx, b.key, b.gen); err == nil && newest > b.gen {
+		b.trip()
+	}
 }
 
 // publishFleetBeat refreshes our heartbeat key. On failure lastOK is left
@@ -109,14 +180,34 @@ func (m *Manager) publishFleetBeat(ctx context.Context, logger *slog.Logger) {
 	b.markPublished(now)
 }
 
+// withdrawFleetBeat retracts our generation claim. Used when this replica
+// cannot serve locally: holding the newest generation while broken would keep
+// every healthy older replica unready forever.
+func (m *Manager) withdrawFleetBeat(logger *slog.Logger, reason string) {
+	b := m.fleet.Load()
+	if b == nil {
+		return
+	}
+	b.markWithdrawn()
+	ctx, cancel := context.WithTimeout(context.Background(), fleetWithdrawTimeout)
+	defer cancel()
+	if err := m.rdb.Del(ctx, b.key).Err(); err != nil && logger != nil {
+		logger.Warn("fleet generation withdrawal failed", "reason", reason, "err", err)
+		return
+	}
+	if logger != nil {
+		logger.Warn("withdrew fleet generation advertisement", "reason", reason)
+	}
+}
+
 // FleetGenerationReady reports whether this replica may admit traffic.
 //
 // The fence is asymmetric and ordered by generation number: a replica serves
 // only while it is publishing its own heartbeat AND no strictly newer
-// generation is live. Symmetric mutual exclusion would deadlock a rolling
-// upgrade (neither side could ever become ready); with ordering the newest
-// generation present is always allowed to serve, so the fleet converges:
-// new replicas go ready immediately, old ones drain, and their keys expire.
+// generation is live. Only a locally healthy replica advertises at all, so the
+// highest advertised generation is always one that can actually serve.
+// Symmetric mutual exclusion would deadlock a rolling upgrade; with ordering
+// the newest healthy generation present always serves and the fleet converges.
 func (m *Manager) FleetGenerationReady(ctx context.Context) error {
 	if m == nil || m.rdb == nil {
 		return nil
@@ -124,6 +215,9 @@ func (m *Manager) FleetGenerationReady(ctx context.Context) error {
 	b := m.fleet.Load()
 	if b == nil {
 		return ErrFleetNotPublished
+	}
+	if b.isFenced() {
+		return ErrFleetNewerGeneration
 	}
 	if !b.fresh(time.Now()) {
 		return ErrFleetNotPublished
@@ -138,9 +232,34 @@ func (m *Manager) FleetGenerationReady(ctx context.Context) error {
 		return ErrFleetNotPublished
 	}
 	if newest > b.gen {
+		b.trip()
 		return fmt.Errorf("%w: generation %d", ErrFleetNewerGeneration, newest)
 	}
 	return nil
+}
+
+// FleetFenceActive is the cached, allocation-free fence read for the request
+// path: true once a newer generation owns the fleet and this binary's more
+// permissive session handling must stop serving.
+func (m *Manager) FleetFenceActive() bool {
+	if m == nil {
+		return false
+	}
+	b := m.fleet.Load()
+	return b != nil && b.isFenced()
+}
+
+// FleetFenceTripped closes when a newer generation appears, so the server can
+// start draining instead of waiting for an external controller to notice.
+func (m *Manager) FleetFenceTripped() <-chan struct{} {
+	if m == nil {
+		return nil
+	}
+	b := m.fleet.Load()
+	if b == nil {
+		return nil
+	}
+	return b.fencedCh
 }
 
 // scanFleet returns whether selfKey is present and the highest generation

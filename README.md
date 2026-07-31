@@ -267,8 +267,10 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 > non-rolling cutover (drain old replicas → purge legacy Redis sessions → start
 > new replicas): a pre-1.4.4 binary ignores restricted-admin session
 > confinement and cannot be fenced. Upgrades *after* this one roll normally -
-> replicas fence themselves by session generation, newest serves and older
-> ones go unready. Downgrades still need a full stop. See "Upgrading" in
+> replicas fence themselves by session generation: only a replica that can
+> actually serve advertises one, the newest generation serves, and older
+> replicas stop serving (503, existing connections included) and shut down.
+> Downgrades still need a full stop. See "Upgrading" in
 > [`docs/DEPLOY.md`](docs/DEPLOY.md#8-upgrading).
 
 | Doc | What's in it |
