@@ -3,8 +3,12 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
 // legacyWatchInterval is how often we look for an old replica still minting.
@@ -20,6 +24,7 @@ func (m *Manager) LegacyMintingDetected(ctx context.Context, since time.Time) (b
 		return false, nil
 	}
 	var cursor uint64
+	var decodeErrs int
 	for {
 		keys, next, err := m.rdb.Scan(ctx, cursor, legacySessionKeyPrefix+"*", 200).Result()
 		if err != nil {
@@ -30,10 +35,16 @@ func (m *Manager) LegacyMintingDetected(ctx context.Context, since time.Time) (b
 		for _, k := range keys {
 			b, gerr := m.rdb.Get(ctx, k).Bytes()
 			if gerr != nil {
-				continue
+				if errors.Is(gerr, redis.Nil) {
+					continue // expired between SCAN and GET, not a decode failure
+				}
+				return false, gerr
 			}
 			var s Session
 			if json.Unmarshal(b, &s) != nil {
+				// A corrupt session record is itself an anomaly; don't let it
+				// masquerade as "no legacy sessions found".
+				decodeErrs++
 				continue
 			}
 			if s.CreatedAt.After(since) {
@@ -42,9 +53,13 @@ func (m *Manager) LegacyMintingDetected(ctx context.Context, since time.Time) (b
 		}
 		cursor = next
 		if cursor == 0 {
-			return false, nil
+			break
 		}
 	}
+	if decodeErrs > 0 {
+		return false, fmt.Errorf("legacy-session watch: %d key(s) failed to decode", decodeErrs)
+	}
+	return false, nil
 }
 
 // StartLegacyWatch warns for as long as a mixed-version fleet is serving.

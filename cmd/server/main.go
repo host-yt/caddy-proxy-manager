@@ -49,11 +49,11 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/mail"
 	"github.com/host-yt/caddy-proxy-manager/internal/metrics"
 	"github.com/host-yt/caddy-proxy-manager/internal/nodejoin"
-	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/notify"
 	"github.com/host-yt/caddy-proxy-manager/internal/oauth2x"
 	"github.com/host-yt/caddy-proxy-manager/internal/obs"
 	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
+	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -243,6 +243,10 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// A pre-upgrade replica still serving traffic ignores restricted-admin
 	// confinement and auth epochs; this side can only shout about it.
 	sessions.StartLegacyWatch(context.Background(), logger)
+	// Announce our session generation so a FUTURE upgrade (one where both
+	// binaries know about this heartbeat) can fence readiness on it - this
+	// release's old binary predates the mechanism and cannot be fenced.
+	sessions.StartGenerationHeartbeat(context.Background(), logger)
 
 	// Seed ACME CA settings from DB so they survive restarts without env vars.
 	bindDBWhenReady(func(db *sql.DB) {
@@ -635,11 +639,12 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	go leaderElec.Run(rootCtx)
 
 	health := &obs.Health{
-		DB:        wizard.DB,
-		RDB:       rdb,
-		IsLeader:  leaderElec.IsLeader,
-		Installed: state.IsInstalled,
-		Logger:    logger,
+		DB:              wizard.DB,
+		RDB:             rdb,
+		IsLeader:        leaderElec.IsLeader,
+		Installed:       state.IsInstalled,
+		GenerationCheck: sessions.IncompatibleGenerationPresent,
+		Logger:          logger,
 	}
 
 	// Boot push: re-pushes DB config to every enabled node so a Caddy

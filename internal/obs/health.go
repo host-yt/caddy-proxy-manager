@@ -21,7 +21,12 @@ type Health struct {
 	RDB       *redis.Client
 	IsLeader  func() bool
 	Installed func() bool
-	ReadySeen atomic.Bool // set true after first successful boot
+	// GenerationCheck reports whether a fleet peer on an incompatible session
+	// generation is present (mixed-version rolling upgrade). Ready() fails
+	// while true, since that peer ignores this version's Restricted/Epoch
+	// enforcement. Optional - nil skips the check.
+	GenerationCheck func(ctx context.Context) (bool, error)
+	ReadySeen       atomic.Bool // set true after first successful boot
 	// Logger, when set, receives the raw check error server-side; the
 	// unauthenticated /readyz response only ever gets "ok"/"fail".
 	Logger *slog.Logger
@@ -82,6 +87,22 @@ func (h *Health) Ready(w http.ResponseWriter, r *http.Request) {
 			checks["install"] = "pending"
 			// Pre-install panel is still "ready to serve the wizard",
 			// just not the full app. Don't fail readyz for it.
+		}
+	}
+
+	// Fleet generation. An incompatible peer means this fleet is mid rolling
+	// upgrade and the old/new binary doesn't enforce Restricted/Epoch - refuse
+	// to serve rather than risk a confined admin reaching a lenient replica.
+	if h.GenerationCheck != nil {
+		if incompatible, err := h.GenerationCheck(ctx); err != nil {
+			h.logCheckFail("cluster-generation", err)
+			checks["cluster-generation"] = "fail"
+			allOK = false
+		} else if incompatible {
+			checks["cluster-generation"] = "fail"
+			allOK = false
+		} else {
+			checks["cluster-generation"] = "ok"
 		}
 	}
 

@@ -278,6 +278,22 @@ Remote Caddy nodes are stateless and scale horizontally. Each node is a single C
 
 ## 8. Upgrading
 
+> **If you run more than one `app` replica: this must be a non-rolling cutover, not a rolling deploy.**
+> An old `app` binary ignores the `Restricted`/`Epoch` session fields a confined admin's session
+> carries. If a rolling deploy leaves an old replica up while new sessions are minted, a
+> restricted/reseller admin can hit that old replica and be treated as an unrestricted platform
+> admin. Session storage is namespaced per schema version (`hpg:sess2:` vs the old `hpg:sess:`)
+> so a *new* replica never misreads an old session - but nothing stops an *old* replica from
+> still being reachable and minting/serving its own. Steps:
+> 1. **Drain** all old `app` replicas from the load balancer (stop routing traffic to them).
+> 2. **Stop** the old replicas so they cannot mint or serve sessions.
+> 3. **Purge legacy sessions**: `redis-cli --scan --pattern 'hpg:sess:*' | xargs -r redis-cli DEL`
+>    (safe no-op if nothing matches; nothing mints into that namespace after this release).
+> 4. **Start** the new replicas and confirm `/readyz` is `200` on all of them before admitting
+>    traffic.
+>
+> Single-replica deploys are unaffected - there is no old replica to race.
+
 Always take a database backup before upgrading (see section 6). Migrations run automatically on startup via the embedded goose runner and are idempotent.
 
 ```bash

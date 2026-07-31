@@ -263,6 +263,11 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 
 ## Documentation
 
+> **Running more than one `app` replica?** Upgrades must be a non-rolling
+> cutover (drain old replicas → purge legacy Redis sessions → start new
+> replicas) - see "Upgrading" in [`docs/DEPLOY.md`](docs/DEPLOY.md#8-upgrading).
+> An old binary ignores restricted-admin session confinement.
+
 | Doc | What's in it |
 | --- | ------------ |
 | [`docs/INSTALL.md`](docs/INSTALL.md) | Step-by-step first-deploy |

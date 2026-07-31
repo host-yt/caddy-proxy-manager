@@ -2,6 +2,12 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## [Unreleased]
+
+### Security
+
+- **Rolling upgrades left old `app` replicas able to serve unrestricted legacy sessions**: an old binary ignores `Restricted`/`Epoch` and treats a confined admin's session as an unrestricted platform admin. `docs/DEPLOY.md` now documents the required non-rolling cutover (drain old replicas → purge `hpg:sess:*` → start new replicas) for this release, since an already-deployed old binary cannot be patched from here. Future upgrades get a real fence: each replica now heartbeats its session-schema generation in Redis and `/readyz` fails while an incompatible generation is present in the fleet (`internal/auth/generation.go`, wired into `internal/obs.Health`). Also fixed: a corrupt legacy session record was silently skipped by the legacy-minting watch instead of being reported as an inconclusive check (`internal/auth/legacywatch.go`).
+
 ## [1.4.3] - 2026-07-31
 
 ### Added
