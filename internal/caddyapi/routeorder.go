@@ -3,6 +3,8 @@ package caddyapi
 import (
 	"sort"
 	"strings"
+
+	"golang.org/x/net/idna"
 )
 
 // Route emission order. Caddy matches srv0.routes top-down and every route we
@@ -48,15 +50,23 @@ func EmissionOrder(routes []Route) []int {
 	byHost := make(map[string][]int)
 	var hosts []string
 	for i, r := range routes {
+		n := 0
 		for _, h := range r.Hosts {
 			h = NormalizeHost(h)
 			if h == "" {
 				continue
 			}
+			n++
 			if _, seen := byHost[h]; !seen {
 				hosts = append(hosts, h)
 			}
 			byHost[h] = append(byHost[h], i)
+		}
+		// No host matcher at all is Caddy's catch-all: it shadows every sibling.
+		if n == 0 {
+			for j := range routes {
+				union(i, j)
+			}
 		}
 	}
 	for _, idxs := range byHost {
@@ -110,9 +120,23 @@ func SortRoutesForEmission(routes []Route) []Route {
 	return out
 }
 
-// NormalizeHost canonicalises a host matcher string for comparison.
+// NormalizeHost canonicalises a host matcher the way Caddy's MatchHost.Provision
+// does (IDNA-to-ASCII then lowercase), so a Unicode matcher and its punycode
+// twin compare equal instead of looking like two unrelated hosts.
 func NormalizeHost(h string) string {
-	return strings.ToLower(strings.TrimSpace(h))
+	h = strings.ToLower(strings.TrimSpace(h))
+	if h == "" {
+		return ""
+	}
+	// A root-dotted name and its bare form address the same host; collapsing
+	// them can only widen overlap, never hide one.
+	for len(h) > 1 && strings.HasSuffix(h, ".") {
+		h = h[:len(h)-1]
+	}
+	if ascii, err := idna.ToASCII(h); err == nil && ascii != "" {
+		h = strings.ToLower(ascii)
+	}
+	return h
 }
 
 // HostsOverlap reports whether two host matchers can match the same request
@@ -121,15 +145,25 @@ func NormalizeHost(h string) string {
 // newly appended gated route.
 func HostsOverlap(a, b string) bool {
 	a, b = NormalizeHost(a), NormalizeHost(b)
+	// An absent host matcher is Caddy's catch-all - it matches everything.
 	if a == "" || b == "" {
-		return false
+		return true
 	}
-	return a == b || wildcardCovers(a, b) || wildcardCovers(b, a)
+	// Anything we cannot model (placeholders, ports, partial-label wildcards)
+	// is assumed to overlap so the caller falls back to a safe full resync.
+	if !ValidHostMatcher(a) || !ValidHostMatcher(b) {
+		return true
+	}
+	return hostPatternsIntersect(a, b)
 }
 
 // HostSetsOverlap reports whether any host in a can match the same request host
-// as some host in b.
+// as some host in b. An empty set is a route with no host matcher, i.e. a
+// catch-all that overlaps every other route.
 func HostSetsOverlap(a, b []string) bool {
+	if hostSetIsCatchAll(a) || hostSetIsCatchAll(b) {
+		return true
+	}
 	for _, x := range a {
 		for _, y := range b {
 			if HostsOverlap(x, y) {
@@ -140,18 +174,78 @@ func HostSetsOverlap(a, b []string) bool {
 	return false
 }
 
-// wildcardCovers reports whether pattern "*.example.com" matches host, i.e. the
-// host is exactly one label deeper (Caddy's wildcard semantics).
-func wildcardCovers(pattern, host string) bool {
-	if !strings.HasPrefix(pattern, "*.") || strings.HasPrefix(host, "*.") {
+func hostSetIsCatchAll(hs []string) bool {
+	for _, h := range hs {
+		if NormalizeHost(h) != "" {
+			return false
+		}
+	}
+	return true
+}
+
+// hostPatternsIntersect mirrors MatchHost: both sides are split on ".", the
+// label counts must be equal, and a whole-label "*" matches any single label.
+// Two patterns intersect when every label pair can be satisfied at once.
+func hostPatternsIntersect(a, b string) bool {
+	la, lb := strings.Split(a, "."), strings.Split(b, ".")
+	if len(la) != len(lb) {
 		return false
 	}
-	suffix := pattern[1:] // ".example.com"
-	if !strings.HasSuffix(host, suffix) {
+	for i := range la {
+		if la[i] == "*" || lb[i] == "*" {
+			continue
+		}
+		if !strings.EqualFold(la[i], lb[i]) {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidHostMatcher reports whether a host matcher has a shape the overlap
+// predicate can reason about exactly. Write paths must reject the rest, because
+// an unmodellable matcher can only be handled by assuming it shadows everything.
+func ValidHostMatcher(h string) bool {
+	// Checked before NormalizeHost: that collapses a root dot for a conservative
+	// comparison, but "example.com." is its own literal matcher to Caddy.
+	if raw := strings.TrimSpace(h); raw == "" || strings.HasPrefix(raw, ".") || strings.HasSuffix(raw, ".") {
 		return false
 	}
-	label := strings.TrimSuffix(host, suffix)
-	return label != "" && !strings.Contains(label, ".")
+	h = NormalizeHost(h)
+	if h == "" || len(h) > 253 {
+		return false
+	}
+	// Placeholders expand at request time and ports never match (Caddy strips
+	// the port from the request host before comparing), so neither is modellable.
+	if strings.ContainsAny(h, "{}:/ \t\r\n") {
+		return false
+	}
+	if _, err := idna.ToASCII(h); err != nil {
+		return false
+	}
+	for _, label := range strings.Split(h, ".") {
+		if label == "*" {
+			continue
+		}
+		if label == "" || len(label) > 63 {
+			return false
+		}
+		// A "*" inside a label is not a wildcard for Caddy - it matches the
+		// literal star, i.e. nothing - so treat it as unsupported.
+		if strings.Contains(label, "*") {
+			return false
+		}
+		if label[0] == '-' || label[len(label)-1] == '-' {
+			return false
+		}
+		for i := 0; i < len(label); i++ {
+			c := label[i]
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-' || c == '_') {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // pathSpecificity ranks a route's path matcher by prefix containment: a longer

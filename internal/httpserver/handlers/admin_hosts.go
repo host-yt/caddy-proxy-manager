@@ -3457,8 +3457,9 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Same shape check Create enforces: an unvalidated edit let a verified route
-	// be re-pointed at any hostname (domain takeover).
-	if !routes.ValidDomain(domain) {
+	// be re-pointed at any hostname (domain takeover). ValidHostMatcher also
+	// keeps out forms the shadow-ordering predicate cannot model.
+	if !routes.ValidDomain(domain) || !caddyapi.ValidHostMatcher(domain) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "invalid domain")
 		return
 	}
@@ -4402,16 +4403,10 @@ func sanitizeAliases(raw, primary string) (string, error) {
 		if d == "" || d == primary || seen[d] {
 			continue
 		}
-		// Lightweight RFC1035 check: len 1..253, dot somewhere, no `..`,
-		// only [a-z0-9.-], no leading/trailing dots or hyphens. Anything
-		// stricter than this should be done in domain/routes/validDomain.
-		if len(d) > 253 || !strings.Contains(d, ".") || strings.Contains(d, "..") {
+		// Aliases become host matchers too, so they must satisfy the same
+		// shape rules as a primary domain and stay modellable for overlap.
+		if !routes.ValidDomain(d) || !caddyapi.ValidHostMatcher(d) {
 			return "", fmt.Errorf("invalid alias %q", p)
-		}
-		for _, c := range d {
-			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '.' || c == '-') {
-				return "", fmt.Errorf("invalid alias %q", p)
-			}
 		}
 		seen[d] = true
 		out = append(out, d)
