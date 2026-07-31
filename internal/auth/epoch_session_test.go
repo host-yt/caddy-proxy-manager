@@ -54,6 +54,25 @@ func (f *fakeRedis) Set(_ context.Context, key string, value any, _ time.Duratio
 	return redis.NewStatusResult("OK", nil)
 }
 
+func (f *fakeRedis) SetNX(_ context.Context, key string, value any, _ time.Duration) *redis.BoolCmd {
+	if f.setErr != nil {
+		return redis.NewBoolResult(false, f.setErr)
+	}
+	if _, exists := f.vals[key]; exists {
+		return redis.NewBoolResult(false, nil)
+	}
+	switch v := value.(type) {
+	case string:
+		f.vals[key] = v
+	case int64:
+		f.vals[key] = strconv.FormatInt(v, 10)
+	default:
+		b, _ := json.Marshal(v)
+		f.vals[key] = string(b)
+	}
+	return redis.NewBoolResult(true, nil)
+}
+
 func (f *fakeRedis) Del(_ context.Context, keys ...string) *redis.IntCmd {
 	f.dels++
 	if f.delErr != nil {

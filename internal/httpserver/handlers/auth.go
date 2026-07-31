@@ -1216,21 +1216,45 @@ func (h *AuthHandlers) ResetSubmit(w http.ResponseWriter, r *http.Request) {
 		h.renderReset(w, http.StatusInternalServerError, h.stampReset(r, resetViewData{Token: token, Error: "Server error."}))
 		return
 	}
-	// password_set=1 marks this as a real usable password (not an OIDC dummy hash).
-	if _, err := db.ExecContext(ctx, "UPDATE users SET password_hash = ?, password_set = 1 WHERE id = ?", hash, userID); err != nil {
+	// The password change, the epoch bump and the API-key revocation must
+	// commit together: a new password whose epoch bump failed would leave every
+	// stolen session and ticket valid while the UI reports success.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
 		h.renderReset(w, http.StatusInternalServerError, h.stampReset(r, resetViewData{Token: token, Error: "Server error."}))
 		return
 	}
-	// Invalidate every existing session and pending 2FA ticket for this user -
-	// a successful reset must kick out anyone who already had the account open.
-	killed, rerr := h.Sessions.RevokeUser(ctx, db, userID)
-	if rerr != nil {
-		h.Logger.Error("password reset: session revoke", "user", userID, "err", rerr)
+	// password_set=1 marks this as a real usable password (not an OIDC dummy hash).
+	if _, err := tx.ExecContext(ctx, "UPDATE users SET password_hash = ?, password_set = 1 WHERE id = ?", hash, userID); err != nil {
+		_ = tx.Rollback()
+		h.renderReset(w, http.StatusInternalServerError, h.stampReset(r, resetViewData{Token: token, Error: "Server error."}))
+		return
 	}
-	// Revoke all API keys for the user; a stolen key survives a password
-	// reset otherwise, defeating the whole purpose of the reset.
-	keysRes, _ := db.ExecContext(ctx,
+	newEpoch, err := auth.BumpEpochTx(ctx, tx, userID)
+	if err != nil {
+		_ = tx.Rollback()
+		h.renderReset(w, http.StatusInternalServerError, h.stampReset(r, resetViewData{Token: token, Error: "Server error."}))
+		return
+	}
+	// A stolen API key survives a password reset otherwise, defeating the reset.
+	keysRes, err := tx.ExecContext(ctx,
 		`UPDATE api_keys SET revoked_at = NOW() WHERE user_id = ? AND revoked_at IS NULL`, userID)
+	if err != nil {
+		_ = tx.Rollback()
+		h.renderReset(w, http.StatusInternalServerError, h.stampReset(r, resetViewData{Token: token, Error: "Server error."}))
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.renderReset(w, http.StatusInternalServerError, h.stampReset(r, resetViewData{Token: token, Error: "Server error."}))
+		return
+	}
+	// Committed: the epoch already blocks the old sessions, so the Redis purge
+	// below is an optimisation, not the guarantee.
+	h.Sessions.PublishEpoch(ctx, userID, newEpoch)
+	killed, rerr := h.Sessions.PurgeUserSessions(ctx, userID)
+	if rerr != nil {
+		h.Logger.Error("password reset: session purge", "user", userID, "err", rerr)
+	}
 	var revokedKeys int64
 	if keysRes != nil {
 		revokedKeys, _ = keysRes.RowsAffected()

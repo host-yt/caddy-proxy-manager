@@ -459,6 +459,7 @@ func TestBuildRouteCacheSuppressedForAuthGates(t *testing.T) {
 	base := Route{
 		ID: "88", Hosts: []string{"c.example.com"}, UpstreamIP: "10.0.0.9", UpstreamPort: 8080,
 		CacheEnabled: true, CacheTTLSeconds: 30, CacheModuleAvailable: true,
+		CachePublic: true, // shared cache is opt-in since the policy inverted
 	}
 	if s := mustJSON(base); !strings.Contains(s, `"handler":"cache"`) || !strings.Contains(s, "Cache-Control") {
 		t.Fatalf("baseline cache route must emit cache + Cache-Control\nfull: %s", s)
@@ -514,6 +515,7 @@ func TestBuildRouteCachePrivateForRestrictedAudience(t *testing.T) {
 	base := Route{
 		ID: "89", Hosts: []string{"g.example.com"}, UpstreamIP: "10.0.0.9", UpstreamPort: 8080,
 		CacheEnabled: true, CacheTTLSeconds: 30, CacheModuleAvailable: true,
+		CachePublic: true,
 	}
 	acl := base
 	acl.AccessBlockAll = true

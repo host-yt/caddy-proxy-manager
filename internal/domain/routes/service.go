@@ -2119,7 +2119,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		        COALESCE(NULLIF(r.backend_ip_override, ''), p_use.assigned_ip, sv.backend_ip),
 		        COALESCE(p_use.assigned_ip, ''),
 		        r.kind, COALESCE(r.redirect_url,''), COALESCE(r.redirect_code,0),
-		        r.cache_enabled, r.cache_ttl_secs, COALESCE(r.custom_headers,''),
+		        r.cache_enabled, r.cache_ttl_secs, COALESCE(r.cache_public,0), COALESCE(r.custom_headers,''),
 		        r.maintenance_mode, COALESCE(r.maintenance_message,''),
 		        COALESCE(r.cache_vary,''),
 		        COALESCE(r.access_allow,''), COALESCE(r.access_deny,''),
@@ -2220,6 +2220,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			redirURL                       string
 			redirCode                      int
 			cacheEnabled                   bool
+			cachePublic                    bool
 			cacheTTL                       int
 			headersJSON                    string
 			maintMode                      bool
@@ -2271,7 +2272,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var clGeoAction, clGeoRedirect, clGeoTitle, clGeoMessage, clGeoLogo, clGeoBg string
 		if err := rows.Scan(&id, &domain, &aliases, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
 			&tunnelResolverIP,
-			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &headersJSON,
+			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &cachePublic, &headersJSON,
 			&maintMode, &maintMsg, &cacheVary, &accessAllow, &accessDeny,
 			&accessBlockAll, &maintenanceAllow, &customCfg,
 			&viaPeerID, &peerStatus, &baUser, &baHash,
@@ -2442,6 +2443,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			RedirectURL:           redirURL,
 			RedirectCode:          redirCode,
 			CacheEnabled:          cacheEnabled,
+			CachePublic:           cachePublic,
 			CacheTTLSeconds:       cacheTTL,
 			CacheVary:             vary,
 			MaintenanceMode:       maintMode,

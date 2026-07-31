@@ -385,14 +385,15 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	// requests (Vue SPA loads 60+ JS files at once) - cascades to 504.
 	cacheNeeded := false
 	if s.CacheModuleAvailable {
-		// Mirror BuildRoute: an auth-gated route emits no cache handler, so it
-		// must not drag Souin (which wraps every route) into the config either.
-		if s.PanelRoute != nil && s.PanelRoute.CacheEnabled && !RouteAuthGated(*s.PanelRoute) {
+		// Mirror BuildRoute: only an explicitly public, ungated route emits a
+		// cache handler, so nothing else may drag Souin (which wraps every
+		// route) into the config either.
+		if s.PanelRoute != nil && s.PanelRoute.CacheEnabled && s.PanelRoute.CachePublic && !RouteAuthGated(*s.PanelRoute) {
 			cacheNeeded = true
 		}
 		if !cacheNeeded {
 			for _, r := range routes {
-				if r.CacheEnabled && !RouteAuthGated(r) {
+				if r.CacheEnabled && r.CachePublic && !RouteAuthGated(r) {
 					cacheNeeded = true
 					break
 				}

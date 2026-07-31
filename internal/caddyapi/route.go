@@ -1154,7 +1154,10 @@ func buildCacheHandlers(r Route) []any {
 		scope = "public, max-age=" + itoa(ttl)
 	}
 	fresh := []any{}
-	if r.CacheModuleAvailable {
+	// The node cache is shared between callers, so it may only hold content
+	// declared public. Bypassing on Cookie/Authorization is not enough: an
+	// upstream can authenticate X-API-Key or any header we cannot enumerate.
+	if r.CacheModuleAvailable && r.CachePublic {
 		ttlStr := itoa(ttl) + "s"
 		cacheH := map[string]any{"handler": "cache", "ttl": ttlStr, "stale": ttlStr}
 		// Credential headers stay in the key even when an operator sets

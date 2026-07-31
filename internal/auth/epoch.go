@@ -113,6 +113,16 @@ func (m *Manager) confirmEpoch(ctx context.Context, userID, epoch int64) bool {
 	return true
 }
 
+// fillEpoch caches a value read from the DB without clobbering an existing
+// entry: a request that read a pre-revoke epoch must never overwrite the newer
+// value a concurrent bump already confirmed.
+func (m *Manager) fillEpoch(ctx context.Context, userID, epoch int64) {
+	if m == nil || m.rdb == nil {
+		return
+	}
+	m.rdb.SetNX(ctx, epochKey(userID), epoch, epochCacheTTL)
+}
+
 // epochPending reports an invalidation this process could not confirm.
 func (m *Manager) epochPending(userID int64) bool {
 	_, pending := m.epochUnresolved.Load(userID)
@@ -128,6 +138,15 @@ func (m *Manager) RevokeUser(ctx context.Context, db *sql.DB, userID int64) (int
 	}
 	if _, err := m.BumpEpoch(ctx, db, userID); err != nil && !errors.Is(err, ErrUserGone) {
 		return 0, err
+	}
+	return m.DestroyAllForUser(ctx, userID)
+}
+
+// PurgeUserSessions drops a user's session keys. The epoch is the durable
+// guarantee; this only reclaims keys and shortens the window.
+func (m *Manager) PurgeUserSessions(ctx context.Context, userID int64) (int, error) {
+	if m == nil {
+		return 0, nil
 	}
 	return m.DestroyAllForUser(ctx, userID)
 }
@@ -193,6 +212,6 @@ func (m *Manager) epochOKFromDB(ctx context.Context, userID, stamped int64, cach
 	if err != nil {
 		return false
 	}
-	m.confirmEpoch(ctx, userID, cur)
+	m.fillEpoch(ctx, userID, cur)
 	return cur == stamped
 }

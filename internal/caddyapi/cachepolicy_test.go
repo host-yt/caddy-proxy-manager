@@ -25,6 +25,10 @@ func TestCacheDefaultsToPrivate(t *testing.T) {
 	if strings.Contains(got, "public, max-age") {
 		t.Error("plain cached route advertised as public without opt-in")
 	}
+	// The shared node cache must not hold caller-dependent content either.
+	if strings.Contains(got, `"handler":"cache"`) {
+		t.Error("shared cache emitted for a route not declared public")
+	}
 	if !strings.Contains(got, "private, max-age=60") {
 		t.Errorf("expected private max-age, got: %s", got)
 	}
@@ -61,8 +65,9 @@ func TestCacheVaryKeepsCredentialHeaders(t *testing.T) {
 	got := routeJSON(t, Route{
 		ID: "4", Hosts: []string{"d.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
 		CacheEnabled: true, CacheTTLSeconds: 60, CacheModuleAvailable: true,
-		CacheVary: []string{"Accept-Language"},
+		CachePublic: true, CacheVary: []string{"Accept-Language"},
 	})
+	_ = got
 	for _, want := range []string{"Accept-Language", "Cookie", "Authorization"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("cache key lost %s: %s", want, got)

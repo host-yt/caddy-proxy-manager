@@ -361,6 +361,12 @@
         <span class="t-body ml-2 font-medium">Enable origin cache for this host</span>
       </label>
       <p class="t-caption text-muted">Souin module caches GET/HEAD at the edge. Browsers + CDNs also get a matching <code class="text-xs">Cache-Control</code> header.</p>
+      <label class="r-toggle">
+        <input type="checkbox" name="cache_public" value="1" {{if .CachePublic}}checked{{end}}>
+        <span></span>
+        <span class="t-body ml-2 font-medium">Content is public (share across all visitors)</span>
+      </label>
+      <p class="t-caption text-muted">Leave off unless every visitor may see the identical response. Off keeps the cache <code class="text-xs">private</code>: requests carrying a <code class="text-xs">Cookie</code> or <code class="text-xs">Authorization</code> header always bypass the shared cache.</p>
       <div class="grid grid-cols-3 gap-3">
         <div>
           <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">TTL (seconds)</label>

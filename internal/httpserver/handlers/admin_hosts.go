@@ -2334,6 +2334,7 @@ type hostEditData struct {
 	HTTP2         bool
 	HTTP3         bool
 	CacheEnabled  bool
+	CachePublic   bool
 	CacheTTLSecs  int
 	CustomHeaders string // textarea - one "Name: value" per line
 	Tag           string
@@ -2549,7 +2550,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		`SELECT r.domain, COALESCE(r.aliases,''), r.path_prefix, COALESCE(NULLIF(r.backend_ip_override,''), s.backend_ip), r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify, r.status,
 		        r.kind, r.redirect_url, r.redirect_code, r.ssl_enabled,
 		        r.force_https, r.websocket, r.http2_enabled, r.http3_enabled,
-		        r.cache_enabled, r.cache_ttl_secs, r.custom_headers, r.tag,
+		        r.cache_enabled, r.cache_ttl_secs, COALESCE(r.cache_public,0), r.custom_headers, r.tag,
 		        r.maintenance_mode, r.maintenance_message, r.cache_vary,
 		        r.access_allow, r.access_deny,
 		        COALESCE(r.access_block_all, 0), COALESCE(r.maintenance_allow,''),
@@ -2596,7 +2597,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	).Scan(&d.Domain, &aliases, &d.PathPrefix, &d.BackendIP, &d.Port, &d.UpstreamScheme, &d.UpstreamSkipTLSVerify, &d.Status,
 		&d.Kind, &redirectURL, &redirectCode, &d.SSL,
 		&d.ForceHTTPS, &d.WebSocket, &d.HTTP2, &d.HTTP3,
-		&d.CacheEnabled, &d.CacheTTLSecs, &headersJSON, &tag,
+		&d.CacheEnabled, &d.CacheTTLSecs, &d.CachePublic, &headersJSON, &tag,
 		&d.MaintenanceMode, &maintMsg, &cacheVary,
 		&accessAllow, &accessDeny,
 		&accessBlockAll, &maintAllow,
@@ -2910,6 +2911,9 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	http2 := r.FormValue("http2") == "1"
 	http3 := r.FormValue("http3") == "1"
 	cacheEnabled := r.FormValue("cache_enabled") == "1"
+	// Shared caching is opt-in: without it the route is private-only, because
+	// the panel cannot see auth the upstream performs itself.
+	cachePublic := r.FormValue("cache_public") == "1"
 	compressDisabled := r.FormValue("compress_disabled") == "1"
 
 	// Load balancing + health checks (A2). Policy is allowlisted; weighted is
@@ -3679,7 +3683,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   kind = ?, redirect_url = ?, redirect_code = ?,
 			   ssl_enabled = ?, force_https = ?, websocket = ?,
 			   http2_enabled = ?, http3_enabled = ?,
-			   cache_enabled = ?, cache_ttl_secs = ?,
+			   cache_enabled = ?, cache_ttl_secs = ?, cache_public = ?,
 			   compress_disabled = ?,
 			   lb_policy = ?, lb_header_field = ?, lb_cookie_name = ?, lb_cookie_secret = ?,
 			   health_active_uri = ?, health_active_interval = ?, health_active_timeout = ?,
@@ -3716,7 +3720,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			kind, redirURLVal, redirCodeVal,
 			ssl, forceHTTPS, websocket,
 			http2, http3,
-			cacheEnabled, cacheTTL,
+			cacheEnabled, cacheTTL, cachePublic,
 			compressDisabled,
 			lbPolicy, lbHeaderField, lbCookieName, lbCookieSecret,
 			healthURI, healthInterval, healthTimeout,
@@ -3755,7 +3759,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   kind = ?, redirect_url = ?, redirect_code = ?,
 			   ssl_enabled = ?, force_https = ?, websocket = ?,
 			   http2_enabled = ?, http3_enabled = ?,
-			   cache_enabled = ?, cache_ttl_secs = ?,
+			   cache_enabled = ?, cache_ttl_secs = ?, cache_public = ?,
 			   compress_disabled = ?,
 			   lb_policy = ?, lb_header_field = ?, lb_cookie_name = ?, lb_cookie_secret = ?,
 			   health_active_uri = ?, health_active_interval = ?, health_active_timeout = ?,
@@ -3792,7 +3796,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			kind, redirURLVal, redirCodeVal,
 			ssl, forceHTTPS, websocket,
 			http2, http3,
-			cacheEnabled, cacheTTL,
+			cacheEnabled, cacheTTL, cachePublic,
 			compressDisabled,
 			lbPolicy, lbHeaderField, lbCookieName, lbCookieSecret,
 			healthURI, healthInterval, healthTimeout,
@@ -3946,6 +3950,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			"domain": domain, "kind": kind, "tag": tag,
 			"ssl": ssl, "force_https": forceHTTPS, "websocket": websocket,
 			"cache_enabled":    cacheEnabled,
+			"cache_public":     cachePublic,
 			"maintenance_mode": maintenanceMode,
 			"location_rules":   len(newLocationRules),
 		},
