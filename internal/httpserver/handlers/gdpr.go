@@ -182,7 +182,9 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 	// The account is now masked + is_active=0; drop any live sessions so the
 	// cookie path can't keep serving the erased user until session TTL.
 	if h.Sessions != nil {
-		_, _ = h.Sessions.DestroyAllForUser(ctx, id)
+		if _, rerr := h.Sessions.RevokeUser(ctx, db, id); rerr != nil {
+			h.Logger.Error("gdpr erase: session revoke", "user", id, "err", rerr)
+		}
 	}
 
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{

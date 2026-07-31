@@ -2563,6 +2563,18 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	s.attachLocationRules(ctx, built, ids)
 	s.attachBasicAuthUsers(ctx, built, ids)
 	s.attachMTLSPathRules(ctx, built, ids)
+	// Emission order, not DB id order: a catch-all ahead of a narrower sibling
+	// on the same host would shadow it. ids must follow the same permutation -
+	// buildOneRoute pairs ids[i] with built[i].
+	if ord := caddyapi.EmissionOrder(built); len(ids) == len(built) {
+		sortedBuilt := make([]caddyapi.Route, len(built))
+		sortedIDs := make([]int64, len(ids))
+		for k, i := range ord {
+			sortedBuilt[k] = built[i]
+			sortedIDs[k] = ids[i]
+		}
+		built, ids = sortedBuilt, sortedIDs
+	}
 	return built, ids, nil
 }
 

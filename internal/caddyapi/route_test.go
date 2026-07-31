@@ -463,19 +463,73 @@ func TestBuildRouteCacheSuppressedForAuthGates(t *testing.T) {
 	if s := mustJSON(base); !strings.Contains(s, `"handler":"cache"`) || !strings.Contains(s, "Cache-Control") {
 		t.Fatalf("baseline cache route must emit cache + Cache-Control\nfull: %s", s)
 	}
-	// A cache hit short-circuits before the mTLS RBAC and portal gates, so
-	// neither the cache handler nor the CDN hint may be emitted.
+	// A cache hit short-circuits before every auth gate, so no cache handler may
+	// be emitted; the route now states private/no-store instead of staying silent
+	// (a `public` hint let a downstream shared cache replay an authed response).
 	rbac := base
 	rbac.MTLSPathRules = []MTLSPathRule{{PathPattern: "/admin/*", RequiredRole: "admin"}}
 	rbac.PanelBaseURL = "http://app:8080"
-	if s := mustJSON(rbac); strings.Contains(s, `"handler":"cache"`) || strings.Contains(s, "Cache-Control") {
-		t.Errorf("mTLS RBAC route must not be cached\nfull: %s", s)
-	}
 	portal := base
 	portal.PortalProtect = true
 	portal.PortalDial = "app:8080"
-	if s := mustJSON(portal); strings.Contains(s, `"handler":"cache"`) || strings.Contains(s, "Cache-Control") {
-		t.Errorf("portal-protected route must not be cached\nfull: %s", s)
+	sso := base
+	sso.SSOProviderURL = "https://sso.example.com"
+	basic := base
+	basic.BasicAuthUser, basic.BasicAuthBcrypt = "u", "$2a$10$abc"
+	multiBasic := base
+	multiBasic.BasicAuthUsers = []BasicAuthUser{{Username: "u", Hash: "$2a$10$abc"}}
+	clientCert := base
+	clientCert.RequireClientCert = true
+	clientCert.MTLSCACertPEM = "-----BEGIN CERTIFICATE-----\nx\n-----END CERTIFICATE-----"
+	// External upstream + inbound bearer: the local gate runs before Souin, but a
+	// `public` response could still be replayed by a CDN without hitting the gate.
+	bearer := base
+	bearer.External = true
+	bearer.UpstreamScheme = "https"
+	bearer.ProxySecret = "s3cr3t"
+	// Admin-supplied auth handler: CustomHandlers runs after the cache handler.
+	custom := base
+	custom.CustomHandlers = `[{"handler":"authentication","providers":{}}]`
+	for name, r := range map[string]Route{
+		"mtls-rbac": rbac, "portal": portal, "sso": sso, "basic-auth": basic,
+		"basic-auth-multi": multiBasic, "client-cert": clientCert, "external-bearer": bearer,
+		"custom-auth-handler": custom,
+	} {
+		s := mustJSON(r)
+		if strings.Contains(s, `"handler":"cache"`) {
+			t.Errorf("%s route must not emit the cache handler\nfull: %s", name, s)
+		}
+		if strings.Contains(s, "public, max-age") {
+			t.Errorf("%s route must not be publicly cacheable\nfull: %s", name, s)
+		}
+		if !strings.Contains(s, `"Cache-Control":["private, no-store"]`) {
+			t.Errorf("%s route missing private/no-store\nfull: %s", name, s)
+		}
+	}
+}
+
+// An IP- or geo-restricted route may still use the node cache (Caddy enforces
+// first) but must never be advertised as publicly cacheable.
+func TestBuildRouteCachePrivateForRestrictedAudience(t *testing.T) {
+	base := Route{
+		ID: "89", Hosts: []string{"g.example.com"}, UpstreamIP: "10.0.0.9", UpstreamPort: 8080,
+		CacheEnabled: true, CacheTTLSeconds: 30, CacheModuleAvailable: true,
+	}
+	acl := base
+	acl.AccessBlockAll = true
+	acl.AccessAllow = []string{"10.0.0.0/8"}
+	geo := base
+	geo.GeoMode = "allow"
+	geo.GeoCountries = "PL"
+	geo.GeoModuleAvailable = true
+	for name, r := range map[string]Route{"ip-allowlist": acl, "geo": geo} {
+		s := mustJSON(r)
+		if !strings.Contains(s, `"handler":"cache"`) {
+			t.Errorf("%s route should still use the node cache\nfull: %s", name, s)
+		}
+		if !strings.Contains(s, `"Cache-Control":["private, max-age=30"]`) {
+			t.Errorf("%s route must be private, not public\nfull: %s", name, s)
+		}
 	}
 }
 

@@ -315,7 +315,7 @@ func (h *AuthHandlers) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		UserID: &userID, Action: "oauth.login.success", Entity: "auth", EntityID: email,
 		Meta: map[string]any{"provider": provider, "role": role},
 	})
-	h.finalizeLogin(ctx, w, r, userID, email, role, clientID, provider, "sso")
+	h.finalizeLogin(ctx, w, r, userID, provider, "sso")
 }
 
 // oauth2LinkIdentity adds the provider identity to an already-authenticated

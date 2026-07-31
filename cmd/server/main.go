@@ -238,6 +238,8 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 
 	// If DB wasn't ready at boot, swap it in once available.
 	bindDBWhenReady(func(db *sql.DB) { routesSvc.DB = db })
+	// Authoritative auth-epoch source for the per-request session check.
+	bindDBWhenReady(func(db *sql.DB) { sessions.SetEpochSource(db) })
 
 	// Seed ACME CA settings from DB so they survive restarts without env vars.
 	bindDBWhenReady(func(db *sql.DB) {

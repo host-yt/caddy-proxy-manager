@@ -414,7 +414,9 @@ func (h *AdminHandlers) ClientsBulk(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if h.Sessions != nil {
-				_, _ = h.Sessions.DestroyAllForUser(ctx, userID)
+				if _, rerr := h.Sessions.RevokeUser(ctx, h.DB(), userID); rerr != nil {
+					h.Logger.Error("client suspend: session revoke", "user", userID, "err", rerr)
+				}
 			}
 		case "activate":
 			if _, err := h.DB().ExecContext(ctx, "UPDATE users SET is_active=1 WHERE id=?", userID); err != nil {

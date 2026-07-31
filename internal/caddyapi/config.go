@@ -222,6 +222,9 @@ func adminListenOr(listen string) string {
 //	apps.tls.automation.on_demand = { ask, rate_limit }
 //	apps.tls.automation.policies   = [{ on_demand: true, issuers: [acme(staging?)] }]
 func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
+	// Terminal routes match first-wins: a host catch-all must never precede a
+	// narrower sibling on the same host (it would shadow its auth/deny gate).
+	routes = SortRoutesForEmission(routes)
 	out := make([]any, 0, len(routes)+1)
 	if s.PanelRoute != nil {
 		pr := *s.PanelRoute
@@ -382,12 +385,14 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	// requests (Vue SPA loads 60+ JS files at once) - cascades to 504.
 	cacheNeeded := false
 	if s.CacheModuleAvailable {
-		if s.PanelRoute != nil && s.PanelRoute.CacheEnabled {
+		// Mirror BuildRoute: an auth-gated route emits no cache handler, so it
+		// must not drag Souin (which wraps every route) into the config either.
+		if s.PanelRoute != nil && s.PanelRoute.CacheEnabled && !RouteAuthGated(*s.PanelRoute) {
 			cacheNeeded = true
 		}
 		if !cacheNeeded {
 			for _, r := range routes {
-				if r.CacheEnabled {
+				if r.CacheEnabled && !RouteAuthGated(r) {
 					cacheNeeded = true
 					break
 				}

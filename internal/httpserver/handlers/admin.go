@@ -3310,12 +3310,14 @@ func (h *AdminHandlers) UsersUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// A demotion, deactivation, or password rotation must not survive in an
-	// already-open session: the cookie auth path reads role/is_active from the
-	// cached session and never re-checks the DB (only the API path does), so
-	// kill the target's live sessions like the password-reset flow does.
+	// already-open session or a pending 2FA ticket: bump the auth epoch (durable)
+	// and purge live sessions (fast path).
 	var killed int
 	if h.Sessions != nil && (role != curRole || !isActive || newPass != "") {
-		killed, _ = h.Sessions.DestroyAllForUser(ctx, id)
+		var rerr error
+		if killed, rerr = h.Sessions.RevokeUser(ctx, db, id); rerr != nil {
+			h.Logger.Error("user update: session revoke", "user", id, "err", rerr)
+		}
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "user.update", Entity: "user",
@@ -3443,19 +3445,37 @@ func (h *AdminHandlers) UsersScopeUpdate(w http.ResponseWriter, r *http.Request)
 		redirectWithFlash(w, r, "/admin/users", "", "scope flag save failed")
 		return
 	}
+	// Same transaction as the restriction itself: the epoch bump is what makes
+	// every live session and pending 2FA ticket stop validating.
+	epoch, err := auth.BumpEpochTx(ctx, tx, id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "scope epoch bump failed")
+		return
+	}
 	if err := tx.Commit(); err != nil {
 		redirectWithFlash(w, r, "/admin/users", "", "scope commit failed")
 		return
 	}
 	// Restricted is stamped on the session at login, so a live session would
 	// keep the old scope until it expires - force re-login.
-	h.revokeUsers(ctx, []int64{id})
+	h.Sessions.PublishEpoch(ctx, id, epoch)
+	purged := true
+	if _, rerr := h.Sessions.DestroyAllForUser(ctx, id); rerr != nil {
+		h.Logger.Error("user scope: session purge", "user", id, "err", rerr)
+		purged = false
+	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "user.scope.update", Entity: "user",
 		EntityID: strconv.FormatInt(id, 10),
-		Meta:     map[string]any{"email": email, "client_count": len(seen)},
+		Meta:     map[string]any{"email": email, "client_count": len(seen), "sessions_purged": purged},
 	})
-	redirectWithFlash(w, r, "/admin/users", "Access scope updated; their sessions were revoked", "")
+	msg := "Access scope updated; their sessions were revoked"
+	if !purged {
+		// Don't claim a clean purge: the epoch still blocks the old sessions,
+		// but the Redis delete did not fully succeed.
+		msg = "Access scope updated; old sessions are blocked but could not all be purged"
+	}
+	redirectWithFlash(w, r, "/admin/users", msg, "")
 }
 
 func (h *AdminHandlers) UsersToggle(w http.ResponseWriter, r *http.Request) {
@@ -3490,7 +3510,10 @@ func (h *AdminHandlers) UsersToggle(w http.ResponseWriter, r *http.Request) {
 	// cookie path doesn't re-check is_active). Harmless when re-activating.
 	var killed int
 	if h.Sessions != nil {
-		killed, _ = h.Sessions.DestroyAllForUser(ctx, id)
+		var rerr error
+		if killed, rerr = h.Sessions.RevokeUser(ctx, db, id); rerr != nil {
+			h.Logger.Error("user toggle: session revoke", "user", id, "err", rerr)
+		}
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "user.toggle", Entity: "user",
@@ -3541,11 +3564,14 @@ func (h *AdminHandlers) UsersDelete(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/users", "", "delete failed")
 		return
 	}
-	// Kill live sessions: role is read from cached Redis session, not DB,
-	// so a deleted user keeps panel access until TTL otherwise.
+	// Kill live sessions and poison the epoch cache: the row is gone, so no
+	// session or pending 2FA ticket may validate against it again.
 	var killed int
 	if h.Sessions != nil {
-		killed, _ = h.Sessions.DestroyAllForUser(ctx, id)
+		var rerr error
+		if killed, rerr = h.Sessions.MarkUserDeleted(ctx, id); rerr != nil {
+			h.Logger.Error("user delete: session revoke", "user", id, "err", rerr)
+		}
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "user.delete", Entity: "user",
@@ -3617,34 +3643,28 @@ func (h *AdminHandlers) UsersImpersonate(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	var (
-		email  string
-		role   string
-		active bool
-	)
-	if err := db.QueryRowContext(ctx,
-		"SELECT email, role, is_active FROM users WHERE id = ?", id,
-	).Scan(&email, &role, &active); err != nil {
-		redirectWithFlash(w, r, "/admin/users", "", "user not found")
+	target, terr := loadSessionClaims(ctx, db, id)
+	if terr != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "user not found or deactivated")
 		return
 	}
-	if !active {
-		redirectWithFlash(w, r, "/admin/users", "", "cannot impersonate a deactivated user")
-		return
-	}
-	if role != "client" {
+	email := target.Email
+	if target.Role != "client" {
 		redirectWithFlash(w, r, "/admin/users", "", "only client accounts may be impersonated")
 		return
 	}
-	var clientID int64
-	_ = db.QueryRowContext(ctx, "SELECT id FROM clients WHERE user_id = ?", id).Scan(&clientID)
 
 	adminID := sess.UserID
 	adminEmail := sess.Email
 	h.Sessions.Destroy(ctx, w, r)
 	// resellerID=0/restricted=false: the effective identity is the target client
 	// (role=='client' enforced above), never the impersonating admin's scope.
-	if _, err := h.Sessions.CreateImpersonated(ctx, w, r, id, email, role, clientID, 0, false, adminID, adminEmail); err != nil {
+	ns := auth.NewSession{
+		UserID: target.UserID, Email: target.Email, Role: target.Role, ClientID: target.ClientID,
+		Epoch: target.Epoch, ImpersonatorUserID: adminID, ImpersonatorEmail: adminEmail,
+		ImpersonatorEpoch: sess.Epoch,
+	}
+	if _, err := h.Sessions.Create(ctx, w, r, ns); err != nil {
 		h.Logger.Error("impersonate: session create", "err", err)
 		http.Redirect(w, r, "/admin/users", http.StatusSeeOther)
 		return

@@ -662,43 +662,60 @@ func BuildRoute(r Route) map[string]any {
 	//
 	// Redirect routes are not cached: their handler already short-circuits
 	// at the edge and caching a 308 is generally pointless and footguny.
-	// Never cache an authed route: the cache handler short-circuits before ALL
-	// four auth gates below (SSO forward_auth, basic_auth, mTLS path RBAC,
-	// built-in portal), so a hit would serve one identity's response to another.
-	if r.CacheEnabled && r.Kind != "redirect" && !r.MaintenanceMode &&
-		r.SSOProviderURL == "" && r.BasicAuthUser == "" && len(r.BasicAuthUsers) == 0 &&
-		len(r.MTLSPathRules) == 0 && !r.PortalProtect {
+	// Never cache an authed route: the cache handler short-circuits before every
+	// auth gate below, and a `public` response can be replayed by a downstream
+	// shared cache without ever reaching this node's gate (see RouteAuthGated).
+	if r.CacheEnabled && r.Kind != "redirect" && !r.MaintenanceMode {
 		ttl := r.CacheTTLSeconds
 		if ttl <= 0 {
 			ttl = 60
 		}
-		if r.CacheModuleAvailable {
-			ttlStr := itoa(ttl) + "s"
-			cacheH := map[string]any{
-				"handler": "cache",
-				"ttl":     ttlStr,
-				"stale":   ttlStr,
-			}
-			if len(r.CacheVary) > 0 {
-				// Souin reads `key.headers` to fold the listed request
-				// headers into the cache key (one entry per combination).
-				cacheH["key"] = map[string]any{
-					"headers": r.CacheVary,
-				}
-			}
-			handlers = append(handlers, cacheH)
-		}
-		// Downstream Cache-Control header is always safe to emit (no
-		// module dependency); browsers + CDNs cache regardless of the
-		// module's presence on this node.
-		handlers = append(handlers, map[string]any{
-			"handler": "headers",
-			"response": map[string]any{
-				"set": map[string]any{
-					"Cache-Control": []string{"public, max-age=" + itoa(ttl)},
+		if RouteAuthGated(r) {
+			// No cache handler, plus an explicit private/no-store so a CDN in
+			// front of the node cannot serve an authed response to anyone else.
+			handlers = append(handlers, map[string]any{
+				"handler": "headers",
+				"response": map[string]any{
+					"set": map[string]any{
+						"Cache-Control": []string{"private, no-store"},
+					},
 				},
-			},
-		})
+			})
+		} else {
+			if r.CacheModuleAvailable {
+				ttlStr := itoa(ttl) + "s"
+				cacheH := map[string]any{
+					"handler": "cache",
+					"ttl":     ttlStr,
+					"stale":   ttlStr,
+				}
+				if len(r.CacheVary) > 0 {
+					// Souin reads `key.headers` to fold the listed request
+					// headers into the cache key (one entry per combination).
+					cacheH["key"] = map[string]any{
+						"headers": r.CacheVary,
+					}
+				}
+				handlers = append(handlers, cacheH)
+			}
+			// Downstream Cache-Control header is always safe to emit (no
+			// module dependency); browsers + CDNs cache regardless of the
+			// module's presence on this node.
+			scope := "public"
+			if routeAudienceRestricted(r) {
+				// IP/geo limited: Caddy enforces before the cache handler, a shared
+				// cache downstream cannot - so never advertise it as public.
+				scope = "private"
+			}
+			handlers = append(handlers, map[string]any{
+				"handler": "headers",
+				"response": map[string]any{
+					"set": map[string]any{
+						"Cache-Control": []string{scope + ", max-age=" + itoa(ttl)},
+					},
+				},
+			})
+		}
 	}
 	// Response compression: stock Caddy `encode` (gzip+zstd), no module gate.
 	// Emitted after the cache block so a cache hit is compressed on the way
@@ -1142,6 +1159,49 @@ func BuildRoute(r Route) map[string]any {
 		"handle":   handlers,
 		"terminal": true,
 	}
+}
+
+// RouteAuthGated reports whether the route carries a per-caller credential
+// check. Such responses must never enter a cache (local or downstream): the
+// cache handler runs before every gate listed here.
+func RouteAuthGated(r Route) bool {
+	return r.SSOProviderURL != "" ||
+		r.BasicAuthUser != "" || len(r.BasicAuthUsers) > 0 ||
+		len(r.MTLSPathRules) > 0 ||
+		r.PortalProtect ||
+		r.RequireClientCert ||
+		(r.External && r.ProxySecret != "") ||
+		r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig ||
+		customHandlersAuth(r.CustomHandlers)
+}
+
+// customHandlersAuth spots an admin-supplied auth handler: CustomHandlers runs
+// AFTER the cache handler, so a hit would bypass it entirely.
+func customHandlersAuth(raw string) bool {
+	if strings.TrimSpace(raw) == "" {
+		return false
+	}
+	var hs []map[string]any
+	if err := json.Unmarshal([]byte(raw), &hs); err != nil {
+		return true // unparsable: assume the worst, don't cache
+	}
+	for _, h := range hs {
+		switch name, _ := h["handler"].(string); name {
+		case "authentication", "forward_auth", "jwtauth", "security", "authorize":
+			return true
+		}
+	}
+	return false
+}
+
+// routeAudienceRestricted: the route is limited to an IP or country audience.
+// Not authentication, but still not "public" for a shared cache.
+func routeAudienceRestricted(r Route) bool {
+	if r.AccessBlockAll || strings.TrimSpace(r.GeoBlockCIDRs) != "" {
+		return true
+	}
+	mode := strings.ToLower(strings.TrimSpace(r.GeoMode))
+	return mode == "allow" || mode == "deny"
 }
 
 // misconfigDenyHandler is the fail-closed response for a route whose enabled

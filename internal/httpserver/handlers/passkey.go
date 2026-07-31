@@ -354,16 +354,9 @@ func (h *PasskeyHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("webauthn sign count update", "err", err)
 	}
 
-	// Resolve role + client scope + active state, mirroring password login.
-	var (
-		role     string
-		clientID int64
-		isActive bool
-	)
-	_ = db.QueryRowContext(ctx,
-		`SELECT role, is_active FROM users WHERE id = ?`, resolvedUser.ID,
-	).Scan(&role, &isActive)
-	if !isActive {
+	// Resolve every session claim from the users row, mirroring password login.
+	claims, cerr := loadSessionClaims(ctx, db, resolvedUser.ID)
+	if cerr != nil {
 		audit.Write(ctx, db, h.Logger, r, audit.Entry{
 			UserID: &resolvedUser.ID, Action: "login.fail", Entity: "auth", EntityID: resolvedUser.Email,
 			Meta: map[string]any{"reason": "disabled", "via": "passkey"},
@@ -371,11 +364,8 @@ func (h *PasskeyHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "account disabled", http.StatusForbidden)
 		return
 	}
-	if role == "client" {
-		_ = db.QueryRowContext(ctx, `SELECT id FROM clients WHERE user_id = ?`, resolvedUser.ID).Scan(&clientID)
-	}
-	resellerID, restricted := lookupSessionScope(ctx, db, resolvedUser.ID)
-	if _, err := h.Sessions.Create(ctx, w, r, resolvedUser.ID, resolvedUser.Email, role, clientID, resellerID, restricted); err != nil {
+	role := claims.Role
+	if _, err := h.Sessions.Create(ctx, w, r, newSessionFor(claims)); err != nil {
 		h.Logger.Error("session create", "err", err)
 		http.Error(w, "session create failed", http.StatusInternalServerError)
 		return

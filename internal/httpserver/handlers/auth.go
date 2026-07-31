@@ -387,7 +387,7 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 			audit.Write(ctx, db, h.Logger, r, audit.Entry{
 				UserID: &userID, Action: "2fa.skip.trusted_device", Entity: "auth", EntityID: email,
 			})
-			h.finalizeLogin(ctx, w, r, userID, email, role, clientID, "password", "trusted")
+			h.finalizeLogin(ctx, w, r, userID, "password", "trusted")
 			return
 		}
 	}
@@ -409,65 +409,117 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	h.finalizeLogin(ctx, w, r, userID, email, role, clientID, "password", "none")
+	h.finalizeLogin(ctx, w, r, userID, "password", "none")
+}
+
+// sessionClaims is the authoritative identity for a session, read fresh from
+// the users row. Never build it from a cached ticket or an existing session.
+type sessionClaims struct {
+	UserID     int64
+	Email      string
+	Role       string
+	ClientID   int64
+	ResellerID int64
+	Restricted bool
+	Epoch      int64
+}
+
+// errUserInactive is a denied login for a row that exists but is disabled.
+var errUserInactive = errors.New("auth: user is not active")
+
+// loadSessionClaims reads every session claim from the users row. A missing
+// row returns auth.ErrUserGone - callers must deny, never fall back to a
+// permissive default.
+func loadSessionClaims(ctx context.Context, db *sql.DB, userID int64) (sessionClaims, error) {
+	if db == nil {
+		return sessionClaims{}, errors.New("auth: no db")
+	}
+	var (
+		c        sessionClaims
+		rid      sql.NullInt64
+		restrict int64
+		active   bool
+	)
+	err := db.QueryRowContext(ctx,
+		`SELECT email, role, is_active, reseller_id, COALESCE(is_restricted,0), auth_epoch
+		   FROM users WHERE id = ?`, userID,
+	).Scan(&c.Email, &c.Role, &active, &rid, &restrict, &c.Epoch)
+	if errors.Is(err, sql.ErrNoRows) {
+		return sessionClaims{}, auth.ErrUserGone
+	}
+	if err != nil {
+		return sessionClaims{}, err
+	}
+	if !active {
+		return sessionClaims{}, errUserInactive
+	}
+	c.UserID = userID
+	c.Restricted = restrict != 0
+	if rid.Valid {
+		c.ResellerID = rid.Int64
+	}
+	if c.Role == "client" {
+		_ = db.QueryRowContext(ctx, "SELECT id FROM clients WHERE user_id = ?", userID).Scan(&c.ClientID)
+	}
+	return c, nil
+}
+
+// newSessionFor maps freshly-read claims onto the session mint input.
+func newSessionFor(c sessionClaims) auth.NewSession {
+	return auth.NewSession{
+		UserID: c.UserID, Email: c.Email, Role: c.Role, ClientID: c.ClientID,
+		ResellerID: c.ResellerID, Restricted: c.Restricted, Epoch: c.Epoch,
+	}
 }
 
 // finalizeLogin completes a login and writes a login.success audit record.
 // `via` is the entry path ("password", "oidc"). `mfa` is the second-factor
 // used ("none", "totp", "recovery", "sms", "email"); SSO logins report "none"
 // with via="oidc" so the dashboard can distinguish them.
-// resellerScopeUnknown: non-zero poison so a lookup failure fails CLOSED
-// (boundary denies, ScopeFilter matches no clients), never platform-admin.
-const resellerScopeUnknown = int64(-1)
-
-// lookupSessionScope returns the user's reseller (0 = none) and is_restricted
-// in one query. Fail-closed: a DB error yields resellerScopeUnknown +
-// restricted=true; only a clean NULL/no-row maps to (0, false).
-func lookupSessionScope(ctx context.Context, db *sql.DB, userID int64) (int64, bool) {
-	if db == nil {
-		return resellerScopeUnknown, true
-	}
-	var (
-		rid        sql.NullInt64
-		restricted int64
-	)
-	err := db.QueryRowContext(ctx,
-		"SELECT reseller_id, COALESCE(is_restricted,0) FROM users WHERE id = ?", userID,
-	).Scan(&rid, &restricted)
+func (h *AuthHandlers) finalizeLogin(ctx context.Context, w http.ResponseWriter, r *http.Request,
+	userID int64, via, mfa string) {
+	c, err := loadSessionClaims(ctx, h.DB(), userID)
 	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return 0, false
-		}
-		return resellerScopeUnknown, true // fail-closed on a real DB error
+		h.denyStaleLogin(w, r, err)
+		return
 	}
-	if rid.Valid {
-		return rid.Int64, restricted != 0
-	}
-	return 0, restricted != 0
+	h.finalizeLoginClaims(ctx, w, r, c, via, mfa)
 }
 
-func (h *AuthHandlers) finalizeLogin(ctx context.Context, w http.ResponseWriter, r *http.Request,
-	userID int64, email, role string, clientID int64, via, mfa string) {
-	resellerID, restricted := lookupSessionScope(ctx, h.DB(), userID)
-	if _, err := h.Sessions.Create(ctx, w, r, userID, email, role, clientID, resellerID, restricted); err != nil {
+// denyStaleLogin ends a login whose user vanished, was disabled, or could not
+// be re-read. Fail closed: no session is minted.
+func (h *AuthHandlers) denyStaleLogin(w http.ResponseWriter, r *http.Request, err error) {
+	switch {
+	case errors.Is(err, auth.ErrUserGone), errors.Is(err, errUserInactive):
+		http.Redirect(w, r, "/auth/login?flash=Account+is+no+longer+available.", http.StatusSeeOther)
+	default:
+		h.Logger.Error("login: claim reload", "err", err)
+		h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Error: "Server error."}))
+	}
+}
+
+func (h *AuthHandlers) finalizeLoginClaims(ctx context.Context, w http.ResponseWriter, r *http.Request,
+	c sessionClaims, via, mfa string) {
+	if _, err := h.Sessions.Create(ctx, w, r, newSessionFor(c)); err != nil {
 		h.Logger.Error("session create", "err", err)
-		h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: email, Error: "Could not create session."}))
+		h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: c.Email, Error: "Could not create session."}))
 		return
 	}
 	db := h.DB()
-	_, _ = db.ExecContext(ctx, "UPDATE users SET last_login_at = NOW() WHERE id = ?", userID)
+	_, _ = db.ExecContext(ctx, "UPDATE users SET last_login_at = NOW() WHERE id = ?", c.UserID)
 	action := "login.success"
 	if via == "sso" {
 		action = "sso_jump.success"
 	}
+	userID := c.UserID
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
-		UserID: &userID, Action: action, Entity: "auth", EntityID: email,
-		Meta: map[string]any{"role": role, "via": via, "mfa": mfa},
+		UserID: &userID, Action: action, Entity: "auth", EntityID: c.Email,
+		Meta: map[string]any{"role": c.Role, "via": via, "mfa": mfa},
 	})
 	h.Metrics.LoginEvent("success", via, mfa)
 	h.Metrics.SessionEvent("create")
 	dest := "/admin"
-	if role == "client" {
+	if c.Role == "client" {
 		dest = "/app"
 	}
 	http.Redirect(w, r, dest, http.StatusSeeOther)
@@ -670,6 +722,10 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 	h.clearAttempts(ctx, ticket)
 	h.clear2FAFails(ctx, pend.UserID) // reset per-user counter only on success
 	h.consumePending2FA(r)
+	claims, ok := h.claimsForPending(ctx, w, r, pend)
+	if !ok {
+		return
+	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: &pend.UserID, Action: "2fa.success", Entity: "auth", EntityID: pend.Email,
 		Meta: map[string]any{"method": mfaTag},
@@ -678,7 +734,7 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 	if trustDev {
 		h.issueTrustCookie(w, r, pend.UserID)
 	}
-	h.finalizeLogin(ctx, w, r, pend.UserID, pend.Email, pend.Role, pend.ClientID, pendViaOrPassword(pend), mfaTag)
+	h.finalizeLoginClaims(ctx, w, r, claims, pendViaOrPassword(pend), mfaTag)
 }
 
 // TwoFASend dispatches an OTP code for the picker page. POST form field
@@ -991,21 +1047,17 @@ func (h *AuthHandlers) EndImpersonation(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "no db", http.StatusServiceUnavailable)
 		return
 	}
-	var (
-		adminEmail string
-		adminRole  string
-		adminAct   bool
-	)
-	if err := db.QueryRowContext(ctx,
-		"SELECT email, role, is_active FROM users WHERE id = ?", sess.ImpersonatorUserID,
-	).Scan(&adminEmail, &adminRole, &adminAct); err != nil || !adminAct {
+	// Re-read the admin: a demotion or deletion during impersonation must not
+	// be restored from the session's cached identity.
+	admin, err := loadSessionClaims(ctx, db, sess.ImpersonatorUserID)
+	if err != nil {
 		h.Sessions.Destroy(ctx, w, r)
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 		return
 	}
+	admin.ClientID = 0
 	h.Sessions.Destroy(ctx, w, r)
-	adminReseller, adminRestricted := lookupSessionScope(ctx, db, sess.ImpersonatorUserID)
-	if _, err := h.Sessions.Create(ctx, w, r, sess.ImpersonatorUserID, adminEmail, adminRole, 0, adminReseller, adminRestricted); err != nil {
+	if _, err := h.Sessions.Create(ctx, w, r, newSessionFor(admin)); err != nil {
 		h.Logger.Error("end impersonation: create admin session", "err", err)
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 		return
@@ -1151,10 +1203,12 @@ func (h *AuthHandlers) ResetSubmit(w http.ResponseWriter, r *http.Request) {
 		h.renderReset(w, http.StatusInternalServerError, h.stampReset(r, resetViewData{Token: token, Error: "Server error."}))
 		return
 	}
-	// Invalidate every existing session for this user - a successful reset
-	// must kick out anyone who already had the account open (including the
-	// attacker scenario the codex review flagged).
-	killed, _ := h.Sessions.DestroyAllForUser(ctx, userID)
+	// Invalidate every existing session and pending 2FA ticket for this user -
+	// a successful reset must kick out anyone who already had the account open.
+	killed, rerr := h.Sessions.RevokeUser(ctx, db, userID)
+	if rerr != nil {
+		h.Logger.Error("password reset: session revoke", "user", userID, "err", rerr)
+	}
 	// Revoke all API keys for the user; a stolen key survives a password
 	// reset otherwise, defeating the whole purpose of the reset.
 	keysRes, _ := db.ExecContext(ctx,
@@ -1307,11 +1361,22 @@ func (h *AuthHandlers) clearFails(ctx context.Context, email, ip string) {
 
 // ---- Pending 2FA tickets (short-lived Redis records) -------------------
 
+// pending2FA carries only the identity of the challenge; Role/ClientID are
+// display/audit hints and are never trusted when the session is minted.
+// pending2FAVer is the ticket schema version; readPending2FA drops anything below it.
+const pending2FAVer = 1
+
 type pending2FA struct {
 	UserID   int64  `json:"u"`
 	Email    string `json:"e"`
 	Role     string `json:"r"`
 	ClientID int64  `json:"c"`
+	// Epoch binds the ticket to the credential state at issue time: any
+	// demotion/deactivation/password change since then invalidates it.
+	Epoch int64 `json:"ep"`
+	// Ver rejects tickets minted before Epoch existed: those decode as epoch 0
+	// and would match a user still at 0, re-opening the stale-ticket hole.
+	Ver int `json:"tv"`
 	// Via marks how the user reached the 2FA challenge ("password"|"oidc").
 	// Audit relies on this so login.success Meta.via reflects the real entry
 	// point even after a redirect-bounce through /auth/2fa.
@@ -1328,7 +1393,11 @@ func (h *AuthHandlers) issuePending2FA(ctx context.Context, userID int64, email,
 	if len(via) > 0 && via[0] != "" {
 		v = via[0]
 	}
-	payload := pending2FA{UserID: userID, Email: email, Role: role, ClientID: clientID, Via: v}
+	epoch, err := auth.UserEpoch(ctx, h.DB(), userID)
+	if err != nil {
+		return "", err
+	}
+	payload := pending2FA{UserID: userID, Email: email, Role: role, ClientID: clientID, Epoch: epoch, Ver: pending2FAVer, Via: v}
 	b, _ := json.Marshal(payload)
 	if err := h.RDB.Set(ctx, "hpg:2fa:"+ticket, b, pending2FATTL).Err(); err != nil {
 		return "", err
@@ -1349,7 +1418,29 @@ func (h *AuthHandlers) readPending2FA(r *http.Request) (pending2FA, bool) {
 	if err := json.Unmarshal(b, &p); err != nil {
 		return pending2FA{}, false
 	}
+	if p.Ver < pending2FAVer {
+		return pending2FA{}, false
+	}
 	return p, true
+}
+
+// claimsForPending re-reads the user behind a completed 2FA challenge. The
+// ticket's cached claims are never used: a deleted, disabled, demoted or
+// re-scoped user must not mint a session from a challenge issued earlier.
+func (h *AuthHandlers) claimsForPending(ctx context.Context, w http.ResponseWriter, r *http.Request, pend pending2FA) (sessionClaims, bool) {
+	c, err := loadSessionClaims(ctx, h.DB(), pend.UserID)
+	if err != nil {
+		h.denyStaleLogin(w, r, err)
+		return sessionClaims{}, false
+	}
+	if c.Epoch != pend.Epoch {
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: &pend.UserID, Action: "2fa.stale_ticket", Entity: "auth", EntityID: pend.Email,
+		})
+		http.Redirect(w, r, "/auth/login?flash=Your+account+changed.+Please+sign+in+again.", http.StatusSeeOther)
+		return sessionClaims{}, false
+	}
+	return c, true
 }
 
 func (h *AuthHandlers) consumePending2FA(r *http.Request) {
@@ -1723,7 +1814,7 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		UserID: &userID, Action: "oidc.login.success", Entity: "auth", EntityID: email,
 		Meta: map[string]any{"issuer": info.Issuer, "role": role},
 	})
-	h.finalizeLogin(ctx, w, r, userID, email, role, clientID, "oidc", "sso")
+	h.finalizeLogin(ctx, w, r, userID, "oidc", "sso")
 }
 
 // oidcLinkIdentity handles the account-linking branch of OIDCCallback. The
@@ -1986,8 +2077,13 @@ func (h *AuthHandlers) SSOJump(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// No second factor enrolled - create session and redirect.
-	jumpReseller, jumpRestricted := lookupSessionScope(ctx, h.DB(), userID)
-	if _, err := h.Sessions.Create(ctx, w, r, userID, email, role, clientID, jumpReseller, jumpRestricted); err != nil {
+	claims, cerr := loadSessionClaims(ctx, db, userID)
+	if cerr != nil {
+		h.Logger.Error("sso_jump: claim load", "err", cerr)
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	if _, err := h.Sessions.Create(ctx, w, r, newSessionFor(claims)); err != nil {
 		h.Logger.Error("sso_jump: session create", "err", err)
 		http.Error(w, "server error", http.StatusInternalServerError)
 		return
@@ -2134,7 +2230,11 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 		UserID: &pend.UserID, Action: "2fa.sms.success", Entity: "auth", EntityID: pend.Email,
 	})
 	h.Metrics.OTPAttempt("sms", "success")
-	h.finalizeLogin(ctx, w, r, pend.UserID, pend.Email, pend.Role, pend.ClientID, pendViaOrPassword(pend), "sms")
+	claims, ok2 := h.claimsForPending(ctx, w, r, pend)
+	if !ok2 {
+		return
+	}
+	h.finalizeLoginClaims(ctx, w, r, claims, pendViaOrPassword(pend), "sms")
 }
 
 func (h *AuthHandlers) renderSMSOTP(w http.ResponseWriter, status int, d smsOTPViewData) {
@@ -2267,7 +2367,11 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 		UserID: &pend.UserID, Action: "2fa.email.success", Entity: "auth", EntityID: pend.Email,
 	})
 	h.Metrics.OTPAttempt("email", "success")
-	h.finalizeLogin(ctx, w, r, pend.UserID, pend.Email, pend.Role, pend.ClientID, pendViaOrPassword(pend), "email")
+	claims, ok2 := h.claimsForPending(ctx, w, r, pend)
+	if !ok2 {
+		return
+	}
+	h.finalizeLoginClaims(ctx, w, r, claims, pendViaOrPassword(pend), "email")
 }
 
 func (h *AuthHandlers) renderEmailOTP(w http.ResponseWriter, status int, d emailOTPViewData) {

@@ -231,7 +231,9 @@ func (h *APIHandlers) ResellerUpdate(w http.ResponseWriter, r *http.Request) {
 			for rows.Next() {
 				var uid int64
 				if rows.Scan(&uid) == nil {
-					_, _ = h.Sessions.DestroyAllForUser(ctx, uid)
+					if _, rerr := h.Sessions.RevokeUser(ctx, h.DB(), uid); rerr != nil {
+						h.Logger.Error("reseller suspend: session revoke", "user", uid, "err", rerr)
+					}
 				}
 			}
 		}
@@ -272,7 +274,9 @@ func (h *APIHandlers) ResellerDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	if h.Sessions != nil {
 		for _, uid := range freed {
-			_, _ = h.Sessions.DestroyAllForUser(ctx, uid)
+			if _, rerr := h.Sessions.RevokeUser(ctx, h.DB(), uid); rerr != nil {
+				h.Logger.Error("reseller delete: session revoke", "user", uid, "err", rerr)
+			}
 		}
 	}
 	uid := apiCallerID(r)

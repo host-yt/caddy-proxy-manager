@@ -424,13 +424,14 @@ func (h *AdminHandlers) resellerAdminIDs(ctx context.Context, resellerID int64) 
 	return out
 }
 
-// revokeUsers destroys all live sessions of the given users (best-effort).
+// revokeUsers invalidates the given users' credentials: the auth-epoch bump is
+// durable, the session purge is the best-effort fast path.
 func (h *AdminHandlers) revokeUsers(ctx context.Context, ids []int64) {
 	if h.Sessions == nil {
 		return
 	}
 	for _, id := range ids {
-		if _, err := h.Sessions.DestroyAllForUser(ctx, id); err != nil {
+		if _, err := h.Sessions.RevokeUser(ctx, h.DB(), id); err != nil {
 			h.Logger.Error("reseller session revoke", "user", id, "err", err)
 		}
 	}

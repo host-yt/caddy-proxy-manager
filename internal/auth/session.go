@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -34,6 +35,11 @@ type Session struct {
 	// Restricted mirrors users.is_restricted: a client-scoped admin with no
 	// reseller. Same default-deny route boundary as a reseller-admin.
 	Restricted         bool      `json:"restricted,omitempty"`
+	// Epoch is users.auth_epoch at mint time; Load rejects the session once
+	// the stored epoch moves (role/scope/password/active change or delete).
+	Epoch              int64     `json:"ep"`
+	// ImpersonatorEpoch does the same for the admin behind an impersonation.
+	ImpersonatorEpoch  int64     `json:"imp_ep,omitempty"`
 	// Ver is the session schema version. Load rejects anything below
 	// sessionSchemaVer so a pre-Restricted session cannot fail open.
 	Ver                int       `json:"v,omitempty"`
@@ -47,9 +53,23 @@ type Session struct {
 // IsImpersonating reports whether the session is an admin acting as a client.
 func (s *Session) IsImpersonating() bool { return s != nil && s.ImpersonatorUserID > 0 }
 
+// sessionRedis is the Redis subset Manager uses, as an interface so tests can
+// inject failures without a live server.
+type sessionRedis interface {
+	Get(ctx context.Context, key string) *redis.StringCmd
+	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
+	Del(ctx context.Context, keys ...string) *redis.IntCmd
+	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
+}
+
+// isRedisMiss reports a "key not found" as opposed to a transport failure.
+func isRedisMiss(err error) bool { return errors.Is(err, redis.Nil) }
+
 // Manager creates, reads, and revokes sessions in Redis.
 type Manager struct {
-	rdb        *redis.Client
+	rdb        sessionRedis
+	// db is the authoritative auth-epoch source; nil disables the DB fallback.
+	db         *sql.DB
 	cookieName string
 	secure     bool
 	sameSite   http.SameSite
@@ -64,14 +84,24 @@ func NewSessionManager(rdb *redis.Client, cookieName string, secure bool, sameSi
 	case "none":
 		ss = http.SameSiteNoneMode
 	}
-	return &Manager{rdb: rdb, cookieName: cookieName, secure: secure, sameSite: ss, ttl: ttl}
+	m := &Manager{cookieName: cookieName, secure: secure, sameSite: ss, ttl: ttl}
+	// Keep the interface nil for a nil client so the m.rdb == nil guards hold.
+	if rdb != nil {
+		m.rdb = rdb
+	}
+	return m
 }
+
+// SetEpochSource wires the DB used to verify auth epochs on a cache miss.
+func (m *Manager) SetEpochSource(db *sql.DB) { m.db = db }
 
 const sessionKeyPrefix = "hpg:sess:"
 
 // sessionSchemaVer invalidates sessions minted before a security-relevant
 // field was added. Bump it whenever a missing field would fail open.
-const sessionSchemaVer = 1
+// Ver 2 adds Epoch: a pre-epoch session was minted from claims that were
+// never re-verified, so drop them all rather than trust a zero epoch.
+const sessionSchemaVer = 2
 
 // CookieSecure exposes the configured Secure flag for callers that issue
 // companion short-lived cookies (e.g. pending-2fa).
@@ -101,18 +131,26 @@ func requestIsHTTPS(r *http.Request) bool {
 	return strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 }
 
-// Create stores a new session in Redis and writes the cookie. resellerID is
-// non-zero only for a reseller-admin.
-func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, r *http.Request, userID int64, email, role string, clientID, resellerID int64, restricted bool) (*Session, error) {
-	return m.CreateImpersonated(ctx, w, r, userID, email, role, clientID, resellerID, restricted, 0, "")
+// NewSession describes the identity a session is minted for. Every field must
+// come from a fresh users-row read, never from a cached ticket or claim.
+// ResellerID is non-zero only for a reseller-admin; during impersonation the
+// non-Impersonator fields describe the *target* (never the acting admin).
+type NewSession struct {
+	UserID     int64
+	Email      string
+	Role       string
+	ClientID   int64
+	ResellerID int64
+	Restricted bool
+	Epoch      int64
+
+	ImpersonatorUserID int64
+	ImpersonatorEmail  string
+	ImpersonatorEpoch  int64
 }
 
-// CreateImpersonated mints a session whose effective identity is the
-// target client (userID/email/role/clientID) but which carries the
-// admin's id/email in ImpersonatorUserID for audit accountability.
-// Pass impersonatorID=0 for a normal login. restricted must describe the
-// effective identity (the target), never the impersonating admin.
-func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter, r *http.Request, userID int64, email, role string, clientID, resellerID int64, restricted bool, impersonatorID int64, impersonatorEmail string) (*Session, error) {
+// Create stores a new session in Redis and writes the cookie.
+func (m *Manager) Create(ctx context.Context, w http.ResponseWriter, r *http.Request, ns NewSession) (*Session, error) {
 	id, err := randomID(32)
 	if err != nil {
 		return nil, err
@@ -123,18 +161,20 @@ func (m *Manager) CreateImpersonated(ctx context.Context, w http.ResponseWriter,
 	}
 	now := time.Now().UTC()
 	s := &Session{
-		UserID:             userID,
-		Email:              email,
-		Role:               role,
-		ClientID:           clientID,
-		ResellerID:         resellerID,
-		Restricted:         restricted,
+		UserID:             ns.UserID,
+		Email:              ns.Email,
+		Role:               ns.Role,
+		ClientID:           ns.ClientID,
+		ResellerID:         ns.ResellerID,
+		Restricted:         ns.Restricted,
+		Epoch:              ns.Epoch,
+		ImpersonatorEpoch:  ns.ImpersonatorEpoch,
 		Ver:                sessionSchemaVer,
 		CSRFToken:          csrf,
 		CreatedAt:          now,
 		ExpiresAt:          now.Add(m.ttl),
-		ImpersonatorUserID: impersonatorID,
-		ImpersonatorEmail:  impersonatorEmail,
+		ImpersonatorUserID: ns.ImpersonatorUserID,
+		ImpersonatorEmail:  ns.ImpersonatorEmail,
 	}
 	b, err := json.Marshal(s)
 	if err != nil {
@@ -190,17 +230,24 @@ func (m *Manager) Load(ctx context.Context, r *http.Request) (*Session, error) {
 		m.rdb.Del(ctx, sessionKeyPrefix+c.Value)
 		return nil, nil
 	}
+	// Durable revocation: a stale session dies here even when the Redis purge
+	// that should have deleted it failed.
+	if !m.epochValid(ctx, &s) {
+		m.rdb.Del(ctx, sessionKeyPrefix+c.Value)
+		return nil, nil
+	}
 	return &s, nil
 }
 
-// DestroyAllForUser scans every active session in Redis and deletes the
-// ones owned by `userID`. Best-effort: a Redis SCAN cursor that misses a
-// key inserted concurrently is fine - the worst case is a one-request
-// window for an attacker. Intended for password-reset / disable-user.
+// DestroyAllForUser scans every active session in Redis and deletes the ones
+// belonging to `userID`, either as the effective identity or as the admin
+// behind an impersonation. Returns the count of *confirmed* deletions and a
+// non-nil error when any scan/read/delete failed, so callers never report a
+// revocation that may not have happened. The durable guarantee is the auth
+// epoch (see RevokeUser); this purge is the fast path.
 //
-// Returns the count of sessions actually deleted. No cookie is cleared
-// because the caller is not necessarily the same browser that owns the
-// session being killed.
+// No cookie is cleared because the caller is not necessarily the same browser
+// that owns the session being killed.
 func (m *Manager) DestroyAllForUser(ctx context.Context, userID int64) (int, error) {
 	if m == nil || m.rdb == nil {
 		return 0, nil
@@ -208,32 +255,44 @@ func (m *Manager) DestroyAllForUser(ctx context.Context, userID int64) (int, err
 	var (
 		cursor uint64
 		killed int
+		errs   []error
 	)
 	for {
 		keys, next, err := m.rdb.Scan(ctx, cursor, sessionKeyPrefix+"*", 200).Result()
 		if err != nil {
-			return killed, err
+			errs = append(errs, fmt.Errorf("scan: %w", err))
+			return killed, errors.Join(errs...)
 		}
 		for _, k := range keys {
 			b, err := m.rdb.Get(ctx, k).Bytes()
+			if isRedisMiss(err) {
+				continue // expired between SCAN and GET: already gone
+			}
 			if err != nil {
+				errs = append(errs, fmt.Errorf("read %s: %w", k, err))
 				continue
 			}
 			var s Session
-			if json.Unmarshal(b, &s) != nil {
+			if uerr := json.Unmarshal(b, &s); uerr != nil {
+				errs = append(errs, fmt.Errorf("decode %s: %w", k, uerr))
 				continue
 			}
-			if s.UserID == userID {
-				_ = m.rdb.Del(ctx, k).Err()
-				killed++
+			if s.UserID != userID && s.ImpersonatorUserID != userID {
+				continue
 			}
+			n, derr := m.rdb.Del(ctx, k).Result()
+			if derr != nil {
+				errs = append(errs, fmt.Errorf("delete %s: %w", k, derr))
+				continue
+			}
+			killed += int(n)
 		}
 		cursor = next
 		if cursor == 0 {
 			break
 		}
 	}
-	return killed, nil
+	return killed, errors.Join(errs...)
 }
 
 // Destroy removes the session and clears the cookie.
