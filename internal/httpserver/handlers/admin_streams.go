@@ -17,6 +17,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
 // scopeCheckStream verifies the caller may act on a stream by resolving its
@@ -196,7 +197,8 @@ func (h *AdminHandlers) StreamsList(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port,
-		        sv.backend_ip, n.name, n.public_hostname, sr.status,
+		        sv.backend_ip, n.name, n.public_hostname,
+		        CASE WHEN sr.quarantined_at IS NOT NULL THEN 'quarantined' ELSE sr.status END,
 		        COALESCE(sr.tag,''),
 		        DATE_FORMAT(sr.created_at, '%Y-%m-%d %H:%i'),
 		        COALESCE(sr.match_mode,'any'),
@@ -341,13 +343,13 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 
 	// Infra deny list is independent of the permissive RFC1918 policy: a node's
 	// own WG/private address hosts an unauthenticated Caddy admin API.
-	infra, infraErr := loadInfraTargets(ctx, db)
+	infra, infraErr := streamguard.LoadInfraTargets(ctx, db)
 	if infraErr != nil {
 		h.Logger.Warn("stream create: infra deny list unavailable", "err", infraErr)
 		redirectWithFlash(w, r, "/admin/streams", "", "backend screening unavailable, try again")
 		return
 	}
-	if err := infra.screenStreamTarget(upstreamPort, form.BackendIP); err != nil {
+	if err := infra.ScreenTarget(upstreamPort, form.BackendIP); err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "backend "+err.Error())
 		return
 	}
@@ -456,7 +458,8 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 	d := streamEditData{baseAdminData: h.base(r, "Edit stream")}
 	if err := db.QueryRowContext(ctx,
 		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port,
-		        sv.backend_ip, n.name, n.public_hostname, sr.status,
+		        sv.backend_ip, n.name, n.public_hostname,
+		        CASE WHEN sr.quarantined_at IS NOT NULL THEN 'quarantined' ELSE sr.status END,
 		        COALESCE(sr.tag,''),
 		        DATE_FORMAT(sr.created_at, '%Y-%m-%d %H:%i'),
 		        COALESCE(sr.match_mode,'any'),
@@ -691,7 +694,7 @@ func screenStreamUpstreams(ctx context.Context, db *sql.DB, logger *slog.Logger,
 	if len(upstreams) == 0 {
 		return upstreams, nil
 	}
-	infra, err := loadInfraTargets(ctx, db)
+	infra, err := streamguard.LoadInfraTargets(ctx, db)
 	if err != nil {
 		logger.Warn("stream upstream screen: infra deny list unavailable", "err", err)
 		return nil, errors.New("upstream screening unavailable, try again")
@@ -701,33 +704,15 @@ func screenStreamUpstreams(ctx context.Context, db *sql.DB, logger *slog.Logger,
 
 // screenStreamUpstreamsWith screens against an already-built deny set and
 // returns the upstreams with hostnames pinned to a validated literal address.
-func screenStreamUpstreamsWith(ctx context.Context, infra *infraTargets, logger *slog.Logger, upstreams []upstreamEntry) ([]upstreamEntry, error) {
+func screenStreamUpstreamsWith(ctx context.Context, infra *streamguard.InfraTargets, logger *slog.Logger, upstreams []upstreamEntry) ([]upstreamEntry, error) {
 	out := make([]upstreamEntry, 0, len(upstreams))
 	for _, u := range upstreams {
-		host, port, splitErr := net.SplitHostPort(u.Address)
-		if splitErr != nil || host == "" {
-			return nil, fmt.Errorf("upstream %s: invalid address", u.Address)
-		}
-		if err := screenBackendHost(ctx, host); err != nil {
+		pinned, err := infra.ScreenAndPinAddress(ctx, u.Address)
+		if err != nil {
 			logger.Warn("stream upstream screen failed", "addr", u.Address, "err", err)
-			return nil, fmt.Errorf("upstream %s: blocked or unresolvable", u.Address)
-		}
-		resolved, rerr := resolveStreamHost(ctx, host)
-		if rerr != nil {
-			logger.Warn("stream upstream resolve failed", "addr", u.Address, "err", rerr)
-			return nil, fmt.Errorf("upstream %s: blocked or unresolvable", u.Address)
-		}
-		portNum, perr := strconv.Atoi(port)
-		if perr != nil || portNum <= 0 || portNum > 65535 {
-			return nil, fmt.Errorf("upstream %s: invalid port", u.Address)
-		}
-		if err := infra.screenStreamTarget(portNum, append(resolved, host)...); err != nil {
-			logger.Warn("stream upstream hits infra deny list", "addr", u.Address, "err", err)
 			return nil, fmt.Errorf("upstream %s: %v", u.Address, err)
 		}
-		// Pin the resolution: Caddy re-resolves at dial time, so a hostname
-		// upstream would otherwise be a DNS-rebinding window after validation.
-		u.Address = net.JoinHostPort(resolved[0], port)
+		u.Address = pinned
 		out = append(out, u)
 	}
 	return out, nil

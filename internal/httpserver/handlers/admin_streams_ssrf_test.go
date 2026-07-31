@@ -6,26 +6,25 @@ import (
 	"log/slog"
 	"net/netip"
 	"testing"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
-// testInfra mirrors what loadInfraTargets builds for a deployment with one
-// managed node on the WG mesh plus a customer tunnel subnet.
-func testInfra(t *testing.T) *infraTargets {
+// testInfra mirrors what streamguard.LoadInfraTargets builds for a deployment
+// with one managed node on the WG mesh plus a customer tunnel subnet.
+func testInfra(t *testing.T) *streamguard.InfraTargets {
 	t.Helper()
-	infra := &infraTargets{
-		addrs: make(map[netip.Addr]struct{}),
-		hosts: make(map[string]struct{}),
-	}
-	infra.add("10.66.0.1")   // control plane
-	infra.add("203.0.113.7") // node public IP
-	infra.add("node1.example.com")
-	infra.addURLHost("http://10.66.0.5:2019")
-	infra.addTunnelGateway("100.96.0.0/16")
+	infra := streamguard.New()
+	infra.Add("10.66.0.1")   // control plane
+	infra.Add("203.0.113.7") // node public IP
+	infra.Add("node1.example.com")
+	infra.AddURLHost("http://10.66.0.5:2019")
+	infra.AddTunnelGateway("100.96.0.0/16")
 	p, err := netip.ParsePrefix("10.66.0.0/24")
 	if err != nil {
 		t.Fatalf("prefix: %v", err)
 	}
-	infra.nets = append(infra.nets, p)
+	infra.AddPrefix(p)
 	return infra
 }
 
@@ -91,22 +90,9 @@ func TestScreenStreamUpstreamsAllowsPrivateNet(t *testing.T) {
 	}
 }
 
-func TestInfraTargetsHostnameDeny(t *testing.T) {
-	infra := testInfra(t)
-	if !infra.blocked("node1.example.com") {
-		t.Error("node public hostname should be denied")
-	}
-	if !infra.blocked("NODE1.example.com.") {
-		t.Error("hostname deny should be case- and trailing-dot-insensitive")
-	}
-	if infra.blocked("backend.tenant.example") {
-		t.Error("unrelated hostname should not be denied")
-	}
-}
-
 func TestInfraTargetsFailsClosedWithoutDB(t *testing.T) {
-	if _, err := loadInfraTargets(context.Background(), nil); err == nil {
-		t.Error("expected loadInfraTargets to fail closed without a db")
+	if _, err := streamguard.LoadInfraTargets(context.Background(), nil); err == nil {
+		t.Error("expected LoadInfraTargets to fail closed without a db")
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	if _, err := screenStreamUpstreams(context.Background(), nil, logger, []upstreamEntry{{Address: "10.0.0.5:8080", Weight: 1}}); err == nil {

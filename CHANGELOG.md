@@ -4,6 +4,11 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Security
+
+- **Legacy stream targets bypassed the new screen on every push**: the create/update handlers screened stream destinations, but the config builder loaded every active stream and its stored upstreams straight from the DB, so a row written before the upgrade - or one whose destination only later became a managed node address - was re-emitted verbatim by boot push, manual resync and drift recovery, forwarding raw traffic to Caddy's unauthenticated admin API. Every stream destination (primary and each upstream) is now re-screened at emission time in the new `internal/streamguard` package, a deny set that cannot be loaded fails the whole push closed, and unsafe rows are quarantined (`stream_routes.quarantined_at` / `quarantine_reason`, migration `00137`) with an audit entry instead of being silently dropped.
+- **Stream hostname validation and pinning used different DNS answers**: upstream screening resolved the host once to validate it and a second time to pick the address it stored, so an attacker-controlled DNS server could answer with a public address first and a metadata/loopback address second - and the second one was persisted and dialed. Resolution now happens exactly once, every returned address is checked against both the generic SSRF policy and the infrastructure deny set, and the pinned literal comes from that validated answer.
+
 ## [1.4.4] - 2026-07-31
 
 Security release. It closes a scan of 24 findings plus everything thirteen rounds of adversarial review turned up on top of the fixes themselves.

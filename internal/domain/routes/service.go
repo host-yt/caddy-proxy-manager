@@ -29,6 +29,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
+	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
 // recoverBg logs and swallows a panic in a fire-and-forget goroutine.
@@ -1738,7 +1739,11 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		}
 		return global
 	}
-	streams := s.buildStreamsForNode(ctx, nodeID)
+	// Fail closed: an unscreened stream set must never reach a node.
+	streams, err := s.buildStreamsForNode(ctx, nodeID)
+	if err != nil {
+		return nil, err
+	}
 	branding := s.loadErrorBranding(ctx)
 	for i := range built {
 		built[i].ErrorBranding = branding
@@ -2817,8 +2822,9 @@ func (s *Service) attachLocationRules(ctx context.Context, built []caddyapi.Rout
 // returns caddyapi.StreamRoute values ready for the L4 builder. Joins on
 // services for the backend_ip (admin-only; stream routes never expose this
 // to the customer). Also loads stream_upstreams and advanced columns added
-// in migration 00061.
-func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) []caddyapi.StreamRoute {
+// in migration 00061. Every destination is re-screened here, so a row stored
+// before a target became control-plane infrastructure cannot be re-emitted.
+func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) ([]caddyapi.StreamRoute, error) {
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port, sv.backend_ip,
 		        COALESCE(sr.match_mode,'any'),
@@ -2829,10 +2835,10 @@ func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) []caddy
 		        COALESCE(sr.cidr_allow,''),
 		        COALESCE(sr.cidr_deny,'')
 		 FROM stream_routes sr JOIN services sv ON sv.id = sr.service_id
-		 WHERE sr.caddy_node_id = ? AND sr.status = 'active'
+		 WHERE sr.caddy_node_id = ? AND sr.status = 'active' AND sr.quarantined_at IS NULL
 		 ORDER BY sr.listen_port ASC`, nodeID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []caddyapi.StreamRoute
@@ -2853,11 +2859,87 @@ func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) []caddy
 		out = append(out, r)
 	}
 	if len(out) == 0 {
-		return out
+		return out, nil
 	}
 	// Attach multi-upstreams; routes without rows keep the legacy single-upstream.
 	s.attachStreamUpstreams(ctx, out)
-	return out
+	return s.screenStreams(ctx, out)
+}
+
+// screenStreams re-validates every stream destination at emission time and
+// quarantines rows that now point at node or control-plane addresses. A deny
+// set that cannot be loaded fails the whole push closed.
+func (s *Service) screenStreams(ctx context.Context, in []caddyapi.StreamRoute) ([]caddyapi.StreamRoute, error) {
+	infra, err := streamguard.LoadInfraTargets(ctx, s.DB)
+	if err != nil {
+		return nil, fmt.Errorf("stream target screening unavailable: %w", err)
+	}
+	out, rejected := screenStreamSet(ctx, infra, in)
+	for _, rej := range rejected {
+		s.quarantineStream(ctx, rej.route, rej.cause)
+	}
+	return out, nil
+}
+
+// streamReject pairs a rejected stream with why it was rejected.
+type streamReject struct {
+	route caddyapi.StreamRoute
+	cause error
+}
+
+// screenStreamSet splits streams into emittable (destinations pinned to a
+// validated literal) and rejected. Pure, so the policy is testable without a DB.
+func screenStreamSet(ctx context.Context, infra *streamguard.InfraTargets, in []caddyapi.StreamRoute) ([]caddyapi.StreamRoute, []streamReject) {
+	out := make([]caddyapi.StreamRoute, 0, len(in))
+	var rejected []streamReject
+	for _, r := range in {
+		pinnedIP, perr := infra.ScreenAndPin(ctx, r.UpstreamIP, r.UpstreamPort)
+		if perr != nil {
+			rejected = append(rejected, streamReject{r, perr})
+			continue
+		}
+		r.UpstreamIP = pinnedIP
+		var bad error
+		for i, u := range r.Upstreams {
+			pinned, uerr := infra.ScreenAndPinAddress(ctx, u.Address)
+			if uerr != nil {
+				bad = uerr
+				break
+			}
+			r.Upstreams[i].Address = pinned
+		}
+		if bad != nil {
+			rejected = append(rejected, streamReject{r, bad})
+			continue
+		}
+		out = append(out, r)
+	}
+	return out, rejected
+}
+
+// quarantineStream parks an unsafe stream so it stops being re-emitted, and
+// leaves a visible trail instead of silently dropping it.
+func (s *Service) quarantineStream(ctx context.Context, r caddyapi.StreamRoute, cause error) {
+	reason := cause.Error()
+	if len(reason) > 255 {
+		reason = reason[:255]
+	}
+	if _, err := s.DB.ExecContext(ctx,
+		`UPDATE stream_routes SET quarantined_at = `+store.Now()+`, quarantine_reason = ? WHERE id = ?`,
+		reason, r.ID); err != nil && s.Logger != nil {
+		s.Logger.Error("stream quarantine flag failed", "stream_id", r.ID, "err", err)
+	}
+	if s.Logger != nil {
+		s.Logger.Warn("stream quarantined: unsafe destination", "stream_id", r.ID,
+			"listen_port", r.ListenPort, "reason", reason)
+	}
+	audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
+		ActorType: audit.ActorSystem,
+		Action:    "stream.quarantined",
+		Entity:    "stream_route",
+		EntityID:  fmt.Sprintf("%d", r.ID),
+		Meta:      map[string]any{"reason": reason, "listen_port": r.ListenPort},
+	})
 }
 
 // attachStreamUpstreams loads stream_upstreams rows and maps them onto the
