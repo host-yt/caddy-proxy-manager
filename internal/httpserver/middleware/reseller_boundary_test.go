@@ -62,3 +62,28 @@ func TestResellerAdminBoundary(t *testing.T) {
 		})
 	}
 }
+
+// An orphaned reseller (its reseller row deleted, reseller_id nulled) must stay
+// confined: role alone can never widen into a platform admin.
+func TestOrphanedResellerStaysConfined(t *testing.T) {
+	h := ResellerAdminBoundary([]string{"/admin", "/admin/hosts*"})(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+
+	for _, tc := range []struct {
+		path string
+		want int
+	}{
+		{"/admin/nodes", http.StatusForbidden},
+		{"/admin/settings", http.StatusForbidden},
+		{"/admin/hosts", http.StatusOK},
+	} {
+		req := httptest.NewRequest(http.MethodGet, tc.path, nil)
+		req = req.WithContext(ContextWithSession(req.Context(),
+			&auth.Session{UserID: 1, Role: "reseller", ResellerID: 0, Restricted: false}))
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != tc.want {
+			t.Errorf("%s: got %d want %d", tc.path, rr.Code, tc.want)
+		}
+	}
+}

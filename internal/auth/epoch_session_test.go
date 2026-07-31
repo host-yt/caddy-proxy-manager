@@ -2,7 +2,9 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"fmt"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -98,6 +100,25 @@ func (f *fakeRedis) Scan(_ context.Context, _ uint64, _ string, _ int64) *redis.
 	return redis.NewScanCmdResult(keys, 0, nil)
 }
 
+// epochDBManager wires a real DB so the authoritative epoch read runs.
+func epochDBManager(t *testing.T, f *fakeRedis) (*Manager, *sql.DB, int64, func()) {
+	t.Helper()
+	db := openTestDB(t)
+	email := fmt.Sprintf("epochsess_%d@example.com", time.Now().UnixNano())
+	res, err := db.ExecContext(context.Background(),
+		`INSERT INTO users (email, password_hash, role, is_active) VALUES (?, 'x', 'admin', 1)`, email)
+	if err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	id, _ := res.LastInsertId()
+	m := testManager(f)
+	m.SetEpochSource(db)
+	return m, db, id, func() {
+		_, _ = db.ExecContext(context.Background(), "DELETE FROM users WHERE id = ?", id)
+		_ = db.Close()
+	}
+}
+
 func testManager(f *fakeRedis) *Manager {
 	m := NewSessionManager(nil, "hpg_session", false, "lax", time.Hour)
 	m.rdb = f
@@ -122,9 +143,14 @@ func reqWithSession(id string) *http.Request {
 // A session whose stamped epoch no longer matches the cached one must not load.
 func TestLoad_EpochMismatchRejectsSession(t *testing.T) {
 	f := newFakeRedis()
-	m := testManager(f)
-	storeSession(t, f, "sid", Session{UserID: 7, Role: "admin", Ver: sessionSchemaVer, Epoch: 1})
-	f.vals[epochKey(7)] = "2" // credential-invalidating change happened
+	m, db, uid, done := epochDBManager(t, f)
+	defer done()
+	// A credential-invalidating change moved the row past the stamped epoch.
+	if _, err := db.ExecContext(context.Background(),
+		"UPDATE users SET auth_epoch = auth_epoch + 1 WHERE id = ?", uid); err != nil {
+		t.Fatalf("bump: %v", err)
+	}
+	storeSession(t, f, "sid", Session{UserID: uid, Role: "admin", Ver: sessionSchemaVer, Epoch: 0})
 
 	sess, err := m.Load(context.Background(), reqWithSession("sid"))
 	if err != nil {
@@ -140,9 +166,13 @@ func TestLoad_EpochMismatchRejectsSession(t *testing.T) {
 
 func TestLoad_MatchingEpochLoads(t *testing.T) {
 	f := newFakeRedis()
-	m := testManager(f)
-	storeSession(t, f, "sid", Session{UserID: 7, Role: "admin", Ver: sessionSchemaVer, Epoch: 3})
-	f.vals[epochKey(7)] = "3"
+	m, db, uid, done := epochDBManager(t, f)
+	defer done()
+	cur, err := UserEpoch(context.Background(), db, uid)
+	if err != nil {
+		t.Fatalf("epoch: %v", err)
+	}
+	storeSession(t, f, "sid", Session{UserID: uid, Role: "admin", Ver: sessionSchemaVer, Epoch: cur})
 
 	sess, err := m.Load(context.Background(), reqWithSession("sid"))
 	if err != nil || sess == nil {
@@ -150,12 +180,12 @@ func TestLoad_MatchingEpochLoads(t *testing.T) {
 	}
 }
 
-// A deleted user's poisoned epoch cache must reject every live session.
+// A deleted user has no row, so every live session must be denied.
 func TestLoad_DeletedUserSentinelRejects(t *testing.T) {
 	f := newFakeRedis()
-	m := testManager(f)
-	storeSession(t, f, "sid", Session{UserID: 9, Role: "admin", Ver: sessionSchemaVer, Epoch: 0})
-	m.PublishEpoch(context.Background(), 9, epochDeleted)
+	m, _, uid, done := epochDBManager(t, f)
+	done() // user removed while the session was live
+	storeSession(t, f, "sid", Session{UserID: uid, Role: "admin", Ver: sessionSchemaVer, Epoch: 0})
 
 	sess, _ := m.Load(context.Background(), reqWithSession("sid"))
 	if sess != nil {
@@ -175,41 +205,34 @@ func TestLoad_OldSchemaVersionDropped(t *testing.T) {
 }
 
 // A failed Redis delete must be reported AND must not leave the old session
-// usable: the epoch bump published by the revoke path still blocks it.
+// usable: the durable epoch bump still blocks it on the very next request.
 func TestDestroyAllForUser_DeleteFailureReportedAndSessionUnusable(t *testing.T) {
 	f := newFakeRedis()
-	m := testManager(f)
-	storeSession(t, f, "sid", Session{UserID: 4, Role: "admin", Ver: sessionSchemaVer, Epoch: 1})
+	m, db, uid, done := epochDBManager(t, f)
+	defer done()
+	cur, err := UserEpoch(context.Background(), db, uid)
+	if err != nil {
+		t.Fatalf("epoch: %v", err)
+	}
+	storeSession(t, f, "sid", Session{UserID: uid, Role: "admin", Ver: sessionSchemaVer, Epoch: cur})
 
 	f.delErr = errors.New("redis blip")
-	killed, err := m.DestroyAllForUser(context.Background(), 4)
-	if err == nil {
+	killed, derr := m.DestroyAllForUser(context.Background(), uid)
+	if derr == nil {
 		t.Fatal("want error when the delete fails")
 	}
 	if killed != 0 {
 		t.Fatalf("want 0 confirmed deletions, got %d", killed)
 	}
 
-	// The durable half of the revoke: epoch moved past the session's stamp.
+	// The durable half of the revoke: the row's epoch moved past the stamp.
 	f.delErr = nil
-	m.PublishEpoch(context.Background(), 4, 2)
+	if _, err := db.ExecContext(context.Background(),
+		"UPDATE users SET auth_epoch = auth_epoch + 1 WHERE id = ?", uid); err != nil {
+		t.Fatalf("bump: %v", err)
+	}
 	if sess, _ := m.Load(context.Background(), reqWithSession("sid")); sess != nil {
 		t.Fatalf("session survived a failed purge: %+v", sess)
-	}
-}
-
-// A Redis read failure during the check must fail closed.
-func TestLoad_RedisEpochReadFailureFailsClosed(t *testing.T) {
-	f := newFakeRedis()
-	m := testManager(f)
-	storeSession(t, f, "sid", Session{UserID: 4, Role: "admin", Ver: sessionSchemaVer, Epoch: 1})
-	sessionJSON := f.vals[sessionKeyPrefix+"sid"]
-
-	// Serve the session read, then fail every subsequent read (the epoch GET).
-	failing := &sequencedRedis{fakeRedis: f, first: sessionJSON}
-	m.rdb = failing
-	if sess, _ := m.Load(context.Background(), reqWithSession("sid")); sess != nil {
-		t.Fatalf("session loaded despite an unverifiable epoch: %+v", sess)
 	}
 }
 
@@ -239,48 +262,3 @@ func TestDestroyAllForUser_KillsImpersonationSessions(t *testing.T) {
 	}
 }
 
-// A revocation whose cache write is lost must not leave the old epoch readable
-// as agreement: the session dies even though Redis still answers.
-func TestEpochUnconfirmedPublishFailsClosed(t *testing.T) {
-	f := newFakeRedis()
-	m := testManager(f)
-	// Cache already agrees with the live session.
-	f.vals[epochKey(7)] = "3"
-	storeSession(t, f, "sid7", Session{
-		UserID: 7, Role: "admin", Ver: sessionSchemaVer, Epoch: 3,
-		ExpiresAt: time.Now().Add(time.Hour),
-	})
-	// The bump lands in the DB, but neither the SET nor the DEL reaches Redis.
-	f.setErr = errors.New("redis down")
-	f.delErr = errors.New("redis down")
-	m.PublishEpoch(context.Background(), 7, 4)
-
-	if !m.epochPending(7) {
-		t.Fatal("unconfirmed publish must mark the user unresolved")
-	}
-	// Redis recovers with the stale value still present and no DB wired: the
-	// session must not be honoured on cached equality alone.
-	f.setErr, f.delErr = nil, nil
-	if m.epochOK(context.Background(), 7, 3) {
-		t.Error("stale cached epoch accepted after an unconfirmed invalidation")
-	}
-}
-
-// A confirmed write clears the unresolved mark so the fast path resumes.
-func TestEpochConfirmClearsPending(t *testing.T) {
-	f := newFakeRedis()
-	m := testManager(f)
-	f.setErr = errors.New("redis down")
-	m.PublishEpoch(context.Background(), 8, 2)
-	if !m.epochPending(8) {
-		t.Fatal("expected unresolved after failed publish")
-	}
-	f.setErr = nil
-	m.PublishEpoch(context.Background(), 8, 2)
-	if m.epochPending(8) {
-		t.Error("confirmed publish must clear the unresolved mark")
-	}
-	if !m.epochOK(context.Background(), 8, 2) {
-		t.Error("confirmed cache should be trusted again")
-	}
-}

@@ -17,7 +17,9 @@ func ResellerAdminBoundary(allowed []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sess := SessionFromContext(r.Context())
-			if sess == nil || (sess.ResellerID == 0 && !sess.Restricted) {
+			// role=reseller stays confined even with no reseller_id: an orphaned
+			// reseller (its row deleted) must never widen into a platform admin.
+			if sess == nil || (sess.ResellerID == 0 && !sess.Restricted && sess.Role != "reseller") {
 				next.ServeHTTP(w, r) // full platform admin
 				return
 			}

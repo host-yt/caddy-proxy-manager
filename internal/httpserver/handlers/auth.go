@@ -461,6 +461,11 @@ func loadSessionClaims(ctx context.Context, db *sql.DB, userID int64) (sessionCl
 	if rid.Valid {
 		c.ResellerID = rid.Int64
 	}
+	// An orphaned reseller (its row deleted, reseller_id nulled) must not read
+	// as a full platform admin. Confine it whatever the mutation path did.
+	if c.Role == "reseller" && c.ResellerID == 0 {
+		c.Restricted = true
+	}
 	if c.Role == "client" {
 		_ = db.QueryRowContext(ctx, "SELECT id FROM clients WHERE user_id = ?", userID).Scan(&c.ClientID)
 	}

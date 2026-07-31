@@ -89,12 +89,14 @@ func (d *ftpDest) dial(ctx context.Context) (*ftp.ServerConn, error) {
 	var opts []ftp.DialOption
 	opts = append(opts, ftp.DialWithContext(ctx))
 	opts = append(opts, ftp.DialWithTimeout(20*time.Second))
-	// Pinned dial: revalidates the resolved IP at connect time (control AND
-	// PASV data connections both route through this) instead of trusting
-	// the hostname/PASV-advertised address re-resolves the same way.
-	opts = append(opts, ftp.DialWithDialFunc(func(network, address string) (net.Conn, error) {
-		return pinnedDialContext(ctx, network, address)
-	}))
+	// Pin by dialing the validated IP directly. Overriding the library dialer
+	// would hand back a raw socket and defeat its TLS wrapping: implicit FTPS
+	// would read the handshake as plaintext and explicit FTPS would send data
+	// unencrypted. ServerName keeps certificate validation on the real host.
+	pinned, perr := pinnedAddr(ctx, d.addr)
+	if perr != nil {
+		return nil, fmt.Errorf("ftp: %w", perr)
+	}
 	if d.tlsMode == "implicit" {
 		opts = append(opts, ftp.DialWithTLS(&tls.Config{
 			ServerName:         host,
@@ -106,7 +108,7 @@ func (d *ftpDest) dial(ctx context.Context) (*ftp.ServerConn, error) {
 			InsecureSkipVerify: d.skipVerify, // #nosec G402 — gated by explicit config
 		}))
 	}
-	c, err := ftp.Dial(d.addr, opts...)
+	c, err := ftp.Dial(pinned, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("ftp: dial: %w", err)
 	}

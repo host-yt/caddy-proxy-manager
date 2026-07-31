@@ -364,14 +364,35 @@ func (h *AdminHandlers) ResellerProvisionAdmin(w http.ResponseWriter, r *http.Re
 	}
 	// Keep role in sync with the binding. Release lands on a RESTRICTED admin
 	// (is_restricted=1, empty scope) - never silently mint an unrestricted
-	// platform admin out of an ex-reseller account.
+	// platform admin out of an ex-reseller account. The role change and the
+	// epoch bump commit together: a dropped role update would otherwise leave
+	// role='reseller' with no reseller_id, which reads as a platform admin.
 	if db := h.DB(); db != nil {
+		tx, txErr := db.BeginTx(ctx, nil)
+		if txErr != nil {
+			redirectWithFlash(w, r, "/admin/resellers", "", "could not update reseller-admin")
+			return
+		}
+		var uerr error
 		if release {
-			_, _ = db.ExecContext(ctx,
+			_, uerr = tx.ExecContext(ctx,
 				`UPDATE users SET role='admin', is_restricted=1 WHERE id=? AND role='reseller'`, userID)
 		} else {
-			_, _ = db.ExecContext(ctx,
+			_, uerr = tx.ExecContext(ctx,
 				`UPDATE users SET role='reseller' WHERE id=? AND role IN ('admin','support')`, userID)
+		}
+		if uerr == nil {
+			_, uerr = auth.BumpEpochTx(ctx, tx, userID)
+		}
+		if uerr != nil {
+			_ = tx.Rollback()
+			h.Logger.Error("reseller admin role sync", "user", userID, "err", uerr)
+			redirectWithFlash(w, r, "/admin/resellers", "", "could not update reseller-admin")
+			return
+		}
+		if err := tx.Commit(); err != nil {
+			redirectWithFlash(w, r, "/admin/resellers", "", "could not update reseller-admin")
+			return
 		}
 	}
 	// Keystone: force re-login so the new (or cleared) scope is stamped fresh.

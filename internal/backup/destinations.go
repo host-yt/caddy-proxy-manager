@@ -46,26 +46,37 @@ func validateDestHost(host string) error {
 // actual connect (a re-resolve mid-flight could otherwise land on a private
 // IP). Shared by S3 (http.Transport.DialContext) and, via closures, SFTP/FTP.
 func pinnedDialContext(ctx context.Context, network, addr string) (net.Conn, error) {
-	host, port, err := net.SplitHostPort(addr)
+	pinned, err := pinnedAddr(ctx, addr)
 	if err != nil {
 		return nil, err
+	}
+	d := &net.Dialer{Timeout: 15 * time.Second}
+	return d.DialContext(ctx, network, pinned)
+}
+
+// pinnedAddr resolves addr once and returns host:port with the literal IP, so
+// the caller dials exactly what was validated. Use this instead of overriding a
+// library's dialer when that library wraps the connection (e.g. FTPS TLS).
+func pinnedAddr(ctx context.Context, addr string) (string, error) {
+	host, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		return "", err
 	}
 	ip := net.ParseIP(host)
 	if ip == nil {
 		ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
 		if len(ips) == 0 {
-			return nil, fmt.Errorf("pinned dial: %s did not resolve", host)
+			return "", fmt.Errorf("pinned dial: %s did not resolve", host)
 		}
 		ip = ips[0].IP
 	}
 	if err := validateDestHost(ip.String()); err != nil {
-		return nil, fmt.Errorf("pinned dial: %w", err)
+		return "", fmt.Errorf("pinned dial: %w", err)
 	}
-	d := &net.Dialer{Timeout: 15 * time.Second}
-	return d.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+	return net.JoinHostPort(ip.String(), port), nil
 }
 
 // Uploader is the destination-side write interface backups speak.

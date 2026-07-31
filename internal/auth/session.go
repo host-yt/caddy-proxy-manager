@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -59,7 +58,6 @@ func (s *Session) IsImpersonating() bool { return s != nil && s.ImpersonatorUser
 type sessionRedis interface {
 	Get(ctx context.Context, key string) *redis.StringCmd
 	Set(ctx context.Context, key string, value any, expiration time.Duration) *redis.StatusCmd
-	SetNX(ctx context.Context, key string, value any, expiration time.Duration) *redis.BoolCmd
 	Del(ctx context.Context, keys ...string) *redis.IntCmd
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *redis.ScanCmd
 }
@@ -72,9 +70,6 @@ type Manager struct {
 	rdb        sessionRedis
 	// db is the authoritative auth-epoch source; nil disables the DB fallback.
 	db         *sql.DB
-	// epochUnresolved holds users whose cache invalidation this process could
-	// not confirm; they take the DB path until a write succeeds.
-	epochUnresolved sync.Map
 	cookieName string
 	secure     bool
 	sameSite   http.SameSite

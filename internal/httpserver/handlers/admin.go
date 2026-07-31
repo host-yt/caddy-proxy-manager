@@ -3286,21 +3286,37 @@ func (h *AdminHandlers) UsersUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var execErr error
+	var hash string
 	if newPass != "" {
-		hash, herr := auth.HashPassword(newPass)
+		var herr error
+		hash, herr = auth.HashPassword(newPass)
 		if herr != nil {
 			redirectWithFlash(w, r, "/admin/users", "", "hash failed")
 			return
 		}
-		_, execErr = db.ExecContext(ctx,
+	}
+	// The mutation and its epoch bump commit together: a demotion whose bump
+	// failed would leave the old privileged session valid while the UI says OK.
+	invalidating := role != curRole || !isActive || newPass != ""
+	tx, txErr := db.BeginTx(ctx, nil)
+	if txErr != nil {
+		redirectWithFlash(w, r, "/admin/users", "", "update failed")
+		return
+	}
+	if newPass != "" {
+		_, execErr = tx.ExecContext(ctx,
 			"UPDATE users SET full_name = ?, email = ?, role = ?, is_active = ?, password_hash = ?, password_set = 1 WHERE id = ?",
 			fullName, email, role, isActive, hash, id)
 	} else {
-		_, execErr = db.ExecContext(ctx,
+		_, execErr = tx.ExecContext(ctx,
 			"UPDATE users SET full_name = ?, email = ?, role = ?, is_active = ? WHERE id = ?",
 			fullName, email, role, isActive, id)
 	}
+	if execErr == nil && invalidating {
+		_, execErr = auth.BumpEpochTx(ctx, tx, id)
+	}
 	if execErr != nil {
+		_ = tx.Rollback()
 		if strings.Contains(execErr.Error(), "Duplicate entry") {
 			redirectWithFlash(w, r, "/admin/users", "", "email already exists")
 			return
@@ -3309,14 +3325,18 @@ func (h *AdminHandlers) UsersUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/users", "", "update failed")
 		return
 	}
-	// A demotion, deactivation, or password rotation must not survive in an
-	// already-open session or a pending 2FA ticket: bump the auth epoch (durable)
-	// and purge live sessions (fast path).
+	if err := tx.Commit(); err != nil {
+		h.Logger.Error("user update commit", "err", err)
+		redirectWithFlash(w, r, "/admin/users", "", "update failed")
+		return
+	}
+	// Committed: the epoch already blocks the old sessions, the purge is just
+	// housekeeping.
 	var killed int
-	if h.Sessions != nil && (role != curRole || !isActive || newPass != "") {
+	if h.Sessions != nil && invalidating {
 		var rerr error
-		if killed, rerr = h.Sessions.RevokeUser(ctx, db, id); rerr != nil {
-			h.Logger.Error("user update: session revoke", "user", id, "err", rerr)
+		if killed, rerr = h.Sessions.PurgeUserSessions(ctx, id); rerr != nil {
+			h.Logger.Error("user update: session purge", "user", id, "err", rerr)
 		}
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
