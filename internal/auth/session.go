@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -24,22 +25,22 @@ import (
 // attribute the actor to ImpersonatorUserID when set and stamp the
 // impersonated user into meta - see internal/audit.
 type Session struct {
-	UserID             int64     `json:"user_id"`
-	Email              string    `json:"email"`
-	Role               string    `json:"role"`
-	ClientID           int64     `json:"client_id,omitempty"`
+	UserID   int64  `json:"user_id"`
+	Email    string `json:"email"`
+	Role     string `json:"role"`
+	ClientID int64  `json:"client_id,omitempty"`
 	// ResellerID is set for a reseller-admin (a role=admin user tied to a
 	// reseller); 0 = platform admin / non-reseller. Stamped at login so the
 	// reseller-admin route boundary needs no per-request DB lookup.
-	ResellerID         int64     `json:"reseller_id,omitempty"`
+	ResellerID int64 `json:"reseller_id,omitempty"`
 	// Restricted mirrors users.is_restricted: a client-scoped admin with no
 	// reseller. Same default-deny route boundary as a reseller-admin.
-	Restricted         bool      `json:"restricted,omitempty"`
+	Restricted bool `json:"restricted,omitempty"`
 	// Epoch is users.auth_epoch at mint time; Load rejects the session once
 	// the stored epoch moves (role/scope/password/active change or delete).
-	Epoch              int64     `json:"ep"`
+	Epoch int64 `json:"ep"`
 	// ImpersonatorEpoch does the same for the admin behind an impersonation.
-	ImpersonatorEpoch  int64     `json:"imp_ep,omitempty"`
+	ImpersonatorEpoch int64 `json:"imp_ep,omitempty"`
 	// Ver is the session schema version. Load rejects anything below
 	// sessionSchemaVer so a pre-Restricted session cannot fail open.
 	Ver                int       `json:"v,omitempty"`
@@ -67,13 +68,16 @@ func isRedisMiss(err error) bool { return errors.Is(err, redis.Nil) }
 
 // Manager creates, reads, and revokes sessions in Redis.
 type Manager struct {
-	rdb        sessionRedis
+	rdb sessionRedis
 	// db is the authoritative auth-epoch source; nil disables the DB fallback.
 	db         *sql.DB
 	cookieName string
 	secure     bool
 	sameSite   http.SameSite
 	ttl        time.Duration
+	// fleet holds this replica's generation heartbeat state; nil until
+	// StartGenerationHeartbeat runs.
+	fleet atomic.Pointer[fleetBeacon]
 }
 
 func NewSessionManager(rdb *redis.Client, cookieName string, secure bool, sameSite string, ttl time.Duration) *Manager {

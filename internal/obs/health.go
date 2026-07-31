@@ -21,11 +21,11 @@ type Health struct {
 	RDB       *redis.Client
 	IsLeader  func() bool
 	Installed func() bool
-	// GenerationCheck reports whether a fleet peer on an incompatible session
-	// generation is present (mixed-version rolling upgrade). Ready() fails
-	// while true, since that peer ignores this version's Restricted/Epoch
-	// enforcement. Optional - nil skips the check.
-	GenerationCheck func(ctx context.Context) (bool, error)
+	// GenerationCheck returns nil while this replica may admit traffic under
+	// the fleet session-generation fence, and an error while it may not (own
+	// heartbeat unpublished, or a newer generation live that enforces
+	// Restricted/Epoch more strictly). Optional - nil skips the check.
+	GenerationCheck func(ctx context.Context) error
 	ReadySeen       atomic.Bool // set true after first successful boot
 	// Logger, when set, receives the raw check error server-side; the
 	// unauthenticated /readyz response only ever gets "ok"/"fail".
@@ -90,15 +90,12 @@ func (h *Health) Ready(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Fleet generation. An incompatible peer means this fleet is mid rolling
-	// upgrade and the old/new binary doesn't enforce Restricted/Epoch - refuse
-	// to serve rather than risk a confined admin reaching a lenient replica.
+	// Fleet generation. Serving while a newer generation is live would let a
+	// confined admin reach this more lenient replica; not being visible to the
+	// fleet at all means peers cannot fence against us either.
 	if h.GenerationCheck != nil {
-		if incompatible, err := h.GenerationCheck(ctx); err != nil {
+		if err := h.GenerationCheck(ctx); err != nil {
 			h.logCheckFail("cluster-generation", err)
-			checks["cluster-generation"] = "fail"
-			allOK = false
-		} else if incompatible {
 			checks["cluster-generation"] = "fail"
 			allOK = false
 		} else {

@@ -263,10 +263,13 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 
 ## Documentation
 
-> **Running more than one `app` replica?** Upgrades must be a non-rolling
-> cutover (drain old replicas → purge legacy Redis sessions → start new
-> replicas) - see "Upgrading" in [`docs/DEPLOY.md`](docs/DEPLOY.md#8-upgrading).
-> An old binary ignores restricted-admin session confinement.
+> **Running more than one `app` replica?** The upgrade *to* v1.4.4 must be a
+> non-rolling cutover (drain old replicas → purge legacy Redis sessions → start
+> new replicas): a pre-1.4.4 binary ignores restricted-admin session
+> confinement and cannot be fenced. Upgrades *after* this one roll normally -
+> replicas fence themselves by session generation, newest serves and older
+> ones go unready. Downgrades still need a full stop. See "Upgrading" in
+> [`docs/DEPLOY.md`](docs/DEPLOY.md#8-upgrading).
 
 | Doc | What's in it |
 | --- | ------------ |

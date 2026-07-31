@@ -19,11 +19,12 @@ import (
 // fakeRedis is an in-memory sessionRedis that can be told to fail specific
 // operations, so revocation-failure paths are testable without a server.
 type fakeRedis struct {
-	vals   map[string]string
-	delErr error
-	getErr error
-	setErr error
-	dels   int
+	vals    map[string]string
+	delErr  error
+	getErr  error
+	setErr  error
+	scanErr error
+	dels    int
 }
 
 func newFakeRedis() *fakeRedis { return &fakeRedis{vals: map[string]string{}} }
@@ -94,6 +95,9 @@ func (f *fakeRedis) Del(_ context.Context, keys ...string) *redis.IntCmd {
 // Honours the match pattern (prefix + "*") so namespace-scoped scans are
 // actually exercised, not silently collapsed onto one prefix.
 func (f *fakeRedis) Scan(_ context.Context, _ uint64, match string, _ int64) *redis.ScanCmd {
+	if f.scanErr != nil {
+		return redis.NewScanCmdResult(nil, 0, f.scanErr)
+	}
 	prefix := strings.TrimSuffix(match, "*")
 	var keys []string
 	for k := range f.vals {

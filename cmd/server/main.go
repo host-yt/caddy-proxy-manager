@@ -643,7 +643,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		RDB:             rdb,
 		IsLeader:        leaderElec.IsLeader,
 		Installed:       state.IsInstalled,
-		GenerationCheck: sessions.IncompatibleGenerationPresent,
+		GenerationCheck: sessions.FleetGenerationReady,
 		Logger:          logger,
 	}
 

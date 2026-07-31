@@ -15,13 +15,12 @@ import (
 func noDB() *sql.DB { return nil }
 
 // TestReadyFailsOnIncompatibleGeneration guards the rolling-upgrade fence:
-// Ready() must refuse traffic while a peer on a different session generation
-// is still in the fleet, since that peer may not enforce the same
-// Restricted/Epoch rules.
+// Ready() must refuse traffic while a newer session generation owns the
+// fleet, since this replica may not enforce the same Restricted/Epoch rules.
 func TestReadyFailsOnIncompatibleGeneration(t *testing.T) {
 	h := &Health{
 		DB:              noDB,
-		GenerationCheck: func(context.Context) (bool, error) { return true, nil },
+		GenerationCheck: func(context.Context) error { return errors.New("newer generation live") },
 	}
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()
@@ -44,7 +43,7 @@ func TestReadyFailsOnIncompatibleGeneration(t *testing.T) {
 func TestReadyFailsOnGenerationCheckError(t *testing.T) {
 	h := &Health{
 		DB:              noDB,
-		GenerationCheck: func(context.Context) (bool, error) { return false, errors.New("scan failed") },
+		GenerationCheck: func(context.Context) error { return errors.New("scan failed") },
 	}
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()
@@ -60,7 +59,7 @@ func TestReadyFailsOnGenerationCheckError(t *testing.T) {
 func TestReadyOKWithoutIncompatiblePeer(t *testing.T) {
 	h := &Health{
 		DB:              noDB,
-		GenerationCheck: func(context.Context) (bool, error) { return false, nil },
+		GenerationCheck: func(context.Context) error { return nil },
 	}
 	req := httptest.NewRequest(http.MethodGet, "/readyz", nil)
 	rr := httptest.NewRecorder()

@@ -294,6 +294,26 @@ Remote Caddy nodes are stateless and scale horizontally. Each node is a single C
 >
 > Single-replica deploys are unaffected - there is no old replica to race.
 
+### Upgrades after this one: the generation fence
+
+From this release on, every `app` replica heartbeats its session-schema *generation* into Redis
+(`hpg:fleet:<gen>:<id>`, 20s TTL) and `/readyz` uses it. The fence is **ordered, not symmetric**:
+
+- A replica is ready only while (a) its own heartbeat is published and fresh, and (b) **no strictly
+  newer generation** is live in the fleet.
+- So during a rolling upgrade the *new* replicas go ready immediately and the *old* ones drop out of
+  the load balancer as soon as the first new replica publishes. Traffic is never served by the more
+  lenient binary, and there is always at least one ready replica - a plain rolling deploy converges
+  on its own once the old replicas are retired and their keys expire.
+- A replica that cannot write its heartbeat (Redis down, read-only replica, wiped keyspace) stays
+  **unready**. If `/readyz` reports `cluster-generation: fail` on every replica, check Redis
+  write availability first.
+
+**Rolling *back* to an older generation is not automatic.** Older replicas will refuse to serve
+while any newer-generation replica is still heartbeating (that is the point - the older binary is
+the lenient one). To downgrade: stop *all* replicas of the newer generation, wait ~20s for their
+fleet keys to expire, then start the older ones.
+
 Always take a database backup before upgrading (see section 6). Migrations run automatically on startup via the embedded goose runner and are idempotent.
 
 ```bash
