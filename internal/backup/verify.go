@@ -133,9 +133,14 @@ func (s *Service) Verify(ctx context.Context, destID int64) error {
 	return nil
 }
 
+// maxVerifyBytes bounds how much of a remote artifact verify will buffer.
+// A malicious/misconfigured destination could otherwise serve an oversized
+// object and OOM the panel; the decrypt step downstream also needs the full
+// plaintext in memory, so this cap protects both passes.
+const maxVerifyBytes = 2 << 30 // 2 GiB
+
 // downloadAndHash fetches the artifact into memory while computing SHA-256.
-// Memory cost is bounded by the artifact size; backups beyond ~100 MB
-// should switch to a streaming verify path.
+// Bounded by maxVerifyBytes; anything larger fails closed instead of OOMing.
 func (s *Service) downloadAndHash(ctx context.Context, dest Destination, key string) ([]byte, int64, string, error) {
 	u, err := newDestination(dest)
 	if err != nil {
@@ -151,9 +156,12 @@ func (s *Service) downloadAndHash(ctx context.Context, dest Destination, key str
 	}
 	defer r.Close()
 	h := sha256.New()
-	body, err := io.ReadAll(io.TeeReader(r, h))
+	body, err := io.ReadAll(io.LimitReader(io.TeeReader(r, h), maxVerifyBytes+1))
 	if err != nil {
 		return nil, 0, "", err
+	}
+	if int64(len(body)) > maxVerifyBytes {
+		return nil, 0, "", fmt.Errorf("artifact exceeds verify size limit of %d bytes", maxVerifyBytes)
 	}
 	return body, int64(len(body)), hex.EncodeToString(h.Sum(nil)), nil
 }

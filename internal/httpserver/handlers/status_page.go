@@ -5,11 +5,9 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -215,55 +213,29 @@ func (h *StatusPageHandlers) loadTunnels(
 	return out
 }
 
-// trafficSparkline sums 14-day per-node request deltas for nodes serving this client.
-// Note: node_traffic_samples is global; figures are per-node totals, not per-client.
+// trafficSparkline sums 14-day per-day request counts from log_rollups,
+// scoped to this client's own routes only (route_id -> service -> client_id).
 func (h *StatusPageHandlers) trafficSparkline(
 	ctx context.Context, db *sql.DB, clientID int64,
 ) (template.JS, template.JS) {
-	nrows, err := db.QueryContext(ctx,
-		`SELECT DISTINCT r.caddy_node_id
-		 FROM routes r JOIN services s ON s.id=r.service_id
-		 WHERE s.client_id = ?`, clientID)
-	if err != nil || nrows == nil {
-		return "[]", "[]"
-	}
-	var nodeIDs []int64
-	for nrows.Next() {
-		var id int64
-		if err := nrows.Scan(&id); err == nil {
-			nodeIDs = append(nodeIDs, id)
-		}
-	}
-	nrows.Close()
-	if len(nodeIDs) == 0 {
-		return "[]", "[]"
-	}
-
-	// nodeIDs are int64 from DB - no injection risk building the IN clause.
-	inClause := make([]string, len(nodeIDs))
-	args := make([]any, len(nodeIDs))
-	for i, id := range nodeIDs {
-		inClause[i] = "?"
-		args[i] = id
-	}
-	q := fmt.Sprintf(
-		`SELECT FLOOR(UNIX_TIMESTAMP(sampled_at)/86400)*86400 AS day,
-		        node_id,
-		        MAX(requests_total) - MIN(requests_total) AS delta
-		 FROM node_traffic_samples
-		 WHERE node_id IN (%s) AND sampled_at > `+store.DateSub(14, "DAY")+`
-		 GROUP BY day, node_id`,
-		strings.Join(inClause, ","),
+	rows, err := db.QueryContext(ctx,
+		`SELECT DATE(lr.bucket_start) AS day, COALESCE(SUM(lr.requests),0)
+		 FROM log_rollups lr
+		 JOIN routes r ON r.id = lr.route_id
+		 JOIN services s ON s.id = r.service_id
+		 WHERE s.client_id = ? AND lr.bucket_start >= `+store.DateSub(14, "DAY")+`
+		 GROUP BY DATE(lr.bucket_start)`,
+		clientID,
 	)
-	srows, err := db.QueryContext(ctx, q, args...)
-	buckets := map[int64]uint64{}
+	// DB conn uses parseTime=true, so DATE() comes back as time.Time, not string.
+	buckets := map[string]uint64{}
 	if err == nil {
-		defer srows.Close()
-		for srows.Next() {
-			var day, nodeID int64
-			var delta uint64
-			if srows.Scan(&day, &nodeID, &delta) == nil {
-				buckets[day] += delta
+		defer rows.Close()
+		for rows.Next() {
+			var day time.Time
+			var reqs uint64
+			if rows.Scan(&day, &reqs) == nil {
+				buckets[day.Format("2006-01-02")] = reqs
 			}
 		}
 	}
@@ -274,7 +246,7 @@ func (h *StatusPageHandlers) trafficSparkline(
 	for i := 13; i >= 0; i-- {
 		t := now.Add(-time.Duration(i) * 24 * time.Hour)
 		labels[13-i] = t.Format("Jan 2")
-		values[13-i] = buckets[t.Unix()]
+		values[13-i] = buckets[t.Format("2006-01-02")]
 	}
 	return template.JS(statusMustJSON(labels)), template.JS(statusMustJSON(values))
 }

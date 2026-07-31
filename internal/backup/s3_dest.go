@@ -61,6 +61,10 @@ func newS3Dest(cfg map[string]string) (*s3Dest, error) {
 		return nil, errors.New("s3: access_key + secret_key required")
 	}
 	useSSL := cfg["use_ssl"] != "0"
+	// Plaintext S3 puts the access key + full backup on the wire (DB-02) - same guard as FTP/SFTP.
+	if !useSSL && !insecureTransportAllowed() {
+		return nil, errors.New("s3: plaintext transport refused; set use_ssl=1 (or unset it) in production")
+	}
 	opts := &minio.Options{
 		Creds:  credentials.NewStaticV4(ak, sk, ""),
 		Secure: useSSL,

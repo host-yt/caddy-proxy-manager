@@ -42,3 +42,38 @@ func TestInsecureTransportAllowed(t *testing.T) {
 		})
 	}
 }
+
+// newS3Dest must refuse use_ssl=0 in production, same as the FTP/SFTP
+// plaintext and cert-verification opt-outs (DB-02).
+func TestS3UseSSLGate(t *testing.T) {
+	orig, had := os.LookupEnv("APP_ENV")
+	t.Cleanup(func() {
+		if had {
+			os.Setenv("APP_ENV", orig)
+		} else {
+			os.Unsetenv("APP_ENV")
+		}
+	})
+	cfg := map[string]string{
+		"endpoint":   "8.8.8.8", // public IP literal, skips DNS in validateDestHost
+		"bucket":     "b",
+		"access_key": "ak",
+		"secret_key": "sk",
+		"use_ssl":    "0",
+	}
+
+	os.Unsetenv("APP_ENV")
+	if _, err := newS3Dest(cfg); err == nil {
+		t.Error("use_ssl=0 with unset APP_ENV: want error, got nil")
+	}
+
+	os.Setenv("APP_ENV", "production")
+	if _, err := newS3Dest(cfg); err == nil {
+		t.Error("use_ssl=0 in production: want error, got nil")
+	}
+
+	os.Setenv("APP_ENV", "development")
+	if _, err := newS3Dest(cfg); err != nil {
+		t.Errorf("use_ssl=0 outside production: want nil, got %v", err)
+	}
+}
