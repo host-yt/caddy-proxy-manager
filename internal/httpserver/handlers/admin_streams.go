@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
@@ -338,15 +339,9 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// SSRF: screen every extra upstream (host:port) - IPs go through the
-	// dangerous-backend check, hostnames resolve and each result is screened.
-	for _, u := range extraUpstreams {
-		host, _, _ := net.SplitHostPort(u.Address)
-		if err := screenBackendHost(ctx, host); err != nil {
-			h.Logger.Warn("stream upstream screen failed", "addr", u.Address, "err", err)
-			redirectWithFlash(w, r, "/admin/streams", "", "upstream "+u.Address+": blocked or unresolvable")
-			return
-		}
+	if err := screenStreamUpstreams(ctx, h.Logger, extraUpstreams); err != nil {
+		redirectWithFlash(w, r, "/admin/streams", "", err.Error())
+		return
 	}
 
 	var nodeGroupID int64
@@ -553,6 +548,12 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	// SSRF: same fail-closed screen as create, so edits can't smuggle internal addresses.
+	if err := screenStreamUpstreams(ctx, h.Logger, extraUpstreams); err != nil {
+		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", err.Error())
+		return
+	}
+
 	// Confirm the stream exists and get the node ID for resync.
 	var nodeID int64
 	if err := db.QueryRowContext(ctx, "SELECT caddy_node_id FROM stream_routes WHERE id = ?", id).Scan(&nodeID); err != nil {
@@ -665,6 +666,19 @@ func (h *AdminHandlers) StreamsDelete(w http.ResponseWriter, r *http.Request) {
 type upstreamEntry struct {
 	Address string
 	Weight  int
+}
+
+// screenStreamUpstreams applies the same fail-closed SSRF check to every extra
+// upstream on both create and update paths, so they can't drift apart.
+func screenStreamUpstreams(ctx context.Context, logger *slog.Logger, upstreams []upstreamEntry) error {
+	for _, u := range upstreams {
+		host, _, _ := net.SplitHostPort(u.Address)
+		if err := screenBackendHost(ctx, host); err != nil {
+			logger.Warn("stream upstream screen failed", "addr", u.Address, "err", err)
+			return fmt.Errorf("upstream %s: blocked or unresolvable", u.Address)
+		}
+	}
+	return nil
 }
 
 // parseUpstreamsRaw parses the multi-upstream textarea: each non-empty line is
