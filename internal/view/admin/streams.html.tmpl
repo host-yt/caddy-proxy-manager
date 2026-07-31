@@ -45,7 +45,13 @@
             <td class="t-small text-[rgb(var(--muted))]">{{if .LBPolicy}}{{.LBPolicy}}{{else}}round_robin{{end}}</td>
             <td>{{.NodeName}}</td>
             <td>
-              <span class="r-pill {{if eq .Status "active"}}r-pill-success{{else}}r-pill-neutral{{end}}">{{.Status}}</span>
+              <span class="r-pill {{if eq .Status "active"}}r-pill-success{{else if .Quarantined}}r-pill-danger{{else}}r-pill-neutral{{end}}">{{.Status}}</span>
+              {{if .Quarantined}}
+              <p class="t-caption text-[rgb(var(--muted))] mt-1 max-w-[22rem] flex items-start gap-1">
+                <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>
+                <span>Not emitted: {{if .QuarantineReason}}{{.QuarantineReason}}{{else}}destination failed screening{{end}}</span>
+              </p>
+              {{end}}
             </td>
             <td class="text-right whitespace-nowrap">
               <button type="button" class="hpg-act-toggle cursor-pointer" aria-label="Row actions" aria-haspopup="true" aria-expanded="false" data-hpg-act-btn="stream-act-{{.ID}}">
@@ -53,6 +59,12 @@
               </button>
               <div id="stream-act-{{.ID}}" class="hpg-act-menu" role="menu">
                 <a href="/admin/streams/{{.ID}}/edit" class="hpg-act-item" role="menuitem">Edit</a>
+                {{if .Quarantined}}
+                <form method="POST" action="/admin/streams/{{.ID}}/recheck" class="contents">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <button type="submit" class="hpg-act-item" role="menuitem">Re-check destination</button>
+                </form>
+                {{end}}
                 <form method="POST" action="/admin/streams/{{.ID}}/delete" class="contents" data-confirm="Delete stream {{.Protocol}} :{{.ListenPort}} → {{.BackendIP}}:{{.UpstreamPort}}?">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                   <button type="submit" class="hpg-act-item is-danger" role="menuitem">Delete</button>

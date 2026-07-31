@@ -4,6 +4,10 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Quarantined L4 streams had no way back and no visible reason.** 1.4.5 parks a stream whose destination hits the infrastructure deny set, but nothing ever cleared `quarantined_at` and no handler read `quarantine_reason`, so the panel showed a `quarantined` status with no explanation and the only recovery was recreating the stream or editing the database. The reason is now shown in the stream list and on the edit page; the edit page exposes the destination (per-stream `backend_ip_override`, migration `00140`, and `upstream_port`) and clears the quarantine in the same transaction as the edit - but only when the destination passes the same screen, so an unsafe edit is rejected and the row stays parked. A new **Re-check destination** action (`POST /admin/streams/{id}/recheck`, audit `admin.stream.recheck`) re-runs the real screen for a stream whose target became safe on its own, and refreshes the reason when it did not.
+
 ## [1.4.5] - 2026-07-31
 
 Follow-up security release to 1.4.4. Closes review round 14, including one critical control-plane path that 1.4.4 left open on the resync path.

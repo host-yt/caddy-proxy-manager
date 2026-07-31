@@ -95,7 +95,7 @@ func TestInfraTargetsFailsClosedWithoutDB(t *testing.T) {
 		t.Error("expected LoadInfraTargets to fail closed without a db")
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	if _, err := screenStreamUpstreams(context.Background(), nil, logger, []upstreamEntry{{Address: "10.0.0.5:8080", Weight: 1}}); err == nil {
-		t.Error("expected screenStreamUpstreams to fail closed without a db")
+	if _, err := loadInfraOrFail(context.Background(), nil, logger); err == nil {
+		t.Error("expected the screen to fail closed without a db")
 	}
 }

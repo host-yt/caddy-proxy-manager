@@ -13,6 +13,25 @@
     </div>
   </div>
 
+  {{if .Stream.Quarantined}}
+  <!-- Quarantine banner: the row is stored but never emitted until it passes screening. -->
+  <div class="r-card border border-rose-500/40 bg-rose-500/5 flex items-start gap-3">
+    <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-rose-500" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 1 1-18 0 9 9 0 0 1 18 0Zm-9 3.75h.008v.008H12v-.008Z"/></svg>
+    <div class="space-y-2 flex-1">
+      <p class="t-small font-medium">This stream is quarantined and is not pushed to any node.</p>
+      <p class="t-caption text-[rgb(var(--muted))] font-mono">{{if .Stream.QuarantineReason}}{{.Stream.QuarantineReason}}{{else}}destination failed screening{{end}}</p>
+      <p class="t-caption text-[rgb(var(--muted))]">Point it at a destination that passes screening and save - the quarantine clears with the edit. If the address became safe on its own (the node was decommissioned), re-check it.</p>
+      <form method="POST" action="/admin/streams/{{.Stream.ID}}/recheck">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="r-btn-ghost cursor-pointer flex items-center gap-1.5">
+          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke-width="1.75" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992V4.356m0 4.992-3.181-3.183a8.25 8.25 0 0 0-13.803 3.7M2.985 19.644v-4.992m0 0h4.992m-4.993 0 3.181 3.183a8.25 8.25 0 0 0 13.803-3.7"/></svg>
+          Re-check destination
+        </button>
+      </form>
+    </div>
+  </div>
+  {{end}}
+
   <!-- Tab strip -->
   <nav class="flex flex-wrap gap-1 border-b border-[rgb(var(--border))]" id="hpg-tabs">
     <button type="button" data-tab="match"    class="hpg-tab px-3 py-2 -mb-px border-b-2 border-[rgb(var(--accent))] text-[rgb(var(--accent))] font-medium t-small cursor-pointer">Match</button>
@@ -82,6 +101,23 @@
 
     <!-- Upstreams & LB pane -->
     <section data-pane="upstream" class="hpg-pane hidden r-card space-y-4">
+      <div>
+        <p class="t-eyebrow">Destination</p>
+        <p class="t-caption text-[rgb(var(--muted))] mt-0.5">
+          The single-upstream target. Every save re-screens it against the control-plane deny set;
+          a destination that fails is rejected and the stream stays quarantined.
+        </p>
+      </div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="t-eyebrow block mb-1">Backend IP</label>
+          <input type="text" name="backend_ip" value="{{.Stream.BackendIP}}" class="r-input w-full font-mono text-xs">
+        </div>
+        <div>
+          <label class="t-eyebrow block mb-1">Upstream port</label>
+          <input type="number" name="upstream_port" min="1" max="65535" value="{{.Stream.UpstreamPort}}" class="r-input w-full font-mono text-xs">
+        </div>
+      </div>
       <div>
         <p class="t-eyebrow">Upstreams</p>
         <p class="t-caption text-[rgb(var(--muted))] mt-0.5">

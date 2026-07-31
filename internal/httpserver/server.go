@@ -532,6 +532,7 @@ func (s *Server) routes() {
 			r.Post("/new", s.deps.Admin.StreamsCreate)
 			r.Get("/{id}/edit", s.deps.Admin.StreamsEdit)
 			r.Post("/{id}/edit", s.deps.Admin.StreamsUpdate)
+			r.Post("/{id}/recheck", s.deps.Admin.StreamsRecheck)
 			r.Post("/{id}/delete", s.deps.Admin.StreamsDelete)
 		})
 		r.Route("/tunnels", func(r chi.Router) {

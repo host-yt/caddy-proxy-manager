@@ -182,18 +182,29 @@ quarantined instead of silently dropped:
   ending in `:2019`, and a `services.backend_ip` matching a node's `public_ip`
   or `wg_ip`).
 - The emission query skips any row with `quarantined_at IS NOT NULL`.
-- The panel shows the stream's status as `quarantined` on the stream list and
-  edit pages.
+- The panel shows the stream's status as `quarantined` plus the stored
+  `quarantine_reason` on the stream list and edit pages.
 - Audit action `stream.quarantined` (entity `stream_route`, meta `reason` and
   `listen_port`), plus a `stream quarantined: unsafe destination` log line.
 
-`quarantine_reason` is stored but is **not** displayed in the panel - read it
-from the audit log, the panel log, or the column itself.
+### Release
 
-**There is no un-quarantine action in the UI or the API.** Editing the stream
-does not clear the flag. To restore a stream, fix the destination and recreate
-it, or clear `quarantined_at` / `quarantine_reason` on the row directly after
-confirming the destination is legitimate.
+A quarantine is only ever lifted by a destination that passes the same screen:
+
+- **Edit and save.** The stream edit page exposes the destination (`backend_ip`,
+  stored per stream in `stream_routes.backend_ip_override` from migration
+  `00140`, and `upstream_port`). `saveStreamUpdate` screens the whole
+  destination - primary backend plus every extra upstream - and writes the edit
+  and the cleared quarantine columns in one transaction. A destination that
+  fails is rejected outright, so the row keeps both the flag and a reason.
+- **Re-check destination** (`POST /admin/streams/{id}/recheck`) for a stream
+  whose destination became safe without the row changing (a decommissioned
+  node). It re-runs the real screen over the stored destination; it never just
+  clears the flag, and a still-rejected row gets a refreshed reason. Audit
+  action `admin.stream.recheck`.
+
+Both paths go through `scopeCheckStream`, so a scoped admin can only act on its
+own streams and cannot clear a quarantine without fixing the destination.
 
 ---
 

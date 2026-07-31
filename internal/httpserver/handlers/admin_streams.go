@@ -17,6 +17,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
@@ -44,22 +45,26 @@ func (h *AdminHandlers) scopeCheckStream(ctx context.Context, sess *auth.Session
 // ---- data types ----
 
 type streamRow struct {
-	ID            int64
-	Protocol      string
-	ListenPort    int
-	UpstreamPort  int
-	BackendIP     string
-	NodeName      string
-	NodeHostname  string
-	Status        string
-	Tag           string
-	CreatedAt     string
-	MatchMode     string
-	MatchValues   string // CSV of SNI/host values; preserved on edit to avoid silent data loss
-	LBPolicy      string
-	ProxyProtoIn  string
-	ProxyProtoOut string
+	ID               int64
+	Protocol         string
+	ListenPort       int
+	UpstreamPort     int
+	BackendIP        string
+	NodeName         string
+	NodeHostname     string
+	Status           string
+	QuarantineReason string // why the emission screen parked this row; empty when healthy
+	Tag              string
+	CreatedAt        string
+	MatchMode        string
+	MatchValues      string // CSV of SNI/host values; preserved on edit to avoid silent data loss
+	LBPolicy         string
+	ProxyProtoIn     string
+	ProxyProtoOut    string
 }
+
+// Quarantined reports whether the row is parked by the destination screen.
+func (s streamRow) Quarantined() bool { return s.Status == "quarantined" }
 
 type streamUpstreamRow struct {
 	ID      int64
@@ -197,8 +202,9 @@ func (h *AdminHandlers) StreamsList(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := db.QueryContext(ctx,
 		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port,
-		        sv.backend_ip, n.name, n.public_hostname,
+		        COALESCE(NULLIF(sr.backend_ip_override,''), sv.backend_ip), n.name, n.public_hostname,
 		        CASE WHEN sr.quarantined_at IS NOT NULL THEN 'quarantined' ELSE sr.status END,
+		        COALESCE(sr.quarantine_reason,''),
 		        COALESCE(sr.tag,''),
 		        DATE_FORMAT(sr.created_at, '%Y-%m-%d %H:%i'),
 		        COALESCE(sr.match_mode,'any'),
@@ -219,7 +225,7 @@ func (h *AdminHandlers) StreamsList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var s streamRow
 		if err := rows.Scan(&s.ID, &s.Protocol, &s.ListenPort, &s.UpstreamPort,
-			&s.BackendIP, &s.NodeName, &s.NodeHostname, &s.Status,
+			&s.BackendIP, &s.NodeName, &s.NodeHostname, &s.Status, &s.QuarantineReason,
 			&s.Tag, &s.CreatedAt,
 			&s.MatchMode, &s.LBPolicy, &s.ProxyProtoIn, &s.ProxyProtoOut); err == nil {
 			d.Streams = append(d.Streams, s)
@@ -458,8 +464,9 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 	d := streamEditData{baseAdminData: h.base(r, "Edit stream")}
 	if err := db.QueryRowContext(ctx,
 		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port,
-		        sv.backend_ip, n.name, n.public_hostname,
+		        COALESCE(NULLIF(sr.backend_ip_override,''), sv.backend_ip), n.name, n.public_hostname,
 		        CASE WHEN sr.quarantined_at IS NOT NULL THEN 'quarantined' ELSE sr.status END,
+		        COALESCE(sr.quarantine_reason,''),
 		        COALESCE(sr.tag,''),
 		        DATE_FORMAT(sr.created_at, '%Y-%m-%d %H:%i'),
 		        COALESCE(sr.match_mode,'any'),
@@ -473,7 +480,7 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 		 WHERE sr.id = ?`, id).Scan(
 		&d.Stream.ID, &d.Stream.Protocol, &d.Stream.ListenPort, &d.Stream.UpstreamPort,
 		&d.Stream.BackendIP, &d.Stream.NodeName, &d.Stream.NodeHostname, &d.Stream.Status,
-		&d.Stream.Tag, &d.Stream.CreatedAt,
+		&d.Stream.QuarantineReason, &d.Stream.Tag, &d.Stream.CreatedAt,
 		&d.Stream.MatchMode, &d.Stream.MatchValues, &d.Stream.LBPolicy, &d.Stream.ProxyProtoIn, &d.Stream.ProxyProtoOut,
 	); err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
@@ -565,56 +572,39 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	// SSRF: same fail-closed screen as create, so edits can't smuggle internal addresses.
-	screened, screenErr := screenStreamUpstreams(ctx, db, h.Logger, extraUpstreams)
-	if screenErr != nil {
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", screenErr.Error())
-		return
-	}
-	extraUpstreams = screened
-
-	// Confirm the stream exists and get the node ID for resync.
-	var nodeID int64
-	if err := db.QueryRowContext(ctx, "SELECT caddy_node_id FROM stream_routes WHERE id = ?", id).Scan(&nodeID); err != nil {
+	cur, err := loadStreamDestination(ctx, db, id)
+	if err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
 		return
 	}
+	// Destination fields are optional in the form: absent means "keep as stored".
+	dest := cur.dest
+	if v := strings.TrimSpace(r.FormValue("backend_ip")); v != "" {
+		dest.BackendIP = v
+	}
+	if v := strings.TrimSpace(r.FormValue("upstream_port")); v != "" {
+		p, convErr := strconv.Atoi(v)
+		if convErr != nil {
+			redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "upstream port must be a number")
+			return
+		}
+		dest.UpstreamPort = p
+	}
+	dest.Upstreams = extraUpstreams
 
-	if _, err := db.ExecContext(ctx,
-		`UPDATE stream_routes
-		 SET match_mode=?, match_values=?, lb_policy=?,
-		     proxy_proto_in=?, proxy_proto_out=?,
-		     cidr_allow=?, cidr_deny=?,
-		     updated_at=NOW()
-		 WHERE id=?`,
-		matchMode, joinCSV(matchValues), lbPolicy,
-		ppIn, ppOut,
-		joinCSV(cidrAllow), joinCSV(cidrDeny),
-		id); err != nil {
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "update failed: "+sanitizeErr(err))
+	upd := streamUpdate{
+		MatchMode: matchMode, MatchValues: joinCSV(matchValues), LBPolicy: lbPolicy,
+		ProxyProtoIn: ppIn, ProxyProtoOut: ppOut,
+		CIDRAllow: joinCSV(cidrAllow), CIDRDeny: joinCSV(cidrDeny),
+		Dest: dest, ServiceBackendIP: cur.serviceBackendIP,
+	}
+	// Screening runs inside the save, so a quarantine can only lift together
+	// with a destination that actually passes it.
+	if err := saveStreamUpdate(ctx, db, h.Logger, id, upd); err != nil {
+		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", err.Error())
 		return
 	}
-
-	// Replace upstreams atomically so a partial failure leaves no orphaned rows.
-	tx, txErr := db.BeginTx(ctx, nil)
-	if txErr != nil {
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "begin tx: "+sanitizeErr(txErr))
-		return
-	}
-	if _, txErr = tx.ExecContext(ctx, "DELETE FROM stream_upstreams WHERE stream_route_id = ?", id); txErr != nil {
-		_ = tx.Rollback()
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "upstream delete: "+sanitizeErr(txErr))
-		return
-	}
-	if txErr = insertStreamUpstreams(ctx, tx, id, extraUpstreams); txErr != nil {
-		_ = tx.Rollback()
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "upstream insert: "+sanitizeErr(txErr))
-		return
-	}
-	if txErr = tx.Commit(); txErr != nil {
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "commit: "+sanitizeErr(txErr))
-		return
-	}
+	nodeID := cur.nodeID
 
 	go func() {
 		defer recoverBg(h.Logger, "resync")
@@ -629,9 +619,66 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 		Meta: map[string]any{
 			"match_mode": matchMode, "lb_policy": lbPolicy,
 			"proxy_proto_in": ppIn, "proxy_proto_out": ppOut,
+			"backend_ip": dest.BackendIP, "upstream_port": dest.UpstreamPort,
+			"quarantine_cleared": cur.quarantined,
 		},
 	})
-	redirectWithFlash(w, r, "/admin/streams", "Stream updated", "")
+	msg := "Stream updated"
+	if cur.quarantined {
+		msg = "Stream updated - destination passed screening, quarantine cleared"
+	}
+	redirectWithFlash(w, r, "/admin/streams", msg, "")
+}
+
+// StreamsRecheck handles POST /admin/streams/{id}/recheck: re-runs the real
+// destination screen so a stream parked against infrastructure that no longer
+// exists (decommissioned node) can return to service without being recreated.
+func (h *AdminHandlers) StreamsRecheck(w http.ResponseWriter, r *http.Request) {
+	db := h.DB()
+	if db == nil {
+		http.Error(w, "no db", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
+	if id == 0 {
+		http.Redirect(w, r, "/admin/streams", http.StatusSeeOther)
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+	if !h.scopeCheckStream(ctx, sess, id) {
+		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
+		return
+	}
+	cur, err := loadStreamDestination(ctx, db, id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
+		return
+	}
+	cleared, reason, err := recheckStreamQuarantine(ctx, db, h.Logger, id)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", err.Error())
+		return
+	}
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		UserID: actorUserID(sess), Action: "admin.stream.recheck", Entity: "stream_route",
+		EntityID: itoa64(id),
+		Meta:     map[string]any{"cleared": cleared, "reason": reason},
+	})
+	if !cleared {
+		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "Still quarantined: "+reason)
+		return
+	}
+	if h.Routes != nil {
+		go func() {
+			defer recoverBg(h.Logger, "resync")
+			ctx2, cancel2 := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
+			defer cancel2()
+			_ = h.Routes.Resync(ctx2, cur.nodeID)
+		}()
+	}
+	redirectWithFlash(w, r, "/admin/streams", "Destination passed screening - quarantine cleared", "")
 }
 
 // StreamsDelete handles POST /admin/streams/{id}/delete.
@@ -687,19 +734,184 @@ type upstreamEntry struct {
 	Weight  int
 }
 
-// screenStreamUpstreams applies the same fail-closed SSRF check to every extra
-// upstream on both create and update paths, so they can't drift apart. Loading
-// the infra deny list is part of the check: a lookup failure blocks the write.
-func screenStreamUpstreams(ctx context.Context, db *sql.DB, logger *slog.Logger, upstreams []upstreamEntry) ([]upstreamEntry, error) {
-	if len(upstreams) == 0 {
-		return upstreams, nil
-	}
+// streamDestination is everything one stream dials: the primary backend plus
+// any extra upstreams. Screening treats it as a unit.
+type streamDestination struct {
+	BackendIP    string
+	UpstreamPort int
+	Upstreams    []upstreamEntry
+}
+
+// streamUpdate carries every column the edit path writes.
+type streamUpdate struct {
+	MatchMode     string
+	MatchValues   string
+	LBPolicy      string
+	ProxyProtoIn  string
+	ProxyProtoOut string
+	CIDRAllow     string
+	CIDRDeny      string
+	Dest          streamDestination
+	// ServiceBackendIP is services.backend_ip; the per-stream override is only
+	// stored when the destination differs, so shared services stay untouched.
+	ServiceBackendIP string
+}
+
+// streamCurrent is the stored state the edit and re-check paths start from.
+type streamCurrent struct {
+	nodeID           int64
+	serviceBackendIP string
+	quarantined      bool
+	reason           string
+	dest             streamDestination
+}
+
+// loadInfraOrFail builds the deny set, turning a lookup failure into a
+// user-facing error: screening must fail closed, never be skipped.
+func loadInfraOrFail(ctx context.Context, db *sql.DB, logger *slog.Logger) (*streamguard.InfraTargets, error) {
 	infra, err := streamguard.LoadInfraTargets(ctx, db)
 	if err != nil {
-		logger.Warn("stream upstream screen: infra deny list unavailable", "err", err)
-		return nil, errors.New("upstream screening unavailable, try again")
+		if logger != nil {
+			logger.Warn("stream screen: infra deny list unavailable", "err", err)
+		}
+		return nil, errors.New("destination screening unavailable, try again")
 	}
-	return screenStreamUpstreamsWith(ctx, infra, logger, upstreams)
+	return infra, nil
+}
+
+// screenStreamDestination is the single write-path policy for a whole stream
+// destination. Nothing may clear a quarantine without this returning nil.
+func screenStreamDestination(ctx context.Context, infra *streamguard.InfraTargets, logger *slog.Logger, d streamDestination) ([]upstreamEntry, error) {
+	if d.UpstreamPort <= 0 || d.UpstreamPort > 65535 {
+		return nil, fmt.Errorf("upstream port %d is out of range", d.UpstreamPort)
+	}
+	ip := net.ParseIP(d.BackendIP)
+	if ip == nil {
+		return nil, fmt.Errorf("backend %q is not a valid IP address", d.BackendIP)
+	}
+	if security.IsDangerousProxyBackend(ip) {
+		return nil, errors.New("backend address is not allowed")
+	}
+	if err := infra.ScreenTarget(d.UpstreamPort, d.BackendIP); err != nil {
+		return nil, fmt.Errorf("backend %v", err)
+	}
+	return screenStreamUpstreamsWith(ctx, infra, logger, d.Upstreams)
+}
+
+// loadStreamDestination reads the stored destination plus quarantine state.
+func loadStreamDestination(ctx context.Context, db *sql.DB, id int64) (streamCurrent, error) {
+	var c streamCurrent
+	var override string
+	var quarantined int
+	err := db.QueryRowContext(ctx,
+		`SELECT sr.caddy_node_id, sr.upstream_port, sv.backend_ip,
+		        COALESCE(sr.backend_ip_override,''),
+		        CASE WHEN sr.quarantined_at IS NOT NULL THEN 1 ELSE 0 END,
+		        COALESCE(sr.quarantine_reason,'')
+		   FROM stream_routes sr JOIN services sv ON sv.id = sr.service_id
+		  WHERE sr.id = ?`, id).Scan(
+		&c.nodeID, &c.dest.UpstreamPort, &c.serviceBackendIP, &override, &quarantined, &c.reason)
+	if err != nil {
+		return c, err
+	}
+	c.quarantined = quarantined != 0
+	c.dest.BackendIP = c.serviceBackendIP
+	if override != "" {
+		c.dest.BackendIP = override
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT address, weight FROM stream_upstreams WHERE stream_route_id = ?
+		 ORDER BY sort_order ASC, id ASC`, id)
+	if err != nil {
+		return c, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u upstreamEntry
+		if err := rows.Scan(&u.Address, &u.Weight); err == nil {
+			c.dest.Upstreams = append(c.dest.Upstreams, u)
+		}
+	}
+	return c, rows.Err()
+}
+
+// saveStreamUpdate screens the destination and writes the whole edit in one
+// transaction. The quarantine columns clear only here, so an operator (or a
+// tenant) cannot release a stream without a destination that passes screening.
+func saveStreamUpdate(ctx context.Context, db *sql.DB, logger *slog.Logger, id int64, u streamUpdate) error {
+	infra, err := loadInfraOrFail(ctx, db, logger)
+	if err != nil {
+		return err
+	}
+	upstreams, err := screenStreamDestination(ctx, infra, logger, u.Dest)
+	if err != nil {
+		return err
+	}
+	override := u.Dest.BackendIP
+	if override == u.ServiceBackendIP {
+		override = ""
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin tx: %s", sanitizeErr(err))
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE stream_routes
+		 SET match_mode=?, match_values=?, lb_policy=?,
+		     proxy_proto_in=?, proxy_proto_out=?,
+		     cidr_allow=?, cidr_deny=?,
+		     backend_ip_override=?, upstream_port=?,
+		     quarantined_at=NULL, quarantine_reason=NULL,
+		     updated_at=`+store.Now()+`
+		 WHERE id=?`,
+		u.MatchMode, u.MatchValues, u.LBPolicy,
+		u.ProxyProtoIn, u.ProxyProtoOut,
+		u.CIDRAllow, u.CIDRDeny,
+		override, u.Dest.UpstreamPort, id); err != nil {
+		return fmt.Errorf("update failed: %s", sanitizeErr(err))
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM stream_upstreams WHERE stream_route_id = ?", id); err != nil {
+		return fmt.Errorf("upstream delete: %s", sanitizeErr(err))
+	}
+	if err := insertStreamUpstreams(ctx, tx, id, upstreams); err != nil {
+		return fmt.Errorf("upstream insert: %s", sanitizeErr(err))
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %s", sanitizeErr(err))
+	}
+	return nil
+}
+
+// recheckStreamQuarantine re-runs the real screen over the stored destination.
+// It never just drops the flag: a still-unsafe row keeps it and gets a fresh
+// reason so the panel explains what is wrong now.
+func recheckStreamQuarantine(ctx context.Context, db *sql.DB, logger *slog.Logger, id int64) (bool, string, error) {
+	cur, err := loadStreamDestination(ctx, db, id)
+	if err != nil {
+		return false, "", errors.New("stream not found")
+	}
+	infra, err := loadInfraOrFail(ctx, db, logger)
+	if err != nil {
+		return false, "", err
+	}
+	if _, screenErr := screenStreamDestination(ctx, infra, logger, cur.dest); screenErr != nil {
+		reason := screenErr.Error()
+		if len(reason) > 255 {
+			reason = reason[:255]
+		}
+		if _, err := db.ExecContext(ctx,
+			`UPDATE stream_routes SET quarantined_at = COALESCE(quarantined_at, `+store.Now()+`),
+			        quarantine_reason = ? WHERE id = ?`, reason, id); err != nil {
+			return false, reason, fmt.Errorf("recheck failed: %s", sanitizeErr(err))
+		}
+		return false, reason, nil
+	}
+	if _, err := db.ExecContext(ctx,
+		"UPDATE stream_routes SET quarantined_at = NULL, quarantine_reason = NULL WHERE id = ?", id); err != nil {
+		return false, "", fmt.Errorf("recheck failed: %s", sanitizeErr(err))
+	}
+	return true, "", nil
 }
 
 // screenStreamUpstreamsWith screens against an already-built deny set and

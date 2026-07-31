@@ -2908,7 +2908,8 @@ func (s *Service) attachLocationRules(ctx context.Context, built []caddyapi.Rout
 // before a target became control-plane infrastructure cannot be re-emitted.
 func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) ([]caddyapi.StreamRoute, error) {
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port, sv.backend_ip,
+		`SELECT sr.id, sr.protocol, sr.listen_port, sr.upstream_port,
+		        COALESCE(NULLIF(sr.backend_ip_override,''), sv.backend_ip),
 		        COALESCE(sr.match_mode,'any'),
 		        COALESCE(sr.match_values,''),
 		        COALESCE(sr.lb_policy,'round_robin'),

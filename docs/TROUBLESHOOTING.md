@@ -194,14 +194,22 @@ push. To keep custom handlers, rewrite the chain against the allow-list in
 
 Its destination was screened against the infrastructure deny set (managed node
 addresses, the WireGuard control-plane subnet, tunnel gateways, port 2019
-anywhere) and rejected, so the stream is no longer emitted. The reason is in the
-audit log under `stream.quarantined` and in `stream_routes.quarantine_reason`;
-it is not shown in the panel.
+anywhere) and rejected, so the stream is no longer emitted. The reason is shown
+under the status pill in the stream list and on the edit page, and is also in
+the audit log under `stream.quarantined`.
 
-There is no release action in the UI. Fix the destination and recreate the
-stream, or clear `quarantined_at` / `quarantine_reason` on the row after
-confirming the destination is legitimate. See
-[SECURITY.md](SECURITY.md#l4-stream-target-screening).
+Two ways back:
+
+- Open the stream, point **Backend IP** / **Upstream port** at a destination
+  that passes screening and save. The screen runs inside the save, so the
+  quarantine clears in the same transaction; a still-unsafe destination is
+  rejected and the stream stays parked.
+- If the address became safe on its own (the node it pointed at was
+  decommissioned), use **Re-check destination** on the stream. It re-runs the
+  real screen - it never just clears the flag - and refreshes the reason when
+  the destination is still rejected.
+
+See [SECURITY.md](SECURITY.md#l4-stream-target-screening).
 
 ---
 
