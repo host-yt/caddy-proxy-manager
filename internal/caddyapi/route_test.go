@@ -488,13 +488,17 @@ func TestBuildRouteCacheSuppressedForAuthGates(t *testing.T) {
 	bearer.External = true
 	bearer.UpstreamScheme = "https"
 	bearer.ProxySecret = "s3cr3t"
-	// Admin-supplied auth handler: CustomHandlers runs after the cache handler.
+	// Admin-supplied auth handler: not allow-listed, so the route is quarantined
+	// rather than cached or served - nothing about it may be publicly cacheable.
 	custom := base
 	custom.CustomHandlers = `[{"handler":"authentication","providers":{}}]`
+	if s := mustJSON(custom); !strings.Contains(s, `"X-Hpg-Quarantine"`) ||
+		strings.Contains(s, "public, max-age") {
+		t.Errorf("custom-auth-handler route must be quarantined\nfull: %s", s)
+	}
 	for name, r := range map[string]Route{
 		"mtls-rbac": rbac, "portal": portal, "sso": sso, "basic-auth": basic,
 		"basic-auth-multi": multiBasic, "client-cert": clientCert, "external-bearer": bearer,
-		"custom-auth-handler": custom,
 	} {
 		s := mustJSON(r)
 		if strings.Contains(s, `"handler":"cache"`) {

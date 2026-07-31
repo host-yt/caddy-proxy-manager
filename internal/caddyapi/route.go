@@ -359,6 +359,18 @@ func BuildRoute(r Route) map[string]any {
 		match["path"] = []string{r.PathPrefix + "*"}
 	}
 
+	// Fail closed: a stored custom chain the allow-list rejects may have been
+	// this route's only auth/deny/limit gate, so quarantine the whole route
+	// rather than serve the backend it was protecting unguarded.
+	if CustomHandlerQuarantine(r) != "" {
+		return map[string]any{
+			"@id":      "route_" + r.ID,
+			"match":    []any{match},
+			"handle":   []any{quarantineDenyHandler()},
+			"terminal": true,
+		}
+	}
+
 	// Fail closed: an auth gate the operator enabled could not be emitted, so
 	// the domain resolves to a 503 error page instead of the naked upstream.
 	if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig {
@@ -712,8 +724,8 @@ func BuildRoute(r Route) map[string]any {
 	}
 	// Custom handler chain (admin-supplied JSON array). Prepended before
 	// `primary` so request-shaping logic (rate_limit, request_body, encode)
-	// runs on the inbound side. Re-validated HERE, not only on write: a chain
-	// stored before the allow-list existed must never reach a node.
+	// runs on the inbound side. A chain that fails validation never gets here:
+	// the route was already quarantined at the top of BuildRoute.
 	if strings.TrimSpace(r.CustomHandlers) != "" {
 		if safe, err := SanitizeCustomHandlers(r.CustomHandlers); err == nil && safe != "" {
 			var extra []any
@@ -1287,6 +1299,36 @@ func misconfigDenyHandler(r Route) map[string]any {
 			"Retry-After":   []string{"60"},
 		},
 		"body": "Service unavailable: " + reason + ".\n",
+	}
+}
+
+// CustomHandlerQuarantine returns why a route's stored custom handler chain
+// cannot be emitted, or "" when it is fine. Callers push this into the audit
+// log: the operator otherwise only sees a 503 with no cause.
+func CustomHandlerQuarantine(r Route) string {
+	if strings.TrimSpace(r.CustomHandlers) == "" {
+		return ""
+	}
+	if _, err := SanitizeCustomHandlers(r.CustomHandlers); err != nil {
+		return err.Error()
+	}
+	return ""
+}
+
+// quarantineDenyHandler is the terminal response for a quarantined route. The
+// reason stays out of the body (it echoes stored config to the internet); the
+// header names the cause so an operator curling the domain knows why.
+func quarantineDenyHandler() map[string]any {
+	return map[string]any{
+		"handler":     "static_response",
+		"status_code": 503,
+		"headers": map[string]any{
+			"Content-Type":     []string{"text/plain; charset=utf-8"},
+			"Cache-Control":    []string{"no-store"},
+			"Retry-After":      []string{"60"},
+			"X-Hpg-Quarantine": []string{"custom-handlers"},
+		},
+		"body": "Service unavailable: this route is quarantined because its custom handler chain failed validation. A platform administrator must review it.\n",
 	}
 }
 

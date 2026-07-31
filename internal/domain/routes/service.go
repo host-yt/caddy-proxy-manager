@@ -2671,6 +2671,19 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			MTLSDenyOnMisconfig: requireClientCert && !mtlsEnforceable && !mtlsFailOpen,
 			PanelBaseURL:        panelBaseURL(s.AskURL),
 		})
+		// Audit the quarantine: BuildRoute replaces the whole route with a 503,
+		// so without this the operator sees an outage with no stated cause.
+		if reason := caddyapi.CustomHandlerQuarantine(built[len(built)-1]); reason != "" {
+			s.Logger.Error("route quarantined: custom handler chain rejected",
+				"route_id", id, "domain", domain, "reason", reason)
+			audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
+				ActorType: audit.ActorSystem,
+				Action:    "route.custom_handlers.quarantined",
+				Entity:    "route",
+				EntityID:  fmt.Sprintf("%d", id),
+				Meta:      map[string]any{"domain": domain, "reason": reason},
+			})
+		}
 		// Audit when require_client_cert=1 but enforcement is skipped (no active
 		// CA, SSL off, unparsable PEM, or mtls_ca_id NULL).
 		if requireClientCert && !mtlsEnforceable {
