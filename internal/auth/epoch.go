@@ -132,7 +132,10 @@ func (m *Manager) epochValid(ctx context.Context, s *Session) (bool, error) {
 // session that may still be valid once the database recovers.
 func (m *Manager) epochOK(ctx context.Context, userID, stamped int64) (bool, error) {
 	if m.db == nil {
-		return true, nil // no epoch source wired (tests, first-run before migrate)
+		// Indeterminate, never permissive: an installed panel whose DB never
+		// reconnected must not accept a stale session for DB-independent
+		// privileged screens.
+		return false, errors.New("auth: no epoch source wired")
 	}
 	cur, err := UserEpoch(ctx, m.db, userID)
 	if errors.Is(err, ErrUserGone) {

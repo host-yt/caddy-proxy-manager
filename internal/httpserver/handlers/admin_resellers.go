@@ -444,15 +444,20 @@ func (h *AdminHandlers) resellerAdminIDs(ctx context.Context, resellerID int64) 
 	return out
 }
 
-// revokeUsers invalidates the given users' credentials: the auth-epoch bump is
-// durable, the session purge is the best-effort fast path.
+// revokeUsers invalidates the given users' credentials. The epoch bumps share
+// one transaction so a mid-list failure cannot leave part of a reseller's
+// admins still holding valid sessions; the purge is the best-effort fast path.
 func (h *AdminHandlers) revokeUsers(ctx context.Context, ids []int64) {
-	if h.Sessions == nil {
+	if h.Sessions == nil || len(ids) == 0 {
+		return
+	}
+	if err := bumpEpochsTx(ctx, h.DB(), ids); err != nil {
+		h.Logger.Error("reseller epoch bump", "count", len(ids), "err", err)
 		return
 	}
 	for _, id := range ids {
-		if _, err := h.Sessions.RevokeUser(ctx, h.DB(), id); err != nil {
-			h.Logger.Error("reseller session revoke", "user", id, "err", err)
+		if _, err := h.Sessions.PurgeUserSessions(ctx, id); err != nil {
+			h.Logger.Error("reseller session purge", "user", id, "err", err)
 		}
 	}
 }

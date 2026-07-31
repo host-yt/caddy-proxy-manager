@@ -95,7 +95,11 @@ func NewSessionManager(rdb *redis.Client, cookieName string, secure bool, sameSi
 // SetEpochSource wires the DB used to verify auth epochs on a cache miss.
 func (m *Manager) SetEpochSource(db *sql.DB) { m.db = db }
 
-const sessionKeyPrefix = "hpg:sess:"
+// The namespace carries the schema version. A rolling upgrade runs old and new
+// replicas side by side, and an old replica silently ignores Restricted/Epoch -
+// reading a confined session as a full platform admin. Separate namespaces mean
+// it simply cannot see them.
+const sessionKeyPrefix = "hpg:sess2:"
 
 // sessionSchemaVer invalidates sessions minted before a security-relevant
 // field was added. Bump it whenever a missing field would fail open.

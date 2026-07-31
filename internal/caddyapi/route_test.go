@@ -520,11 +520,13 @@ func TestBuildRouteCachePrivateForRestrictedAudience(t *testing.T) {
 	acl := base
 	acl.AccessBlockAll = true
 	acl.AccessAllow = []string{"10.0.0.0/8"}
+	blacklist := base
+	blacklist.AccessDeny = []string{"203.0.113.0/24"}
 	geo := base
 	geo.GeoMode = "allow"
 	geo.GeoCountries = "PL"
 	geo.GeoModuleAvailable = true
-	for name, r := range map[string]Route{"ip-allowlist": acl, "geo": geo} {
+	for name, r := range map[string]Route{"ip-allowlist": acl, "geo": geo, "ip-blacklist": blacklist} {
 		s := mustJSON(r)
 		if !strings.Contains(s, `"handler":"cache"`) {
 			t.Errorf("%s route should still use the node cache\nfull: %s", name, s)

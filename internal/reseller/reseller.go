@@ -338,3 +338,24 @@ func nullIfEmpty(s string) any {
 	}
 	return s
 }
+
+// UserIDsFor materialises the reseller's user ids and closes the cursor before
+// returning: callers write to users next, and SQLite has one connection.
+func UserIDsFor(ctx context.Context, db *sql.DB, resellerID int64) []int64 {
+	if db == nil {
+		return nil
+	}
+	rows, err := db.QueryContext(ctx, `SELECT id FROM users WHERE reseller_id = ?`, resellerID)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			out = append(out, id)
+		}
+	}
+	return out
+}

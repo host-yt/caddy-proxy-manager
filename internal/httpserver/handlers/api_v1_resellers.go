@@ -223,17 +223,21 @@ func (h *APIHandlers) ResellerUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// Suspension keystone: scope already fails closed per-request; revoking the
-	// reseller users' sessions mirrors the panel behaviour.
+	// reseller users' sessions mirrors the panel behaviour. The id list is
+	// materialised and the rows closed BEFORE any write: SQLite runs on a single
+	// connection, so an open cursor plus a nested UPDATE deadlocks until the
+	// request deadline.
 	if suspended && h.Sessions != nil {
-		rows, err := h.DB().QueryContext(ctx, `SELECT id FROM users WHERE reseller_id=?`, id)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var uid int64
-				if rows.Scan(&uid) == nil {
-					if _, rerr := h.Sessions.RevokeUser(ctx, h.DB(), uid); rerr != nil {
-						h.Logger.Error("reseller suspend: session revoke", "user", uid, "err", rerr)
-					}
+		uids := reseller.UserIDsFor(ctx, h.DB(), id)
+		if len(uids) > 0 {
+			if err := bumpEpochsTx(ctx, h.DB(), uids); err != nil {
+				h.Logger.Error("reseller suspend: epoch bump", "reseller", id, "err", err)
+				apiErr(w, http.StatusInternalServerError, "suspend revocation failed")
+				return
+			}
+			for _, uid := range uids {
+				if _, rerr := h.Sessions.PurgeUserSessions(ctx, uid); rerr != nil {
+					h.Logger.Error("reseller suspend: session purge", "user", uid, "err", rerr)
 				}
 			}
 		}
@@ -272,10 +276,13 @@ func (h *APIHandlers) ResellerDelete(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusInternalServerError, "delete failed")
 		return
 	}
-	if h.Sessions != nil {
+	if h.Sessions != nil && len(freed) > 0 {
+		if err := bumpEpochsTx(ctx, h.DB(), freed); err != nil {
+			h.Logger.Error("reseller delete: epoch bump", "count", len(freed), "err", err)
+		}
 		for _, uid := range freed {
-			if _, rerr := h.Sessions.RevokeUser(ctx, h.DB(), uid); rerr != nil {
-				h.Logger.Error("reseller delete: session revoke", "user", uid, "err", rerr)
+			if _, rerr := h.Sessions.PurgeUserSessions(ctx, uid); rerr != nil {
+				h.Logger.Error("reseller delete: session purge", "user", uid, "err", rerr)
 			}
 		}
 	}

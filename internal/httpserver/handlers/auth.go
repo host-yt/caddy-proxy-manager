@@ -1413,6 +1413,10 @@ func (h *AuthHandlers) clearFails(ctx context.Context, email, ip string) {
 // pending2FAVer is the ticket schema version; readPending2FA drops anything below it.
 const pending2FAVer = 1
 
+// Versioned like the session namespace: an old replica must not read a ticket
+// whose epoch binding it does not understand.
+const pending2FAKeyPrefix = "hpg:2fa2:"
+
 type pending2FA struct {
 	UserID   int64  `json:"u"`
 	Email    string `json:"e"`
@@ -1456,7 +1460,7 @@ func (h *AuthHandlers) issuePending2FAAt(ctx context.Context, userID int64, emai
 	epoch := proofEpoch
 	payload := pending2FA{UserID: userID, Email: email, Role: role, ClientID: clientID, Epoch: epoch, Ver: pending2FAVer, Via: v}
 	b, _ := json.Marshal(payload)
-	if err := h.RDB.Set(ctx, "hpg:2fa:"+ticket, b, pending2FATTL).Err(); err != nil {
+	if err := h.RDB.Set(ctx, pending2FAKeyPrefix+ticket, b, pending2FATTL).Err(); err != nil {
 		return "", err
 	}
 	return ticket, nil
@@ -1467,7 +1471,7 @@ func (h *AuthHandlers) readPending2FA(r *http.Request) (pending2FA, bool) {
 	if err != nil || c.Value == "" {
 		return pending2FA{}, false
 	}
-	b, err := h.RDB.Get(r.Context(), "hpg:2fa:"+c.Value).Bytes()
+	b, err := h.RDB.Get(r.Context(), pending2FAKeyPrefix+c.Value).Bytes()
 	if err != nil {
 		return pending2FA{}, false
 	}
@@ -1505,7 +1509,7 @@ func (h *AuthHandlers) consumePending2FA(r *http.Request) {
 	if err != nil {
 		return
 	}
-	_ = h.RDB.Del(r.Context(), "hpg:2fa:"+c.Value).Err()
+	_ = h.RDB.Del(r.Context(), pending2FAKeyPrefix+c.Value).Err()
 }
 
 // signTrustToken returns an AES-GCM-sealed (userID|exp) token. Sealing key

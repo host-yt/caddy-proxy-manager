@@ -1252,7 +1252,9 @@ func handlerHasNested(h map[string]any) bool {
 // routeAudienceRestricted: the route is limited to an IP or country audience.
 // Not authentication, but still not "public" for a shared cache.
 func routeAudienceRestricted(r Route) bool {
-	if r.AccessBlockAll || strings.TrimSpace(r.GeoBlockCIDRs) != "" {
+	// A blacklist counts too: a downstream cache primed by an allowed client
+	// would serve a denied IP without ever reaching Caddy's ACL.
+	if r.AccessBlockAll || len(r.AccessDeny) > 0 || strings.TrimSpace(r.GeoBlockCIDRs) != "" {
 		return true
 	}
 	mode := strings.ToLower(strings.TrimSpace(r.GeoMode))
