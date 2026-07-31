@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -634,19 +635,31 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	leaderElec := leader.New(rdb)
 	go leaderElec.Run(rootCtx)
 
+	// Bind before anything can advertise this generation: a port conflict or a
+	// bad bind address must kill this process, not fence the healthy older
+	// fleet into a permanent drain.
+	ln, lnErr := net.Listen("tcp", cfg.App.Bind)
+	if lnErr != nil {
+		return fmt.Errorf("bind %s: %w", cfg.App.Bind, lnErr)
+	}
+	defer ln.Close()
+	serveGate := obs.NewServingGate(servingSettle)
+
 	health := &obs.Health{
 		DB:              wizard.DB,
 		RDB:             rdb,
 		IsLeader:        leaderElec.IsLeader,
 		Installed:       state.IsInstalled,
 		GenerationCheck: sessions.FleetGenerationReady,
+		Serving:         serveGate.Check,
 		Logger:          logger,
 	}
 
 	// Announce our session generation so a FUTURE upgrade (one where both
 	// binaries know about this heartbeat) can fence readiness on it - this
 	// release's old binary predates the mechanism and cannot be fenced. Bound
-	// to rootCtx and gated on local readiness: an instance that cannot serve
+	// to rootCtx and gated on local readiness, which now includes owning a
+	// listener that answered a real request: an instance that cannot serve
 	// must never hold the fleet's newest generation.
 	sessions.StartGenerationHeartbeat(rootCtx, logger, health.LocalServingReady)
 	// A newer generation owning the fleet means this binary's more permissive
@@ -844,10 +857,22 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	}
 
 	go func() {
-		logger.Info("http server starting", "addr", cfg.App.Bind, "env", cfg.App.Env, "installed", state.IsInstalled())
-		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			logger.Error("http server error", "err", err)
+		logger.Info("http server starting", "addr", ln.Addr().String(), "env", cfg.App.Env, "installed", state.IsInstalled())
+		serveErr := httpSrv.Serve(ln)
+		serveGate.MarkStopped(serveErr)
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			logger.Error("http server error", "err", serveErr)
 			stop()
+		}
+	}()
+
+	// Only a listener that answered a real request may open the generation
+	// gate; until then this replica advertises nothing and older peers keep
+	// serving. Keeps retrying so a slow start heals instead of wedging.
+	go func() {
+		if probeSelfServing(rootCtx, obs.LoopbackTarget(ln.Addr()), logger) {
+			serveGate.MarkServing()
+			logger.Info("http listener confirmed serving", "addr", ln.Addr().String())
 		}
 	}()
 
@@ -862,6 +887,42 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// HTTP drained: now cancel background pushes so they don't outlive exit.
 	bgCancel()
 	return err
+}
+
+// servingSettle is how long the listener must keep serving after its first
+// answered probe before we advertise - a flapping bind must not fence peers.
+const servingSettle = 5 * time.Second
+
+// probeSelfServing loops until the local listener answers /healthz over
+// loopback, proving this process owns traffic. Returns false only if the
+// server is shutting down.
+func probeSelfServing(ctx context.Context, target string, logger *slog.Logger) bool {
+	client := &http.Client{Timeout: 3 * time.Second}
+	url := "http://" + target + "/healthz"
+	for attempt := 0; ; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		if err == nil {
+			resp, rerr := client.Do(req)
+			if rerr == nil {
+				_, _ = io.Copy(io.Discard, resp.Body)
+				resp.Body.Close()
+				if resp.StatusCode < 500 {
+					return true
+				}
+				rerr = fmt.Errorf("status %d", resp.StatusCode)
+			}
+			err = rerr
+		}
+		// Noisy only once it stops looking like a normal slow start.
+		if attempt == 5 && logger != nil {
+			logger.Error("self probe of local listener still failing", "target", target, "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(time.Second):
+		}
+	}
 }
 
 // guard wraps a background task so a panic is logged and swallowed instead

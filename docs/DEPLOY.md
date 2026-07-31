@@ -301,8 +301,11 @@ From this release on, every `app` replica heartbeats its session-schema *generat
 **ordered, not symmetric**:
 
 - A replica **advertises** its generation only while its own serving prerequisites pass (DB
-  reachable, Redis reachable, install state sane). A replica that cannot serve withdraws its key
-  immediately, so a broken new replica can never take the fleet's newest generation hostage.
+  reachable, Redis reachable, install state sane) **and it demonstrably owns its HTTP listener**:
+  the bind happens before anything is published, and the process must have answered its own
+  `/healthz` over loopback and kept the listener for 5s before it advertises. A replica that cannot
+  serve withdraws its key immediately, so a broken new replica - including one that lost the bind
+  to a port conflict - can never take the fleet's newest generation hostage.
 - A replica is ready only while (a) its own heartbeat is published and fresh, and (b) **no strictly
   newer generation** is advertised in the fleet.
 - Once an older replica sees a newer generation it stops serving **at once**: requests get
@@ -315,7 +318,8 @@ From this release on, every `app` replica heartbeats its session-schema *generat
   ready replica as long as one replica is healthy.
 - A replica that cannot write its heartbeat (Redis down, read-only replica, wiped keyspace) stays
   **unready**. If `/readyz` reports `cluster-generation: fail` on every replica, check Redis
-  write availability first.
+  write availability first. `serving: fail` in `/readyz` means this process does not own a working
+  listener yet - a port conflict or a bad `APP_BIND` (the process exits on a failed bind).
 
 **Rolling *back* to an older generation is not automatic.** Older replicas refuse to serve while any
 newer-generation replica is advertising (that is the point - the older binary is the lenient one),

@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/obs"
 )
 
 // startedManager brings up a replica on gen with its heartbeat already
@@ -271,6 +274,65 @@ func TestUnhealthyNewerReplicaDoesNotWedgeFleet(t *testing.T) {
 	mustReady("recovered new replica", newC)
 	if err := oldA.FleetGenerationReady(ctx); !errors.Is(err, ErrFleetNewerGeneration) {
 		t.Fatalf("old replica must yield once a healthy newer one advertises, got %v", err)
+	}
+}
+
+// TestPortConflictNewReplicaKeepsOlderFleetServing: the new binary loses the
+// bind (port already taken). Its serving gate never opens, so it never
+// advertises the newer generation and the healthy older replicas keep serving
+// instead of latching the fence and self-shutting-down.
+func TestPortConflictNewReplicaKeepsOlderFleetServing(t *testing.T) {
+	r := newTTLRedis()
+	ctx := context.Background()
+
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	defer held.Close()
+
+	gate := obs.NewServingGate(0)
+	if _, err := net.Listen("tcp", held.Addr().String()); err != nil {
+		gate.MarkStopped(err)
+	} else {
+		t.Fatal("precondition: second bind on the same port must fail")
+	}
+
+	oldA := startedManagerReady(t, r, ClusterGeneration, nil)
+	oldB := startedManagerReady(t, r, ClusterGeneration, nil)
+	newC := startedManagerReady(t, r, ClusterGeneration+1, gate.Check)
+
+	for i := 0; i < 3; i++ {
+		r.advance(fleetHeartbeatEvery)
+		oldA.refreshFleetBeat(ctx, nil)
+		oldB.refreshFleetBeat(ctx, nil)
+		newC.refreshFleetBeat(ctx, nil)
+	}
+
+	if err := oldA.FleetGenerationReady(ctx); err != nil {
+		t.Fatalf("old A must keep serving through a failed rollout, got %v", err)
+	}
+	if err := oldB.FleetGenerationReady(ctx); err != nil {
+		t.Fatalf("old B must keep serving through a failed rollout, got %v", err)
+	}
+	if oldA.FleetFenceActive() || oldB.FleetFenceActive() {
+		t.Fatal("fence must not latch for a replica that never bound its listener")
+	}
+	if err := newC.FleetGenerationReady(ctx); !errors.Is(err, ErrFleetNotPublished) {
+		t.Fatalf("the replica that lost the bind must not be ready, got %v", err)
+	}
+	if len(r.live()) != 2 {
+		t.Fatalf("only the two old replicas may advertise; live keys = %v", r.live())
+	}
+
+	// It recovers only once the listener is genuinely up.
+	gate.MarkServing()
+	newC.refreshFleetBeat(ctx, nil)
+	if err := newC.FleetGenerationReady(ctx); err != nil {
+		t.Fatalf("bound replica must advertise and serve, got %v", err)
+	}
+	if err := oldA.FleetGenerationReady(ctx); !errors.Is(err, ErrFleetNewerGeneration) {
+		t.Fatalf("old replica yields only now, got %v", err)
 	}
 }
 

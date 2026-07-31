@@ -28,7 +28,11 @@ type Health struct {
 	// heartbeat unpublished, or a newer generation live that enforces
 	// Restricted/Epoch more strictly). Optional - nil skips the check.
 	GenerationCheck func(ctx context.Context) error
-	ReadySeen       atomic.Bool // set true after first successful boot
+	// Serving reports whether this process actually owns and serves its HTTP
+	// listener. Part of the local prerequisites so a replica that failed to
+	// bind never advertises its generation. Optional - nil skips the check.
+	Serving   func(ctx context.Context) error
+	ReadySeen atomic.Bool // set true after first successful boot
 	// Logger, when set, receives the raw check error server-side; the
 	// unauthenticated /readyz response only ever gets "ok"/"fail".
 	Logger *slog.Logger
@@ -126,6 +130,14 @@ func (h *Health) checkLocal(ctx context.Context, checks map[string]string) error
 		fail("db", errors.New("no pool after install"))
 	default:
 		set("db", "skip: pre-install")
+	}
+
+	if h.Serving != nil {
+		if err := h.Serving(ctx); err != nil {
+			fail("serving", err)
+		} else {
+			set("serving", "ok")
+		}
 	}
 
 	if h.RDB != nil {

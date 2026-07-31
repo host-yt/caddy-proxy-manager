@@ -51,6 +51,9 @@ type fleetBeacon struct {
 	localReady func(context.Context) error
 	mu         sync.Mutex
 	lastOK     time.Time
+	// everOK stays true after the first successful publish, so a replica that
+	// boots unready does not log a withdrawal it never made.
+	everOK bool
 	// fenced latches once a newer generation is seen; the request path reads it
 	// without touching Redis, and it never un-latches (no flapping mid-drain).
 	fenced    bool
@@ -63,7 +66,14 @@ type fleetBeacon struct {
 func (b *fleetBeacon) markPublished(now time.Time) {
 	b.mu.Lock()
 	b.lastOK = now
+	b.everOK = true
 	b.mu.Unlock()
+}
+
+func (b *fleetBeacon) published() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.everOK
 }
 
 // markWithdrawn drops our advertisement so peers stop fencing against us.
@@ -96,7 +106,8 @@ func (b *fleetBeacon) isFenced() bool {
 // state (TTL key, self-expiring on crash) so FleetGenerationReady can order
 // the fleet - the fence future rolling upgrades need but this release's old
 // binary predates. localReady must report this process's own serving
-// prerequisites (DB, Redis, install state); nil means "always ready".
+// prerequisites (DB, Redis, install state and a self-probed HTTP listener);
+// nil means "always ready".
 func (m *Manager) StartGenerationHeartbeat(ctx context.Context, logger *slog.Logger, localReady func(context.Context) error) {
 	m.startFleetBeacon(ctx, logger, ClusterGeneration, localReady)
 }
@@ -186,6 +197,10 @@ func (m *Manager) publishFleetBeat(ctx context.Context, logger *slog.Logger) {
 func (m *Manager) withdrawFleetBeat(logger *slog.Logger, reason string) {
 	b := m.fleet.Load()
 	if b == nil {
+		return
+	}
+	if !b.published() {
+		// Never advertised (e.g. still binding at boot) - nothing to retract.
 		return
 	}
 	b.markWithdrawn()
