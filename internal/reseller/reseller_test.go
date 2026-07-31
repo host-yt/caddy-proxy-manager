@@ -26,7 +26,8 @@ func openDB(t *testing.T) func() *sql.DB {
 		`INSERT INTO reseller_plans (name) VALUES ('Unlimited')`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, password_hash TEXT,
-			password_set INTEGER, role TEXT, full_name TEXT, is_active INTEGER, reseller_id INTEGER)`,
+			password_set INTEGER, role TEXT, full_name TEXT, is_active INTEGER, reseller_id INTEGER,
+			is_restricted INTEGER DEFAULT 0)`,
 		`INSERT INTO clients (id, reseller_id) VALUES (100, NULL), (101, NULL)`,
 		`INSERT INTO users (id, reseller_id) VALUES (1, NULL)`,
 	}
@@ -191,5 +192,30 @@ func TestValidatePlanBounds(t *testing.T) {
 	db.Exec(`UPDATE resellers SET can_create_plans=0 WHERE id=?`, rid)
 	if err := s.ValidatePlanBounds(ctx, rid, 5, []string{"ssl"}, 0); err == nil {
 		t.Fatal("authoring disabled must be rejected")
+	}
+}
+
+// Deleting a reseller must not leave its admins as bare platform admins:
+// ON DELETE SET NULL clears reseller_id but says nothing about privilege.
+func TestDeleteConfinesBoundUsers(t *testing.T) {
+	dbf := openDB(t)
+	s := New(dbf)
+	ctx := context.Background()
+	id, _ := s.Create(ctx, Reseller{Name: "Acme", Slug: "acme"})
+	if _, err := dbf().Exec(
+		`INSERT INTO users (id, email, role, is_active, reseller_id, is_restricted) VALUES (50,'ra@x','admin',1,?,0)`,
+		id); err != nil {
+		t.Fatalf("insert bound admin: %v", err)
+	}
+	if err := s.Delete(ctx, id); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	var role string
+	var restricted int
+	if err := dbf().QueryRow(`SELECT role, is_restricted FROM users WHERE id=50`).Scan(&role, &restricted); err != nil {
+		t.Fatalf("read user: %v", err)
+	}
+	if restricted != 1 {
+		t.Errorf("orphaned reseller admin must be restricted, got role=%q restricted=%d", role, restricted)
 	}
 }

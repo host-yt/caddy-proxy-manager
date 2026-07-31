@@ -101,6 +101,11 @@ func (m *Manager) SetEpochSource(db *sql.DB) { m.db = db }
 // it simply cannot see them.
 const sessionKeyPrefix = "hpg:sess2:"
 
+// legacySessionKeyPrefix is the pre-versioning namespace. Nothing is minted
+// there any more, but a revoke must still clear it: during a rolling upgrade an
+// old replica is happily serving those keys and never sees the epoch bump.
+const legacySessionKeyPrefix = "hpg:sess:"
+
 // sessionSchemaVer invalidates sessions minted before a security-relevant
 // field was added. Bump it whenever a missing field would fail open.
 // Ver 2 adds Epoch: a pre-epoch session was minted from claims that were
@@ -262,12 +267,29 @@ func (m *Manager) DestroyAllForUser(ctx context.Context, userID int64) (int, err
 		return 0, nil
 	}
 	var (
+		killed int
+		errs   []error
+	)
+	for _, prefix := range []string{sessionKeyPrefix, legacySessionKeyPrefix} {
+		n, perr := m.destroyForUserIn(ctx, prefix, userID)
+		killed += n
+		if perr != nil {
+			errs = append(errs, perr)
+		}
+	}
+	return killed, errors.Join(errs...)
+}
+
+// destroyForUserIn purges one namespace. Legacy keys carry no Ver/Epoch, so a
+// decode yielding UserID 0 simply never matches and is left alone.
+func (m *Manager) destroyForUserIn(ctx context.Context, prefix string, userID int64) (int, error) {
+	var (
 		cursor uint64
 		killed int
 		errs   []error
 	)
 	for {
-		keys, next, err := m.rdb.Scan(ctx, cursor, sessionKeyPrefix+"*", 200).Result()
+		keys, next, err := m.rdb.Scan(ctx, cursor, prefix+"*", 200).Result()
 		if err != nil {
 			errs = append(errs, fmt.Errorf("scan: %w", err))
 			return killed, errors.Join(errs...)

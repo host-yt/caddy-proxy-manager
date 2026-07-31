@@ -226,12 +226,30 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 	if db == nil {
 		return errors.New("reseller: no db")
 	}
-	res, err := db.ExecContext(ctx, `DELETE FROM resellers WHERE id=?`, id)
+	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("reseller: delete: %w", err)
 	}
+	// Confine the bound users FIRST. ON DELETE SET NULL only clears reseller_id,
+	// so an admin-role binding would otherwise fall out as a bare unrestricted
+	// platform admin the moment its reseller disappears.
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE users SET role='admin', is_restricted=1 WHERE reseller_id=? AND role IN ('reseller','admin','support')`,
+		id); err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("reseller: delete confine: %w", err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM resellers WHERE id=?`, id)
+	if err != nil {
+		_ = tx.Rollback()
+		return fmt.Errorf("reseller: delete: %w", err)
+	}
 	if n, _ := res.RowsAffected(); n == 0 {
+		_ = tx.Rollback()
 		return ErrNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("reseller: delete commit: %w", err)
 	}
 	return nil
 }

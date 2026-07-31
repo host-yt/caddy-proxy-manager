@@ -669,6 +669,10 @@ func BuildRoute(r Route) map[string]any {
 	// at the edge and caching a 308 is generally pointless and footguny.
 	if r.CacheEnabled && r.Kind != "redirect" && !r.MaintenanceMode {
 		handlers = append(handlers, buildCacheHandlers(r)...)
+	} else if r.Kind != "redirect" && (RouteAuthGated(r) || routeAudienceRestricted(r)) {
+		// Caching off still leaves the upstream free to send Cache-Control:
+		// public, which a CDN would replay to a caller our ACL would deny.
+		handlers = append(handlers, cacheControlHandler("private, no-store"))
 	}
 	// Response compression: stock Caddy `encode` (gzip+zstd), no module gate.
 	// Emitted after the cache block so a cache hit is compressed on the way

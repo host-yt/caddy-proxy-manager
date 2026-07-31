@@ -143,3 +143,19 @@ func TestPublicCacheStripsSetCookie(t *testing.T) {
 		t.Errorf("Set-Cookie stripper must follow the cache handler: cache=%d strip=%d", ci, si)
 	}
 }
+
+// Caching off does not make a restricted route safe to share: the upstream can
+// still send Cache-Control: public and a CDN would replay it past the ACL.
+func TestRestrictedRouteWithoutCacheStillPrivate(t *testing.T) {
+	for name, r := range map[string]Route{
+		"ip-blacklist": {ID: "6", Hosts: []string{"f.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+			AccessDeny: []string{"203.0.113.0/24"}},
+		"basic-auth": {ID: "7", Hosts: []string{"g2.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+			BasicAuthUser: "u", BasicAuthBcrypt: "$2a$x"},
+	} {
+		got := routeJSON(t, r)
+		if !strings.Contains(got, "private, no-store") {
+			t.Errorf("%s: uncached restricted route must be no-store: %s", name, got)
+		}
+	}
+}

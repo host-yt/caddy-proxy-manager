@@ -262,7 +262,15 @@ func (h *AdminHandlers) ResellersUpdate(w http.ResponseWriter, r *http.Request) 
 	// Suspending cuts scope at resolveMode already; revoke the reseller-admins'
 	// sessions too so nothing lingers on a cached session.
 	if status == reseller.StatusSuspended {
-		h.revokeUsers(r.Context(), h.resellerAdminIDs(r.Context(), id))
+		ids, iderr := h.resellerAdminIDsErr(r.Context(), id)
+		if iderr != nil {
+			redirectWithFlash(w, r, "/admin/resellers", "", "suspended, but could not list its admins - retry")
+			return
+		}
+		if rerr := h.revokeUsers(r.Context(), ids); rerr != nil {
+			redirectWithFlash(w, r, "/admin/resellers", "", "suspended, but session revocation failed - retry")
+			return
+		}
 	}
 	h.auditReseller(r, sess, "reseller.updated", strconv.FormatInt(id, 10), map[string]any{"status": status})
 	redirectWithFlash(w, r, "/admin/resellers", "Reseller updated", "")
@@ -286,7 +294,7 @@ func (h *AdminHandlers) ResellersDelete(w http.ResponseWriter, r *http.Request) 
 		redirectWithFlash(w, r, "/admin/resellers", "", "could not delete reseller")
 		return
 	}
-	h.revokeUsers(ctx, freed)
+	_ = h.revokeUsers(ctx, freed)
 	h.auditReseller(r, sess, "reseller.deleted", strconv.FormatInt(id, 10), nil)
 	redirectWithFlash(w, r, "/admin/resellers", "Reseller deleted", "")
 }
@@ -395,7 +403,7 @@ func (h *AdminHandlers) ResellerProvisionAdmin(w http.ResponseWriter, r *http.Re
 		}
 	}
 	// Keystone: force re-login so the new (or cleared) scope is stamped fresh.
-	h.revokeUsers(ctx, []int64{userID})
+	_ = h.revokeUsers(ctx, []int64{userID})
 	h.auditReseller(r, sess, "reseller.admin_provisioned", strconv.FormatInt(id, 10),
 		map[string]any{"user_id": userID, "released": release})
 	redirectWithFlash(w, r, "/admin/resellers", "Reseller-admin updated; their sessions were revoked", "")
@@ -425,41 +433,50 @@ func (h *AdminHandlers) resellerParam(w http.ResponseWriter, r *http.Request) in
 
 // resellerAdminIDs returns user ids currently scoped to a reseller.
 func (h *AdminHandlers) resellerAdminIDs(ctx context.Context, resellerID int64) []int64 {
+	out, _ := h.resellerAdminIDsErr(ctx, resellerID)
+	return out
+}
+
+// resellerAdminIDsErr surfaces enumeration failures: an empty list that was
+// really a query error must not read as "nobody to revoke".
+func (h *AdminHandlers) resellerAdminIDsErr(ctx context.Context, resellerID int64) ([]int64, error) {
 	db := h.DB()
 	if db == nil {
-		return nil
+		return nil, errors.New("no db")
 	}
 	rows, err := db.QueryContext(ctx, `SELECT id FROM users WHERE reseller_id=?`, resellerID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []int64
 	for rows.Next() {
 		var id int64
-		if rows.Scan(&id) == nil {
-			out = append(out, id)
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
 		}
+		out = append(out, id)
 	}
-	return out
+	return out, rows.Err()
 }
 
 // revokeUsers invalidates the given users' credentials. The epoch bumps share
 // one transaction so a mid-list failure cannot leave part of a reseller's
 // admins still holding valid sessions; the purge is the best-effort fast path.
-func (h *AdminHandlers) revokeUsers(ctx context.Context, ids []int64) {
+func (h *AdminHandlers) revokeUsers(ctx context.Context, ids []int64) error {
 	if h.Sessions == nil || len(ids) == 0 {
-		return
+		return nil
 	}
 	if err := bumpEpochsTx(ctx, h.DB(), ids); err != nil {
 		h.Logger.Error("reseller epoch bump", "count", len(ids), "err", err)
-		return
+		return err
 	}
 	for _, id := range ids {
 		if _, err := h.Sessions.PurgeUserSessions(ctx, id); err != nil {
 			h.Logger.Error("reseller session purge", "user", id, "err", err)
 		}
 	}
+	return nil
 }
 
 func (h *AdminHandlers) auditReseller(r *http.Request, sess *auth.Session, action, entityID string, meta map[string]any) {
