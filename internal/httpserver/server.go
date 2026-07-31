@@ -693,6 +693,16 @@ func (s *Server) routes() {
 			r.Delete("/chat/sessions/{id}", s.deps.Admin.AIChatDeleteSession)
 			r.Post("/chat/sessions/{id}/message", s.deps.Admin.AIChatSendMessage)
 		})
+		// Legacy alias review (migration 00138 fallout): super_admin only,
+		// enforced inside each handler and deliberately outside the
+		// reseller-admin boundary allow-list - the claims span every tenant.
+		r.Route("/legacy-aliases", func(r chi.Router) {
+			r.Get("/", s.deps.Admin.LegacyAliasesPage)
+			r.Get("/export.csv", s.deps.Admin.LegacyAliasesExport)
+			r.Post("/approve-all", s.deps.Admin.LegacyAliasApproveAll)
+			r.Post("/{id}/approve", s.deps.Admin.LegacyAliasApprove)
+			r.Post("/{id}/dismiss", s.deps.Admin.LegacyAliasDismiss)
+		})
 		r.Route("/settings", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.SettingsPage)
 			r.Get("/dns-providers", s.deps.Admin.DNSProvidersPage)

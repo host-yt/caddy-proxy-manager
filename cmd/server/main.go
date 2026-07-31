@@ -680,6 +680,10 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// Background route reconciler — leader-only, picks up stuck routes.
 	go runTicker(rootCtx, 60*time.Second, leaderElec, guard(logger, "reconcile", routesSvc.Reconcile))
 
+	// Alias ownership re-check — leader-only. Re-proves aliases that lost their
+	// backfilled proof in migration 00138 without any operator action.
+	go runTicker(rootCtx, 10*time.Minute, leaderElec, guard(logger, "alias-recheck", routesSvc.RecheckPendingAliases))
+
 	// Background drift probe — leader-only, 5 min cadence.
 	go runTicker(rootCtx, 5*time.Minute, leaderElec, guard(logger, "drift", routesSvc.ReconcileDrift))
 

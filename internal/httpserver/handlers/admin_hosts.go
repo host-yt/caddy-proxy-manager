@@ -2100,8 +2100,18 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 			touchedNodes[nodeID] = struct{}{}
 		case "retry_ssl":
 			// Only resets routes with ssl_enabled to trigger cert re-issue.
+			// domain_verified=1 is required: pending_ssl is a serving status, so
+			// without it a scoped admin could repoint a route at an unowned
+			// hostname and bulk-retry it straight back into the host matcher.
+			var retryable int
+			_ = h.DB().QueryRowContext(ctx,
+				"SELECT COUNT(*) FROM routes WHERE id=? AND ssl_enabled=1 AND domain_verified=1", id).Scan(&retryable)
+			if retryable == 0 {
+				fail++
+				continue
+			}
 			if _, derr := h.DB().ExecContext(ctx,
-				"UPDATE routes SET status=?, last_error=NULL, updated_at=NOW() WHERE id=? AND ssl_enabled=1",
+				"UPDATE routes SET status=?, last_error=NULL, updated_at=NOW() WHERE id=? AND ssl_enabled=1 AND domain_verified=1",
 				"pending_ssl", id); derr != nil {
 				fail++
 				continue
@@ -2548,7 +2558,19 @@ type hostEditData struct {
 	Groups  []hostGroupOption
 	GroupID sql.NullInt64
 
+	// AliasStates mirrors routes.aliases_verified: an unproven alias is neither
+	// emitted nor cert-eligible, so the editor must show which is which.
+	AliasStates    []aliasHostState
+	PendingAliases int
+	VerifyToken    string
+
 	CFViews []customfields.View
+}
+
+// aliasHostState is one alias plus whether its DNS-TXT ownership proof landed.
+type aliasHostState struct {
+	Host   string
+	Proven bool
 }
 
 // mtlsCAOption is one selectable trust-anchor CA in the host editor dropdown.
@@ -2840,6 +2862,21 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	if aliases.Valid {
 		d.Aliases = aliases.String
+	}
+	// Alias proof state: an alias outside aliases_verified is not in the host
+	// matcher and not cert-eligible, so the form has to say so.
+	var aliasesVerified string
+	_ = db.QueryRowContext(ctx,
+		"SELECT COALESCE(aliases_verified,'') FROM routes WHERE id = ?", id).Scan(&aliasesVerified)
+	_ = db.QueryRowContext(ctx,
+		"SELECT COALESCE(verify_token,'') FROM routes WHERE id = ?", id).Scan(&d.VerifyToken)
+	provenAliases := splitHostCSV(aliasesVerified)
+	for _, a := range splitHostCSV(d.Aliases) {
+		st := aliasHostState{Host: a, Proven: contains(provenAliases, a)}
+		d.AliasStates = append(d.AliasStates, st)
+		if !st.Proven {
+			d.PendingAliases++
+		}
 	}
 	if viaPeerID.Valid {
 		d.ViaWGPeerID = viaPeerID.Int64

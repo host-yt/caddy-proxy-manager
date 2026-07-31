@@ -226,6 +226,7 @@ var pageBreadcrumbs = map[string][]Crumb{
 	"deployment":         {{Label: "System", URL: ""}, {Label: "Deployment mode", URL: ""}},
 	"dns_providers":      {{Label: "System", URL: ""}, {Label: "DNS providers", URL: ""}},
 	"external_allowlist": {{Label: "System", URL: ""}, {Label: "External allowlist", URL: ""}},
+	"legacy_aliases":     {{Label: "Security", URL: ""}, {Label: "Legacy alias review", URL: ""}},
 	"api_keys":           {{Label: "System", URL: ""}, {Label: "Settings", URL: "/admin/settings"}, {Label: "API keys", URL: ""}},
 	"twofa":              {{Label: "System", URL: ""}, {Label: "Account", URL: "/admin/account"}, {Label: "Two-factor auth", URL: ""}},
 	"admin_account":      {{Label: "System", URL: ""}, {Label: "Account", URL: ""}},

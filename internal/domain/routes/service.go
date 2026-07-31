@@ -1014,15 +1014,16 @@ func (s *Service) VerifyDomainToken(ctx context.Context, clientID, routeID int64
 // and records the proven subset in routes.aliases_verified. An alias that is not
 // proven is never emitted as a host matcher and never gets a certificate, so an
 // operator cannot bolt a victim hostname onto a route they already own.
-func (s *Service) verifyAliases(ctx context.Context, routeID int64, aliases, token string) {
+// Returns the proven subset after the sweep.
+func (s *Service) verifyAliases(ctx context.Context, routeID int64, aliases, token string) []string {
 	list := splitHostList(aliases)
 	if token == "" || len(list) == 0 {
-		return
+		return nil
 	}
 	var prev sql.NullString
 	if err := s.DB.QueryRowContext(ctx,
 		"SELECT COALESCE(aliases_verified,'') FROM routes WHERE id = ?", routeID).Scan(&prev); err != nil {
-		return
+		return nil
 	}
 	proven := map[string]bool{}
 	for _, a := range splitHostList(prev.String) {
@@ -1042,18 +1043,82 @@ func (s *Service) verifyAliases(ctx context.Context, routeID int64, aliases, tok
 	// Also collapses a stale entry for a removed alias.
 	joined := strings.Join(out, ",")
 	if !changed && joined == strings.Join(splitHostList(prev.String), ",") {
-		return
+		return out
 	}
 	if _, err := s.DB.ExecContext(ctx,
 		"UPDATE routes SET aliases_verified = ? WHERE id = ?", joined, routeID); err != nil {
 		s.Logger.Warn("alias verification: persist", "route_id", routeID, "err", err)
-		return
+		return splitHostList(prev.String)
 	}
 	var nodeID sql.NullInt64
 	if err := s.DB.QueryRowContext(ctx,
 		"SELECT caddy_node_id FROM routes WHERE id = ?", routeID).Scan(&nodeID); err == nil && nodeID.Int64 > 0 {
 		s.SchedulePush(nodeID.Int64)
 	}
+	return out
+}
+
+// RecheckPendingAliases re-runs the TXT proof for every route that still has
+// unproven aliases. Migration 00138 dropped the 00136 backfill, so an owner
+// whose _hpg-verify record is already published recovers here with no manual
+// step; a legacy claim that fully re-proves is closed out automatically.
+func (s *Service) RecheckPendingAliases(ctx context.Context) {
+	if s.DB == nil {
+		return
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT id, COALESCE(aliases,''), COALESCE(aliases_verified,''), COALESCE(verify_token,'')
+		   FROM routes
+		  WHERE aliases IS NOT NULL AND aliases <> '' AND status <> 'disabled'
+		  ORDER BY id ASC LIMIT 500`)
+	if err != nil {
+		s.Logger.Warn("alias recheck: list", "err", err)
+		return
+	}
+	type pending struct {
+		id             int64
+		aliases, token string
+	}
+	var todo []pending
+	for rows.Next() {
+		var p pending
+		var verified string
+		if rows.Scan(&p.id, &p.aliases, &verified, &p.token) != nil {
+			continue
+		}
+		if p.token == "" || len(unprovenHosts(p.aliases, verified)) == 0 {
+			continue
+		}
+		todo = append(todo, p)
+	}
+	rows.Close()
+	for _, p := range todo {
+		if ctx.Err() != nil {
+			return
+		}
+		proven := s.verifyAliases(ctx, p.id, p.aliases, p.token)
+		if len(unprovenHosts(p.aliases, strings.Join(proven, ","))) > 0 {
+			continue
+		}
+		_, _ = s.DB.ExecContext(ctx,
+			`UPDATE route_alias_legacy_claims SET status='proven', resolved_at=NOW()
+			  WHERE route_id = ? AND status = 'pending'`, p.id)
+	}
+}
+
+// unprovenHosts returns the entries of aliases that are absent from verified.
+func unprovenHosts(aliases, verified string) []string {
+	ok := map[string]bool{}
+	for _, v := range splitHostList(verified) {
+		ok[v] = true
+	}
+	out := []string{}
+	for _, a := range splitHostList(aliases) {
+		if !ok[a] {
+			out = append(out, a)
+		}
+	}
+	return out
 }
 
 // Delete removes the route, decrements the node counter, and rebuilds the
@@ -2249,6 +2314,10 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		        OR EXISTS (SELECT 1 FROM route_node_assignments rna
 		                    WHERE rna.route_id = r.id AND rna.node_id = ?))
 		   AND r.status IN ('dns_ok','active','pending_ssl')
+		   -- Defence in depth: only advanceRoute should be able to put a route
+		   -- in a serving status, and it refuses unverified ones. A status set
+		   -- by any other path must still not emit an unproven host matcher.
+		   AND COALESCE(r.domain_verified, 0) = 1
 		 ORDER BY r.id ASC`, nodeID, nodeID, nodeID, nodeID)
 	if err != nil {
 		return nil, nil, err

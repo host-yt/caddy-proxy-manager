@@ -1,0 +1,68 @@
+{{define "legacy_aliases"}}
+<div class="space-y-6">
+
+  <section class="r-card">
+    <p class="t-eyebrow">Security</p>
+    <h2 class="t-h2">Legacy alias review</h2>
+    <p class="t-small mt-1">Before per-alias ownership proof existed, any admin could add an alias to their own route without proving they controlled that hostname. Migration <code>00136</code> marked all of those as proven; migration <code>00138</code> took that back. The aliases listed as <strong>not serving</strong> below are no longer in the Caddy host matcher and are no longer certificate-eligible.</p>
+    <p class="t-small mt-2">Recovery is automatic: once the owner publishes <code>_hpg-verify.&lt;alias&gt;</code> with the route's verify token, the background re-check proves it again within ~10 minutes. Approve here only when you already know the tenant owns the hostname.</p>
+    <div class="mt-4 flex flex-wrap items-center gap-3">
+      <span class="t-small"><strong>{{.PendingCnt}}</strong> pending &middot; <strong>{{.ResolvedCnt}}</strong> resolved</span>
+      <a href="/admin/legacy-aliases/export.csv" class="r-btn-ghost text-xs cursor-pointer">Export CSV</a>
+      {{if .PendingCnt}}
+      <form method="POST" action="/admin/legacy-aliases/approve-all" class="inline" data-confirm="Approve every legacy alias claim without any DNS proof?">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="r-btn-danger text-xs cursor-pointer">Approve all ({{.PendingCnt}})</button>
+      </form>
+      {{end}}
+    </div>
+  </section>
+
+  <section class="r-card !p-0 overflow-hidden">
+    <div class="overflow-x-auto">
+      <table class="r-table">
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th>Client</th>
+            <th>Node</th>
+            <th>Claimed aliases</th>
+            <th>Not serving</th>
+            <th>Status</th>
+            <th class="text-right"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {{range .Rows}}
+          <tr>
+            <td class="font-mono font-medium"><a href="/admin/hosts/{{.RouteID}}/edit" class="hover:underline">{{.Domain}}</a></td>
+            <td>{{.Client}}</td>
+            <td>{{.NodeName}}</td>
+            <td class="font-mono text-xs">{{range .Claimed}}<span class="mr-1">{{.}}</span>{{end}}</td>
+            <td class="font-mono text-xs">
+              {{range .Unproven}}<span class="mr-1 px-1.5 py-0.5 rounded-lg" style="background:rgb(var(--surface-2))">{{.}}</span>{{else}}<span class="t-muted">-</span>{{end}}
+            </td>
+            <td class="text-xs">{{.Status}}</td>
+            <td class="text-right whitespace-nowrap">
+              {{if eq .Status "pending"}}
+              <form method="POST" action="/admin/legacy-aliases/{{.RouteID}}/approve" class="inline" data-confirm="Approve these aliases for {{.Domain}} without DNS proof?">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="r-btn-ghost text-xs cursor-pointer">approve</button>
+              </form>
+              <form method="POST" action="/admin/legacy-aliases/{{.RouteID}}/dismiss" class="inline" data-confirm="Dismiss this claim? The owner must publish the TXT record.">
+                <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                <button class="r-btn-danger text-xs cursor-pointer">dismiss</button>
+              </form>
+              {{end}}
+            </td>
+          </tr>
+          {{else}}
+          <tr><td colspan="7" class="px-5 py-8 text-center t-muted">No legacy alias claims. Nothing stopped serving.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+</div>
+{{end}}
