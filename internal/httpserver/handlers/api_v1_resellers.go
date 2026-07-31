@@ -227,8 +227,15 @@ func (h *APIHandlers) ResellerUpdate(w http.ResponseWriter, r *http.Request) {
 	// materialised and the rows closed BEFORE any write: SQLite runs on a single
 	// connection, so an open cursor plus a nested UPDATE deadlocks until the
 	// request deadline.
+	// Runs on every request that asks for suspended, not only on the
+	// transition, so a retry after a failed revocation actually revokes.
 	if suspended && h.Sessions != nil {
-		uids := reseller.UserIDsFor(ctx, h.DB(), id)
+		uids, uerr := reseller.UserIDsFor(ctx, h.DB(), id)
+		if uerr != nil {
+			h.Logger.Error("reseller suspend: enumerate", "reseller", id, "err", uerr)
+			apiErr(w, http.StatusInternalServerError, "suspended, but could not enumerate its users - retry")
+			return
+		}
 		if len(uids) > 0 {
 			if err := bumpEpochsTx(ctx, h.DB(), uids); err != nil {
 				h.Logger.Error("reseller suspend: epoch bump", "reseller", id, "err", err)

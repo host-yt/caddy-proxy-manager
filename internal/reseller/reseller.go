@@ -358,22 +358,25 @@ func nullIfEmpty(s string) any {
 }
 
 // UserIDsFor materialises the reseller's user ids and closes the cursor before
-// returning: callers write to users next, and SQLite has one connection.
-func UserIDsFor(ctx context.Context, db *sql.DB, resellerID int64) []int64 {
+// returning: callers write to users next, and SQLite has one connection. An
+// enumeration failure is an error, never an empty list - "nobody to revoke"
+// and "could not tell" must not look the same to a suspension path.
+func UserIDsFor(ctx context.Context, db *sql.DB, resellerID int64) ([]int64, error) {
 	if db == nil {
-		return nil
+		return nil, errors.New("reseller: no db")
 	}
 	rows, err := db.QueryContext(ctx, `SELECT id FROM users WHERE reseller_id = ?`, resellerID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []int64
 	for rows.Next() {
 		var id int64
-		if rows.Scan(&id) == nil {
-			out = append(out, id)
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
 		}
+		out = append(out, id)
 	}
-	return out
+	return out, rows.Err()
 }

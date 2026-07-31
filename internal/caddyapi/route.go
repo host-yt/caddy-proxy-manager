@@ -1169,9 +1169,11 @@ func buildCacheHandlers(r Route) []any {
 		keyHeaders := append(append([]string{}, r.CacheVary...), "Cookie", "Authorization")
 		cacheH["key"] = map[string]any{"headers": keyHeaders}
 		fresh = append(fresh, cacheH)
-		// Sits between the cache and the upstream, so Souin never sees a
-		// Set-Cookie and cannot replay one visitor's session cookie to the
-		// next. Public content that sets cookies is a contradiction anyway.
+	}
+	// Independent of the cache module: a stock node still advertises `public`,
+	// and a downstream CDN would store and replay the upstream's cookie across
+	// visitors. Public content that sets cookies is a contradiction anyway.
+	if r.CachePublic {
 		fresh = append(fresh, map[string]any{
 			"handler": "headers",
 			"response": map[string]any{

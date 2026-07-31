@@ -159,3 +159,22 @@ func TestRestrictedRouteWithoutCacheStillPrivate(t *testing.T) {
 		}
 	}
 }
+
+// A stock node without the cache module still advertises public, so a CDN
+// would store the upstream's cookie: strip it there too.
+func TestPublicCacheStripsSetCookieWithoutModule(t *testing.T) {
+	got := routeJSON(t, Route{
+		ID: "8", Hosts: []string{"h.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+		CacheEnabled: true, CacheTTLSeconds: 60, CacheModuleAvailable: false,
+		CachePublic: true,
+	})
+	if strings.Contains(got, `"handler":"cache"`) {
+		t.Error("no cache module: no cache handler expected")
+	}
+	if !strings.Contains(got, `"Set-Cookie"`) {
+		t.Errorf("public route must strip Set-Cookie even without the module: %s", got)
+	}
+	if !strings.Contains(got, "public, max-age") {
+		t.Errorf("expected public scope: %s", got)
+	}
+}
