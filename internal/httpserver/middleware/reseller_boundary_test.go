@@ -63,6 +63,22 @@ func TestResellerAdminBoundary(t *testing.T) {
 	}
 }
 
+// A super_admin carrying stale confinement flags (left by an old promotion
+// path) must not be locked out of global infra - it would be unrecoverable.
+func TestSuperAdminNeverConfined(t *testing.T) {
+	h := ResellerAdminBoundary([]string{"/admin"})(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) }))
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/nodes", nil)
+	req = req.WithContext(ContextWithSession(req.Context(),
+		&auth.Session{UserID: 1, Role: "super_admin", ResellerID: 7, Restricted: true}))
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Errorf("confined super_admin got %d, want 200", rr.Code)
+	}
+}
+
 // An orphaned reseller (its reseller row deleted, reseller_id nulled) must stay
 // confined: role alone can never widen into a platform admin.
 func TestOrphanedResellerStaysConfined(t *testing.T) {

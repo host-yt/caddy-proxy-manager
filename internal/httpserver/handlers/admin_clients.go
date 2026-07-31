@@ -472,8 +472,15 @@ func (h *AdminHandlers) ClientChangePlan(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	// Scoped admins may only change plans for clients they are assigned to.
-	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), id) {
+	sess := middleware.SessionFromContext(r.Context())
+	if !h.scopeCheckClient(ctx, sess, id) {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	// Owning the client is not owning the plan: without this a limited admin
+	// could attach a foreign reseller's plan and inherit its capabilities.
+	if !h.authorizePlanForClient(ctx, sess, id, newPlanID) {
+		redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "forbidden: plan outside your scope")
 		return
 	}
 
@@ -482,6 +489,17 @@ func (h *AdminHandlers) ClientChangePlan(w http.ResponseWriter, r *http.Request)
 	if err := db.QueryRowContext(ctx, "SELECT name FROM plans WHERE id=?", newPlanID).Scan(&planName); err != nil {
 		redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "plan not found")
 		return
+	}
+	// Repointing every service of the client reallocates capacity - the owning
+	// reseller's package must still fit.
+	if h.Quota != nil {
+		if rid, qerr := h.Quota.ResellerOfClient(ctx, id); qerr == nil && rid != 0 {
+			if qerr = h.Quota.CanChangeClientPlan(ctx, rid, id, newPlanID); qerr != nil {
+				h.Logger.Warn("client plan quota check failed", "err", qerr)
+				redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "plan exceeds the reseller package quota")
+				return
+			}
+		}
 	}
 
 	// Update all services for this client to the new plan.
@@ -493,7 +511,6 @@ func (h *AdminHandlers) ClientChangePlan(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.client.change_plan", Entity: "client",
 		EntityID: itoa64(id), Meta: map[string]any{"new_plan_id": newPlanID, "plan_name": planName},

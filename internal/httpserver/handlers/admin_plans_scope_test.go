@@ -23,8 +23,10 @@ func openPlanScopeDB(t *testing.T) *sql.DB {
 		`CREATE TABLE users (id INTEGER PRIMARY KEY, reseller_id INTEGER, is_restricted INTEGER DEFAULT 0, role TEXT DEFAULT 'admin')`,
 		`CREATE TABLE admin_client_scope (admin_user_id INTEGER, client_id INTEGER)`,
 		`CREATE TABLE plans (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
+		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`INSERT INTO users (id, reseller_id) VALUES (3, NULL)`, // bare platform admin
 		`INSERT INTO plans (id, reseller_id) VALUES (1, NULL), (7, 7), (9, 9)`,
+		`INSERT INTO clients (id, reseller_id) VALUES (70, 7), (90, 9), (100, NULL)`,
 	} {
 		if _, err := db.Exec(s); err != nil {
 			t.Fatalf("exec %q: %v", s, err)
@@ -57,10 +59,10 @@ func TestPlanScopeResellerAdmin(t *testing.T) {
 		t.Error("must NOT manage foreign reseller plan 9")
 	}
 	// Accessible for service creation: global (1) + own (7), not foreign (9).
-	if !h.planAccessible(ctx, reseller, 1) || !h.planAccessible(ctx, reseller, 7) {
+	if !h.authorizePlanForClient(ctx, reseller, 70, 1) || !h.authorizePlanForClient(ctx, reseller, 70, 7) {
 		t.Error("global and own plans must be accessible")
 	}
-	if h.planAccessible(ctx, reseller, 9) {
+	if h.authorizePlanForClient(ctx, reseller, 70, 9) {
 		t.Error("foreign reseller plan must not be accessible")
 	}
 }

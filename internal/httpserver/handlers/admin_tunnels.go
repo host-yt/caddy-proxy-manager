@@ -824,23 +824,60 @@ func (h *AdminHandlers) planManageable(ctx context.Context, sess *auth.Session, 
 	return pr.Valid && pr.Int64 == rid
 }
 
-// planAccessible reports whether a caller may attach a service to a plan:
-// platform admins any plan; reseller-admins only global plans or their own.
-func (h *AdminHandlers) planAccessible(ctx context.Context, sess *auth.Session, planID int64) bool {
-	rid, all, ok := h.planScope(ctx, sess)
-	if !ok {
-		// Non-plan-scoped admins (e.g. plain scoped-admin) keep prior behaviour:
-		// service scoping is enforced separately by scopeCheckClient.
-		return true
-	}
-	if all {
-		return true
-	}
-	var pr sql.NullInt64
-	if err := h.DB().QueryRowContext(ctx, "SELECT reseller_id FROM plans WHERE id=?", planID).Scan(&pr); err != nil {
+// authorizePlanForClient is the ONE mandatory plan check for attaching a plan to
+// a tenant (service create/update, client plan change): platform admins may use
+// any plan, every limited admin only global plans or plans owned by the tenant's
+// own reseller. Fails closed - a missing plan or any lookup error denies.
+func (h *AdminHandlers) authorizePlanForClient(ctx context.Context, sess *auth.Session, clientID, planID int64) bool {
+	if sess == nil || planID <= 0 {
 		return false
 	}
-	return !pr.Valid || pr.Int64 == rid
+	db := h.DB()
+	if db == nil {
+		return false
+	}
+	var planReseller sql.NullInt64
+	if err := db.QueryRowContext(ctx, "SELECT reseller_id FROM plans WHERE id=?", planID).Scan(&planReseller); err != nil {
+		return false
+	}
+	if _, all, ok := h.adminClientScope(ctx, sess); ok && all {
+		return true
+	}
+	// A limited admin inherits the tenant's owner: its own reseller, or (for a
+	// client-scoped admin) the reseller owning the target client.
+	owner := sess.ResellerID
+	if owner == 0 {
+		var rid sql.NullInt64
+		if err := db.QueryRowContext(ctx, "SELECT reseller_id FROM clients WHERE id=?", clientID).Scan(&rid); err != nil {
+			return false
+		}
+		if rid.Valid {
+			owner = rid.Int64
+		}
+	}
+	if !planReseller.Valid {
+		return true // global plan
+	}
+	return owner != 0 && planReseller.Int64 == owner
+}
+
+// selfProvisionScope classifies a self-service create (host / stream / own
+// client) that lands under the caller's own identity instead of a picked
+// tenant: platform admins take the trusted global path, reseller-admins
+// provision inside their tenant (tenantScoped), and a client-scoped admin may
+// not self-provision at all - the object would sit outside every client it may
+// see, i.e. outside its boundary.
+func (h *AdminHandlers) selfProvisionScope(ctx context.Context, sess *auth.Session) (tenantScoped, ok bool) {
+	if sess == nil {
+		return false, false
+	}
+	if _, all, sok := h.adminClientScope(ctx, sess); sok && all {
+		return false, true
+	}
+	if sess.ResellerID > 0 {
+		return true, true
+	}
+	return false, false
 }
 
 // scopeCheckService resolves a service's owning client and defers to

@@ -331,6 +331,13 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
+	// Streams bind a port on a shared node under the caller's own client - a
+	// client-scoped admin has no such surface and must not create one.
+	if _, ok := h.selfProvisionScope(ctx, sess); !ok {
+		redirectWithFlash(w, r, "/admin/streams", "", "forbidden: your account is scoped to assigned clients")
+		return
+	}
+
 	// SSRF: screen every extra upstream (host:port) - IPs go through the
 	// dangerous-backend check, hostnames resolve and each result is screened.
 	for _, u := range extraUpstreams {

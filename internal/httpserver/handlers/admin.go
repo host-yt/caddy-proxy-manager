@@ -2360,6 +2360,13 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	// A new client is owned by the creator's tenant (or the platform). A
+	// client-scoped admin owns neither, so its client would be a persistent
+	// platform-direct account outside its own boundary.
+	if _, ok := h.selfProvisionScope(ctx, middleware.SessionFromContext(r.Context())); !ok {
+		redirectWithFlash(w, r, "/admin/clients", "", "forbidden: your account is scoped to assigned clients")
+		return
+	}
 	// Reseller aggregate quota: cap the number of clients under the reseller.
 	if h.Quota != nil {
 		if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 {
@@ -2693,8 +2700,8 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden: client outside your scope")
 		return
 	}
-	// A reseller-admin may only use global plans or its own reseller's plans.
-	if !h.planAccessible(ctx, middleware.SessionFromContext(r.Context()), planID) {
+	// A limited admin may only use global plans or the tenant reseller's plans.
+	if !h.authorizePlanForClient(ctx, middleware.SessionFromContext(r.Context()), clientID, planID) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden: plan outside your scope")
 		return
 	}
@@ -2805,7 +2812,7 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden: outside your scope")
 		return
 	}
-	if !h.planAccessible(ctx, sess, planID) {
+	if !h.authorizePlanForClient(ctx, sess, clientID, planID) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden: plan outside your scope")
 		return
 	}
@@ -3311,6 +3318,15 @@ func (h *AdminHandlers) UsersUpdate(w http.ResponseWriter, r *http.Request) {
 		_, execErr = tx.ExecContext(ctx,
 			"UPDATE users SET full_name = ?, email = ?, role = ?, is_active = ? WHERE id = ?",
 			fullName, email, role, isActive, id)
+	}
+	// Promotion to super_admin must drop the confinement in the SAME tx: the role
+	// alone would leave is_restricted/reseller_id/scope rows stamping the new
+	// session, and a confined super_admin cannot be repaired from the scope editor.
+	if execErr == nil && role == "super_admin" {
+		var unconfined bool
+		if unconfined, execErr = adminscope.ClearConfinementTx(ctx, tx, id); unconfined {
+			invalidating = true
+		}
 	}
 	if execErr == nil && invalidating {
 		_, execErr = auth.BumpEpochTx(ctx, tx, id)

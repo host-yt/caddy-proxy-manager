@@ -143,6 +143,51 @@ func (s *Service) CanCreateService(ctx context.Context, resellerID, planID int64
 	return nil
 }
 
+// CanChangeClientPlan gates repointing every service of a client at newPlanID.
+// Without overselling the reallocated capacity (all of the client's services on
+// the new plan, plus every other client's current allocation) must still fit the
+// package's aggregate domain cap.
+func (s *Service) CanChangeClientPlan(ctx context.Context, resellerID, clientID, newPlanID int64) error {
+	l, ok, err := s.limitsFor(ctx, resellerID)
+	if err != nil || !ok || l.overselling || l.maxDomains <= 0 {
+		return err
+	}
+	db := s.DB()
+	var newAlloc int
+	var newKind string
+	if err := db.QueryRowContext(ctx,
+		`SELECT max_domains, COALESCE(kind,'') FROM plans WHERE id=?`, newPlanID).Scan(&newAlloc, &newKind); err != nil {
+		return fmt.Errorf("quota: plan alloc: %w", err)
+	}
+	if newKind == "npm" {
+		return nil // internal hosts-flow plumbing: real-counted at route create
+	}
+	var moving int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM services WHERE client_id=?`, clientID).Scan(&moving); err != nil {
+		return fmt.Errorf("quota: service count: %w", err)
+	}
+	if moving == 0 {
+		return nil
+	}
+	if newAlloc <= 0 {
+		return ErrDomainQuota
+	}
+	var others sql.NullInt64
+	if err := db.QueryRowContext(ctx,
+		`SELECT SUM(p.max_domains) FROM services sv
+		 JOIN clients c ON c.id = sv.client_id
+		 JOIN plans p ON p.id = sv.plan_id
+		 WHERE c.reseller_id=? AND sv.client_id<>? AND COALESCE(p.kind,'') <> 'npm'`,
+		resellerID, clientID).Scan(&others); err != nil {
+		return fmt.Errorf("quota: allocation sum: %w", err)
+	}
+	if int(others.Int64)+moving*newAlloc > l.maxDomains {
+		return ErrDomainQuota
+	}
+	return nil
+}
+
 // CanCreateRoute gates adding one more domain (route) to serviceID. The real
 // route count is enforced when overselling is ON, and always for services on
 // internal kind='npm' plans (hosts flow) whose capacity is never allocated -

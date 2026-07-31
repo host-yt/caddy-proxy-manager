@@ -17,6 +17,12 @@ func ResellerAdminBoundary(allowed []string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			sess := SessionFromContext(r.Context())
+			// A super_admin is never confined - stale confinement flags from a
+			// promotion must not lock the platform owner out of global infra.
+			if sess != nil && sess.Role == "super_admin" {
+				next.ServeHTTP(w, r)
+				return
+			}
 			// role=reseller stays confined even with no reseller_id: an orphaned
 			// reseller (its row deleted) must never widen into a platform admin.
 			if sess == nil || (sess.ResellerID == 0 && !sess.Restricted && sess.Role != "reseller") {

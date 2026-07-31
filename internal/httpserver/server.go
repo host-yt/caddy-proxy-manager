@@ -371,12 +371,15 @@ func (s *Server) routes() {
 			"/admin/tunnels*",
 			// Hosts: list/export filtered by adminClientScope; every {id} op gated
 			// by scopeCheckRoute; global taxonomy (host groups) denied internally.
+			// Create is self-provisioning, so it is gated by selfProvisionScope:
+			// reseller-admins create tenant-owned routes, restricted admins none.
 			"/admin/hosts*",
 			// Services: list filtered by adminClientScope; create/update/delete/
 			// suspend/resume gated by scopeCheckClient/scopeCheckService.
 			"/admin/services*",
 			// Streams (L4): list filtered by client scope; every {id} op gated by
-			// scopeCheckStream (resolves service -> client ownership).
+			// scopeCheckStream (resolves service -> client ownership); create
+			// gated by selfProvisionScope (restricted admins bind no ports).
 			"/admin/streams*",
 			// Plans: reseller-admin sees global + own plans; create makes an
 			// own-reseller plan; edit/delete gated by planManageable.
@@ -385,7 +388,8 @@ func (s *Server) routes() {
 			// makes an own-reseller row; edit/delete gated by serverManageable.
 			"/admin/servers*",
 			// Clients: list/export filtered by adminClientScope; every {id} op
-			// gated by scopeCheckClient; create stamps the reseller_id.
+			// gated by scopeCheckClient; create stamps the reseller_id and is
+			// denied for restricted admins (they own no tenant to create under).
 			"/admin/clients*",
 			// /admin/search NOT allow-listed: AdminSearch unscoped (F3 to scope).
 		}))

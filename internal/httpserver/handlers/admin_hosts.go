@@ -772,6 +772,14 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 
+	// The hosts form provisions under the caller's OWN client, so a client-scoped
+	// admin must not reach it: the route would land outside its assigned clients.
+	tenantScoped, provOK := h.selfProvisionScope(ctx, sess)
+	if !provOK {
+		h.renderHostsNewErr(w, r, form, "forbidden: your account is scoped to assigned clients")
+		return
+	}
+
 	// SSRF screen: proxy backends and external upstreams must not target
 	// loopback/link-local/metadata (169.254.169.254). Redirect routes use a
 	// sentinel backend (0.0.0.0) that is never dialed, so skip them.
@@ -889,10 +897,10 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Reseller-admin is a tenant, not the operator: pass their clientID so the
-	// route must prove DNS ownership. Platform admin (ResellerID==0) stays trusted.
+	// A limited admin is a tenant, not the operator: pass their clientID so the
+	// route must prove DNS ownership. Only a platform admin stays trusted.
 	ownerScope := int64(0)
-	if sess.ResellerID != 0 {
+	if tenantScoped {
 		ownerScope = clientID
 	}
 	routeID, err := h.Routes.Create(ctx, ownerScope, routes.CreateInput{

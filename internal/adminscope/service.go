@@ -67,6 +67,19 @@ type scopeMode struct {
 // restricted admin with zero admin_client_scope rows sees nothing (fail-safe),
 // which is why the flag is explicit rather than inferred from the row count.
 func (s *Service) resolveMode(ctx context.Context, adminUserID int64) (scopeMode, error) {
+	// Invariant: a super_admin is never confined. Confinement rows left behind by
+	// a promotion must not read back as a tenant scope - the scope editor refuses
+	// to touch super_admins, so such an account would be unrecoverable.
+	if db := s.db(); db != nil {
+		var role string
+		switch err := db.QueryRowContext(ctx, `SELECT role FROM users WHERE id=?`, adminUserID).Scan(&role); {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return scopeMode{}, fmt.Errorf("adminscope: role: %w", err)
+		case role == "super_admin":
+			return scopeMode{all: true}, nil
+		}
+	}
 	rid, active, err := s.userReseller(ctx, adminUserID)
 	if err != nil {
 		return scopeMode{}, err
@@ -93,6 +106,30 @@ func (s *Service) resolveMode(ctx context.Context, adminUserID int64) (scopeMode
 		return scopeMode{}, nil // client-scoped (empty scope = sees nothing)
 	}
 	return scopeMode{all: true}, nil // unrestricted
+}
+
+// ClearConfinementTx drops every confinement marker of a user (is_restricted,
+// reseller binding and admin_client_scope rows) inside the caller's tx. Role and
+// confinement MUST move together: a promotion that leaves them behind logs the
+// account back in confined, and the scope editor cannot repair a super_admin.
+// Reports whether anything changed so the caller can bump the auth epoch.
+func ClearConfinementTx(ctx context.Context, tx *sql.Tx, userID int64) (bool, error) {
+	if tx == nil || userID == 0 {
+		return false, nil
+	}
+	res, err := tx.ExecContext(ctx,
+		`UPDATE users SET is_restricted = 0, reseller_id = NULL
+		 WHERE id = ? AND (COALESCE(is_restricted,0) <> 0 OR reseller_id IS NOT NULL)`, userID)
+	if err != nil {
+		return false, fmt.Errorf("adminscope: clear confinement: %w", err)
+	}
+	n, _ := res.RowsAffected()
+	res, err = tx.ExecContext(ctx, `DELETE FROM admin_client_scope WHERE admin_user_id = ?`, userID)
+	if err != nil {
+		return false, fmt.Errorf("adminscope: clear scope rows: %w", err)
+	}
+	m, _ := res.RowsAffected()
+	return n > 0 || m > 0, nil
 }
 
 func (s *Service) CanAccessClient(ctx context.Context, adminUserID, clientID int64) (bool, error) {
