@@ -1154,7 +1154,8 @@ func buildCacheHandlers(r Route) []any {
 	scope := "private, max-age=" + itoa(ttl)
 	// Audience-restricted routes may still use the node cache (Caddy enforces
 	// the ACL before it), but a shared cache downstream cannot - never public.
-	if r.CachePublic && !routeAudienceRestricted(r) {
+	sharedPublic := r.CachePublic && !routeAudienceRestricted(r)
+	if sharedPublic {
 		scope = "public, max-age=" + itoa(ttl)
 	}
 	fresh := []any{}
@@ -1170,10 +1171,10 @@ func buildCacheHandlers(r Route) []any {
 		cacheH["key"] = map[string]any{"headers": keyHeaders}
 		fresh = append(fresh, cacheH)
 	}
-	// Independent of the cache module: a stock node still advertises `public`,
-	// and a downstream CDN would store and replay the upstream's cookie across
-	// visitors. Public content that sets cookies is a contradiction anyway.
-	if r.CachePublic {
+	// Keyed to the emitted scope, not to CachePublic: a route that stays
+	// `private` is never CDN-stored, so stripping its cookie would only break
+	// logins. Independent of the cache module - a stock node still says public.
+	if sharedPublic {
 		fresh = append(fresh, map[string]any{
 			"handler": "headers",
 			"response": map[string]any{

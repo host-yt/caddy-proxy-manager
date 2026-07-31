@@ -12,11 +12,11 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/go-chi/chi/v5"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
-	"github.com/go-chi/chi/v5"
 )
 
 // Resellers/Quota stores are injected from main (nil-safe guards below).
@@ -193,7 +193,9 @@ func (h *APIHandlers) ResellerUpdate(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusBadRequest, "status must be active or suspended")
 			return
 		}
-		suspended = *in.Status == reseller.StatusSuspended && rs.Status != reseller.StatusSuspended
+		// No transition guard: a retry after a failed revocation must actually
+		// revoke, and it would see the status already persisted as suspended.
+		suspended = *in.Status == reseller.StatusSuspended
 		rs.Status = *in.Status
 	}
 	if in.BrandName != nil {
@@ -348,7 +350,12 @@ func resellerPlanIn(w http.ResponseWriter, r *http.Request, id int64) (reseller.
 		apiErr(w, http.StatusBadRequest, "name required")
 		return reseller.Plan{}, false
 	}
-	clampNonNeg := func(v int) int { if v < 0 { return 0 }; return v }
+	clampNonNeg := func(v int) int {
+		if v < 0 {
+			return 0
+		}
+		return v
+	}
 	return reseller.Plan{
 		ID: id, Name: strings.TrimSpace(in.Name),
 		MaxClients:      clampNonNeg(in.MaxClients),

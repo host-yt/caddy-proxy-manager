@@ -178,3 +178,24 @@ func TestPublicCacheStripsSetCookieWithoutModule(t *testing.T) {
 		t.Errorf("expected public scope: %s", got)
 	}
 }
+
+// CachePublic on an audience-restricted route stays private, so nothing is
+// CDN-stored and the cookie must survive - stripping it would break logins.
+func TestAudienceRestrictedPublicKeepsSetCookie(t *testing.T) {
+	for name, r := range map[string]Route{
+		"geo": {ID: "9", Hosts: []string{"i.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+			CacheEnabled: true, CacheTTLSeconds: 60, CachePublic: true,
+			GeoMode: "allow", GeoCountries: "PL", GeoModuleAvailable: true},
+		"ip-deny": {ID: "10", Hosts: []string{"j.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+			CacheEnabled: true, CacheTTLSeconds: 60, CachePublic: true,
+			AccessDeny: []string{"203.0.113.0/24"}},
+	} {
+		got := routeJSON(t, r)
+		if strings.Contains(got, `"Set-Cookie"`) {
+			t.Errorf("%s: private-scoped route must not strip Set-Cookie: %s", name, got)
+		}
+		if strings.Contains(got, "public, max-age") {
+			t.Errorf("%s: audience-restricted route must not be public: %s", name, got)
+		}
+	}
+}

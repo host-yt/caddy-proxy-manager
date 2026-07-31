@@ -15,15 +15,17 @@ const legacyWatchInterval = 2 * time.Minute
 // replica ignores Restricted/Epoch entirely - it will happily serve a confined
 // admin as a platform admin. Leftover keys from before the upgrade are older
 // than `since` and do not trigger.
-func (m *Manager) LegacyMintingDetected(ctx context.Context, since time.Time) bool {
+func (m *Manager) LegacyMintingDetected(ctx context.Context, since time.Time) (bool, error) {
 	if m == nil || m.rdb == nil {
-		return false
+		return false, nil
 	}
 	var cursor uint64
 	for {
 		keys, next, err := m.rdb.Scan(ctx, cursor, legacySessionKeyPrefix+"*", 200).Result()
 		if err != nil {
-			return false
+			// Never report "all clear" from a failed look: a broken Redis is
+			// exactly what accompanies a botched rolling upgrade.
+			return false, err
 		}
 		for _, k := range keys {
 			b, gerr := m.rdb.Get(ctx, k).Bytes()
@@ -35,12 +37,12 @@ func (m *Manager) LegacyMintingDetected(ctx context.Context, since time.Time) bo
 				continue
 			}
 			if s.CreatedAt.After(since) {
-				return true
+				return true, nil
 			}
 		}
 		cursor = next
 		if cursor == 0 {
-			return false
+			return false, nil
 		}
 	}
 }
@@ -61,7 +63,12 @@ func (m *Manager) StartLegacyWatch(ctx context.Context, logger *slog.Logger) {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				if m.LegacyMintingDetected(ctx, since) {
+				found, err := m.LegacyMintingDetected(ctx, since)
+				if err != nil {
+					logger.Warn("legacy-session watch failed; cannot confirm no old replica is serving", "err", err)
+					continue
+				}
+				if found {
 					logger.Error("mixed-version fleet: an old replica is still minting sessions in the pre-upgrade namespace; it ignores restricted-admin confinement and auth epochs - drain it now")
 				}
 			}

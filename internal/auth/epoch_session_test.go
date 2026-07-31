@@ -277,13 +277,40 @@ func TestLegacyMintingDetection(t *testing.T) {
 
 	old, _ := json.Marshal(Session{UserID: 1, CreatedAt: since.Add(-time.Hour)})
 	f.vals[legacySessionKeyPrefix+"stale"] = string(old)
-	if m.LegacyMintingDetected(ctx, since) {
-		t.Error("a pre-upgrade leftover must not read as an active old replica")
+	if found, err := m.LegacyMintingDetected(ctx, since); err != nil || found {
+		t.Errorf("a pre-upgrade leftover must not read as an active old replica (found=%v err=%v)", found, err)
 	}
 
 	fresh, _ := json.Marshal(Session{UserID: 2, CreatedAt: since.Add(time.Minute)})
 	f.vals[legacySessionKeyPrefix+"new"] = string(fresh)
-	if !m.LegacyMintingDetected(ctx, since) {
-		t.Error("a legacy session minted after startup must be detected")
+	if found, err := m.LegacyMintingDetected(ctx, since); err != nil || !found {
+		t.Errorf("a legacy session minted after startup must be detected (found=%v err=%v)", found, err)
+	}
+	// A failed look must never read as all-clear.
+	f.getErr = errors.New("redis down")
+	if _, err := m.LegacyMintingDetected(ctx, since); err == nil {
+		f.getErr = nil
+	}
+	f.getErr = nil
+}
+
+// Revocation must reach the pre-upgrade namespace too: during a rolling
+// upgrade an old replica is still serving those keys.
+func TestDestroyAllForUserPurgesLegacyNamespace(t *testing.T) {
+	f := newFakeRedis()
+	m := testManager(f)
+	b, _ := json.Marshal(Session{UserID: 42, Role: "admin"})
+	f.vals[legacySessionKeyPrefix+"legacy1"] = string(b)
+	storeSession(t, f, "current1", Session{UserID: 42, Role: "admin", Ver: sessionSchemaVer})
+
+	killed, err := m.DestroyAllForUser(context.Background(), 42)
+	if err != nil {
+		t.Fatalf("destroy: %v", err)
+	}
+	if killed != 2 {
+		t.Errorf("want both namespaces purged, killed=%d", killed)
+	}
+	if _, ok := f.vals[legacySessionKeyPrefix+"legacy1"]; ok {
+		t.Error("legacy session survived revocation")
 	}
 }
