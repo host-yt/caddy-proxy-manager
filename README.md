@@ -283,6 +283,7 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 | [`docs/API.md`](docs/API.md) | REST API v1 contract |
 | [`docs/SPEC.md`](docs/SPEC.md) | Functional specification |
 | [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model and security model |
+| [`docs/ROUTES.md`](docs/ROUTES.md) | Domain/alias ownership proof, custom Caddy JSON, per-route caching |
 | [`docs/WAF.md`](docs/WAF.md) | Web Application Firewall (Coraza) |
 | [`docs/GEOIP.md`](docs/GEOIP.md) | GeoIP country filtering |
 | [`docs/DNS_PROVIDERS.md`](docs/DNS_PROVIDERS.md) | DNS-01 challenge providers for wildcard TLS |

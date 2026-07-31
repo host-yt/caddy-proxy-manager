@@ -11,7 +11,9 @@ Primary threats considered:
 | CSRF | Synchronizer token (`crypto/subtle.ConstantTimeCompare`), checked on all non-safe non-API routes |
 | Cross-tenant data access | Privilege changes revoke live sessions immediately; client handlers filter by `client_id`; backend IPs never exposed to clients |
 | API key compromise | Argon2id hash + HMAC pre-screen; per-key RPM cap; key disable takes effect immediately |
-| Config injection to Caddy | Panel is the only writer to Caddy Admin API; nodes are firewalled behind WireGuard |
+| Config injection to Caddy | Panel is the only writer to Caddy Admin API; nodes are firewalled behind WireGuard; raw custom handler JSON is allow-listed and a failing chain is quarantined behind a 503 |
+| Reaching the node control plane through tenant config | Custom-handler allow-list (no `reverse_proxy`/`templates`, no env/file placeholders); L4 stream destinations screened against an infrastructure deny set incl. port 2019 - see "Caddy Admin API - known limitation" |
+| Hostname takeover (claiming someone else's domain) | Per-route and **per-alias** DNS-TXT proof at `_hpg-verify.<host>`; unproven hosts are neither emitted into the host matcher nor certificate-eligible - see [ROUTES.md](ROUTES.md) |
 | Supply chain / binary tampering | Single static Go binary; no runtime plugins; module flags disable non-stock blocks |
 | Secrets at rest | AES-256-GCM for WG private keys and DB credentials in install state; `APP_SECRET` ≥ 32 chars enforced |
 
@@ -66,15 +68,132 @@ The `admin` role has an explicit sub-hierarchy (`internal/adminscope/service.go`
 
 - Role stored in `users.role`. The API-key path re-reads `role`/`is_active`
   from the DB on every request. Cookie sessions cache the role in the Redis
-  session record for speed; any privilege change - role edit, deactivate,
-  delete, password rotation, reseller reassignment, GDPR erase - immediately
-  calls `DestroyAllForUser`, so a stale-privilege session cannot outlive the
-  change (it does not merely expire at session TTL)
+  session record for speed, but that cache cannot go stale: every session
+  carries an authorization epoch that is re-read from the database on every
+  request (see "Authorization epoch" below)
 - Route groups enforce role at the chi middleware level (`RequireRole` middleware)
 - Client handlers use `client_id` from session context and apply `IN (...)` DB filters; never trust user-supplied IDs for scoping
 - Admin impersonation sets `ImpersonatorUserID` in session; audit log records both IDs
 - `REQUIRE_ADMIN_2FA` flag blocks admin routes until a 2FA factor is enrolled
 - **Reseller suspension is fail-closed**: setting `resellers.status='suspended'` makes `resolveMode` return a hard-empty (`denied`) scope - the reseller-admin sees and manages nothing (never falls through to platform-wide access), and its live sessions are revoked on suspend.
+
+---
+
+## Authorization epoch
+
+The guarantee an operator can rely on: **a privilege change takes effect on the
+victim's very next request.** Revocation does not wait for a cache to expire,
+for the 12-hour session TTL, or for a best-effort Redis purge to succeed.
+
+Mechanism (`users.auth_epoch`, migration `00132`,
+`internal/auth/epoch.go`):
+
+- Every session record stores the epoch it was minted with (`Session.Epoch`).
+- `LoadSession` runs on every request for every role - admin, reseller, client -
+  and reads `SELECT auth_epoch FROM users WHERE id = ?` from the database. There
+  is no cache in front of it; one was tried and removed.
+- On mismatch the session record is deleted from Redis and the request proceeds
+  with no session, i.e. the user lands on the login page. On a *deleted* user the
+  same happens. If the epoch cannot be read at all (DB error, no epoch source
+  wired) the request is still refused, but the session record is left alone -
+  fail closed, non-destructive.
+- Impersonation carries a second epoch for the impersonator, checked the same
+  way.
+- Sessions are also versioned (`hpg:sess2:`); any record older than the current
+  session schema is deleted on load, so pre-epoch sessions cannot survive an
+  upgrade.
+
+Every one of these operations bumps the epoch **inside the same transaction as
+the change itself**:
+
+| Operation | Where |
+|---|---|
+| Role change, deactivate, or admin-set password | user update handler |
+| Admin scope save (`admin_client_scope` / `is_restricted`) | scope editor |
+| Activate / deactivate toggle | user list |
+| Client bulk suspend | client bulk actions |
+| Password reset completion | also revokes all of that user's API keys in the same transaction |
+| GDPR mask / erase | GDPR handler |
+| Reseller-admin assign / release | reseller handlers |
+| Reseller suspend or delete via the API | `PATCH`/`DELETE /api/v1/resellers/{id}` |
+| Promotion that clears confinement (`is_restricted`, `reseller_id`, scope rows) | user update handler |
+
+Redis session purging still runs, but it is an optimisation. The epoch is the
+durable half: if the purge fails or a replica has the session cached, the next
+request still fails the epoch check.
+
+**Scope limit:** API keys are *not* epoch-checked. Key validity comes from
+`api_keys.revoked_at` / `expires_at` and the per-request `role` lookup. The
+password-reset path compensates by revoking a user's keys explicitly. Revoking
+an operator's access therefore means revoking their API keys as well as changing
+their role.
+
+---
+
+## L4 stream target screening
+
+An L4 stream forwards raw TCP/UDP from a public port to a destination. The
+RFC1918 policy for stream destinations is deliberately permissive - tenants
+legitimately proxy to private backends - so private addresses alone are not a
+usable signal. `internal/streamguard` adds a second, independent screen for
+**infrastructure** addresses on top of the generic SSRF policy.
+
+### Deny set
+
+Built fresh from the database on every screen (no cache):
+
+| Source | Denied |
+|---|---|
+| `caddy_nodes.public_ip`, `wg_ip`, `public_hostname` | exact address / hostname |
+| `caddy_nodes.api_url` | the host part of the URL |
+| `caddy_nodes.tunnel_subnet` | the subnet's network base and the `.1` bridge - the node's own address inside a customer tunnel. Tenant peer addresses in that subnet stay allowed. |
+| `settings.wireguard.control_ip` | exact address |
+| `settings.wireguard.subnet` | the **whole** control-plane prefix, because node admin APIs bind their `wg_ip` inside it |
+| any host | port **2019** - this repo publishes Caddy's unauthenticated admin API there |
+
+Ordinary private-network backends and customer tunnel peers are unaffected.
+
+### Fail-closed
+
+- On write (stream create, stream update, extra upstreams): if the deny set
+  cannot be loaded the write is refused with `backend screening unavailable, try
+  again` / `upstream screening unavailable, try again`.
+- At emission: if it cannot be loaded, `buildStreamsForNode` returns an error and
+  the **whole config push aborts**. A node is never pushed a config built without
+  the screen.
+
+### Resolve once, pin the literal
+
+A hostname destination is resolved exactly once. Every address in that single
+answer is checked against both the generic SSRF policy and the infrastructure
+deny set; any hit rejects the whole target. The address that is stored and
+emitted is a literal from that same validated answer, so Caddy never re-resolves
+and a hostile DNS server cannot answer differently at dial time.
+
+### Quarantine
+
+Screening runs at emission as well as on write, so a row written before the
+upgrade - or one whose destination only later became a node address - cannot be
+re-emitted by boot push, manual resync or drift recovery. Such a row is
+quarantined instead of silently dropped:
+
+- `stream_routes.quarantined_at` / `quarantine_reason` (migration `00137`, which
+  also backfills obvious cases: `upstream_port = 2019`, an upstream address
+  ending in `:2019`, and a `services.backend_ip` matching a node's `public_ip`
+  or `wg_ip`).
+- The emission query skips any row with `quarantined_at IS NOT NULL`.
+- The panel shows the stream's status as `quarantined` on the stream list and
+  edit pages.
+- Audit action `stream.quarantined` (entity `stream_route`, meta `reason` and
+  `listen_port`), plus a `stream quarantined: unsafe destination` log line.
+
+`quarantine_reason` is stored but is **not** displayed in the panel - read it
+from the audit log, the panel log, or the column itself.
+
+**There is no un-quarantine action in the UI or the API.** Editing the stream
+does not clear the flag. To restore a stream, fix the destination and recreate
+it, or clear `quarantined_at` / `quarantine_reason` on the row directly after
+confirming the destination is legitimate.
 
 ---
 
@@ -170,10 +289,53 @@ ship audit rows to an external append-only sink.
 
 ---
 
+## Caddy Admin API - known limitation
+
+**Caddy's admin API has no authentication of any kind.** Anything that can open a
+TCP connection to it can `POST /load` and replace the entire configuration of
+that node - every route, every tenant, every certificate on it. There is no
+token, no password and no client certificate in front of it.
+
+The security model is therefore **network reachability only**:
+
+- On the manager stack, `:2019` is reachable inside the compose network
+  (`CADDY_ADMIN_URL: http://caddy:2019`) and the compose file deliberately never
+  publishes the port to the host.
+- On a remote node it is published on the node's WireGuard address -
+  `deploy/remote-node/docker-compose.yml` binds `"<wg_ip>:2019:2019"` (the
+  shipped example is `10.66.0.2:2019:2019`). It is reachable from anything on
+  the control-plane mesh.
+
+Two of the critical findings closed in 1.4.4/1.4.5 were paths into that API from
+tenant-controlled configuration, not from the network:
+
+- a `reverse_proxy` in a route's custom Caddy JSON pointed at `127.0.0.1:2019`;
+- an L4 stream whose destination was a node's WireGuard address on port 2019.
+
+The mitigations are the custom-handler allow-list
+([ROUTES.md](ROUTES.md#4-custom-caddy-json-allow-list-and-quarantine)) and the
+stream infrastructure deny set (above). Both are compensating controls. They
+narrow the paths that reach the admin API; they do not authenticate it.
+
+**Outstanding work.** Either mTLS on the admin API (Caddy's `admin.identity` +
+`admin.remote`, so the panel authenticates with a client certificate and the API
+refuses anything else) or genuine network isolation of the admin API from the
+data plane. Until one of those lands, treat reachability of `<wg_ip>:2019` as
+equivalent to root on that node, and keep the control-plane mesh restricted
+accordingly.
+
+---
+
 ## Known Limitations
 
 - No row-level encryption on route records (hostnames, upstreams stored plaintext in MariaDB)
 - OIDC provider tokens are not revocation-checked after initial login
-- WireGuard mesh relies on host firewall to restrict Caddy Admin API access; no mutual auth on `:2019`
+- **Caddy Admin API has no authentication at all**; security depends entirely on
+  who can reach `:2019` (see the section above). mTLS (`admin.identity` +
+  `admin.remote`) or isolating it from the data plane is outstanding work
+- API keys are not authorization-epoch checked; revoke the key explicitly when
+  revoking a user's access
+- A quarantined L4 stream cannot be released from the panel; it must be
+  recreated or cleared in the database
 - City-level GeoIP is not loaded but Country-level data is processed
 - SMS OTP security depends on the third-party SMS provider's delivery integrity

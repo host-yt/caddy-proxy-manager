@@ -144,6 +144,65 @@ Let's Encrypt limits 5 duplicate certificates per 7 days and 50 new certs per re
 
 In **Admin -> Hosts**, the node field must match the Caddy node whose IP the domain points at. If the host is assigned to Node A but the DNS A record points at Node B, Let's Encrypt will never reach the right node for the challenge.
 
+### The alias is not proven
+
+An alias needs its own ownership proof; the parent route's proof does not cover
+it. An unproven alias is not put in the Caddy host matcher and `/internal/ask`
+returns 403 for it, so it never gets a certificate. Open the host edit page: the
+alias shows as `pending`, with the TXT record to publish. See
+[ROUTES.md](ROUTES.md#2-alias-verification).
+
+---
+
+## 3a. Aliases stopped serving after upgrading to 1.4.4/1.4.5
+
+**Symptom:** the primary domain of a route still works, but the extra hostnames
+on it return the node's default response or fail TLS, immediately after the
+upgrade.
+
+**Cause:** aliases created before 1.4.4 never carried a DNS-TXT ownership proof.
+Migration `00138` parks those unproven claims and stops emitting them.
+
+**Fix, in order of preference:**
+
+1. Have each owner publish `_hpg-verify.<alias>` TXT containing the route's
+   verify token (shown on the host edit page). The panel re-checks pending
+   aliases every ~10 minutes and re-pushes the node automatically.
+2. As `super_admin`, review **Security -> Legacy aliases**. It lists exactly
+   which routes lost proof, which of their aliases are not serving, and the
+   owning client and node, with a CSV export. Approve the claims you can vouch
+   for; "Approve all" restores the previous behaviour in one click.
+
+Full description in [ROUTES.md](ROUTES.md#3-legacy-alias-claims-adminlegacy-aliases).
+
+---
+
+## 3b. A route returns 503 with `X-Hpg-Quarantine: custom-handlers`
+
+The route's stored custom Caddy JSON no longer passes the handler allow-list, so
+it is served as a terminal 503 instead of being emitted unguarded. The reason is
+in the audit log under `route.custom_handlers.quarantined`.
+
+Open the host and save it - the stored chain is re-sanitized on every save and a
+non-conforming chain is dropped, so the route returns to normal on the next
+push. To keep custom handlers, rewrite the chain against the allow-list in
+[ROUTES.md](ROUTES.md#4-custom-caddy-json-allow-list-and-quarantine).
+
+---
+
+## 3c. An L4 stream shows status `quarantined`
+
+Its destination was screened against the infrastructure deny set (managed node
+addresses, the WireGuard control-plane subnet, tunnel gateways, port 2019
+anywhere) and rejected, so the stream is no longer emitted. The reason is in the
+audit log under `stream.quarantined` and in `stream_routes.quarantine_reason`;
+it is not shown in the panel.
+
+There is no release action in the UI. Fix the destination and recreate the
+stream, or clear `quarantined_at` / `quarantine_reason` on the row after
+confirming the destination is legitimate. See
+[SECURITY.md](SECURITY.md#l4-stream-target-screening).
+
 ---
 
 ## 4. Caddy node shows offline

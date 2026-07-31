@@ -532,7 +532,7 @@ the panel gates the WSS config on `tunnel_wstunnel_healthy`.
 | External upstream allowlist | `EXTERNAL_UPSTREAM_ALLOWLIST` controls which FQDNs may be used as an external-HTTPS upstream; the primary open-relay defense |
 | Security headers | `Content-Security-Policy`, `Strict-Transport-Security`, `X-Frame-Options`, `X-Content-Type-Options` applied globally |
 | `/metrics` CIDR guard | `APP_METRICS_ALLOW` restricts the Prometheus endpoint to operator-configured CIDRs |
-| Caddy Admin API isolation | `:2019` is bound to `0.0.0.0` inside the container but `docker-compose.yml` deliberately never publishes port 2019; only WG-internal traffic reaches it |
+| Caddy Admin API isolation | The admin API has **no authentication**; reachability is the whole control. On the manager stack `:2019` stays inside the compose network and is never published to the host; on a remote node it is published on the node's WireGuard address only (`deploy/remote-node/docker-compose.yml`). Tenant-reachable paths into it are blocked separately by the custom-handler allow-list and the L4 stream deny set - see `docs/SECURITY.md` |
 
 ---
 

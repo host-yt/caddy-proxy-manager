@@ -17,7 +17,9 @@ Comparison of HPG with common alternatives.
 | Analytics dashboard | yes | partial | no | HPG: Prometheus-backed charts + KPI cards |
 | mTLS per route | yes | no | no | Requires mTLS Caddy module |
 | Manual TLS certs (served) | yes | no | no | Import cert+key, link to a route, served on the edge with no ACME |
-| HTTP cache per route | yes | no | no | Souin module; per-route toggle |
+| HTTP cache per route | yes | no | no | Souin module; per-route toggle. Shared caching is opt-in ("content is public"); auth-gated and audience-restricted routes stay `private, no-store` |
+| Per-alias domain ownership proof | yes | no | no | Each alias needs its own `_hpg-verify.<alias>` TXT record; unproven aliases are not served and not certificate-eligible |
+| Raw Caddy JSON per route | partial | no | no | Allow-listed handlers only (`headers`, `encode`, `rewrite`, `vars`, `request_body`), platform-admin only; a failing chain is quarantined behind a 503 |
 | Audit log | yes | no | no | All write ops logged with actor + IP |
 | REST API | yes | no | no | Bearer key auth; per-key RPM cap |
 | SSO forward-auth | yes | no | no | Per-route; any forward-auth provider |

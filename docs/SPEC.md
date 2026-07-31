@@ -45,11 +45,17 @@ Per-service routing rules created by clients or admins. A route maps a hostname 
 - Basic auth
 - SSO forward-auth
 - ACL (IP allowlist/blocklist)
-- Cache (Souin, if module loaded)
+- Cache (Souin, if module loaded); shared caching is opt-in per route
 - gzip/zstd encoding
 - Custom response headers
 - Rate limiting
 - Force HTTPS redirect
+
+Every hostname a route serves - the primary domain and each alias - needs its
+own DNS-TXT ownership proof at `_hpg-verify.<host>`; unproven hostnames are not
+emitted into the Caddy host matcher and are not certificate-eligible. Raw Caddy
+handler JSON is restricted to an allow-list and is platform-admin only. See
+[ROUTES.md](ROUTES.md).
 
 ### Tunnels
 
@@ -176,6 +182,11 @@ Requires `caddy-l4` module. Admin defines TCP/UDP stream endpoints:
 - Optional TLS termination / passthrough
 
 Emitted as `apps.layer4` routes in the Caddy config. Guarded by `LAYER4_AVAILABLE` flag.
+
+Destinations are screened against an infrastructure deny set (managed node
+addresses, the WireGuard control-plane subnet, tunnel gateways, port 2019
+anywhere) on write and again at emission; an unsafe row is quarantined rather
+than emitted. See [SECURITY.md](SECURITY.md#l4-stream-target-screening).
 
 ---
 
