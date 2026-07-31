@@ -4,9 +4,35 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [1.4.4] - 2026-07-31
+
+Security release. It closes a scan of 24 findings plus everything twelve rounds of adversarial review turned up on top of the fixes themselves.
+
+### Upgrade notes - read before deploying
+
+- **This upgrade is a non-rolling cutover.** Drain and stop every old `app` replica, purge `hpg:sess:*` in Redis, then start the new replicas and wait for `/readyz` to return 200 before admitting traffic. A pre-upgrade binary ignores the new `Restricted`/`Epoch` session fields and will treat a confined admin's session as an unrestricted platform admin; that binary cannot be patched from here. Full procedure in `docs/DEPLOY.md`.
+- **Everyone is logged out.** The session and pending-2FA namespaces are versioned (`hpg:sess2:`, `hpg:2fa2:`).
+- **Shared caching is now opt-in per route.** Existing routes keep serving, but nothing is stored in a shared/CDN cache until you tick "content is public" on the route. This is deliberate: the old default advertised authenticated and audience-restricted responses as publicly cacheable.
+- **Migrations 00132-00135** run on startup. `00134` and `00135` repair privilege rows left inconsistent by older code paths; neither has a down migration, because re-widening those accounts would reintroduce the escalation.
+
 ### Security
 
-- **Rolling upgrades left old `app` replicas able to serve unrestricted legacy sessions**: an old binary ignores `Restricted`/`Epoch` and treats a confined admin's session as an unrestricted platform admin. `docs/DEPLOY.md` now documents the required non-rolling cutover (drain old replicas → purge `hpg:sess:*` → start new replicas) for this release, since an already-deployed old binary cannot be patched from here. Future upgrades get a real fence: each replica now heartbeats its session-schema generation in Redis and `/readyz` fails while an incompatible generation is present in the fleet (`internal/auth/generation.go`, wired into `internal/obs.Health`). Also fixed: a corrupt legacy session record was silently skipped by the legacy-minting watch instead of being reported as an inconclusive check (`internal/auth/legacywatch.go`).
+- **Client-scoped admins could provision global infrastructure**: a restricted admin passed the broad `/admin/hosts*`, `/admin/streams*` and `/admin/clients*` allow-list and reached the self-provisioning creates, which left `ownerScope=0` / `reseller_id NULL` - global routes (landing DNS-verified), listeners on any approved node, and platform-direct accounts outside their scope. `selfProvisionScope` now classifies the caller from the DB rather than the session flag, and `HostsCreate` derives its owner scope from it, so no limited principal can take the trusted path.
+- **Plan authorization failed open**: `planAccessible` converted a denial into an approval, so a restricted admin could attach any guessed foreign plan; `ClientChangePlan` never checked plan ownership at all. One mandatory fail-closed helper (`authorizePlanForClient`) now guards `ServicesCreate`, `ServicesUpdate` and `ClientChangePlan`, with a capacity check on plan changes.
+- **Promoting a restricted admin produced an unrecoverable account**: `is_restricted`, `reseller_id` and scope rows survived promotion to `super_admin`, so the account relogged in confined and the scope editor refused to repair it. Promotion now clears confinement in the same transaction as the epoch bump; a `super_admin` is additionally treated as never confined.
+- **A permissive wildcard route shadowed newly added protected routes**: the incremental push probe compared host strings for exact equality, so adding a gated `app.example.com` route while `*.example.com` already existed simply appended it. Caddy matches terminal routes top-down, so the wildcard kept serving unauthenticated requests and the new SSO/basic-auth/portal/mTLS gate never ran. Full-config ordering and the incremental probe now share one overlap predicate and cannot drift apart again.
+- **Authorization was cached**: a revoked, demoted or deleted admin kept working until a cache entry expired. Sessions now carry an authorization epoch read authoritatively from the DB on every request, and every privilege change bumps it inside the transaction that made the change.
+- **Shared caches could store authenticated responses**: routes behind SSO, basic auth, portal or mTLS, and routes restricted by IP or geo, are emitted `private, no-store`. `Set-Cookie` is stripped only from responses actually emitted as publicly cacheable.
+- **Rate limits were bypassed by cache hits**: a cache hit short-circuits the handler chain, so a `rate_limit` emitted after the cache handler never saw repeat requests. It is emitted first now.
+- **Backup verification could OOM the panel**: `Verify()` buffered the whole artifact (up to 2 GiB) plus a second in-memory plaintext buffer, so a compromised or malfunctioning destination could kill the control plane with an oversized object. Downloads stream into a bounded temp file while hashing, capped at the recorded artifact size, and decryption streams to disk instead of a `bytes.Buffer`.
+- **FTPS backup destinations**: PASV/EPSV addresses advertised by the server are validated against the same rules as the control connection, so a hostile server cannot steer the data channel at loopback or link-local. The custom dialer applies TLS itself, since the library skips its own wrapping once a dial hook is set.
+- **Mixed-version fleets**: each replica heartbeats its session-schema generation in Redis and `/readyz` fails while an incompatible generation is present (`internal/auth/generation.go`, wired into `internal/obs.Health`). This protects upgrades *after* this one. The legacy-minting watch no longer reports "all clear" when Redis fails or a record fails to decode - it says it could not tell.
+- **Tenant-limited API keys** can no longer reach global provisioning endpoints.
+- Reseller suspension, deletion and admin assignment are atomic: a failed enumeration or a mid-list failure can no longer report success while leaving part of a reseller's admins holding valid sessions.
+
+### Fixed
+
+- Statistics day buckets are decoded per driver instead of assuming MySQL's `time.Time`, so daily charts are correct on SQLite.
 
 ## [1.4.3] - 2026-07-31
 
