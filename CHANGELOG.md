@@ -4,6 +4,22 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [1.4.7] - 2026-08-07
+
+Three bugs reported against 1.4.6, all in the Caddy configuration the panel generates.
+
+### Fixed
+
+- **Custom WAF directives were silently ignored** ([#9](https://github.com/host-yt/caddy-proxy-manager/issues/9)). Per-host seclang was emitted *before* `Include @owasp_crs/*.conf`, so a `SecRuleRemoveById 920420` ran at a point where rule 920420 had not been parsed yet. Coraza had nothing to remove and dropped the directive without an error, so the field looked like it did nothing while the rule kept firing. Custom directives now land after the CRS include and before `SecRuleEngine`. The help text under the field described the broken order as intended behavior and has been corrected.
+- **The WAF broke WebSocket connections** ([#10](https://github.com/host-yt/caddy-proxy-manager/issues/10)). Coraza wraps the response writer to inspect responses, and that wrapper does not survive a connection being hijacked for a protocol upgrade: a WebSocket completed its 101 handshake and dropped seconds later, taking monitoring agents offline. The `waf` handler was emitted first in the route chain with no matcher, so every request passed through it. On routes with WebSocket support enabled it now sits behind a matcher that skips genuine handshakes only - `GET` carrying both `Connection: Upgrade` and `Sec-WebSocket-Key`, all three required, since matching the `Connection` header alone would let any client skip inspection by setting it. Routes with WebSocket support turned off keep full inspection with no bypass. Traffic inside an established WebSocket is not inspected; Coraza does not parse WS frames, so the upstream owns message validation. Documented in `docs/WAF.md`.
+- **"Trust CF-Connecting-IP" never reached the proxy nodes** ([#8](https://github.com/host-yt/caddy-proxy-manager/issues/8)). The toggle wired up the panel's own middleware and nothing else, so the generated node config set no `trusted_proxies` and Caddy had no reason to treat the header as authoritative - both `client_ip` and `remote_ip` stayed as the Cloudflare edge address, in access logs and upstream alike. Operators were working around it with per-host `X-Real-IP` header rewrites, which apply unconditionally and so trust the header even from clients that bypass Cloudflare. With the toggle on, the node config now emits `trusted_proxies` (static, Cloudflare's published edge ranges) and `client_ip_headers: ["CF-Connecting-IP"]`, and saving the settings form re-pushes every node. The edge range list moved to `internal/cloudflare` so the panel and the nodes share one source. Those per-host workarounds can be removed after upgrading.
+- **Rate limiting keyed on the peer address.** Behind any trusted proxy that put every visitor in one bucket. Per-route rate-limit keys and the forward-auth `X-Real-IP` header now use the resolved client IP, which is the peer address when no trusted proxy is configured.
+
+### Documentation
+
+- New `docs/CLOUDFLARE.md`: which Cloudflare credential the integration accepts (a **user** API token - account-owned tokens and the legacy Global API Key are rejected by the verification endpoint regardless of permissions, the cause of the "invalid API token" reports in #8), what scopes are needed now and later, what the IP-trust toggle changes, and why the header cannot be spoofed from outside Cloudflare's ranges.
+- `docs/DNS_PROVIDERS.md` distinguishes the per-zone DNS-01 credential from the account-level integration token.
+
 ## [1.4.6] - 2026-07-31
 
 Closes two gaps found while writing the documentation for 1.4.4/1.4.5.
