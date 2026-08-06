@@ -6,6 +6,10 @@ on:
       - 'v*'
     branches:
       - main
+  # Manual trigger: run against a tag ref to rebuild its images. Needed when a
+  # push event never reaches Actions (GitHub throttles webhooks during
+  # incidents) - dispatch goes through the API instead and is not dropped.
+  workflow_dispatch:
 
 permissions:
   contents: read
