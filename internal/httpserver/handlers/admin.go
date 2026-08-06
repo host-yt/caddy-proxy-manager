@@ -5529,6 +5529,11 @@ func (h *AdminHandlers) SettingsCloudflare(w http.ResponseWriter, r *http.Reques
 	if h.Cloudflare != nil {
 		h.Cloudflare.Refresh(ctx)
 	}
+	// The IP-trust toggle feeds srv0 trusted_proxies on every node, so the
+	// nodes need a rebuild before it takes effect.
+	if h.Routes != nil {
+		h.Routes.SchedulePushAllNodes(h.Routes.BackgroundCtx())
+	}
 	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "settings.cloudflare.save", Entity: "settings", EntityID: "cloudflare",

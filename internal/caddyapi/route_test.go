@@ -340,13 +340,15 @@ func TestBuildRouteRateLimitGated(t *testing.T) {
 	// Defaults applied when zero-valued.
 	def := Route{ID: "12", Hosts: []string{"r2.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 30000,
 		RateLimitEnabled: true, RateLimitModuleAvailable: true}
-	if s := mustJSON(def); !strings.Contains(s, `"window":"1m"`) || !strings.Contains(s, `"max_events":100`) || !strings.Contains(s, `{http.request.remote.host}`) {
+	// client_ip, not remote.host: behind Cloudflare the peer is the edge IP, so
+	// keying on it would put every visitor in one bucket.
+	if s := mustJSON(def); !strings.Contains(s, `"window":"1m"`) || !strings.Contains(s, `"max_events":100`) || !strings.Contains(s, `{http.request.client_ip}`) {
 		t.Errorf("rate_limit defaults missing\nfull: %s", s)
 	}
 }
 
 func TestBuildRouteWAFGated(t *testing.T) {
-	base := Route{ID: "13", Hosts: []string{"w.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 30000, WAFEnabled: true}
+	base := Route{ID: "13", Hosts: []string{"w.example.com"}, UpstreamIP: "10.0.0.5", UpstreamPort: 30000, WAFEnabled: true, WebSocket: true}
 	// Gate OFF: no handler.
 	if s := mustJSON(base); strings.Contains(s, `"handler":"waf"`) {
 		t.Errorf("waf must not emit when module unavailable\nfull: %s", s)
@@ -368,11 +370,39 @@ func TestBuildRouteWAFGated(t *testing.T) {
 	if strings.Contains(s, `SecRuleEngine On`) {
 		t.Errorf("default WAF must be detection-only, not blocking\nfull: %s", s)
 	}
+	// On a WS-enabled route the WAF must sit behind a matcher that skips genuine
+	// handshakes: coraza's ResponseWriter wrapper breaks hijacked connections
+	// (#10). All three conditions must be present or the bypass is too wide.
+	for _, want := range []string{
+		`"Connection":["*Upgrade*"]`, `"Sec-Websocket-Key":["*"]`, `"method":["GET"]`, `"not":[`,
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("waf upgrade-bypass matcher missing %q\nfull: %s", want, s)
+		}
+	}
+	// Without WebSocket support there is nothing to upgrade, so the WAF must
+	// inspect every request - no bypass matcher at all.
+	nows := det
+	nows.WebSocket = false
+	if s := mustJSON(nows); strings.Contains(s, `"Sec-Websocket-Key"`) {
+		t.Errorf("non-WS route must not get a WAF bypass matcher\nfull: %s", s)
+	}
 	// Blocking mode.
 	blk := det
 	blk.WAFBlocking = true
 	if s := mustJSON(blk); !strings.Contains(s, `SecRuleEngine On`) {
 		t.Errorf("blocking WAF must emit SecRuleEngine On\nfull: %s", s)
+	}
+	// Custom directives must land AFTER the CRS include and BEFORE SecRuleEngine,
+	// else SecRuleRemoveById targets rules that are not parsed yet (#9).
+	cust := det
+	cust.WAFDirectives = "SecRuleRemoveById 920420"
+	s = mustJSON(cust)
+	crs := strings.Index(s, `Include @owasp_crs/*.conf`)
+	rm := strings.Index(s, `SecRuleRemoveById 920420`)
+	eng := strings.Index(s, `SecRuleEngine `)
+	if crs < 0 || rm < 0 || eng < 0 || !(crs < rm && rm < eng) {
+		t.Errorf("custom WAF directives must sit between the CRS include and SecRuleEngine (crs=%d rm=%d eng=%d)\nfull: %s", crs, rm, eng, s)
 	}
 }
 

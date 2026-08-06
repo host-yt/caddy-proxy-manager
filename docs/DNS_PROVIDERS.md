@@ -56,6 +56,10 @@ that reference it.
 
 - **AWS Route 53**: Access key and secret are optional when the instance has an IAM
   role or AWS credential chain configured; omit them to use ambient credentials.
+- **Cloudflare**: An API token scoped to `Zone → DNS → Edit` on the zones you issue
+  wildcards for. This is a per-zone credential used by Caddy on the nodes, and is
+  separate from the account-level token under Settings → Cloudflare - configure both
+  if you use both features. See [`CLOUDFLARE.md`](CLOUDFLARE.md).
 - **Azure DNS**: Tenant, Client ID, and Client secret are optional when using a managed
   identity; only Subscription ID and Resource group are always required.
 - **Google Cloud DNS**: `gcp_application_default` is optional when the container has

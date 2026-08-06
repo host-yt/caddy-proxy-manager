@@ -831,7 +831,7 @@ X-Authentik-Meta-Version</pre>
         <div>
           <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Custom seclang directives (rule exclusions)</label>
           <textarea name="waf_directives" rows="4" placeholder="SecRuleRemoveById 920420" class="r-input w-full font-mono text-xs">{{.WAFDirectives}}</textarea>
-          <span class="t-caption text-muted">Applied before the CRS include. 16 KiB max. Start in detection-only and watch logs before enabling blocking.</span>
+          <span class="t-caption text-muted">Applied after the CRS rules are loaded, so overrides like SecRuleRemoveById take effect. 16 KiB max. Start in detection-only and watch logs before enabling blocking.</span>
         </div>
       </div>
     </section>

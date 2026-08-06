@@ -60,8 +60,9 @@ The base configuration HPG emits:
 ```
 Include @coraza.conf-recommended
 Include @crs-setup.conf.example
-<your extra directives>
 Include @owasp_crs/*.conf
+<your extra directives>
+SecRuleEngine DetectionOnly|On
 ```
 
 Detection-only mode (`SecRuleEngine DetectionOnly`) logs events but returns 200 to
@@ -69,12 +70,44 @@ the client. Blocking mode uses the Coraza default action (typically 403).
 
 ### Extra directives
 
-Free-form SecLang text appended after the CRS includes. Use this to tune rules,
-add exclusions, or set custom variables. Example:
+Free-form SecLang text, emitted **after** the CRS rule files are loaded. Use this to
+tune rules, add exclusions, or set custom variables. Example:
 
 ```
 SecRule REQUEST_URI "@contains /healthz" "id:9001,phase:1,pass,nolog"
 ```
+
+The position matters for directives that reference an already-parsed rule.
+`SecRuleRemoveById` is the common case:
+
+```
+SecRuleRemoveById 920420
+```
+
+Before v1.4.7 these were emitted before `Include @owasp_crs/*.conf`, so they
+targeted rules that did not exist yet and were silently ignored. If you worked
+around that by disabling the WAF on a route, re-enable it and use the exclusion.
+
+### WebSocket routes
+
+Coraza wraps the response writer to inspect responses, which breaks hijacked
+connections: a WebSocket completes its 101 handshake and then drops within
+seconds. On routes with WebSocket support enabled, HPG therefore skips the WAF for
+genuine handshake requests - `GET` carrying both `Connection: Upgrade` and
+`Sec-WebSocket-Key`. Everything else on the route, including all normal HTTP
+traffic, is still inspected.
+
+Two consequences worth knowing:
+
+- Traffic inside an established WebSocket is never inspected. Coraza does not
+  parse WS frames anyway, so treat the upstream as responsible for validating
+  messages.
+- A client that forges all three handshake conditions skips inspection for that
+  one request. The upstream then receives an upgrade request it did not expect
+  and normally answers 400/404, so a payload sent this way does not reach
+  application logic - but if your backend ignores upgrade headers and serves the
+  request normally, it would be uninspected. Turn WebSocket support off on routes
+  that do not need it; the WAF then covers every request with no bypass.
 
 ## Events
 

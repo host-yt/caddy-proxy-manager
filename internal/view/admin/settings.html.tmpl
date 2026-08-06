@@ -874,7 +874,7 @@
   <section data-settings-pane="cloudflare" class="hpg-settings-pane hidden r-card">
     <p class="t-eyebrow mb-1">Infrastructure</p>
     <h2 class="t-h3 mb-2">Cloudflare account integration</h2>
-    <p class="t-small mb-4" style="color:rgb(var(--muted))">Account-level Cloudflare integration: an API token (verified on save) lets the panel call Cloudflare APIs, and the IP-trust toggle instructs Caddy to read real client IPs from the <code class="text-xs">CF-Connecting-IP</code> header when proxied through Cloudflare. This is <strong>not</strong> the same as the per-zone DNS credentials used for ACME DNS-01 wildcard certificates - those are configured per-domain in the DNS providers section.</p>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Account-level Cloudflare integration: an API token (verified on save) lets the panel call Cloudflare APIs. Use a <strong>user</strong> API token - account-owned tokens and the legacy Global API Key are rejected. This is <strong>not</strong> the same as the per-zone DNS credentials used for ACME DNS-01 wildcard certificates - those are configured per-domain in the DNS providers section.</p>
     <form method="POST" action="/admin/settings/cloudflare" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
@@ -898,6 +898,7 @@
           <span></span>
           Trust <code class="text-xs" style="background:rgb(var(--surface-2));padding:.1rem .3rem;border-radius:.25rem">CF-Connecting-IP</code> header (only when this app sits behind Cloudflare)
         </label>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Applies to the panel <em>and</em> to every proxy node: Caddy trusts the published Cloudflare edge ranges and takes the real client IP from <code class="text-xs">CF-Connecting-IP</code> for access logs, geo/rate-limit matching and upstream <code class="text-xs">X-Forwarded-For</code>. Requests arriving from outside those ranges are unaffected, so the header cannot be spoofed by a direct client. Saving re-pushes the config to all nodes.</p>
       </div>
       <div class="sm:col-span-2 flex justify-end">
         <button class="r-btn-primary">Verify token &amp; save</button>

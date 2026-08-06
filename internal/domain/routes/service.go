@@ -25,6 +25,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
 	"github.com/host-yt/caddy-proxy-manager/internal/dns"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
@@ -1841,6 +1842,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 	}
 
 	mtlsFailOpen := s.loadMTLSFailOpen(ctx)
+	trustCFIP := s.loadTrustCloudflareIP(ctx)
 	cfg := caddyapi.BuildNodeConfig(built, caddyapi.NodeSettings{
 		ACMEEmail:                s.ACMEEmail,
 		ACMEStaging:              s.ACMEStaging,
@@ -1862,6 +1864,8 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		AccessLogURL:             s.AccessLogURL,
 		MTLSFailOpen:             mtlsFailOpen,
 		AdminListen:              s.CaddyAdminListen,
+		TrustCloudflareIP:        trustCFIP,
+		CloudflareRanges:         cloudflare.EdgeCIDRs(),
 		ProxyProtocolIn:          proxyProtoIn,
 		ProxyProtocolAllow:       proxyProtoAllow,
 		ProxyProtocolTimeoutMs:   proxyProtoTimeoutMs,
@@ -2184,6 +2188,20 @@ func (s *Service) loadGeoBlockDefault(ctx context.Context) geoBlockCfg {
 		}
 	}
 	return g
+}
+
+// loadTrustCloudflareIP reads the global cloudflare.trust_connecting_ip setting
+// (default false). Same key the panel's own CloudflareIP middleware honours, so
+// one toggle covers both the panel and the nodes.
+func (s *Service) loadTrustCloudflareIP(ctx context.Context) bool {
+	if s.DB == nil {
+		return false
+	}
+	c, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var v string
+	_ = s.DB.QueryRowContext(c, "SELECT value FROM settings WHERE `key` = 'cloudflare.trust_connecting_ip'").Scan(&v)
+	return v == "1"
 }
 
 // loadMTLSFailOpen reads the global mtls.fail_open setting (default false = fail closed).

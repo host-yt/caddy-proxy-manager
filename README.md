@@ -287,6 +287,7 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 | [`docs/WAF.md`](docs/WAF.md) | Web Application Firewall (Coraza) |
 | [`docs/GEOIP.md`](docs/GEOIP.md) | GeoIP country filtering |
 | [`docs/DNS_PROVIDERS.md`](docs/DNS_PROVIDERS.md) | DNS-01 challenge providers for wildcard TLS |
+| [`docs/CLOUDFLARE.md`](docs/CLOUDFLARE.md) | Cloudflare API token + real client IP behind the CF proxy |
 | [`docs/MTLS.md`](docs/MTLS.md) | Mutual TLS / client certificate auth |
 | [`docs/MANUAL_CERTS.md`](docs/MANUAL_CERTS.md) | Import + serve your own TLS certificates (no ACME) |
 | [`docs/TERRAFORM.md`](docs/TERRAFORM.md) | Terraform provider (hpg_node, hpg_client, hpg_service, ...) |

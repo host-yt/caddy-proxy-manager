@@ -114,6 +114,18 @@ type NodeSettings struct {
 	// before giving up on the connection. 0 falls back to 5000ms.
 	ProxyProtocolTimeoutMs int
 
+	// TrustCloudflareIP makes srv0 treat CloudflareRanges as trusted hops and
+	// take the real client IP from CF-Connecting-IP. Without it Caddy sees the
+	// CF edge IP everywhere: access logs, rate-limit keys, upstream XFF.
+	//
+	// SECURITY: the header is only honoured for peers inside the trusted ranges,
+	// so a client reaching the origin directly cannot spoof its IP. Both keys are
+	// omitted entirely when off, so nodes see byte-identical JSON (drift-hash).
+	TrustCloudflareIP bool
+	// CloudflareRanges is the edge CIDR allow-list backing TrustCloudflareIP,
+	// passed in as data so this package stays dependency-free.
+	CloudflareRanges []string
+
 	// ManualCerts are operator-imported TLS certificates to load into Caddy's
 	// cert pool (apps.tls.certificates.load_pem) so the node serves them for
 	// their SNI instead of trying ACME. Built by the routes service from
@@ -332,6 +344,17 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	// must see byte-identical JSON on every rebuild (drift-hash safety).
 	if lw := buildProxyProtocolWrappers(s); lw != nil {
 		srv0["listener_wrappers"] = lw
+	}
+
+	// Behind Cloudflare every request arrives from a CF edge IP. Declaring the
+	// edge ranges trusted lets Caddy resolve the real client IP from
+	// CF-Connecting-IP for access logs and upstream X-Forwarded-For.
+	if s.TrustCloudflareIP && len(s.CloudflareRanges) > 0 {
+		srv0["trusted_proxies"] = map[string]any{
+			"source": "static",
+			"ranges": s.CloudflareRanges,
+		}
+		srv0["client_ip_headers"] = []string{"CF-Connecting-IP"}
 	}
 
 	tlsApp := map[string]any{

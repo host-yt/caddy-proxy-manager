@@ -223,7 +223,7 @@ type Route struct {
 	// WAFModuleAvailable. WAFBlocking false = detection-only (log, never block).
 	WAFEnabled         bool
 	WAFBlocking        bool
-	WAFDirectives      string // extra SecLang appended after the core ruleset
+	WAFDirectives      string // extra SecLang, emitted after the CRS include so overrides apply
 	WAFModuleAvailable bool
 
 	// Geo blocking (maxmind/caddy-maxmind-geolocation, non-stock). GeoMode is
@@ -615,11 +615,14 @@ func BuildRoute(r Route) map[string]any {
 		}
 		var sb strings.Builder
 		sb.WriteString("Include @coraza.conf-recommended\nInclude @crs-setup.conf.example\n")
+		sb.WriteString("Include @owasp_crs/*.conf\n")
+		// Custom directives must come AFTER the CRS include: SecRuleRemoveById
+		// only matches rules already parsed, so emitting them earlier is a no-op.
 		if extra := strings.TrimSpace(r.WAFDirectives); extra != "" {
 			sb.WriteString(extra)
 			sb.WriteString("\n")
 		}
-		sb.WriteString("Include @owasp_crs/*.conf\nSecRuleEngine ")
+		sb.WriteString("SecRuleEngine ")
 		sb.WriteString(engine)
 		// Emit a Coraza NDJSON audit log so the node-agent can ship rule matches
 		// to the panel (waf_events). Without these, detection fires but produces
@@ -635,11 +638,40 @@ func BuildRoute(r Route) map[string]any {
 		sb.WriteString("\nSecAuditLogFormat JSON")
 		sb.WriteString("\nSecAuditLog ")
 		sb.WriteString(WAFAuditLogFilePath)
-		handlers = append(handlers, map[string]any{
+		wafHandler := map[string]any{
 			"handler":        "waf",
 			"load_owasp_crs": true,
 			"directives":     sb.String(),
-		})
+		}
+		if !r.WebSocket || r.Kind == "redirect" || r.MaintenanceMode {
+			// No upgrades possible on this route, so inspect everything.
+			handlers = append(handlers, wafHandler)
+		} else {
+			// Coraza wraps the ResponseWriter, which breaks hijacked/upgraded
+			// (101) connections - websockets connect, then drop seconds later.
+			// Skip the WAF only for genuine handshakes: GET + Connection:
+			// Upgrade + Sec-WebSocket-Key, all three required. A forged
+			// combination still bypasses inspection, but the upstream then has
+			// to answer an upgrade it did not get, so ordinary payloads land on
+			// a 400/404 instead of app logic.
+			handlers = append(handlers, map[string]any{
+				"handler": "subroute",
+				"routes": []any{
+					map[string]any{
+						"match": []any{map[string]any{
+							"not": []any{map[string]any{
+								"method": []string{"GET"},
+								"header": map[string]any{
+									"Connection":        []string{"*Upgrade*"},
+									"Sec-Websocket-Key": []string{"*"},
+								},
+							}},
+						}},
+						"handle": []any{wafHandler},
+					},
+				},
+			})
+		}
 	}
 	// Inbound bearer gate for External upstream routes. This route egresses to
 	// the public internet from the node's clean IP and the data-plane request
@@ -679,7 +711,10 @@ func BuildRoute(r Route) map[string]any {
 		if maxEvents <= 0 {
 			maxEvents = 100
 		}
-		key := firstNonEmpty(r.RateLimitKey, "{http.request.remote.host}")
+		// client_ip, not remote.host: behind a trusted proxy (Cloudflare) every
+		// visitor shares the edge IP and would share one bucket. Falls back to
+		// the peer address when no trusted_proxies is configured.
+		key := firstNonEmpty(r.RateLimitKey, "{http.request.client_ip}")
 		handlers = append(handlers, map[string]any{
 			"handler": "rate_limit",
 			"rate_limits": map[string]any{
@@ -900,7 +935,7 @@ func BuildRoute(r Route) map[string]any {
 						"X-Forwarded-Uri":    []string{"{http.request.orig_uri}"},
 						"X-Forwarded-Host":   []string{"{http.request.host}"},
 						"X-Forwarded-Proto":  []string{"{http.request.scheme}"},
-						"X-Real-IP":          []string{"{http.request.remote.host}"},
+						"X-Real-IP":          []string{"{http.request.client_ip}"},
 					},
 					// Drop Content-Length on the auth subrequest - the IdP
 					// doesn't need the body. Caddy still streams the raw
@@ -1990,7 +2025,7 @@ func buildPortalForwardAuth(r Route) []any {
 					"X-Forwarded-Uri":    []string{"{http.request.orig_uri}"},
 					"X-Forwarded-Host":   []string{"{http.request.host}"},
 					"X-Forwarded-Proto":  []string{"{http.request.scheme}"},
-					"X-Real-IP":          []string{"{http.request.remote.host}"},
+					"X-Real-IP":          []string{"{http.request.client_ip}"},
 				},
 				"delete": []string{"Content-Length"},
 			},
