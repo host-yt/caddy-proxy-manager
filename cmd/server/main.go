@@ -382,8 +382,9 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	}
 	// Register process-wide so every audit.Write forwards (149 call-sites).
 	audit.SetDefaultForwarder(siemFwd)
-	// Access log store + live-tail broker. RouteByDomain resolves the host to a
-	// route_id so the ingest handler can tag each log line.
+	// Access log store + live-tail broker. Attribution is scoped to the routes
+	// the authenticated node actually serves, so one node's token cannot write
+	// history onto another node's (or another tenant's) route.
 	alRetention := 500
 	if v := os.Getenv("LOG_RETENTION_PER_ROUTE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -396,32 +397,26 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Store:  alStore,
 		Broker: alBroker,
 		Logger: logger,
-		RouteByDomain: func(ctx context.Context, domain string) (int64, bool) {
-			db := wizard.DB()
-			if db == nil {
-				return 0, false
-			}
-			var id int64
-			if err := db.QueryRowContext(ctx,
-				"SELECT id FROM routes WHERE domain = ? LIMIT 1", domain,
-			).Scan(&id); err != nil {
-				return 0, false
-			}
-			return id, true
+		ResolveRoutes: func(ctx context.Context, nodeID int64) (accesslog.NodeRouteIndex, error) {
+			return accesslog.LoadNodeRouteIndex(ctx, wizard.DB(), nodeID)
 		},
 		// Validate the per-node agent token against caddy_nodes.agent_token_hash,
-		// the same credential the WG/stats node endpoints use.
-		AuthNode: func(ctx context.Context, token string) bool {
+		// the same credential the WG/stats node endpoints use, and return the
+		// node identity so ingest can scope attribution to that node's routes.
+		AuthNode: func(ctx context.Context, token string) (int64, bool) {
 			db := wizard.DB()
 			if db == nil {
-				return false
+				return 0, false
 			}
 			var id int64
 			err := db.QueryRowContext(ctx,
 				`SELECT id FROM caddy_nodes WHERE agent_token_hash IS NOT NULL AND agent_token_hash = SHA2(?, 256) LIMIT 1`,
 				token,
 			).Scan(&id)
-			return err == nil && id > 0
+			if err != nil || id <= 0 {
+				return 0, false
+			}
+			return id, true
 		},
 	}
 

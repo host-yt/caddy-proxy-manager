@@ -56,12 +56,15 @@ type IngestHandler struct {
 	Store  *Store
 	Broker *Broker
 	Logger *slog.Logger
-	// RouteByDomain resolves a domain → route_id.
-	RouteByDomain func(ctx context.Context, domain string) (int64, bool)
-	// AuthNode validates a node agent token (Bearer). The /internal/access-log
-	// route is reachable on the public app port, so every POST must carry a
-	// valid per-node token or it is rejected. Required; if nil all calls 401.
-	AuthNode func(ctx context.Context, token string) bool
+	// ResolveRoutes loads the routes the authenticated node serves. Every log
+	// line is attributed through this index, so a node can only write history
+	// for its own routes (LOG-01). Required; if nil the batch is dropped.
+	ResolveRoutes func(ctx context.Context, nodeID int64) (NodeRouteIndex, error)
+	// AuthNode validates a node agent token (Bearer) and returns the node id it
+	// belongs to. The /internal/access-log route is reachable on the public app
+	// port, so every POST must carry a valid per-node token or it is rejected.
+	// Required; if nil all calls 401.
+	AuthNode func(ctx context.Context, token string) (int64, bool)
 }
 
 func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -75,8 +78,28 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Authenticate the node agent. The endpoint is publicly reachable, so an
 	// unauthenticated caller must not be able to inject/poison host logs.
 	token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
-	if token == "" || h.AuthNode == nil || !h.AuthNode(ctx, token) {
+	if token == "" || h.AuthNode == nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	nodeID, ok := h.AuthNode(ctx, token)
+	if !ok || nodeID <= 0 {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	// Resolve the node's own routes once per batch. A node that serves nothing
+	// (or an index we cannot load) has nothing to attribute: drop the batch
+	// instead of falling back to a global domain lookup, which is exactly the
+	// cross-node/cross-tenant poisoning path this replaces.
+	if h.ResolveRoutes == nil {
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	idx, err := h.ResolveRoutes(ctx, nodeID)
+	if err != nil {
+		h.Logger.Warn("accesslog route index", "node_id", nodeID, "err", err)
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -96,12 +119,12 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(b, &line); err != nil {
 			continue // skip malformed line, keep ingesting the rest
 		}
-		h.ingest(ctx, line)
+		h.ingest(ctx, idx, line)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *IngestHandler) ingest(ctx context.Context, line caddyLogLine) {
+func (h *IngestHandler) ingest(ctx context.Context, idx NodeRouteIndex, line caddyLogLine) {
 	// Caddy logs the host as request.host (top-level), not in headers.
 	// Fall back to the Host header only for non-Caddy producers.
 	host := stripPort(line.Request.Host)
@@ -113,7 +136,9 @@ func (h *IngestHandler) ingest(ctx context.Context, line caddyLogLine) {
 	if host == "" {
 		return
 	}
-	routeID, ok := h.RouteByDomain(ctx, host)
+	// Attribute against the authenticated node's own routes, honouring path
+	// routing: several routes may share a domain on different path prefixes.
+	routeID, ok := idx.Resolve(host, line.Request.URI)
 	if !ok {
 		return
 	}
