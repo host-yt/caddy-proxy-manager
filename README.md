@@ -166,7 +166,7 @@ This table says what to trust with customer traffic today.
 | Automatic failover, DNS steering | **Beta** | Exercised in tests, not yet across a long-running fleet. |
 | WAF, L4 streams, GeoIP, HTTP cache | **Beta** | Each needs a custom Caddy module on every node; flipping the gate before the fleet is upgraded takes nodes offline. |
 | Manual TLS certs, mTLS + path RBAC | **Beta** | |
-| NPM import, instance sync | **Experimental** | Imports the common shape of a config, not all of it. Review the result. |
+| NPM import, instance sync | **Experimental** | Import has a dry run that reports exactly what it would create and what needs manual work. Review it before committing. |
 | AI assistant | **Experimental** | Optional; off by default. Not on any path that serves traffic. |
 | Backup/restore | **Beta** | Restore is drilled by CLI; practice it on your own data before relying on it. |
 

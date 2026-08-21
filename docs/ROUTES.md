@@ -292,3 +292,44 @@ audience-restricted, on the non-credentialled branch. A route serving
 `rate_limit` is emitted **before** the cache handler. A cache hit short-circuits
 the handler chain, so a rate limit placed after the cache would never see repeat
 requests.
+
+---
+
+## 6. Importing from Nginx Proxy Manager
+
+`/admin/tools/npm-import` takes an NPM **Full Backup** JSON export.
+
+**Preview first.** The Preview button runs the whole import in dry-run mode:
+it screens forward hosts, checks which domains this panel already serves, and
+reports what a real import would create - without writing anything. The real
+import then does the same work for real.
+
+Every entry in the backup ends up in the report under one of three actions:
+
+| Action | Meaning |
+|--------|---------|
+| `imported` | A route was created (dry run: would be created). |
+| `skipped` | Nothing to do: disabled in NPM, no forward host, a domain this panel already serves, or a forward host rejected by SSRF screening. |
+| `manual` | Recognised, but the panel has no automatic equivalent. Carry it over yourself. |
+
+Imported automatically:
+
+- **proxy hosts** - one route per domain, forwarding scheme/host/port, `ssl_forced`
+  mapped to SSL + force-HTTPS. One service per distinct backend, tagged `npm-import`.
+- **redirection hosts** - as redirect routes, keeping the NPM status code
+  (301/302/307/308; anything else becomes 301). NPM's `auto` scheme becomes
+  `https`, because the panel emits a fixed `Location`.
+
+Reported as `manual`, never guessed at:
+
+- **streams** - recreate as L4 streams (needs the caddy-l4 module).
+- **access lists** - recreate as basic auth, an IP allow-list, or the access portal.
+- **custom certificates** - `letsencrypt` ones need nothing (the panel issues its
+  own); anything else has to be imported under Manual certs.
+- **404 hosts** - recreate as a route in maintenance mode, or a redirect.
+- **location rules**, **`advanced_config`** (raw nginx), NPM caching,
+  block-common-exploits, HSTS, and a redirect's `preserve_path` - each is
+  listed against the host it belongs to, with the nearest panel equivalent.
+
+A forward host that resolves to loopback, link-local or a cloud metadata
+address is refused, in the dry run and the real import alike.
