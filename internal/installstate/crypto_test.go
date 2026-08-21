@@ -87,3 +87,58 @@ func TestDecryptMalformedV2(t *testing.T) {
 		}
 	}
 }
+
+// A scoped Manager must refuse a ciphertext sealed for a different purpose.
+// Without this the domain separation is nominal: the envelope names its own
+// sub-key, so a swapped-in value from another domain would decrypt cleanly
+// (CRYPTO-02).
+func TestScopedDecryptRejectsForeignPurpose(t *testing.T) {
+	m := newTestMgr(t)
+	wgSealed, err := m.EncryptFor("wg", "wg-private-key")
+	if err != nil {
+		t.Fatalf("EncryptFor: %v", err)
+	}
+	route := m.Scoped("route")
+	if got, err := route.Decrypt(wgSealed); err == nil {
+		t.Fatalf("route consumer decrypted a wg secret: %q", got)
+	}
+	// Its own purpose still roundtrips, and legacy ciphertext stays readable.
+	own, err := route.Encrypt("route-secret")
+	if err != nil {
+		t.Fatalf("Encrypt: %v", err)
+	}
+	if got, err := route.Decrypt(own); err != nil || got != "route-secret" {
+		t.Fatalf("own purpose Decrypt = %q, %v", got, err)
+	}
+	legacy, err := seal(m.key, "old-route-secret")
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	if got, err := route.Decrypt(legacy); err != nil || got != "old-route-secret" {
+		t.Fatalf("legacy Decrypt = %q, %v", got, err)
+	}
+}
+
+// DeriveKey namespaces MAC key material away from the at-rest sub-keys.
+func TestDeriveKey(t *testing.T) {
+	m := newTestMgr(t)
+	a, err := m.DeriveKey("mtls-rbac")
+	if err != nil || len(a) != 32 {
+		t.Fatalf("DeriveKey = %d bytes, %v", len(a), err)
+	}
+	b, _ := m.DeriveKey("something-else")
+	if string(a) == string(b) {
+		t.Error("different labels derived the same key")
+	}
+	purpose, _ := m.purposeKey("mtls-rbac")
+	if string(a) == string(purpose) {
+		t.Error("derive label collides with the at-rest purpose sub-key")
+	}
+	if _, err := m.DeriveKey(""); err == nil {
+		t.Error("empty label accepted")
+	}
+	again, _ := m.DeriveKey("mtls-rbac")
+	if string(a) != string(again) {
+		t.Error("DeriveKey is not deterministic")
+	}
+}

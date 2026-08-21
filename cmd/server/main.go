@@ -212,7 +212,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		// Per-purpose sub-key so a route-secret leak/rotation is scoped
 		// (CRYPTO-02); Decrypt auto-detects legacy + v2 envelopes.
 		EncryptSecret:             state.Scoped("route").Encrypt,
-		DecryptSecret:             state.Decrypt,
+		DecryptSecret:             state.Scoped("route").Decrypt,
 		ExternalUpstreamAllowlist: cfg.Security.ExternalUpstreamAllowlist,
 		// Incremental per-route Caddy push (PATCH/POST/DELETE by @id) for
 		// single-route changes; INCREMENTAL_PATCH=0 reverts to full /load.

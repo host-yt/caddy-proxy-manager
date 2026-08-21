@@ -290,11 +290,20 @@ func (m *Manager) Encrypt(plaintext string) (string, error) {
 // Decrypt reverses Encrypt/EncryptFor. It auto-detects the format: a v2
 // envelope is opened with its embedded purpose's sub-key; anything else is
 // treated as legacy shared-key ciphertext.
+//
+// On a purpose-scoped Manager the envelope's purpose must equal that purpose.
+// Without this the separation is only nominal: the envelope names its own
+// sub-key, so a ciphertext swapped in from another domain would decrypt
+// cleanly for a consumer that only ever handles its own (CRYPTO-02). Legacy
+// (pre-v2) ciphertext stays readable so unmigrated rows keep working.
 func (m *Manager) Decrypt(b64 string) (string, error) {
 	if rest, ok := strings.CutPrefix(b64, v2Prefix); ok {
 		purpose, payload, found := strings.Cut(rest, ":")
 		if !found || purpose == "" {
 			return "", errors.New("malformed v2 envelope")
+		}
+		if m.purpose != "" && purpose != m.purpose {
+			return "", fmt.Errorf("secret purpose mismatch: envelope %q, expected %q", purpose, m.purpose)
 		}
 		key, err := m.purposeKey(purpose)
 		if err != nil {
