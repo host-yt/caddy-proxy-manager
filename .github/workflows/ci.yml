@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Callable so Release can gate image publishing on the same checks that
+  # guard a pull request, instead of building whatever was pushed.
+  workflow_call:
 
 permissions:
   contents: read
@@ -74,3 +77,15 @@ jobs:
       - uses: actions/checkout@v5
       - name: Build image
         run: docker build -f Dockerfile -t hostyt/proxy-gateway:ci .
+      # Scan the image we are about to be able to publish. Unfixed findings are
+      # ignored (nothing to upgrade to); anything fixable at HIGH/CRITICAL
+      # fails the gate rather than shipping.
+      - name: Scan image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: hostyt/proxy-gateway:ci
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          vuln-type: os,library
+          severity: HIGH,CRITICAL

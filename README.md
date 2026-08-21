@@ -272,7 +272,7 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 > generation serves, and older
 > replicas stop serving (503, existing connections included) and shut down.
 > Downgrades still need a full stop. See "Upgrading" in
-> [`docs/DEPLOY.md`](docs/DEPLOY.md#8-upgrading).
+> [`docs/DEPLOY.md`](docs/DEPLOY.md#9-upgrading).
 
 | Doc | What's in it |
 | --- | ------------ |
