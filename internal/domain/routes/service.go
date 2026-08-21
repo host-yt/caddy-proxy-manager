@@ -155,6 +155,15 @@ type Service struct {
 	nodeMu sync.Mutex
 	locks  map[int64]*sync.Mutex // per-node serialization for Caddy /load
 
+	// genMu guards desiredGen/appliedGen: the per-node config generation.
+	// Every request that changes what a node's config should contain bumps
+	// desiredGen; a full push records the generation it built from and, if a
+	// newer one appeared while it was pushing, rebuilds instead of leaving the
+	// node on the older snapshot (see pushNodeConfig).
+	genMu      sync.Mutex
+	desiredGen map[int64]uint64
+	appliedGen map[int64]uint64
+
 	// debounceMu guards debouncers.
 	debounceMu sync.Mutex
 	debouncers map[int64]*time.Timer // pending debounced push timer per node
@@ -238,10 +247,51 @@ func (s *Service) nodeLock(id int64) *sync.Mutex {
 	return m
 }
 
+// bumpDesiredGen records that nodeID's config changed and returns the new
+// generation. Called before every scheduled push so an in-flight push can tell
+// that the snapshot it built is already out of date.
+func (s *Service) bumpDesiredGen(nodeID int64) uint64 {
+	s.genMu.Lock()
+	defer s.genMu.Unlock()
+	if s.desiredGen == nil {
+		s.desiredGen = map[int64]uint64{}
+	}
+	s.desiredGen[nodeID]++
+	return s.desiredGen[nodeID]
+}
+
+// currentGen returns nodeID's desired generation without bumping it.
+func (s *Service) currentGen(nodeID int64) uint64 {
+	s.genMu.Lock()
+	defer s.genMu.Unlock()
+	return s.desiredGen[nodeID]
+}
+
+// recordApplied marks gen as the generation now live on nodeID.
+func (s *Service) recordApplied(nodeID int64, gen uint64) {
+	s.genMu.Lock()
+	defer s.genMu.Unlock()
+	if s.appliedGen == nil {
+		s.appliedGen = map[int64]uint64{}
+	}
+	if gen > s.appliedGen[nodeID] {
+		s.appliedGen[nodeID] = gen
+	}
+}
+
+// AppliedGeneration reports the config generation last successfully loaded on
+// nodeID. Exported for tests and diagnostics.
+func (s *Service) AppliedGeneration(nodeID int64) uint64 {
+	s.genMu.Lock()
+	defer s.genMu.Unlock()
+	return s.appliedGen[nodeID]
+}
+
 // schedulePush debounces a full-config push to nodeID. Within the debounce
 // window (PushDebounceMs) repeated calls reset the timer; only the last fires.
 // Falls back to an immediate goroutine push when debouncing is disabled (0).
 func (s *Service) schedulePush(nodeID int64) {
+	s.bumpDesiredGen(nodeID)
 	window := time.Duration(s.PushDebounceMs) * time.Millisecond
 	if window <= 0 {
 		go func() {
@@ -1904,18 +1954,52 @@ func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush
 	return nil
 }
 
-// pushNodeConfig builds the config OUTSIDE the per-node lock (read-only), then
-// locks only around the network Load. Stops one slow node serializing every
-// push to it.
+// maxPushGenerations bounds the rebuild loop in pushNodeConfig. A node under a
+// constant stream of edits would otherwise never hand the lock back; the edits
+// that lose their turn have already scheduled their own push.
+const maxPushGenerations = 3
+
+// pushNodeConfig loads the node's full config, building it UNDER the per-node
+// lock and re-checking the config generation afterwards.
+//
+// Building outside the lock (as this used to) let an older snapshot win: build
+// at generation 10, block on the lock while another writer pushed generation
+// 11, then /load the generation-10 snapshot and silently revert it. The lock
+// serialized the request to Caddy but said nothing about how fresh the state
+// behind it was. Building under the lock means a push always reflects DB state
+// at least as new as any push that finished before it; the generation re-check
+// then covers a change committed while this push was in flight, so the node
+// converges immediately instead of waiting for the next debounce or drift
+// sweep.
 func (s *Service) pushNodeConfig(ctx context.Context, nodeID int64) error {
-	np, err := s.buildNodePush(ctx, nodeID)
-	if err != nil {
-		return err
-	}
 	lock := s.nodeLock(nodeID)
 	lock.Lock()
 	defer lock.Unlock()
-	return s.loadNodeConfig(ctx, nodeID, np)
+
+	for attempt := 0; attempt < maxPushGenerations; attempt++ {
+		gen := s.currentGen(nodeID)
+		np, err := s.buildNodePush(ctx, nodeID)
+		if err != nil {
+			return err
+		}
+		if err := s.loadNodeConfig(ctx, nodeID, np); err != nil {
+			return err
+		}
+		s.recordApplied(nodeID, gen)
+		if s.currentGen(nodeID) == gen {
+			return nil
+		}
+		// A change landed while we were pushing: rebuild rather than leave the
+		// node on the snapshot we just applied.
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+	}
+	if s.Logger != nil {
+		s.Logger.Warn("node config still changing after repeated pushes; leaving convergence to the next scheduled push",
+			"node_id", nodeID, "attempts", maxPushGenerations)
+	}
+	return nil
 }
 
 // pushNodeConfigLocked is the full-/load fallback for callers that ALREADY hold
