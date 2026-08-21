@@ -85,3 +85,43 @@ func nodePlacement(ctx context.Context, db *sql.DB, groupID int64) (primary int6
 		return primary, []int64{primary}, mode, nil
 	}
 }
+
+// claimNodeWithCapacity atomically takes one route slot on some enabled,
+// approved node in groupID other than skipID, and returns that node.
+//
+// The conditional UPDATE is the claim: reading current_routes < max_routes and
+// then incrementing in two steps lets concurrent creates hand out the same last
+// slot, which is how a node ends up above its max_routes. Candidates are read
+// first only to get the preference order; a candidate that lost its slot in the
+// meantime simply fails its claim and the next one is tried.
+func claimNodeWithCapacity(ctx context.Context, tx *sql.Tx, groupID, skipID int64) (int64, bool) {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id FROM caddy_nodes
+		  WHERE node_group_id = ? AND id <> ? AND is_enabled = 1 AND approved_at IS NOT NULL
+		    AND current_routes < max_routes
+		  ORDER BY (current_routes / GREATEST(max_routes,1)) ASC, priority DESC, id ASC
+		  LIMIT 8`, groupID, skipID)
+	if err != nil {
+		return 0, false
+	}
+	var candidates []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			candidates = append(candidates, id)
+		}
+	}
+	rows.Close()
+	for _, id := range candidates {
+		res, err := tx.ExecContext(ctx,
+			"UPDATE caddy_nodes SET current_routes = current_routes + 1 WHERE id = ? AND current_routes < max_routes",
+			id)
+		if err != nil {
+			return 0, false
+		}
+		if n, _ := res.RowsAffected(); n == 1 {
+			return id, true
+		}
+	}
+	return 0, false
+}

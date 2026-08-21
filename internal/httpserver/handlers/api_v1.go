@@ -595,6 +595,8 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusConflict, "domain already mapped")
 		case errors.Is(err, routes.ErrNoNodeFound):
 			apiErr(w, http.StatusConflict, "no node available")
+		case errors.Is(err, routes.ErrNodeAtCapacity):
+			apiErr(w, http.StatusConflict, "node reached max_routes while creating; retry")
 		case errors.Is(err, routes.ErrMaxDomains):
 			apiErr(w, http.StatusConflict, "plan domain limit reached")
 		default:

@@ -348,6 +348,8 @@ func (h *FOSSBillingHandlers) ProvisionRoute(w http.ResponseWriter, r *http.Requ
 			fbErr(w, http.StatusConflict, "domain already mapped")
 		case errors.Is(err, routes.ErrNoNodeFound):
 			fbErr(w, http.StatusConflict, "no node available")
+		case errors.Is(err, routes.ErrNodeAtCapacity):
+			fbErr(w, http.StatusConflict, "node reached max_routes while creating; retry")
 		case errors.Is(err, routes.ErrMaxDomains):
 			fbErr(w, http.StatusConflict, "plan domain limit reached")
 		default:

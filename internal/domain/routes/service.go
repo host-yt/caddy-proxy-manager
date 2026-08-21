@@ -468,11 +468,15 @@ type CreateInput struct {
 
 // Validation errors exposed to handlers.
 var (
-	ErrPortOutOfRange  = errors.New("port not in allowed range for this service")
-	ErrPortInUse       = errors.New("backend port already in use by another route")
-	ErrInvalidDomain   = errors.New("invalid domain")
-	ErrDomainTaken     = errors.New("domain (+ path) already mapped")
-	ErrNoNodeFound     = errors.New("no Caddy node available for this plan")
+	ErrPortOutOfRange = errors.New("port not in allowed range for this service")
+	ErrPortInUse      = errors.New("backend port already in use by another route")
+	ErrInvalidDomain  = errors.New("invalid domain")
+	ErrDomainTaken    = errors.New("domain (+ path) already mapped")
+	ErrNoNodeFound    = errors.New("no Caddy node available for this plan")
+	// ErrNodeAtCapacity: the node chosen by placement filled its max_routes
+	// between selection and the capacity claim (another concurrent create took
+	// the last slot). Retrying picks a different node.
+	ErrNodeAtCapacity  = errors.New("selected Caddy node reached max_routes; retry")
 	ErrServiceNotYours = errors.New("service does not belong to caller")
 	ErrMaxDomains      = errors.New("plan limit reached: max domains")
 	// ErrExternalHostNotAllowed: the external upstream FQDN is not in the
@@ -903,25 +907,64 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		return 0, fmt.Errorf("route insert: %w", err)
 	}
 	routeID, _ := res.LastInsertId()
-	if _, err := tx.ExecContext(ctx,
-		"UPDATE caddy_nodes SET current_routes = current_routes + 1 WHERE id = ?", nodeID); err != nil {
+	// Claim the slot conditionally, in the same transaction as the insert.
+	// Placement read current_routes < max_routes outside any lock, so two
+	// concurrent creates could both see the same last free slot and both bump
+	// the counter past max_routes. The WHERE clause makes the claim atomic:
+	// exactly one of them updates a row, the other is told to retry.
+	claim, err := tx.ExecContext(ctx,
+		"UPDATE caddy_nodes SET current_routes = current_routes + 1 WHERE id = ? AND current_routes < max_routes",
+		nodeID)
+	if err != nil {
 		return 0, fmt.Errorf("node counter bump: %w", err)
+	}
+	if n, _ := claim.RowsAffected(); n == 0 {
+		// Single-mode placement can simply move to another node with room.
+		// Not attempted for a tunnel route (the peer was validated against the
+		// originally placed node) or for fan-out modes (the peer set was chosen
+		// as a whole), where the caller retries instead.
+		alt, ok := int64(0), false
+		if groupMode == "single" && in.ViaWGPeerID == 0 {
+			alt, ok = claimNodeWithCapacity(ctx, tx, nodeGroupID, nodeID)
+		}
+		if !ok {
+			return 0, ErrNodeAtCapacity
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE routes SET caddy_node_id = ? WHERE id = ?", alt, routeID); err != nil {
+			return 0, fmt.Errorf("re-place route: %w", err)
+		}
+		s.Logger.Warn("primary node filled up between placement and claim; re-placed",
+			"route_id", routeID, "domain", domain, "from_node", nodeID, "to_node", alt)
+		nodeID = alt
+		allNodes = []int64{alt}
 	}
 	// Fan-out modes: record every target node in the assignments join table.
 	// active_active deploys to all peers; failover deploys to primary + one
 	// warm standby so the standby has the route ready when it's promoted.
 	if groupMode != "single" && len(allNodes) > 1 {
 		for _, n := range allNodes {
+			if n != nodeID {
+				// Same atomic claim as the primary. A peer that filled up since
+				// placement is skipped rather than oversubscribed: the route
+				// still lands on the peers that had room, and the assignment is
+				// only recorded for nodes whose slot we actually hold.
+				peerClaim, err := tx.ExecContext(ctx,
+					"UPDATE caddy_nodes SET current_routes = current_routes + 1 WHERE id = ? AND current_routes < max_routes",
+					n)
+				if err != nil {
+					return 0, fmt.Errorf("peer counter bump: %w", err)
+				}
+				if got, _ := peerClaim.RowsAffected(); got == 0 {
+					s.Logger.Warn("fan-out peer at capacity, skipped",
+						"route_id", routeID, "node_id", n, "domain", domain)
+					continue
+				}
+			}
 			if _, err := tx.ExecContext(ctx,
 				store.InsertOrIgnore()+" INTO route_node_assignments (route_id, node_id) VALUES (?, ?)",
 				routeID, n); err != nil {
 				return 0, fmt.Errorf("fan-out assign: %w", err)
-			}
-			if n != nodeID {
-				if _, err := tx.ExecContext(ctx,
-					"UPDATE caddy_nodes SET current_routes = current_routes + 1 WHERE id = ?", n); err != nil {
-					return 0, fmt.Errorf("peer counter bump: %w", err)
-				}
 			}
 		}
 	}

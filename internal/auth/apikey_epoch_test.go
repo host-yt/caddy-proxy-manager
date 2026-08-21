@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	_ "modernc.org/sqlite"
@@ -159,5 +160,56 @@ func TestCreateAPIKeyStampsCurrentEpoch(t *testing.T) {
 	}
 	if stamped != 9 {
 		t.Fatalf("stamped epoch = %d, want 9", stamped)
+	}
+}
+
+// TestVerifyAPIKeyPrefixContainingUnderscore is the regression for the token
+// parser: the 8-char prefix is base64url, so about one key in eight contains a
+// "_". Splitting the token on "_" cut those keys short and rejected them at
+// issue time - a key that could never work, indistinguishable from a bad token.
+func TestVerifyAPIKeyPrefixContainingUnderscore(t *testing.T) {
+	defer SetHMACKey(nil)
+	SetHMACKey([]byte("test-key-do-not-use"))
+	db := newAPIKeyTestDB(t)
+
+	ctx := context.Background()
+	res, err := db.ExecContext(ctx, "INSERT INTO users (role, is_active, auth_epoch) VALUES ('admin', 1, 0)")
+	if err != nil {
+		t.Fatalf("insert user: %v", err)
+	}
+	userID, _ := res.LastInsertId()
+
+	// Issue keys until one lands with an underscore in its prefix, so the test
+	// exercises a real key produced by CreateAPIKey.
+	var token string
+	for i := 0; i < 200; i++ {
+		tok, _, prefix, err := CreateAPIKey(ctx, db, userID, "test", "admin:read")
+		if err != nil {
+			t.Fatalf("create key: %v", err)
+		}
+		if strings.Contains(prefix, "_") {
+			token = tok
+			break
+		}
+	}
+	if token == "" {
+		t.Skip("no underscore prefix generated in 200 tries")
+	}
+	if _, _, role, _, err := VerifyAPIKey(ctx, db, token, ""); err != nil {
+		t.Fatalf("key with an underscore in its prefix denied: %v", err)
+	} else if role != "admin" {
+		t.Fatalf("role = %q, want admin", role)
+	}
+}
+
+// Malformed tokens stay rejected after the positional parse.
+func TestVerifyAPIKeyRejectsMalformed(t *testing.T) {
+	defer SetHMACKey(nil)
+	SetHMACKey([]byte("test-key-do-not-use"))
+	db := newAPIKeyTestDB(t)
+	for _, tok := range []string{"", "hpg_", "hpg_short_", "hpg_abcdefgh", "hpg_abcdefghXsecret", "nope_abcdefgh_secret"} {
+		if _, _, _, _, err := VerifyAPIKey(context.Background(), db, tok, ""); !errors.Is(err, ErrAPIKeyInvalid) {
+			t.Errorf("VerifyAPIKey(%q) = %v, want ErrAPIKeyInvalid", tok, err)
+		}
 	}
 }

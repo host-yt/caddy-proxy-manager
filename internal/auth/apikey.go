@@ -106,11 +106,19 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (user
 	if !strings.HasPrefix(token, "hpg_") {
 		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
-	parts := strings.SplitN(strings.TrimPrefix(token, "hpg_"), "_", 2)
-	if len(parts) != 2 || len(parts[0]) != 8 || parts[1] == "" {
+	// Parse positionally: "hpg_" + 8-char prefix + "_" + secret. Splitting on
+	// "_" instead was wrong, because the prefix is base64url and roughly one
+	// key in eight contains a "_" - those keys parsed into a short prefix and
+	// were rejected forever, at issue time, with no way to tell them from a
+	// bad token. The rate-limit middleware already reads token[4:12].
+	rest := strings.TrimPrefix(token, "hpg_")
+	if len(rest) < 10 || rest[8] != '_' {
 		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
-	prefix, secret := parts[0], parts[1]
+	prefix, secret := rest[:8], rest[9:]
+	if secret == "" {
+		return 0, 0, "", "", ErrAPIKeyInvalid
+	}
 
 	var (
 		id, uid   int64
