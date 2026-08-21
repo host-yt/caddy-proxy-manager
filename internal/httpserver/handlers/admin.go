@@ -833,6 +833,10 @@ func (h *AdminHandlers) NodesCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/nodes", "", "all fields required")
 		return
 	}
+	if !security.ValidNodeName(name) {
+		redirectWithFlash(w, r, "/admin/nodes", "", "name must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric")
+		return
+	}
 	if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
 		redirectWithFlash(w, r, "/admin/nodes", "", "api_url must start with http:// or https://")
 		return

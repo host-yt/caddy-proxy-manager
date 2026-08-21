@@ -767,6 +767,10 @@ func (h *APIHandlers) NodeCreate(w http.ResponseWriter, r *http.Request) {
 	// Screen the node admin URL (API-03). Nodes live on the private WG mesh so
 	// RFC1918/hostnames are allowed by design; block only a literal-IP host in
 	// the loopback/link-local/metadata ranges (node-local admin / SSRF probe).
+	if !security.ValidNodeName(in.Name) {
+		apiErr(w, http.StatusBadRequest, "name must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric")
+		return
+	}
 	if u, perr := url.Parse(in.APIURL); perr != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		apiErr(w, http.StatusBadRequest, "api_url must be a valid http(s) URL")
 		return
