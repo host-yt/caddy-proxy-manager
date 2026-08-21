@@ -151,6 +151,30 @@ claim either way - check the project's own docs before relying on it.
 
 ---
 
+## Maturity
+
+The feature list is wide; the exercise these features have had is not uniform.
+This table says what to trust with customer traffic today.
+
+| Area | Status | What that means |
+|------|--------|-----------------|
+| HTTP/HTTPS reverse proxy, ACME certs | **Stable** | The core path. Covered by tests and by every install. |
+| Multi-tenant clients, plans, quotas | **Stable** | Ownership and limits are enforced at a single choke point. |
+| Admin panel, audit log, REST API | **Stable** | |
+| WireGuard node mesh + customer tunnels | **Beta** | Works, but node join/rotation has had less field exposure than the proxy path. |
+| Multi-node placement, node groups | **Beta** | Capacity claims are atomic; cross-replica coordination is still single-writer per process. |
+| Automatic failover, DNS steering | **Beta** | Exercised in tests, not yet across a long-running fleet. |
+| WAF, L4 streams, GeoIP, HTTP cache | **Beta** | Each needs a custom Caddy module on every node; flipping the gate before the fleet is upgraded takes nodes offline. |
+| Manual TLS certs, mTLS + path RBAC | **Beta** | |
+| NPM import, instance sync | **Experimental** | Imports the common shape of a config, not all of it. Review the result. |
+| AI assistant | **Experimental** | Optional; off by default. Not on any path that serves traffic. |
+| Backup/restore | **Beta** | Restore is drilled by CLI; practice it on your own data before relying on it. |
+
+Running several `app` replicas is supported for availability, but the config
+push serializes per process, so treat the control plane as single-writer.
+
+---
+
 ## Quick start (single host)
 
 ```bash
@@ -232,7 +256,7 @@ deploy/
   caddy/                Caddy node image (xcaddy with cache-handler + L4 modules)
   remote-node/          drop-in compose for an external Caddy node
   wireguard/            WG sidecar image (alpine + wg-tools + watch loop)
-migrations/             115 goose .sql files (auto-applied on boot)
+migrations/             goose .sql files (auto-applied on boot)
 scripts/                node-join.sh - bash bootstrap for remote nodes
 docs/                   all the docs you'll find linked below
 ```

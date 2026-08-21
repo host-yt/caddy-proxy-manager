@@ -247,9 +247,13 @@ node's public IP. Informational; Caddy issues the certificate regardless.
 Prometheus metrics (`obs.Metrics`) and a structured health handler
 (`obs.Health`). Exposes `/metrics` (CIDR-gated) and `/healthz` / `/readyz`.
 
-### `internal/queue/`
-Redis-backed async job queue (asynq). Defers DNS verify, SSL retry,
-route propagation, and email sends off the request path.
+### Async jobs
+There is no job queue. Deferred work - DNS verify, SSL retry, route
+propagation, email sends - runs in bounded goroutines started by the request
+handler, plus leader-elected tickers (`internal/leader`, `internal/jobs`) for
+the periodic sweeps: health probe, drift resync, alias re-check, backups.
+A Redis-backed queue is a candidate for the work that today survives only as
+long as the process does; it is not implemented.
 
 ### `internal/i18n/`
 Cookie-based language selection; templates carry translated strings.
