@@ -29,6 +29,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/dns"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
@@ -124,6 +125,11 @@ type Service struct {
 	// without importing installstate. Nil disables external secret handling.
 	EncryptSecret func(string) (string, error)
 	DecryptSecret func(string) (string, error)
+
+	// MTLSRBACKey is the MAC key for the per-(node, route) mTLS RBAC check
+	// token embedded in each node's Caddy config. Derived from APP_SECRET by
+	// the caller; empty disables token issuance.
+	MTLSRBACKey []byte
 
 	// ExternalUpstreamAllowlist is the set of FQDNs an External proxy route
 	// may target (exact host, case-insensitive). Empty = no external route is
@@ -2722,6 +2728,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	s.attachLocationRules(ctx, built, ids)
 	s.attachBasicAuthUsers(ctx, built, ids)
 	s.attachMTLSPathRules(ctx, built, ids)
+	s.attachRBACTokens(built, ids, nodeID)
 	// Emission order, not DB id order: a catch-all ahead of a narrower sibling
 	// on the same host would shadow it. ids must follow the same permutation -
 	// buildOneRoute pairs ids[i] with built[i].
@@ -2815,6 +2822,25 @@ func (s *Service) attachMTLSPathRules(ctx context.Context, built []caddyapi.Rout
 				RequiredRole: role,
 			})
 		}
+	}
+}
+
+// attachRBACTokens stamps the per-(node, route) mTLS RBAC check token onto
+// every route that runs a forward_auth role check. The token proves to the
+// panel that the check subrequest comes from a node the control plane actually
+// placed the route on, instead of from any host that happens to sit inside the
+// mesh or trusted-proxy CIDRs (MTLS-01). No key configured = no token: the
+// panel then falls back to its allow-list-only behaviour.
+func (s *Service) attachRBACTokens(built []caddyapi.Route, ids []int64, nodeID int64) {
+	if len(s.MTLSRBACKey) == 0 || nodeID <= 0 || len(ids) != len(built) {
+		return
+	}
+	for i := range built {
+		if len(built[i].MTLSPathRules) == 0 {
+			continue
+		}
+		built[i].RBACNodeID = nodeID
+		built[i].RBACToken = security.MTLSRBACToken(s.MTLSRBACKey, nodeID, ids[i])
 	}
 }
 

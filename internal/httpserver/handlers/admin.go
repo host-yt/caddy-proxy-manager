@@ -109,6 +109,13 @@ type AdminHandlers struct {
 	// runtime DB toggle is locked-on (env wins) and the UI shows it disabled.
 	Enforce2FAEnv bool
 
+	// MTLSRBACKey verifies the per-(node, route) token on /internal/mtls-rbac
+	// checks. Derived from APP_SECRET; empty means no token can be verified.
+	MTLSRBACKey []byte
+	// MTLSRBACAllowUnsigned keeps accepting token-less RBAC checks during an
+	// upgrade window (MTLS_RBAC_ALLOW_UNSIGNED=1).
+	MTLSRBACAllowUnsigned bool
+
 	// AccessLogs reads stored per-host access log entries from the DB.
 	AccessLogs *accesslog.Store
 	// AccessLogBroker fans out live log entries to SSE subscribers.

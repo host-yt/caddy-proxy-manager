@@ -196,6 +196,22 @@ func (m *Manager) Scoped(purpose string) *Manager {
 	return &Manager{path: m.path, key: m.key, purpose: purpose}
 }
 
+// DeriveKey returns a 32-byte key derived from the state key under a caller
+// supplied HKDF label. Use it for non-secret-storage key material (MACs for
+// internal control-plane checks); the label namespaces it away from the
+// at-rest encryption sub-keys so the two can never collide.
+func (m *Manager) DeriveKey(label string) ([]byte, error) {
+	if label == "" {
+		return nil, errors.New("derive key: empty label")
+	}
+	r := hkdf.New(sha256.New, m.key, nil, []byte("hpg/derive/"+label+"/v1"))
+	k := make([]byte, 32)
+	if _, err := io.ReadFull(r, k); err != nil {
+		return nil, fmt.Errorf("hkdf derive %q: %w", label, err)
+	}
+	return k, nil
+}
+
 // purposeKey derives the per-purpose AES key from the state key.
 func (m *Manager) purposeKey(purpose string) ([]byte, error) {
 	r := hkdf.New(sha256.New, m.key, nil, []byte("hpg/secret/"+purpose+"/v1"))

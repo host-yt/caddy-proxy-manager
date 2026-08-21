@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // Route builders. Produce Caddy JSON config fragments for reverse-proxy routes.
@@ -300,6 +301,12 @@ type Route struct {
 	// PanelBaseURL is the panel base URL reachable from Caddy (e.g. http://app:8080).
 	// Used to build the internal mTLS RBAC check URL.
 	PanelBaseURL string
+	// RBACNodeID / RBACToken authenticate the forward_auth check subrequest to
+	// the panel: the token is a MAC over (node, route) issued by the control
+	// plane into this node's config only, so a host that merely sits inside the
+	// mesh CIDR cannot query the RBAC oracle (MTLS-01).
+	RBACNodeID int64
+	RBACToken  string
 }
 
 // MTLSPathRule defines one path pattern + required role name for mTLS RBAC.
@@ -2088,6 +2095,22 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
+// authHeaders builds the header set the forward_auth subrequest carries to the
+// panel: the client-cert subject plus, when the control plane issued one, the
+// (node, route) check token that proves this config came from the panel.
+func authHeaders(r Route, certSubjectPlaceholder string) map[string]any {
+	h := map[string]any{
+		"X-Mtls-Subject":     []string{certSubjectPlaceholder},
+		"X-Forwarded-Uri":    []string{"{http.request.orig_uri}"},
+		"X-Forwarded-Method": []string{"{http.request.method}"},
+	}
+	if r.RBACToken != "" && r.RBACNodeID > 0 {
+		h[security.MTLSRBACHeaderToken] = []string{r.RBACToken}
+		h[security.MTLSRBACHeaderNode] = []string{strconv.FormatInt(r.RBACNodeID, 10)}
+	}
+	return h
+}
+
 // buildMTLSRBAC returns a subroute handler that calls the panel's internal
 // RBAC endpoint for path-based role checks on mTLS routes. Nil when disabled.
 func buildMTLSRBAC(r Route) map[string]any {
@@ -2126,11 +2149,7 @@ func buildMTLSRBAC(r Route) map[string]any {
 						"request_buffers": authRequestBodyMaxBytes,
 						"headers": map[string]any{
 							"request": map[string]any{
-								"set": map[string]any{
-									"X-Mtls-Subject":     []string{certSubjectPlaceholder},
-									"X-Forwarded-Uri":    []string{"{http.request.orig_uri}"},
-									"X-Forwarded-Method": []string{"{http.request.method}"},
-								},
+								"set":    authHeaders(r, certSubjectPlaceholder),
 								"delete": []string{"Content-Length"},
 							},
 						},

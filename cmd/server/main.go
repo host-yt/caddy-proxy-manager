@@ -56,6 +56,7 @@ import (
 	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
@@ -179,8 +180,19 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		}
 	}
 
+	// MAC key for the per-(node, route) mTLS RBAC check token. Derived from
+	// APP_SECRET, so it needs no storage and is stable across restarts; a
+	// derivation failure only disables token issuance (checks then fall back to
+	// the IP allow-list unless MTLS_RBAC_ALLOW_UNSIGNED is off, which denies).
+	mtlsRBACKey, err := state.DeriveKey(security.MTLSRBACKeyLabel)
+	if err != nil {
+		logger.Warn("mtls rbac key derivation failed; role checks will be refused", "err", err)
+		mtlsRBACKey = nil
+	}
+
 	routesSvc := &routes.Service{
 		DB:                       wizard.DB(),
+		MTLSRBACKey:              mtlsRBACKey,
 		Quota:                    &quota.Service{DB: wizard.DB},
 		Logger:                   logger,
 		AskURL:                   buildAskURL(cfg),
@@ -426,17 +438,20 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		State: state, Mailer: mailer, OIDC: oidcSvc, Cloudflare: cfSvc, Captcha: captchaV,
 		Joiner: joinSvc, WG: wgSvc, Backups: backupSvc, Webhooks: whSvc, SMS: smsSvc,
 		RDB: rdb, Metrics: mtr,
-		SIEMForwarder:   siemFwd,
-		Enforce2FAEnv:   cfg.Security.RequireAdmin2FA,
-		AdminScope:      adminscope.New(wizard.DB),
-		Quota:           &quota.Service{DB: wizard.DB},
-		Resellers:       reseller.New(wizard.DB),
-		AccessLogs:      alStore,
-		AccessLogBroker: alBroker,
-		WAFEvents:       wafStore,
-		AIFactory:       aichat.NewFactory(wizard.DB(), state.Decrypt),
-		ChatStore:       chatstore.New(wizard.DB()),
-		AITools:         aitools.New(wizard.DB()),
+		SIEMForwarder: siemFwd,
+		Enforce2FAEnv: cfg.Security.RequireAdmin2FA,
+		// mTLS RBAC checks must present the panel-issued (node, route) token.
+		MTLSRBACKey:           mtlsRBACKey,
+		MTLSRBACAllowUnsigned: cfg.Security.MTLSRBACAllowUnsigned,
+		AdminScope:            adminscope.New(wizard.DB),
+		Quota:                 &quota.Service{DB: wizard.DB},
+		Resellers:             reseller.New(wizard.DB),
+		AccessLogs:            alStore,
+		AccessLogBroker:       alBroker,
+		WAFEvents:             wafStore,
+		AIFactory:             aichat.NewFactory(wizard.DB(), state.Decrypt),
+		ChatStore:             chatstore.New(wizard.DB()),
+		AITools:               aitools.New(wizard.DB()),
 	}
 
 	// Bash bootstrap script served at GET /install/node.sh.
