@@ -134,6 +134,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		cfg.Security.SessionCookieSameSite,
 		sessionTTL,
 	)
+	sessions.SetStrictSecure(cfg.Security.SessionCookieSecureStrict)
 
 	installTpls, err := view.LoadInstallTemplates()
 	if err != nil {

@@ -40,6 +40,11 @@ type npmImportPageData struct {
 	Result *npmImportResult // non-nil after a successful POST (for page redirect result display)
 }
 
+// npmImportMaxBytes bounds the entire upload (body, not just the in-memory
+// part of the multipart form). NPM backups are small JSON files; 33 MB leaves
+// slack over the 32 MB in-memory cap for multipart framing.
+const npmImportMaxBytes = 33 << 20
+
 // NpmImportPage renders GET /admin/tools/npm-import.
 func (h *AdminHandlers) NpmImportPage(w http.ResponseWriter, r *http.Request) {
 	d := npmImportPageData{baseAdminData: h.base(r, "NPM Import")}
@@ -50,11 +55,20 @@ func (h *AdminHandlers) NpmImportPage(w http.ResponseWriter, r *http.Request) {
 // Accepts multipart form with a single "file" field containing an NPM JSON backup.
 // Returns JSON: {imported, skipped, errors}.
 func (h *AdminHandlers) NpmImportSubmit(w http.ResponseWriter, r *http.Request) {
-	// 32 MB cap - NPM backups are small JSON files.
+	// Cap the whole request first. ParseMultipartForm's argument only bounds
+	// what is kept in memory - everything above it spills to a temp file with
+	// no limit, so without this a single upload can fill the panel's disk.
+	r.Body = http.MaxBytesReader(w, r.Body, npmImportMaxBytes)
+	// 32 MB in-memory cap - NPM backups are small JSON files.
 	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		jsonErr(w, "invalid multipart form", http.StatusBadRequest)
+		jsonErr(w, "invalid or oversized multipart form (max 33 MB)", http.StatusBadRequest)
 		return
 	}
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll() // drop any spill file promptly
+		}
+	}()
 
 	f, _, err := r.FormFile("file")
 	if err != nil {
