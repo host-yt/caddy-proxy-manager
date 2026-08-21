@@ -23,8 +23,8 @@ type RateLimitConfig struct {
 }
 
 // RateLimit returns a middleware that 429s any source IP exceeding the
-// configured threshold within a rolling 60s window. Implementation:
-// Redis INCR + EXPIRE on hpg:rl:<prefix>:<ip>, fail-open if Redis is
+// configured threshold within a rolling 60s window. Implementation: an atomic
+// INCR + first-use EXPIRE on hpg:rl:<prefix>:<ip>, fail-open if Redis is
 // down (we don't want to take the whole panel down on a Redis blip).
 func RateLimit(cfg RateLimitConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
@@ -41,14 +41,13 @@ func RateLimit(cfg RateLimitConfig) func(http.Handler) http.Handler {
 			key := cfg.KeyPrefix + ":" + ip
 			ctx, cancel := context.WithTimeout(r.Context(), 200*time.Millisecond)
 			defer cancel()
-			n, err := cfg.RDB.Incr(ctx, key).Result()
+			// INCR + EXPIRE atomically: a counter that got incremented but
+			// never expired would rate limit that IP forever.
+			n, err := incrWithTTL(ctx, cfg.RDB, key, time.Minute)
 			if err != nil {
 				// Fail-open: a Redis blip should not 429 every request.
 				next.ServeHTTP(w, r)
 				return
-			}
-			if n == 1 {
-				_ = cfg.RDB.Expire(ctx, key, time.Minute).Err()
 			}
 			if int(n) > cfg.PerIPPerMin {
 				w.Header().Set("Retry-After", "60")
