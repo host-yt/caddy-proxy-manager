@@ -80,12 +80,18 @@ jobs:
       # Scan the image we are about to be able to publish. Unfixed findings are
       # ignored (nothing to upgrade to); anything fixable at HIGH/CRITICAL
       # fails the gate rather than shipping.
+      # Trivy's own image, pinned, rather than a third-party action: one less
+      # party that can change what runs here.
       - name: Scan image
-        uses: aquasecurity/trivy-action@0.28.0
-        with:
-          image-ref: hostyt/proxy-gateway:ci
-          format: table
-          exit-code: "1"
-          ignore-unfixed: true
-          vuln-type: os,library
-          severity: HIGH,CRITICAL
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ runner.temp }}/trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.74.0 image \
+              --scanners vuln \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --format table \
+              --timeout 10m \
+              hostyt/proxy-gateway:ci
