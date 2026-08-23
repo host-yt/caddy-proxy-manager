@@ -299,7 +299,7 @@ func (s *Service) ReconcileDrift(ctx context.Context) {
 			if err != nil {
 				return
 			}
-			client := caddyapi.New(n.apiURL)
+			client := s.NodeClient(ctx, n.id, n.apiURL)
 			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 			actualRaw, err := client.GetRaw(probeCtx, "/config/apps/http/servers/srv0/routes")
 			cancel()
@@ -338,6 +338,54 @@ func (s *Service) Resync(ctx context.Context, nodeID int64) error {
 		s.AfterPush(ctx)
 	}
 	return err
+}
+
+// NodeClient returns the admin-API client for a node.
+//
+// A node whose agent fronts the Caddy admin API has a key in
+// caddy_nodes.admin_proxy_key_enc: the panel presents it as a bearer token and
+// the agent refuses anything else, so reaching the port is no longer
+// authorization. A node without one is reached directly, exactly as before -
+// which is the whole fleet until an operator migrates a node.
+func (s *Service) NodeClient(ctx context.Context, nodeID int64, apiURL string) *caddyapi.Client {
+	key := s.adminProxyKey(ctx, nodeID)
+	if key == "" {
+		return caddyapi.New(apiURL)
+	}
+	return caddyapi.NewAuthed(apiURL, key)
+}
+
+// adminProxyKey reads and decrypts a node's admin-proxy key. Any failure means
+// "no key": the caller then talks to the node the direct way, which either
+// works (node not migrated) or fails loudly on the agent's 401 rather than
+// silently pushing through an unauthenticated path.
+func (s *Service) adminProxyKey(ctx context.Context, nodeID int64) string {
+	if s.DB == nil || nodeID <= 0 {
+		return ""
+	}
+	decrypt := s.DecryptNodeSecret
+	if decrypt == nil {
+		return ""
+	}
+	c, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var enc sql.NullString
+	if err := s.DB.QueryRowContext(c,
+		"SELECT admin_proxy_key_enc FROM caddy_nodes WHERE id = ?", nodeID).Scan(&enc); err != nil {
+		return ""
+	}
+	if !enc.Valid || enc.String == "" {
+		return ""
+	}
+	key, err := decrypt(enc.String)
+	if err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("node admin-proxy key could not be decrypted; falling back to a direct connection",
+				"node_id", nodeID, "err", err)
+		}
+		return ""
+	}
+	return key
 }
 
 // nodePush is the built, ready-to-Load config for one node plus the data
@@ -467,7 +515,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 // loadNodeConfig POSTs the full config (/load) and records the per-route drift
 // fingerprint. The caller MUST hold the per-node lock.
 func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush) error {
-	client := caddyapi.New(np.apiURL)
+	client := s.NodeClient(ctx, nodeID, np.apiURL)
 	if err := client.Load(ctx, np.cfg); err != nil {
 		s.Logger.Error("caddy push failed", "node_id", nodeID, "err", err)
 		if s.Metrics != nil {
@@ -627,7 +675,7 @@ func (s *Service) pushRouteIncremental(ctx context.Context, nodeID, routeID int6
 	if err := s.DB.QueryRowContext(ctx, "SELECT api_url FROM caddy_nodes WHERE id = ?", nodeID).Scan(&apiURL); err != nil {
 		return err
 	}
-	client := caddyapi.New(apiURL)
+	client := s.NodeClient(ctx, nodeID, apiURL)
 	caddyID := fmt.Sprintf("route_%d", routeID)
 
 	lock := s.nodeLock(nodeID)

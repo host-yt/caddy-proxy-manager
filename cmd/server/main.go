@@ -212,8 +212,11 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		// External-HTTPS-upstream routes: at-rest secret crypto + host allowlist.
 		// Per-purpose sub-key so a route-secret leak/rotation is scoped
 		// (CRYPTO-02); Decrypt auto-detects legacy + v2 envelopes.
-		EncryptSecret:             state.Scoped("route").Encrypt,
-		DecryptSecret:             state.Scoped("route").Decrypt,
+		EncryptSecret: state.Scoped("route").Encrypt,
+		DecryptSecret: state.Scoped("route").Decrypt,
+		// Node admin-proxy keys are written by the tunnel enable/rotate flow
+		// with the unscoped state key, so they are read with it too.
+		DecryptNodeSecret:         state.Decrypt,
 		ExternalUpstreamAllowlist: cfg.Security.ExternalUpstreamAllowlist,
 		// Incremental per-route Caddy push (PATCH/POST/DELETE by @id) for
 		// single-route changes; INCREMENTAL_PATCH=0 reverts to full /load.

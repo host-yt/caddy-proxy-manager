@@ -126,6 +126,12 @@ type Service struct {
 	// the caller; empty disables token issuance.
 	MTLSRBACKey []byte
 
+	// DecryptNodeSecret opens values encrypted with the panel's unscoped state
+	// key: today the per-node admin-proxy key written by the tunnel enable /
+	// rotate flow. Nil disables agent-fronted admin access (nodes are then
+	// reached directly).
+	DecryptNodeSecret func(string) (string, error)
+
 	// ExternalUpstreamAllowlist is the set of FQDNs an External proxy route
 	// may target (exact host, case-insensitive). Empty = no external route is
 	// permitted. Enforced at Create AND again at build time (defense in depth).

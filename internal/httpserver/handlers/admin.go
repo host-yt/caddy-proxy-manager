@@ -1407,6 +1407,9 @@ func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request
 		bctx, bcancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer bcancel()
 		client := caddyapi.New(apiURL)
+		if h.Routes != nil {
+			client = h.Routes.NodeClient(bctx, id, apiURL)
+		}
 		_ = client.Load(bctx, map[string]any{"admin": map[string]any{"listen": "0.0.0.0:2019"}})
 	}()
 

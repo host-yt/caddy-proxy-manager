@@ -9,7 +9,6 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
-	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
@@ -53,7 +52,7 @@ func (s *Service) HealthProbe(ctx context.Context) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			status := "down"
-			client := caddyapi.New(p.apiURL)
+			client := s.NodeClient(ctx, p.id, p.apiURL)
 			probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 			probeStart := time.Now()
 			_, probeErr := client.GetRaw(probeCtx, "/config/")

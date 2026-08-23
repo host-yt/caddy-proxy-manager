@@ -1299,15 +1299,20 @@ func (h *AdminHandlers) HostsPurgeCache(w http.ResponseWriter, r *http.Request) 
 	}
 
 	var apiURL, domain string
+	var nodeID int64
 	if err := h.DB().QueryRowContext(ctx,
-		`SELECT n.api_url, r.domain
+		`SELECT n.id, n.api_url, r.domain
 		 FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id
-		 WHERE r.id = ?`, id).Scan(&apiURL, &domain); err != nil {
+		 WHERE r.id = ?`, id).Scan(&nodeID, &apiURL, &domain); err != nil {
 		redirectWithFlash(w, r, "/admin/hosts", "", "route not found")
 		return
 	}
 
+	// Authenticated when the node's agent fronts its admin API.
 	client := caddyapi.New(apiURL)
+	if h.Routes != nil {
+		client = h.Routes.NodeClient(ctx, nodeID, apiURL)
+	}
 	if err := client.PurgeCache(ctx); err != nil {
 		h.Metrics.CacheOp("purge", "fail")
 		if errors.Is(err, caddyapi.ErrNotFound) {

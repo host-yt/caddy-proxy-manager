@@ -32,16 +32,27 @@
           <button type="button" data-copy-target="hpg-cred-port" class="r-btn-secondary text-xs cursor-pointer">Copy</button>
         </div>
       </div>
+      {{if .TunnelCreds.AdminProxyKey}}
+      <div>
+        <label class="t-caption font-medium block mb-1">HPG_ADMIN_PROXY_KEY</label>
+        <div class="flex gap-2">
+          <input id="hpg-cred-adminkey" readonly value="{{.TunnelCreds.AdminProxyKey}}" class="r-input flex-1 font-mono text-xs">
+          <button type="button" data-copy-target="hpg-cred-adminkey" class="r-btn-secondary text-xs cursor-pointer">Copy</button>
+        </div>
+        <p class="t-caption mt-1">Optional: set it together with <code class="text-xs">HPG_ADMIN_PROXY_LISTEN</code> to let the agent front this node's Caddy admin API, then bind Caddy's admin to 127.0.0.1 and point the node's API URL at the agent. See docs/MULTI_NODE.md.</p>
+      </div>
+      {{end}}
     </div>
 
     <div>
       <label class="t-caption font-medium block mb-1">.env block</label>
       <div class="flex gap-2">
-        <textarea id="hpg-cred-all" readonly rows="{{if ne .TunnelCreds.Transport "udp"}}5{{else}}3{{end}}" class="r-input flex-1 font-mono text-xs">HPG_NODE_TOKEN={{.TunnelCreds.Token}}
+        <textarea id="hpg-cred-all" readonly rows="{{if ne .TunnelCreds.Transport "udp"}}6{{else}}4{{end}}" class="r-input flex-1 font-mono text-xs">HPG_NODE_TOKEN={{.TunnelCreds.Token}}
 HPG_WG_PRIVATE_KEY={{.TunnelCreds.PrivateKey}}
 HPG_WG_LISTEN_PORT={{.TunnelCreds.ListenPort}}{{if ne .TunnelCreds.Transport "udp"}}
 HPG_TUNNEL_TRANSPORT={{.TunnelCreds.Transport}}
-HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}</textarea>
+HPG_WSTUNNEL_PORT={{.TunnelCreds.WstunnelPort}}{{end}}{{if .TunnelCreds.AdminProxyKey}}
+HPG_ADMIN_PROXY_KEY={{.TunnelCreds.AdminProxyKey}}{{end}}</textarea>
         <button type="button" data-copy-target="hpg-cred-all" class="r-btn-primary text-xs cursor-pointer self-start">Copy all</button>
       </div>
       {{if ne .TunnelCreds.Transport "udp"}}<p class="t-caption mt-1" style="color:rgb(var(--warning))">WSS node: the two extra vars are required or the agent stays UDP-only.</p>{{end}}

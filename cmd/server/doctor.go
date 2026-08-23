@@ -17,6 +17,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/config"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
@@ -59,7 +60,7 @@ func runDoctor() int {
 
 	checks = append(checks, doctorRedis(ctx, rawCfg)...)
 	checks = append(checks, doctorPorts(rawCfg)...)
-	checks = append(checks, doctorNodes(ctx, db)...)
+	checks = append(checks, doctorNodes(ctx, db, rawCfg)...)
 	checks = append(checks, doctorWireGuardHost()...)
 
 	printChecks(checks)
@@ -167,10 +168,29 @@ func doctorPorts(cfg *config.Config) []check {
 	return []check{{"port: panel bind (APP_BIND)", statusPass, addr + " is bindable"}}
 }
 
+// doctorNodeClient builds the admin client doctor probes with: authenticated
+// when the node carries an admin-proxy key, direct otherwise. A key that cannot
+// be decrypted (wrong APP_SECRET) falls back to a direct probe, which then
+// reports the 401 - that is the useful diagnostic.
+func doctorNodeClient(apiURL string, keyEnc sql.NullString, rawCfg *config.Config) *caddyapi.Client {
+	if !keyEnc.Valid || keyEnc.String == "" || rawCfg == nil || rawCfg.App.Secret == "" {
+		return caddyapi.New(apiURL)
+	}
+	state, err := installstate.New(stateDir, rawCfg.App.Secret)
+	if err != nil {
+		return caddyapi.New(apiURL)
+	}
+	key, err := state.Decrypt(keyEnc.String)
+	if err != nil || key == "" {
+		return caddyapi.New(apiURL)
+	}
+	return caddyapi.NewAuthed(apiURL, key)
+}
+
 // doctorNodes probes every enabled caddy_node: admin API reachability, the
 // last module-probe result, and (when tunnel-enabled) wstunnel health.
 // Requires a live db - degrades to a single WARN row when DB is unreachable.
-func doctorNodes(ctx context.Context, db *sql.DB) []check {
+func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check {
 	if db == nil {
 		return []check{{"caddy nodes", statusWarn, "skipped: database unreachable, cannot enumerate nodes"}}
 	}
@@ -179,7 +199,8 @@ func doctorNodes(ctx context.Context, db *sql.DB) []check {
 	defer cancel()
 	rows, err := db.QueryContext(qCtx, `
 		SELECT id, name, api_url, has_waf, has_l4, has_dns_module, has_rate_limit, has_geoip,
-		       caddy_version, modules_probed_at, tunnel_enabled, tunnel_transport, tunnel_wstunnel_healthy
+		       caddy_version, modules_probed_at, tunnel_enabled, tunnel_transport, tunnel_wstunnel_healthy,
+		       admin_proxy_key_enc
 		FROM caddy_nodes WHERE is_enabled = 1 ORDER BY id`)
 	if err != nil {
 		return []check{{"caddy nodes", statusWarn,
@@ -198,12 +219,14 @@ func doctorNodes(ctx context.Context, db *sql.DB) []check {
 		tunnelEnabled         bool
 		tunnelTransport       string
 		tunnelWstunnelHealthy sql.NullBool
+		adminProxyKeyEnc      sql.NullString
 	}
 	var nodes []node
 	for rows.Next() {
 		var n node
 		if err := rows.Scan(&n.id, &n.name, &n.apiURL, &n.hasWAF, &n.hasL4, &n.hasDNS, &n.hasRateLimit, &n.hasGeoIP,
-			&n.caddyVersion, &n.modulesProbedAt, &n.tunnelEnabled, &n.tunnelTransport, &n.tunnelWstunnelHealthy); err == nil {
+			&n.caddyVersion, &n.modulesProbedAt, &n.tunnelEnabled, &n.tunnelTransport, &n.tunnelWstunnelHealthy,
+			&n.adminProxyKeyEnc); err == nil {
 			nodes = append(nodes, n)
 		}
 	}
@@ -215,8 +238,11 @@ func doctorNodes(ctx context.Context, db *sql.DB) []check {
 	for _, n := range nodes {
 		label := fmt.Sprintf("caddy node %q", n.name)
 
+		// A node whose agent fronts the admin API answers 401 to an
+		// unauthenticated probe, so use the same key the panel does - else
+		// doctor reports a healthy node as unreachable.
 		probeCtx, pcancel := context.WithTimeout(ctx, 3*time.Second)
-		_, admErr := caddyapi.New(n.apiURL).GetRaw(probeCtx, "/config/")
+		_, admErr := doctorNodeClient(n.apiURL, n.adminProxyKeyEnc, rawCfg).GetRaw(probeCtx, "/config/")
 		pcancel()
 		if admErr != nil {
 			checks = append(checks, check{label + ": admin API", statusFail,

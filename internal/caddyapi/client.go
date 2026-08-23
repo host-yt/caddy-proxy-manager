@@ -24,6 +24,12 @@ import (
 type Client struct {
 	base string
 	hc   *http.Client
+	// auth is the bearer token sent with every request. Empty for a node whose
+	// admin API is reached directly (the historical topology, where the only
+	// gate is who can route to the port). Set when the node is fronted by its
+	// node-agent's admin proxy, which authenticates the panel before touching
+	// Caddy - see NewAuthed.
+	auth string
 }
 
 func New(adminURL string) *Client {
@@ -31,6 +37,15 @@ func New(adminURL string) *Client {
 		base: adminURL,
 		hc:   &http.Client{Timeout: 10 * time.Second},
 	}
+}
+
+// NewAuthed returns a client that authenticates to a node-agent admin proxy
+// with the per-node key the panel issued at join time. An empty token yields
+// the same client New would.
+func NewAuthed(adminURL, token string) *Client {
+	c := New(adminURL)
+	c.auth = token
+	return c
 }
 
 // Load replaces the full Caddy config atomically.
@@ -166,6 +181,7 @@ func (c *Client) GetRaw(ctx context.Context, path string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	c.authorize(req)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return nil, err
@@ -185,6 +201,7 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ct
 	if ct != "" {
 		req.Header.Set("Content-Type", ct)
 	}
+	c.authorize(req)
 	resp, err := c.hc.Do(req)
 	if err != nil {
 		return fmt.Errorf("caddy %s %s: %w", method, path, err)
@@ -197,6 +214,13 @@ func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ct
 		return fmt.Errorf("caddy %s %s: %s: %s", method, path, resp.Status, string(msg))
 	}
 	return nil
+}
+
+// authorize attaches the node-agent bearer token when this client has one.
+func (c *Client) authorize(req *http.Request) {
+	if c.auth != "" {
+		req.Header.Set("Authorization", "Bearer "+c.auth)
+	}
 }
 
 // ErrNotFound is returned by higher-level helpers when a config node is absent.

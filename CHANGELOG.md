@@ -104,6 +104,21 @@ plane, and the release process that could publish an untested image.
 
 ### Added
 
+- **A node's Caddy admin API can now be authenticated.** Caddy's admin API has
+  no authentication of its own, so publishing it on the node's WireGuard
+  address made "can route to `<wg-ip>:2019`" equivalent to root on that node -
+  every tenant on it. The node-agent can now front it: the panel presents a
+  per-node key (issued by Enable tunnel / Rotate, stored encrypted in
+  `caddy_nodes.admin_proxy_key_enc`, migration `00141`, shown once with the
+  other agent credentials), the agent compares it in constant time and enforces
+  a method+path allow-list covering exactly what the control plane does - so
+  even a leaked key cannot `POST /stop`, `/adapt`, or rewrite the node's own
+  admin config. The agent refuses to start on a wildcard bind or a key under 32
+  characters rather than serving something that only looks protected.
+  Opt-in per node (`HPG_ADMIN_PROXY_LISTEN` + `HPG_ADMIN_PROXY_KEY`); a node
+  that has not been migrated is reached directly, exactly as before. Migration
+  steps in `docs/MULTI_NODE.md`; `server doctor` probes with the key so a
+  migrated node does not read as unreachable.
 - **NPM import: dry run and a real report.** Preview runs every check (SSRF
   screening of forward hosts, duplicate domains, node availability) and writes
   nothing, so an import can be inspected first. Redirection hosts now import as
@@ -112,6 +127,12 @@ plane, and the release process that could publish an untested image.
   certificates, 404 hosts, location rules, `advanced_config`, NPM caching,
   block-common-exploits, HSTS and `preserve_path` are reported as manual with
   the nearest panel equivalent instead of being dropped silently.
+
+### Changed
+
+- `routes/service.go` (~3.4k lines) is split by concern into `service.go`,
+  `lifecycle.go`, `build.go`, `streams.go`, `push.go`, `health.go` and
+  `util.go` - same package, pure code motion, every declaration body identical.
 
 ### CI / release
 
@@ -125,7 +146,11 @@ plane, and the release process that could publish an untested image.
 - New tests for the paths a release should not ship without: the N-1 -> N
   migration applied to live data, a backup restored into an empty installation
   (quotes, NULLs, binary values, indexes), edge failover moving routes off a
-  down node and pushing the peer, and the tunneled route that must not move.
+  down node and pushing the peer, the tunneled route that must not move, a node
+  that came back without its config being re-pushed (and the sweep then
+  converging), a create refused cleanly when no node is available, a rejected
+  /load not counting as applied, and 25 concurrent creates all reaching the
+  config the node is given.
 
 ### Documentation
 
