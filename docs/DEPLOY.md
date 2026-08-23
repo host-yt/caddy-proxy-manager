@@ -276,7 +276,31 @@ Remote Caddy nodes are stateless and scale horizontally. Each node is a single C
 
 ---
 
-## 8. Upgrading
+## 8. Image tags, provenance and signatures
+
+| Tag | What it is |
+|-----|------------|
+| `vX.Y.Z`, `vX.Y` | A release tag. What production should pin. |
+| `latest` | The newest release tag. Never a plain push to `main`. |
+| `edge` / `main` | The current `main` branch. Testing only. |
+
+Every published image is built only after the CI workflow (vet, race tests,
+migrations layout, image scan) passes on that ref, and carries an SBOM plus
+max-mode SLSA provenance. The merged multi-arch manifest is signed keylessly
+with cosign, so a deployment can verify where it came from:
+
+```bash
+cosign verify ghcr.io/host-yt/caddy-proxy-manager:latest \
+  --certificate-identity-regexp '^https://github.com/host-yt/caddy-proxy-manager/' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+Inspect what shipped with `docker buildx imagetools inspect <image> --format '{{json .SBOM}}'`
+and `--format '{{json .Provenance}}'`.
+
+---
+
+## 9. Upgrading
 
 > **If you run more than one `app` replica: this must be a non-rolling cutover, not a rolling deploy.**
 > An old `app` binary ignores the `Restricted`/`Epoch` session fields a confined admin's session

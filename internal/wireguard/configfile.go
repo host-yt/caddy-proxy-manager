@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // ConfigWriter renders /config/wg0.conf for the WG sidecar.
@@ -83,7 +85,9 @@ func (cw *ConfigWriter) Render(ctx context.Context, db *sql.DB, cp ControlPlane)
 	sort.Slice(peers, func(i, j int) bool { return peers[i].id < peers[j].id })
 
 	for _, p := range peers {
-		fmt.Fprintf(&b, "# Node #%d (%s)\n", p.id, p.name)
+		// Sanitized: a stored name carrying CR/LF would otherwise append
+		// arbitrary directives to wg0.conf (NODE-02).
+		fmt.Fprintf(&b, "# Node #%d (%s)\n", p.id, security.SanitizeConfigComment(p.name))
 		b.WriteString("[Peer]\n")
 		fmt.Fprintf(&b, "PublicKey  = %s\n", p.pubKey)
 		fmt.Fprintf(&b, "AllowedIPs = %s/32\n", p.wgIP)

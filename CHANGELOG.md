@@ -4,6 +4,170 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+Stabilization pass over the findings from an external review: the tenant
+boundaries on the node-facing endpoints, the two write races in the control
+plane, and the release process that could publish an untested image.
+
+### Security
+
+- **A node token could poison another node's - or another tenant's - access
+  logs.** `/internal/access-log` authenticated the per-node agent token and
+  then resolved the route globally by domain (`SELECT id FROM routes WHERE
+  domain = ? LIMIT 1`). A stolen or compromised node token could therefore
+  write request history onto routes served by other nodes and other customers,
+  and a domain with several path-routed routes had its lines attributed to
+  whichever row `LIMIT 1` happened to return. Authentication now yields the
+  node id, and every batch is attributed through an index of the routes that
+  node actually serves - anchor placement plus `route_node_assignments` fan-out
+  peers, primary domain plus proven aliases, longest matching `path_prefix`
+  first. A line for a host the node does not serve is dropped.
+- **mTLS path RBAC trusted the caller's header behind an IP allow-list.**
+  `/internal/mtls-rbac/{route_id}` took the client-certificate subject from
+  `X-Mtls-Subject` and gated the caller with an allow-list spanning the whole
+  WireGuard mesh plus every configured trusted proxy, so any host that reached
+  that network layer could query the RBAC oracle for arbitrary routes and
+  subjects. The panel now writes `HMAC-SHA256(HKDF(APP_SECRET, "mtls-rbac"),
+  node||route)` into exactly one node's Caddy config; the check verifies it in
+  constant time and re-reads placement from the database, so a token minted for
+  another route - or for a node the route has since moved off - is refused.
+  `MTLS_RBAC_ALLOW_UNSIGNED=1` keeps token-less checks working during the
+  upgrade window (the boot push stamps the token in immediately) and warns on
+  every request it lets through.
+- **Purpose-scoped encryption was separated in name only.** `Scoped(purpose)`
+  derived a per-purpose sub-key, but `Decrypt` took the purpose from inside the
+  ciphertext envelope, so a value sealed for one domain decrypted cleanly for a
+  consumer of another. A scoped manager now requires the envelope's purpose to
+  match its own; legacy pre-v2 ciphertext stays readable, and route secrets -
+  sealed scoped but read unscoped - now decrypt through their own scope.
+- **A node name could inject WireGuard directives.** `caddy_nodes.name` is
+  rendered into `wg0.conf` as `# Node #<id> (<name>)`; a name containing CR/LF
+  ended the comment and could append arbitrary directives, including a `[Peer]`
+  block with `AllowedIPs 0.0.0.0/0`. Names are validated on every write path
+  (admin form, v1 API, install wizard, join-token name hint) and sanitized
+  again where they are rendered, so a row written before this cannot inject
+  either. A join token whose stored hint fails validation falls back to the
+  derived `node-<wg-ip>` name.
+- **Argon2 parameters were taken from the stored hash unchecked.** A corrupt
+  row or an imported hash could ask one login attempt to allocate gigabytes,
+  and `t=0`/`p=0` panics inside `argon2.IDKey`. Parameters, salt length and
+  hash length are now range-checked, and a malformed hash is reported as such
+  rather than as a password mismatch.
+- **`SESSION_COOKIE_SECURE_STRICT`** (new) keeps `Secure` on for an HTTPS-only
+  deployment. `Secure` is still dropped for requests that do not look like
+  HTTPS - that is what keeps first-run access over `http://<ip>` working - but
+  a TLS proxy that forgets `X-Forwarded-Proto` was silently disabling it for
+  every request. The downgrade now logs once per process.
+- **The NPM import upload was unbounded.** `ParseMultipartForm`'s argument caps
+  only what is held in memory; the rest spills to a temp file. The request body
+  is capped before parsing and the spill file is removed with the request.
+
+### Fixed
+
+- **An older config snapshot could overwrite a newer one.** A full push built
+  the node's config *before* taking the per-node lock, so two writers could
+  interleave as: A builds generation 10, B mutates and pushes generation 11, A
+  finally gets the lock and `/load`s its generation-10 snapshot - silently
+  reverting B. The build now happens under the lock, and each node carries a
+  config generation: a change that lands while a push is in flight triggers an
+  immediate rebuild instead of leaving the node on the snapshot just applied.
+  (The counters are per process; serializing pushes across several `app`
+  replicas still needs the generation in the database.)
+- **A node could be pushed past `max_routes`.** Placement read
+  `current_routes < max_routes` and incremented the counter later, so
+  concurrent creates handed out the same last free slot. The increment is now a
+  conditional `UPDATE` inside the insert transaction; single-mode placement
+  re-places onto another node with room, a fan-out peer that filled up is
+  skipped rather than oversubscribed, and callers get a retryable error. A test
+  runs 40 concurrent creates against a node capped at 10 and asserts exactly 10
+  land - it counted 13 before the fix.
+- **About one API key in eight was dead on arrival.** `VerifyAPIKey` split the
+  token on `_` to separate the 8-character prefix from the secret, but the
+  prefix is base64url and can contain `_`. Those keys were rejected from the
+  moment they were issued, with the same error as a forged token. Parsing is
+  now positional, matching what the rate-limit middleware already did.
+- **WAF events from active-active peers lost their route.** The WAF route index
+  selected only routes anchored on the ingesting node, so a peer serving the
+  route through `route_node_assignments` produced events with a NULL
+  `route_id`, dropping them out of the per-route view, scoped-admin visibility
+  and per-route pruning. Verified aliases had the same gap.
+- **Idempotency reservations failed open.** Any INSERT error was read as "the
+  key already exists", and a failed follow-up lookup then ran the handler
+  unprotected - executing the very mutation the caller asked to be deduped, and
+  again on each retry. Only a unique-key violation now means an existing entry;
+  anything else answers 503 without running the handler, and an expired
+  colliding row is reclaimed with a conditional update so exactly one racing
+  request owns the key.
+- **Rate-limit counters could stick forever.** `INCR` and `EXPIRE` were two
+  commands; a counter incremented while the `EXPIRE` was lost kept its value
+  and rate limited that IP or API key permanently. Both limiters now use one
+  atomic script that sets the TTL on first use.
+
+### Added
+
+- **A node's Caddy admin API can now be authenticated.** Caddy's admin API has
+  no authentication of its own, so publishing it on the node's WireGuard
+  address made "can route to `<wg-ip>:2019`" equivalent to root on that node -
+  every tenant on it. The node-agent can now front it: the panel presents a
+  per-node key (issued by Enable tunnel / Rotate, stored encrypted in
+  `caddy_nodes.admin_proxy_key_enc`, migration `00141`, shown once with the
+  other agent credentials), the agent compares it in constant time and enforces
+  a method+path allow-list covering exactly what the control plane does - so
+  even a leaked key cannot `POST /stop`, `/adapt`, or rewrite the node's own
+  admin config. The agent refuses to start on a wildcard bind or a key under 32
+  characters rather than serving something that only looks protected.
+  Opt-in per node (`HPG_ADMIN_PROXY_LISTEN` + `HPG_ADMIN_PROXY_KEY`); a node
+  that has not been migrated is reached directly, exactly as before. Migration
+  steps in `docs/MULTI_NODE.md`; `server doctor` probes with the key so a
+  migrated node does not read as unreachable.
+- **NPM import: dry run and a real report.** Preview runs every check (SSRF
+  screening of forward hosts, duplicate domains, node availability) and writes
+  nothing, so an import can be inspected first. Redirection hosts now import as
+  redirect routes. The response is a per-entry report - imported / skipped /
+  manual, each with a reason - and streams, access lists, non-ACME
+  certificates, 404 hosts, location rules, `advanced_config`, NPM caching,
+  block-common-exploits, HSTS and `preserve_path` are reported as manual with
+  the nearest panel equivalent instead of being dropped silently.
+
+### Changed
+
+- `routes/service.go` (~3.4k lines) is split by concern into `service.go`,
+  `lifecycle.go`, `build.go`, `streams.go`, `push.go`, `health.go` and
+  `util.go` - same package, pure code motion, every declaration body identical.
+
+### CI / release
+
+- Release now gates every image build on the CI workflow, so nothing publishes
+  from a ref that failed vet, race tests, the migrations-layout check or the
+  image scan. `latest` tracks release tags only; a push to `main` publishes
+  `edge`. Each per-arch build attaches an SBOM and max-mode provenance, and the
+  merged manifest is signed keylessly with cosign. CI builds the app image and
+  fails on fixable HIGH/CRITICAL findings. Still open: pinning actions to
+  commit SHAs, and branch protection on `main` (a repository setting).
+- New tests for the paths a release should not ship without: the N-1 -> N
+  migration applied to live data, a backup restored into an empty installation
+  (quotes, NULLs, binary values, indexes), edge failover moving routes off a
+  down node and pushing the peer, the tunneled route that must not move, a node
+  that came back without its config being re-pushed (and the sweep then
+  converging), a create refused cleanly when no node is available, a rejected
+  /load not counting as applied, and 25 concurrent creates all reaching the
+  config the node is given.
+
+### Documentation
+
+- `docs/SECURITY.md`: node-ingest attribution and the RBAC check token; the
+  stale "API keys are not authorization-epoch checked" limitation is gone (it
+  was fixed in 1.4.6).
+- `docs/DEPLOY.md`: what each image tag means, and the `cosign verify` command.
+- `docs/ROUTES.md`: what the NPM import carries over and what it cannot.
+- `docs/ARCHITECTURE.md` described `internal/queue` as a Redis-backed asynq job
+  queue; the package held one `doc.go` and asynq is not a dependency. The stub
+  is gone and the section describes what actually runs deferred work.
+  `internal/ai`, an unreferenced second provider stack duplicating
+  `internal/aichat`, is deleted.
+- README gains a maturity table (stable / beta / experimental per area,
+  including the single-writer caveat on the config push) and no longer states a
+  migration count that had drifted.
+
 ## [1.4.7] - 2026-08-07
 
 Three bugs reported against 1.4.6, all in the Caddy configuration the panel generates.

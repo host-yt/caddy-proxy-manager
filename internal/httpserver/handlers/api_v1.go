@@ -595,6 +595,8 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusConflict, "domain already mapped")
 		case errors.Is(err, routes.ErrNoNodeFound):
 			apiErr(w, http.StatusConflict, "no node available")
+		case errors.Is(err, routes.ErrNodeAtCapacity):
+			apiErr(w, http.StatusConflict, "node reached max_routes while creating; retry")
 		case errors.Is(err, routes.ErrMaxDomains):
 			apiErr(w, http.StatusConflict, "plan domain limit reached")
 		default:
@@ -767,6 +769,10 @@ func (h *APIHandlers) NodeCreate(w http.ResponseWriter, r *http.Request) {
 	// Screen the node admin URL (API-03). Nodes live on the private WG mesh so
 	// RFC1918/hostnames are allowed by design; block only a literal-IP host in
 	// the loopback/link-local/metadata ranges (node-local admin / SSRF probe).
+	if !security.ValidNodeName(in.Name) {
+		apiErr(w, http.StatusBadRequest, "name must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric")
+		return
+	}
 	if u, perr := url.Parse(in.APIURL); perr != nil || (u.Scheme != "http" && u.Scheme != "https") {
 		apiErr(w, http.StatusBadRequest, "api_url must be a valid http(s) URL")
 		return

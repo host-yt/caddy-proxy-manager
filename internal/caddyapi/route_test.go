@@ -907,3 +907,33 @@ func TestSplitCIDRListStrictKeepsInvalid(t *testing.T) {
 		}
 	}
 }
+
+// TestBuildMTLSRBAC_CarriesNodeToken proves the forward_auth subrequest carries
+// the panel-issued (node, route) check token, so the panel can refuse RBAC
+// checks from anything but the node the route is placed on (MTLS-01).
+func TestBuildMTLSRBAC_CarriesNodeToken(t *testing.T) {
+	r := Route{
+		ID:            "42",
+		PanelBaseURL:  "http://app:8080",
+		MTLSPathRules: []MTLSPathRule{{PathPattern: "/*", RequiredRole: "admin"}},
+		RBACNodeID:    3,
+		RBACToken:     "tok-abc",
+	}
+	blob, err := json.Marshal(buildMTLSRBAC(r))
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	js := string(blob)
+	for _, want := range []string{`"X-Hpg-Rbac-Token":["tok-abc"]`, `"X-Hpg-Node":["3"]`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("rbac handler missing %s in %s", want, js)
+		}
+	}
+
+	// No token issued (key unset): headers must be absent, not empty.
+	r.RBACToken, r.RBACNodeID = "", 0
+	blob, _ = json.Marshal(buildMTLSRBAC(r))
+	if strings.Contains(string(blob), "X-Hpg-Rbac-Token") {
+		t.Error("token header emitted without a token")
+	}
+}

@@ -14,6 +14,7 @@ Primary threats considered:
 | Config injection to Caddy | Panel is the only writer to Caddy Admin API; nodes are firewalled behind WireGuard; raw custom handler JSON is allow-listed and a failing chain is quarantined behind a 503 |
 | Reaching the node control plane through tenant config | Custom-handler allow-list (no `reverse_proxy`/`templates`, no env/file placeholders); L4 stream destinations screened against an infrastructure deny set incl. port 2019 - see "Caddy Admin API - known limitation" |
 | Hostname takeover (claiming someone else's domain) | Per-route and **per-alias** DNS-TXT proof at `_hpg-verify.<host>`; unproven hosts are neither emitted into the host matcher nor certificate-eligible - see [ROUTES.md](ROUTES.md) |
+| Compromised node agent poisoning other tenants' data | Node ingest (access log, WAF) attributes only to routes that node serves; mTLS RBAC checks need a panel-issued per-(node, route) token - see "Node ingest endpoints" |
 | Supply chain / binary tampering | Single static Go binary; no runtime plugins; module flags disable non-stock blocks |
 | Secrets at rest | AES-256-GCM for WG private keys and DB credentials in install state; `APP_SECRET` ≥ 32 chars enforced |
 
@@ -122,11 +123,11 @@ Redis session purging still runs, but it is an optimisation. The epoch is the
 durable half: if the purge fails or a replica has the session cached, the next
 request still fails the epoch check.
 
-**Scope limit:** API keys are *not* epoch-checked. Key validity comes from
-`api_keys.revoked_at` / `expires_at` and the per-request `role` lookup. The
-password-reset path compensates by revoking a user's keys explicitly. Revoking
-an operator's access therefore means revoking their API keys as well as changing
-their role.
+API keys are epoch-checked too (since 1.4.6, migration `00139`): a key carries
+the owner's epoch from issue time, the lookup joins `users`, and any epoch bump,
+`is_active = 0` or a deleted owner denies on the next request. Revoking an
+operator's access therefore takes their API keys with it - though issuing them a
+fresh key after a legitimate role change is then a deliberate step.
 
 ---
 
@@ -256,6 +257,50 @@ extra module needed. When enabled on a route:
 - `MTLS_AVAILABLE` is a UI feature flag only (whether the option is offered),
   not a functional gate - see `docs/MTLS.md`
 
+### Path RBAC checks (`/internal/mtls-rbac/{route_id}`)
+
+Routes with mTLS path rules run a Caddy `forward_auth` subrequest against the
+panel. The subrequest carries the client-certificate subject in a header the
+node sets, so the endpoint must be sure the caller is a node the route is
+actually placed on - reaching it from somewhere inside the mesh CIDR or from a
+configured trusted proxy is not proof of that.
+
+Each check therefore carries a panel-issued token:
+
+- the token is `HMAC-SHA256(HKDF(APP_SECRET, "mtls-rbac"), node_id || route_id)`,
+  written into **one** node's Caddy config next to the route it belongs to;
+- the panel verifies it in constant time and then re-reads placement from the
+  database, so a route that moved to another node stops being checkable from the
+  old one without waiting for a config push;
+- a check with no token, a token minted for another route, or a token from a
+  node that no longer serves the route is refused with 403.
+
+`MTLS_RBAC_ALLOW_UNSIGNED=1` accepts token-less checks. It exists only for the
+upgrade window on a fleet whose pushed config predates signed checks (the next
+push adds the token) and logs a warning on every accepted request; leaving it on
+keeps the old "anyone on the mesh may query the RBAC oracle" trust model.
+
+---
+
+## Node ingest endpoints
+
+Node agents authenticate with their per-node token (`caddy_nodes.agent_token_hash`,
+SHA-256, header only - never a query string). Authentication alone is not
+attribution: what a node may *write about* is scoped to the routes that node
+serves, which is the anchor placement plus any active-active fan-out peer in
+`route_node_assignments`.
+
+- **Access log** (`POST /internal/access-log`): each batch resolves against an
+  index of the authenticated node's own routes. Hosts match the primary domain
+  and proven aliases only, and the longest matching `path_prefix` wins, so
+  several path-routed routes on one domain are told apart. A line for a host
+  the node does not serve is dropped, never attributed elsewhere.
+- **WAF events** (`POST /api/node/waf/events`): same index, same rules; a
+  client-supplied `route_id` is ignored and resolved server-side.
+
+The property both uphold: a stolen node token can lie about that node's own
+traffic, and cannot touch another node's or another tenant's history.
+
 ---
 
 ## WAF
@@ -328,12 +373,40 @@ The mitigations are the custom-handler allow-list
 stream infrastructure deny set (above). Both are compensating controls. They
 narrow the paths that reach the admin API; they do not authenticate it.
 
-**Outstanding work.** Either mTLS on the admin API (Caddy's `admin.identity` +
-`admin.remote`, so the panel authenticates with a client certificate and the API
-refuses anything else) or genuine network isolation of the admin API from the
-data plane. Until one of those lands, treat reachability of `<wg_ip>:2019` as
-equivalent to root on that node, and keep the control-plane mesh restricted
-accordingly.
+### Closing it per node: the agent's admin proxy
+
+A node can now put its node-agent in front of the admin API, so reaching a port
+is no longer authorization:
+
+```
+panel ──(bearer key, over the WG mesh)──▶ node-agent ──(127.0.0.1)──▶ Caddy admin API
+```
+
+- The key is per node, generated by **Enable tunnel** / **Rotate**
+  (`/admin/nodes/{id}/tunnel/enable`), stored encrypted in
+  `caddy_nodes.admin_proxy_key_enc`, and shown once with the other agent
+  credentials. The panel sends it as a bearer token on every admin call; the
+  agent compares it in constant time.
+- The agent also enforces a method+path allow-list covering exactly what the
+  control plane does - `POST /load`, `GET /config/...`, `POST /config/.../routes`,
+  `PATCH`/`DELETE` on `/config/...` and `/id/route_<n>`, `POST /souin-api/...`.
+  A leaked key therefore still cannot `POST /stop`, `/adapt`, or rewrite the
+  node's own admin configuration.
+- It refuses to start bound to `0.0.0.0`, and refuses a key shorter than 32
+  characters, rather than serving something that only looks authenticated.
+
+Turning it on is per node and opt-in (`HPG_ADMIN_PROXY_LISTEN` +
+`HPG_ADMIN_PROXY_KEY` on the agent, then point the node's API URL at the agent
+and re-bind Caddy's admin to `127.0.0.1`) - see
+[MULTI_NODE.md](MULTI_NODE.md#12-authenticating-the-nodes-admin-api). A node
+without the key is reached directly, exactly as before.
+
+**Still outstanding.** Until a node is migrated, treat reachability of
+`<wg_ip>:2019` as equivalent to root on that node and keep the control-plane
+mesh restricted accordingly. Caddy's own `admin.identity` + `admin.remote`
+(mTLS between panel and node, no proxy in between) remains the stronger end
+state; the agent proxy is what gets authentication in front of the API today
+without changing how nodes are deployed.
 
 ---
 
@@ -341,11 +414,11 @@ accordingly.
 
 - No row-level encryption on route records (hostnames, upstreams stored plaintext in MariaDB)
 - OIDC provider tokens are not revocation-checked after initial login
-- **Caddy Admin API has no authentication at all**; security depends entirely on
-  who can reach `:2019` (see the section above). mTLS (`admin.identity` +
-  `admin.remote`) or isolating it from the data plane is outstanding work
-- API keys are not authorization-epoch checked; revoke the key explicitly when
-  revoking a user's access
+- **Caddy Admin API has no authentication of its own.** A node whose agent
+  fronts it (see above) is authenticated by the panel-issued key; a node that
+  has not been migrated still depends entirely on who can reach `:2019`
+- API keys are bound to the owner's authorization epoch and `is_active`, so a
+  privilege change or disable invalidates them on the next request (1.4.6)
 - A quarantined L4 stream cannot be released from the panel; it must be
   recreated or cleared in the database
 - City-level GeoIP is not loaded but Country-level data is processed

@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io/fs"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -90,6 +92,11 @@ func (i *memFileInfo) Sys() any           { return nil }
 // migrations/*.sql files (root dir = "migrations").
 // AllowMissing lets out-of-order migrations (added retroactively) be applied.
 func RunMigrations(ctx context.Context, db *sql.DB, fsys embed.FS, dir string) error {
+	return runMigrations(ctx, db, fsys, dir, 0)
+}
+
+// runMigrations is the shared implementation: upTo == 0 means "all pending".
+func runMigrations(ctx context.Context, db *sql.DB, fsys embed.FS, dir string, upTo int64) error {
 	subFS, err := fs.Sub(fsys, dir)
 	if err != nil {
 		return fmt.Errorf("migrations sub-fs: %w", err)
@@ -130,8 +137,53 @@ func RunMigrations(ctx context.Context, db *sql.DB, fsys embed.FS, dir string) e
 		defer func() { _, _ = conn.ExecContext(context.Background(), "DO RELEASE_LOCK('hpg_goose_migrate')") }()
 	}
 
+	if upTo > 0 {
+		if _, err := p.UpTo(ctx, upTo); err != nil {
+			return fmt.Errorf("goose up-to %d: %w", upTo, err)
+		}
+		return nil
+	}
 	if _, err := p.Up(ctx); err != nil {
 		return fmt.Errorf("goose up: %w", err)
 	}
 	return nil
+}
+
+// MigrateUpTo applies migrations only as far as version, leaving anything newer
+// pending. Used to stand up an "as of release N-1" schema so the upgrade to N
+// can be exercised the way a real upgrade runs it - a full apply from empty
+// never touches that path.
+func MigrateUpTo(ctx context.Context, db *sql.DB, fsys embed.FS, dir string, version int64) error {
+	return runMigrations(ctx, db, fsys, dir, version)
+}
+
+// LatestMigrationVersion returns the highest version present in the embedded
+// migration set.
+func LatestMigrationVersion(fsys embed.FS, dir string) (int64, error) {
+	entries, err := fs.ReadDir(fsys, dir)
+	if err != nil {
+		return 0, err
+	}
+	var latest int64
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasSuffix(name, ".sql") {
+			continue
+		}
+		num, _, ok := strings.Cut(name, "_")
+		if !ok {
+			continue
+		}
+		v, err := strconv.ParseInt(num, 10, 64)
+		if err != nil {
+			continue
+		}
+		if v > latest {
+			latest = v
+		}
+	}
+	if latest == 0 {
+		return 0, fmt.Errorf("no migrations found in %s", dir)
+	}
+	return latest, nil
 }

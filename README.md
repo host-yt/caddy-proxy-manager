@@ -151,6 +151,30 @@ claim either way - check the project's own docs before relying on it.
 
 ---
 
+## Maturity
+
+The feature list is wide; the exercise these features have had is not uniform.
+This table says what to trust with customer traffic today.
+
+| Area | Status | What that means |
+|------|--------|-----------------|
+| HTTP/HTTPS reverse proxy, ACME certs | **Stable** | The core path. Covered by tests and by every install. |
+| Multi-tenant clients, plans, quotas | **Stable** | Ownership and limits are enforced at a single choke point. |
+| Admin panel, audit log, REST API | **Stable** | |
+| WireGuard node mesh + customer tunnels | **Beta** | Works, but node join/rotation has had less field exposure than the proxy path. |
+| Multi-node placement, node groups | **Beta** | Capacity claims are atomic; cross-replica coordination is still single-writer per process. |
+| Automatic failover, DNS steering | **Beta** | Exercised in tests, not yet across a long-running fleet. |
+| WAF, L4 streams, GeoIP, HTTP cache | **Beta** | Each needs a custom Caddy module on every node; flipping the gate before the fleet is upgraded takes nodes offline. |
+| Manual TLS certs, mTLS + path RBAC | **Beta** | |
+| NPM import, instance sync | **Experimental** | Import has a dry run that reports exactly what it would create and what needs manual work. Review it before committing. |
+| AI assistant | **Experimental** | Optional; off by default. Not on any path that serves traffic. |
+| Backup/restore | **Beta** | Restore is drilled by CLI; practice it on your own data before relying on it. |
+
+Running several `app` replicas is supported for availability, but the config
+push serializes per process, so treat the control plane as single-writer.
+
+---
+
 ## Quick start (single host)
 
 ```bash
@@ -185,6 +209,47 @@ Full guide: [docs/MULTI_NODE.md](docs/MULTI_NODE.md).
 
 ---
 
+## See it work: one customer, two nodes, a failover
+
+Roughly 15 minutes on two cheap VPSes, and it exercises the parts that are
+specific to this project rather than to any proxy panel.
+
+**1. Add a customer.** Admin → Clients → **New client**. Give it a plan
+(Admin → Plans) with a domain limit and a port range; that plan is what the
+customer is held to later, in the panel and over the API alike.
+
+**2. Join a second edge node.** Admin → Caddy nodes → **Auto-join** →
+*Generate join command*, run the one-liner on the VPS as root. It joins the
+WireGuard mesh and registers itself - and then waits: a node is not eligible
+for placement until you approve it (Admin → Caddy nodes → **Approve**, after
+matching the fingerprint the installer printed). A stolen join token alone
+never starts carrying customer traffic.
+
+**3. Reach a private backend.** The customer's app does not need a public IP.
+Admin → the node's **Tunnel** modal → *Enable tunnel*, then Clients → the
+customer → **WireGuard peers** → add a peer and run the printed installer on
+the backend host. The backend now has a tunnel address on that node and
+nothing exposed to the internet.
+
+**4. Publish a domain.** Admin → Hosts → **Add host**: domain, the tunnel peer
+as the backend, port. Point the domain's DNS at the node. Caddy issues the
+certificate on demand; the host page shows DNS, certificate and live requests.
+
+**5. Take the node down.** `docker compose stop caddy` on that VPS (or pull the
+node's plug). Health probing marks it `down`; after the grace window automatic
+failover moves its routes to a healthy peer in the same group and pushes the
+config there, and the owning customer is notified.
+
+**6. Watch it come back.** Start the node again. It is re-pushed from the
+database rather than trusted to have kept its own config, so it returns
+serving exactly what the panel says it should.
+
+Two things worth noticing on the way: **Admin → Audit log** has every step with
+actor and IP, and the same six steps are available over the REST API and the
+Terraform provider - the panel is not the only entry point.
+
+---
+
 ## Repository map
 
 ```
@@ -192,8 +257,7 @@ cmd/server/         entrypoint (thin)
 internal/
   accesslog/        access log ingest, rollups, country/ASN enrichment
   adminscope/       non-super-admin client scope enforcement
-  ai/               multi-provider AI client (Anthropic, OpenAI, Gemini, OpenRouter)
-  aichat/           chat session storage and SSE streaming handler
+  aichat/           multi-provider AI client (Anthropic, OpenAI, Gemini, OpenRouter) + SSE streaming
   aitools/          scoped read-only DB tool-calling for AI assistant
   alert/            alert rule evaluation and notification dispatch
   audit/            audit-log writer (actor, IP, impersonator, timestamp)
@@ -232,7 +296,7 @@ deploy/
   caddy/                Caddy node image (xcaddy with cache-handler + L4 modules)
   remote-node/          drop-in compose for an external Caddy node
   wireguard/            WG sidecar image (alpine + wg-tools + watch loop)
-migrations/             115 goose .sql files (auto-applied on boot)
+migrations/             goose .sql files (auto-applied on boot)
 scripts/                node-join.sh - bash bootstrap for remote nodes
 docs/                   all the docs you'll find linked below
 ```
@@ -272,7 +336,7 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 > generation serves, and older
 > replicas stop serving (503, existing connections included) and shut down.
 > Downgrades still need a full stop. See "Upgrading" in
-> [`docs/DEPLOY.md`](docs/DEPLOY.md#8-upgrading).
+> [`docs/DEPLOY.md`](docs/DEPLOY.md#9-upgrading).
 
 | Doc | What's in it |
 | --- | ------------ |

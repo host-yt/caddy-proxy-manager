@@ -19,6 +19,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/deployment"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
@@ -785,6 +786,11 @@ func (w *Wizard) CaddySubmit(rw http.ResponseWriter, r *http.Request) {
 	}
 	if form.Name == "" || form.APIURL == "" || form.PublicHostname == "" {
 		w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Name, API URL, and public hostname are required."))
+		return
+	}
+	// The name is rendered into wg0.conf comments; keep it a plain token.
+	if !security.ValidNodeName(form.Name) {
+		w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Name must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric."))
 		return
 	}
 

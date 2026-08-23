@@ -299,28 +299,56 @@ type wafRouteEntry struct {
 // so a whole batch resolves in memory instead of one SQL query per event.
 type wafRouteIndex map[string][]wafRouteEntry
 
-// loadRouteIndex loads every non-disabled route served by nodeID in one query.
-// nodeID-scoped so a node can never attribute events to another node's routes.
+// splitVerifiedAliases splits routes.aliases_verified (comma / whitespace).
+func splitVerifiedAliases(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.FieldsFunc(s, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == ';'
+	})
+}
+
+// loadRouteIndex loads every non-disabled route served by nodeID in one query:
+// the anchor placement plus every active-active fan-out peer. nodeID-scoped so
+// a node can never attribute events to another node's routes, and fan-out aware
+// so a peer serving the route does not lose attribution (events would otherwise
+// land with a NULL route_id).
 func (h *NodeWAFIngestHandler) loadRouteIndex(ctx context.Context, nodeID int64) (wafRouteIndex, error) {
 	db := h.DB()
 	if db == nil {
 		return wafRouteIndex{}, nil
 	}
-	rows, err := db.QueryContext(ctx,
-		`SELECT id, LOWER(domain), COALESCE(path_prefix,'') FROM routes
-		   WHERE caddy_node_id = ? AND status <> 'disabled'`, nodeID)
+	rows, err := db.QueryContext(ctx, `
+		SELECT r.id, LOWER(r.domain), COALESCE(r.path_prefix,''), COALESCE(r.aliases_verified,'')
+		  FROM routes r
+		 WHERE r.status <> 'disabled'
+		   AND (r.caddy_node_id = ?
+		        OR EXISTS (SELECT 1 FROM route_node_assignments rna
+		                    WHERE rna.route_id = r.id AND rna.node_id = ?))`, nodeID, nodeID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	idx := wafRouteIndex{}
+	add := func(host string, ent wafRouteEntry) {
+		host = strings.ToLower(strings.TrimSpace(host))
+		if host != "" {
+			idx[host] = append(idx[host], ent)
+		}
+	}
 	for rows.Next() {
 		var ent wafRouteEntry
-		var dom string
-		if rows.Scan(&ent.id, &dom, &ent.prefix) != nil {
+		var dom, aliases string
+		if rows.Scan(&ent.id, &dom, &ent.prefix, &aliases) != nil {
 			continue
 		}
-		idx[dom] = append(idx[dom], ent)
+		add(dom, ent)
+		// Proven aliases share the route's host matcher, so events arriving
+		// under one belong to the same route.
+		for _, a := range splitVerifiedAliases(aliases) {
+			add(a, ent)
+		}
 	}
 	// Longest prefix first preserves the old ORDER BY CHAR_LENGTH(...) DESC pick.
 	for _, list := range idx {

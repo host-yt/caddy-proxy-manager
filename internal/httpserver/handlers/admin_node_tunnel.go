@@ -27,6 +27,10 @@ type tunnelCreds struct {
 	ListenPort   int    `json:"port"`
 	Transport    string `json:"transport"`     // udp|wss|auto
 	WstunnelPort int    `json:"wstunnel_port"` // 0 = none
+	// AdminProxyKey authenticates the panel to this node's agent when the
+	// agent fronts the Caddy admin API (HPG_ADMIN_PROXY_KEY). Shown once,
+	// alongside the node token, because both live in the agent's environment.
+	AdminProxyKey string `json:"admin_proxy_key"`
 }
 
 // resyncTunnelNode pushes the node's full Caddy config in the background after
@@ -89,35 +93,49 @@ func (h *AdminHandlers) fetchTunnelCreds(ctx context.Context, nonce string) *tun
 // applyTunnelEnableFirstTime generates keypair + agent token, persists
 // them on the node row, and returns (token, privateKey, error). Shared
 // between first-time Enable and the explicit Rotate flow.
-func (h *AdminHandlers) applyTunnelEnableFirstTime(ctx context.Context, nodeID int64, listenPort int, endpoint, subnet, transport string, wstPort any) (string, string, error) {
+func (h *AdminHandlers) applyTunnelEnableFirstTime(ctx context.Context, nodeID int64, listenPort int, endpoint, subnet, transport string, wstPort any) (string, string, string, error) {
 	kp, err := wireguard.GenerateKeypair()
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	encPriv, err := h.encryptSetting(kp.PrivateKey)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	var rawToken [32]byte
 	if _, err := rand.Read(rawToken[:]); err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	token := hex.EncodeToString(rawToken[:])
 	sum := sha256.Sum256([]byte(token))
 	tokenHash := hex.EncodeToString(sum[:])
+
+	// Key for the agent's admin proxy. Issued with the agent's own credentials
+	// because it lives in the same environment; the panel keeps it encrypted
+	// and sends it as a bearer token, so unlike the node token it cannot be a
+	// hash here. A node whose agent does not run the proxy simply never uses it.
+	var rawProxyKey [32]byte
+	if _, err := rand.Read(rawProxyKey[:]); err != nil {
+		return "", "", "", err
+	}
+	proxyKey := hex.EncodeToString(rawProxyKey[:])
+	encProxyKey, err := h.encryptSetting(proxyKey)
+	if err != nil {
+		return "", "", "", err
+	}
 
 	_, err = h.DB().ExecContext(ctx,
 		`UPDATE caddy_nodes
 		   SET tunnel_enabled = 1, tunnel_listen_port = ?, tunnel_endpoint = ?,
 		       tunnel_subnet = ?, tunnel_transport = ?, tunnel_wstunnel_port = ?,
 		       tunnel_pubkey = ?, tunnel_privkey_e2 = ?,
-		       agent_token_hash = ?, tunnel_next_octet = 2
+		       agent_token_hash = ?, admin_proxy_key_enc = ?, tunnel_next_octet = 2
 		 WHERE id = ?`,
-		listenPort, endpoint, subnet, transport, wstPort, kp.PublicKey, []byte(encPriv), tokenHash, nodeID)
+		listenPort, endpoint, subnet, transport, wstPort, kp.PublicKey, []byte(encPriv), tokenHash, encProxyKey, nodeID)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return token, kp.PrivateKey, nil
+	return token, kp.PrivateKey, proxyKey, nil
 }
 
 // parseTransport reads transport + wstunnel port from the form and enforces the
@@ -207,7 +225,7 @@ func (h *AdminHandlers) NodeTunnelEnable(w http.ResponseWriter, r *http.Request)
 	sess := middleware.SessionFromContext(r.Context())
 
 	if existingPubkey == "" {
-		token, privKey, err := h.applyTunnelEnableFirstTime(ctx, id, listenPort, endpoint, subnet, transport, wstPort)
+		token, privKey, proxyKey, err := h.applyTunnelEnableFirstTime(ctx, id, listenPort, endpoint, subnet, transport, wstPort)
 		if err != nil {
 			redirectWithFlash(w, r, "/admin/nodes", "", "save failed: "+sanitizeErr(err))
 			return
@@ -222,7 +240,7 @@ func (h *AdminHandlers) NodeTunnelEnable(w http.ResponseWriter, r *http.Request)
 		h.resyncTunnelNode(id)
 		nonce := h.stashTunnelCreds(ctx, tunnelCreds{
 			NodeID: id, Token: token, PrivateKey: privKey, ListenPort: listenPort,
-			Transport: transport, WstunnelPort: wstPortInt,
+			Transport: transport, WstunnelPort: wstPortInt, AdminProxyKey: proxyKey,
 		})
 		if nonce != "" {
 			http.Redirect(w, r, "/admin/nodes?show_creds="+nonce, http.StatusSeeOther)
@@ -303,7 +321,7 @@ func (h *AdminHandlers) NodeTunnelRotate(w http.ResponseWriter, r *http.Request)
 	if wstPortDB.Valid {
 		wstArg = wstPortDB.Int64
 	}
-	token, privKey, err := h.applyTunnelEnableFirstTime(ctx, id, port, endpoint.String, subnet.String, tr, wstArg)
+	token, privKey, proxyKey, err := h.applyTunnelEnableFirstTime(ctx, id, port, endpoint.String, subnet.String, tr, wstArg)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/nodes", "", "rotate failed: "+sanitizeErr(err))
 		return
@@ -319,7 +337,7 @@ func (h *AdminHandlers) NodeTunnelRotate(w http.ResponseWriter, r *http.Request)
 	}
 	nonce := h.stashTunnelCreds(ctx, tunnelCreds{
 		NodeID: id, Token: token, PrivateKey: privKey, ListenPort: port,
-		Transport: tr, WstunnelPort: wstInt,
+		Transport: tr, WstunnelPort: wstInt, AdminProxyKey: proxyKey,
 	})
 	if nonce != "" {
 		http.Redirect(w, r, "/admin/nodes?show_creds="+nonce, http.StatusSeeOther)

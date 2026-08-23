@@ -40,11 +40,10 @@ func APIQuota(rdb *redis.Client, db func() *sql.DB) func(http.Handler) http.Hand
 			}
 			now := time.Now().UTC()
 			bucket := "hpg:apikey:rl:" + strconv.FormatInt(c.KeyID, 10) + ":" + now.Format("200601021504")
-			n, err := rdb.Incr(ctx, bucket).Result()
+			// Atomic INCR + first-use EXPIRE: a bucket left without a TTL
+			// keeps counting into the next minute and never drains.
+			n, err := incrWithTTL(ctx, rdb, bucket, 70*time.Second)
 			if err == nil {
-				if n == 1 {
-					_ = rdb.Expire(ctx, bucket, 70*time.Second).Err()
-				}
 				if int(n) > cap_ {
 					w.Header().Set("Retry-After", "60")
 					w.Header().Set("Content-Type", "application/json")

@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -117,6 +118,15 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 				int(idempotencyTTL/time.Second),
 			)
 			if err != nil {
+				// Only a unique-key collision means "an entry already exists".
+				// Any other insert failure means the reservation did not land,
+				// and running the handler anyway would execute a mutation the
+				// caller explicitly asked to be deduped - twice, on retry. The
+				// caller asked for idempotency, so refuse instead.
+				if !isDuplicateKeyErr(err) {
+					writeJSONErr(w, http.StatusServiceUnavailable, "idempotency store unavailable; retry")
+					return
+				}
 				// Duplicate key: an entry already exists - inspect it.
 				var (
 					state   int
@@ -133,33 +143,55 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 					 WHERE idem_key=? AND user_id=? AND expires_at > NOW()`,
 					keyHash, c.UserID,
 				).Scan(&state, &method, &path, &oldHash, &status, &body, &hdrs)
-				if selErr != nil {
-					// Row expired between insert race and select, or other error:
-					// fail open and run the handler without caching.
-					next.ServeHTTP(w, r)
+				switch {
+				case errors.Is(selErr, sql.ErrNoRows):
+					// The colliding row is expired. Reclaim it for this request
+					// rather than running unprotected: the UPDATE is conditional
+					// on it still being expired, so only one racing request wins.
+					res, rerr := d.ExecContext(resCtx,
+						`UPDATE idempotency_keys
+						    SET method=?, path=?, body_hash=?, state=?,
+						        response_status=NULL, response_body=NULL, response_headers=NULL,
+						        expires_at=`+store.DateAddSecondsParam()+`
+						  WHERE idem_key=? AND user_id=? AND expires_at <= NOW()`,
+						r.Method, r.URL.Path, bodyHash, idemStatePending,
+						int(idempotencyTTL/time.Second), keyHash, c.UserID)
+					if rerr != nil {
+						writeJSONErr(w, http.StatusServiceUnavailable, "idempotency store unavailable; retry")
+						return
+					}
+					if n, _ := res.RowsAffected(); n == 0 {
+						// Someone else reclaimed it first: their request owns
+						// the key now.
+						writeJSONErr(w, http.StatusConflict, "request with this idempotency_key is already in progress")
+						return
+					}
+				case selErr != nil:
+					writeJSONErr(w, http.StatusServiceUnavailable, "idempotency store unavailable; retry")
+					return
+				default:
+					// Same key reused for a different request - never replay it.
+					if method != r.Method || path != r.URL.Path || oldHash != bodyHash {
+						writeJSONErr(w, http.StatusConflict, "idempotency_key reused for a different request")
+						return
+					}
+					if state == idemStatePending {
+						writeJSONErr(w, http.StatusConflict, "request with this idempotency_key is already in progress")
+						return
+					}
+					// Completed: replay the stored response verbatim.
+					if hdrs.Valid {
+						restoreHeaders(w, hdrs.String)
+					}
+					w.Header().Set("X-Idempotency-Replayed", "true")
+					if status.Valid {
+						w.WriteHeader(int(status.Int64))
+					}
+					if body.Valid {
+						_, _ = w.Write([]byte(body.String))
+					}
 					return
 				}
-				// Same key reused for a different request - never replay it.
-				if method != r.Method || path != r.URL.Path || oldHash != bodyHash {
-					writeJSONErr(w, http.StatusConflict, "idempotency_key reused for a different request")
-					return
-				}
-				if state == idemStatePending {
-					writeJSONErr(w, http.StatusConflict, "request with this idempotency_key is already in progress")
-					return
-				}
-				// Completed: replay the stored response verbatim.
-				if hdrs.Valid {
-					restoreHeaders(w, hdrs.String)
-				}
-				w.Header().Set("X-Idempotency-Replayed", "true")
-				if status.Valid {
-					w.WriteHeader(int(status.Int64))
-				}
-				if body.Valid {
-					_, _ = w.Write([]byte(body.String))
-				}
-				return
 			}
 
 			cw := &captureWriter{ResponseWriter: w, status: http.StatusOK}
@@ -188,6 +220,15 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 			)
 		})
 	}
+}
+
+// isDuplicateKeyErr reports whether err is a unique-key violation, in either
+// MariaDB's or the SQLite transform's wording.
+func isDuplicateKeyErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	return strings.Contains(err.Error(), "Duplicate entry") || strings.Contains(err.Error(), "UNIQUE constraint")
 }
 
 // captureHeaders serialises the replay-relevant response headers to JSON.

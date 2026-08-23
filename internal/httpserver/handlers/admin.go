@@ -109,6 +109,13 @@ type AdminHandlers struct {
 	// runtime DB toggle is locked-on (env wins) and the UI shows it disabled.
 	Enforce2FAEnv bool
 
+	// MTLSRBACKey verifies the per-(node, route) token on /internal/mtls-rbac
+	// checks. Derived from APP_SECRET; empty means no token can be verified.
+	MTLSRBACKey []byte
+	// MTLSRBACAllowUnsigned keeps accepting token-less RBAC checks during an
+	// upgrade window (MTLS_RBAC_ALLOW_UNSIGNED=1).
+	MTLSRBACAllowUnsigned bool
+
 	// AccessLogs reads stored per-host access log entries from the DB.
 	AccessLogs *accesslog.Store
 	// AccessLogBroker fans out live log entries to SSE subscribers.
@@ -826,6 +833,10 @@ func (h *AdminHandlers) NodesCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/nodes", "", "all fields required")
 		return
 	}
+	if !security.ValidNodeName(name) {
+		redirectWithFlash(w, r, "/admin/nodes", "", "name must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric")
+		return
+	}
 	if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
 		redirectWithFlash(w, r, "/admin/nodes", "", "api_url must start with http:// or https://")
 		return
@@ -1396,6 +1407,9 @@ func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request
 		bctx, bcancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer bcancel()
 		client := caddyapi.New(apiURL)
+		if h.Routes != nil {
+			client = h.Routes.NodeClient(bctx, id, apiURL)
+		}
 		_ = client.Load(bctx, map[string]any{"admin": map[string]any{"listen": "0.0.0.0:2019"}})
 	}()
 

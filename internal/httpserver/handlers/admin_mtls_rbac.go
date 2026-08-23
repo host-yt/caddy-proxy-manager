@@ -2,12 +2,15 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/go-chi/chi/v5"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // MTLSRBACCheck handles GET /internal/mtls-rbac/{route_id}.
@@ -35,6 +38,15 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	if db == nil {
 		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	// The subject header is set by the caller, and the entrypoint gate is an
+	// IP allow-list covering the whole mesh plus every trusted proxy. Require
+	// the panel-issued (node, route) token so only a node this route is placed
+	// on can run checks for it, and re-verify that placement server-side.
+	if !h.rbacCallerAllowed(ctx, db, r, routeID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
 
@@ -105,6 +117,59 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusOK)
+}
+
+// rbacCallerAllowed authenticates the forward_auth check subrequest.
+//
+// A valid caller presents the node id and the MAC the control plane wrote into
+// that node's Caddy config, and the route must still be placed on that node
+// (anchor placement or an active-active fan-out peer). Anything else - a host
+// inside the mesh CIDR with no token, a token minted for a different route, a
+// node the route has since moved off - is refused.
+func (h *AdminHandlers) rbacCallerAllowed(ctx context.Context, db *sql.DB, r *http.Request, routeID int64) bool {
+	token := strings.TrimSpace(r.Header.Get(security.MTLSRBACHeaderToken))
+	nodeID, _ := strconv.ParseInt(strings.TrimSpace(r.Header.Get(security.MTLSRBACHeaderNode)), 10, 64)
+
+	if token == "" || nodeID <= 0 || len(h.MTLSRBACKey) == 0 {
+		// Upgrade window only: a fleet whose pushed config predates signed
+		// checks. Loud, because it leaves the pre-fix trust model in place.
+		if h.MTLSRBACAllowUnsigned {
+			if h.Logger != nil {
+				h.Logger.Warn("mtls rbac check accepted without node token (MTLS_RBAC_ALLOW_UNSIGNED)",
+					"route_id", routeID, "ip", security.ClientIP(r))
+			}
+			return true
+		}
+		if h.Logger != nil {
+			h.Logger.Warn("mtls rbac check rejected: missing or unverifiable node token",
+				"route_id", routeID, "ip", security.ClientIP(r))
+		}
+		return false
+	}
+	if !security.VerifyMTLSRBACToken(h.MTLSRBACKey, nodeID, routeID, token) {
+		if h.Logger != nil {
+			h.Logger.Warn("mtls rbac check rejected: bad node token",
+				"route_id", routeID, "node_id", nodeID, "ip", security.ClientIP(r))
+		}
+		return false
+	}
+	// Placement is re-read per check: a route that moved to another node stops
+	// being checkable from the old one without waiting for a config push.
+	var served int
+	if err := db.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM routes r
+		 WHERE r.id = ?
+		   AND (r.caddy_node_id = ?
+		        OR EXISTS (SELECT 1 FROM route_node_assignments rna
+		                    WHERE rna.route_id = r.id AND rna.node_id = ?))`,
+		routeID, nodeID, nodeID).Scan(&served); err != nil || served == 0 {
+		if h.Logger != nil {
+			h.Logger.Warn("mtls rbac check rejected: route not served by node",
+				"route_id", routeID, "node_id", nodeID, "err", err)
+		}
+		return false
+	}
+	return true
 }
 
 // pathMatchesPattern matches a request path against a rule pattern.

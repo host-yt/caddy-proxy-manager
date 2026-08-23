@@ -1123,6 +1123,8 @@ func mapRouteErr(err error) string {
 		return "This domain (and path) is already mapped."
 	case errors.Is(err, routes.ErrNoNodeFound):
 		return "No proxy node has capacity for your plan. Contact support."
+	case errors.Is(err, routes.ErrNodeAtCapacity):
+		return "The proxy node filled up while we were saving this. Please try again."
 	case errors.Is(err, routes.ErrServiceNotYours):
 		return "Service not found."
 	case errors.Is(err, routes.ErrMaxDomains):

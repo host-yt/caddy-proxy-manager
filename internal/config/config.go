@@ -111,16 +111,22 @@ type SMTPConfig struct {
 }
 
 type SecurityConfig struct {
-	SessionCookieName     string
-	SessionCookieSecure   bool
-	SessionCookieSameSite string
-	CSRFCookieName        string
-	RateLimitLoginPerMin  int
-	RateLimitAskPerMin    int
-	CaptchaProvider       string
-	CaptchaSiteKey        string
-	CaptchaSecret         string
-	SSOJumpSharedSecret   string
+	SessionCookieName   string
+	SessionCookieSecure bool
+	// SessionCookieSecureStrict keeps the Secure flag on even for requests
+	// that do not look like HTTPS (no TLS, no X-Forwarded-Proto). Set it once
+	// the panel is only reached over TLS: it removes the first-run downgrade
+	// that a misconfigured proxy would otherwise trigger on every request.
+	// Env: SESSION_COOKIE_SECURE_STRICT.
+	SessionCookieSecureStrict bool
+	SessionCookieSameSite     string
+	CSRFCookieName            string
+	RateLimitLoginPerMin      int
+	RateLimitAskPerMin        int
+	CaptchaProvider           string
+	CaptchaSiteKey            string
+	CaptchaSecret             string
+	SSOJumpSharedSecret       string
 	// MetricsAllow restricts /metrics to a CIDR allow-list. Empty list
 	// keeps the legacy behavior (open within the docker network); set it
 	// in production to lock the endpoint down.
@@ -152,6 +158,13 @@ type SecurityConfig struct {
 	// keeps access after enforcement first applies to them, so flipping the
 	// policy on doesn't instantly lock anyone out. 0 = enforce immediately.
 	Admin2FAGraceHours int
+
+	// MTLSRBACAllowUnsigned accepts /internal/mtls-rbac checks that carry no
+	// panel-issued node token. Only for the upgrade window on a fleet whose
+	// Caddy config predates signed checks (the next push adds the token).
+	// Env: MTLS_RBAC_ALLOW_UNSIGNED=1. Leaving it on means any host inside the
+	// mesh/trusted-proxy CIDRs can ask the RBAC oracle about any route.
+	MTLSRBACAllowUnsigned bool
 }
 
 type OIDCConfig struct {
@@ -237,6 +250,7 @@ func loadEnv() *Config {
 		Security: SecurityConfig{
 			SessionCookieName:         envOr("SESSION_COOKIE_NAME", "hpg_session"),
 			SessionCookieSecure:       envBool("SESSION_COOKIE_SECURE", true),
+			SessionCookieSecureStrict: envBool("SESSION_COOKIE_SECURE_STRICT", false),
 			SessionCookieSameSite:     envOr("SESSION_COOKIE_SAMESITE", "lax"),
 			CSRFCookieName:            envOr("CSRF_COOKIE_NAME", "hpg_csrf"),
 			RateLimitLoginPerMin:      envInt("RATE_LIMIT_LOGIN_PER_MIN", 10),
@@ -252,6 +266,7 @@ func loadEnv() *Config {
 			SIEMWebhook:               os.Getenv("AUDIT_SIEM_WEBHOOK"),
 			RequireAdmin2FA:           envBool("REQUIRE_ADMIN_2FA", false),
 			Admin2FAGraceHours:        envInt("REQUIRE_ADMIN_2FA_GRACE_HOURS", 0),
+			MTLSRBACAllowUnsigned:     envBool("MTLS_RBAC_ALLOW_UNSIGNED", false),
 		},
 		OIDC: OIDCConfig{
 			Enabled:      envBool("OIDC_ENABLED", false),

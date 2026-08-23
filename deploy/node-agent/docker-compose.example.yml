@@ -48,6 +48,24 @@ services:
       # Set HPG_FORWARD_TAIL_ONLY=1 to skip any pre-existing backlog and only
       # forward new lines from startup.
       # HPG_FORWARD_TAIL_ONLY: "1"
+      #
+      # --- Optional: front this node's Caddy admin API -------------------
+      # Caddy's admin API has no authentication of its own, so publishing it on
+      # the WireGuard IP makes "can reach 10.66.0.x:2019" equivalent to root on
+      # this node. With these two set, the agent serves an authenticated proxy
+      # instead: it checks the panel-issued key and refuses anything outside the
+      # small set of admin calls the control plane makes.
+      #
+      # Migrating a node (order matters, or the panel loses it mid-way):
+      #   1. set both vars here and restart the agent;
+      #   2. in the panel, change the node's API URL to http://<wg-ip>:2021;
+      #   3. re-bind Caddy's admin to 127.0.0.1: drop the "<wg-ip>:2019:2019"
+      #      port mapping from the caddy service and set `admin 127.0.0.1:2019`
+      #      in its Caddyfile, then restart Caddy;
+      #   4. confirm with `server doctor` that the node's admin API is reachable.
+      # HPG_ADMIN_PROXY_LISTEN: "10.66.0.2:2021"   # this node's WG IP; never 0.0.0.0
+      # HPG_ADMIN_PROXY_KEY: "${HPG_ADMIN_PROXY_KEY}"  # from the panel flash, one-shot
+      # HPG_CADDY_ADMIN_URL: "http://127.0.0.1:2019"   # where Caddy's admin listens
     volumes:
       # Shared with caddy: agent reads the rolling access log Caddy writes.
       - /opt/hostyt-node/caddy-logs:/var/log/caddy:ro

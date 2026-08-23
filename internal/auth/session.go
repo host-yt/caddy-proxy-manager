@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -73,8 +75,11 @@ type Manager struct {
 	db         *sql.DB
 	cookieName string
 	secure     bool
-	sameSite   http.SameSite
-	ttl        time.Duration
+	// strictSecure keeps Secure on even when a request does not look like
+	// HTTPS (SESSION_COOKIE_SECURE_STRICT).
+	strictSecure bool
+	sameSite     http.SameSite
+	ttl          time.Duration
 	// fleet holds this replica's generation heartbeat state; nil until
 	// StartGenerationHeartbeat runs.
 	fleet atomic.Pointer[fleetBeacon]
@@ -120,15 +125,39 @@ const sessionSchemaVer = 2
 // companion short-lived cookies (e.g. pending-2fa).
 func (m *Manager) CookieSecure() bool { return m.secure }
 
+// SetStrictSecure makes Secure unconditional (when configured on), instead of
+// dropping it for requests that do not look like HTTPS. Set it once the panel
+// is only ever reached over TLS: without it, a TLS-terminating proxy that
+// forgets X-Forwarded-Proto makes every session cookie non-Secure, and that
+// cookie will then also travel over plain HTTP.
+func (m *Manager) SetStrictSecure(v bool) { m.strictSecure = v }
+
 // SecureForRequest returns the effective Secure value for a cookie written in
 // response to r. Secure is kept only when the request actually arrived over a
 // secure context; otherwise we must not set it. Browsers silently drop a
 // Secure cookie sent over plain HTTP (e.g. first-run access via http://<IP>),
 // which otherwise causes an infinite login loop. Never upgrades: if the config
-// disables Secure it stays off.
+// disables Secure it stays off. SetStrictSecure removes the downgrade.
 func (m *Manager) SecureForRequest(r *http.Request) bool {
-	return m.secure && requestIsHTTPS(r)
+	if !m.secure {
+		return false
+	}
+	if m.strictSecure || requestIsHTTPS(r) {
+		return true
+	}
+	// Loud once per process: on a TLS deployment this means the fronting proxy
+	// is not passing X-Forwarded-Proto, and every cookie is being issued
+	// without Secure.
+	insecureCookieWarn.Do(func() {
+		slog.Warn("issuing session cookies without Secure: request did not look like HTTPS " +
+			"(no TLS, no X-Forwarded-Proto: https). If the panel is behind a TLS proxy, fix the header " +
+			"or set SESSION_COOKIE_SECURE_STRICT=1")
+	})
+	return false
 }
+
+// insecureCookieWarn keeps the downgrade warning to one line per process.
+var insecureCookieWarn sync.Once
 
 // requestIsHTTPS reports whether r reached us over TLS, either directly or via
 // a fronting proxy (Caddy) that set X-Forwarded-Proto. A spoofed header on a

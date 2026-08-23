@@ -768,3 +768,68 @@ panel:
   restarts or is briefly down; already-configured Hosts keep working. Only
   *new* route pushes and any on-demand-TLS `/internal/ask` calls that miss
   the Redis verdict cache queue until the panel is back.
+
+---
+
+## 12. Authenticating the node's admin API
+
+Caddy's admin API has no authentication of its own. In the default topology it
+is published on the node's WireGuard address, so anything that can route to
+`<wg-ip>:2019` can replace that node's entire configuration - every tenant on
+it. See [SECURITY.md](SECURITY.md#caddy-admin-api---known-limitation).
+
+A node can close that by putting its **node-agent in front of the admin API**:
+
+```
+panel ──(bearer key, over the WG mesh)──▶ node-agent :2021 ──(127.0.0.1)──▶ Caddy admin :2019
+```
+
+The agent checks a per-node key issued by the panel, and refuses anything
+outside the small set of admin calls the control plane actually makes - so even
+a leaked key cannot `POST /stop` or rewrite the node's own admin config.
+
+### Migrating a node
+
+Order matters: the panel must be able to reach the node at every step.
+
+1. **Get the key.** In the panel, open the node's tunnel modal and click
+   **Enable tunnel** (or **Rotate** if the node already has agent credentials).
+   The one-shot credentials modal now includes `HPG_ADMIN_PROXY_KEY`. Rotating
+   re-issues the node token and the WG key as well, so copy the whole block.
+
+2. **Start the proxy on the node.** In the agent's environment:
+
+   ```yaml
+   HPG_ADMIN_PROXY_LISTEN: "10.66.0.2:2021"      # this node's WG IP - never 0.0.0.0
+   HPG_ADMIN_PROXY_KEY: "<from the panel modal>"
+   HPG_CADDY_ADMIN_URL: "http://127.0.0.1:2019"  # where Caddy's admin listens
+   ```
+
+   Restart the agent. It logs `admin proxy listening` on success and exits with
+   a config error rather than starting something that only looks authenticated
+   (a key under 32 characters, or a wildcard bind, is refused).
+
+3. **Point the panel at the agent.** Edit the node in `/admin/nodes` and set its
+   API URL to `http://10.66.0.2:2021`. Pushes now carry the key.
+
+4. **Close the direct port.** In the node's compose, drop the
+   `"10.66.0.2:2019:2019"` mapping from the `caddy` service, and set
+   `admin 127.0.0.1:2019` in its Caddyfile. Restart Caddy.
+
+5. **Verify.** `docker compose exec app /app/server doctor` should still report
+   the node's admin API as reachable, and a **Resync** from the panel should
+   succeed. From another host on the mesh, `curl http://10.66.0.2:2021/config/`
+   without the key must return `401`, and `curl http://10.66.0.2:2019/config/`
+   must now fail to connect.
+
+### Notes
+
+- The key lives in `caddy_nodes.admin_proxy_key_enc`, encrypted with
+  `APP_SECRET`. Restoring a backup onto an installation with a different
+  `APP_SECRET` makes it undecryptable: the panel then falls back to a direct
+  connection and the agent answers 401, which `server doctor` reports. Rotate
+  to re-issue.
+- Rotating agent credentials issues a new admin-proxy key; update the agent's
+  environment in the same pass or the panel will start getting 401s from it.
+- A node that has not been migrated keeps working exactly as before - the key is
+  simply unused. There is no fleet-wide flag day.

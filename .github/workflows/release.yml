@@ -14,6 +14,8 @@ on:
 permissions:
   contents: read
   packages: write
+  # Keyless cosign signing of published manifests (Sigstore OIDC).
+  id-token: write
 
 # Forces docker/* JS actions (still on Node 20 in their latest releases)
 # to use the runner's Node 24, silencing the deprecation warning.
@@ -28,8 +30,15 @@ env:
 # cheaper-per-build for private (12x faster than QEMU offsets 2x rate).
 
 jobs:
+  # Every publish waits on the same checks a pull request must pass. Without
+  # this a push straight to main (or a tag cut from a red tree) could publish
+  # images, since Release does not otherwise depend on CI.
+  gate:
+    uses: ./.github/workflows/ci.yml
+
   # ---------------- app ----------------------------------------------------
   app-build:
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +67,10 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager,push-by-digest=true,name-canonical=true,push=true
+          # Attach an SBOM and max-mode provenance to each per-arch image;
+          # buildx carries the attestation manifests into the merged index.
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=app-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=app-${{ matrix.platform }}
       - name: Export digest
@@ -95,16 +108,33 @@ jobs:
             type=ref,event=branch
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            # latest tracks the newest release tag only. A push to main
+            # publishes "edge", so an in-progress main can never become the
+            # image operators pull by default.
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
       - name: Create + push manifest
+        id: manifest
         working-directory: /tmp/digests
         run: |
-          digests=$(for f in *; do echo -n "${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager@$(cat "$f") "; done)
+          image="${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager"
+          digests=$(for f in *; do echo -n "${image}@$(cat "$f") "; done)
           tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON")
           docker buildx imagetools create $tags $digests
+          first_tag=$(jq -r '.tags[0]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          digest=$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
+      # Keyless signature over the merged index, so a consumer can verify the
+      # image came from this workflow in this repository.
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign manifest
+        env:
+          COSIGN_YES: "true"
+        run: cosign sign "${{ steps.manifest.outputs.ref }}"
 
   # ---------------- caddy --------------------------------------------------
   caddy-build:
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -130,6 +160,10 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-edge,push-by-digest=true,name-canonical=true,push=true
+          # Attach an SBOM and max-mode provenance to each per-arch image;
+          # buildx carries the attestation manifests into the merged index.
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=caddy-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=caddy-${{ matrix.platform }}
       - name: Export digest
@@ -165,16 +199,30 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
       - name: Create + push manifest
+        id: manifest
         working-directory: /tmp/digests
         run: |
-          digests=$(for f in *; do echo -n "${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager-edge@$(cat "$f") "; done)
+          image="${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager-edge"
+          digests=$(for f in *; do echo -n "${image}@$(cat "$f") "; done)
           tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON")
           docker buildx imagetools create $tags $digests
+          first_tag=$(jq -r '.tags[0]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          digest=$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
+      # Keyless signature over the merged index, so a consumer can verify the
+      # image came from this workflow in this repository.
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign manifest
+        env:
+          COSIGN_YES: "true"
+        run: cosign sign "${{ steps.manifest.outputs.ref }}"
 
   # ---------------- wireguard ---------------------------------------------
   wireguard-build:
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -200,6 +248,10 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-wg,push-by-digest=true,name-canonical=true,push=true
+          # Attach an SBOM and max-mode provenance to each per-arch image;
+          # buildx carries the attestation manifests into the merged index.
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=wireguard-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=wireguard-${{ matrix.platform }}
       - name: Export digest
@@ -235,16 +287,30 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
       - name: Create + push manifest
+        id: manifest
         working-directory: /tmp/digests
         run: |
-          digests=$(for f in *; do echo -n "${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager-wg@$(cat "$f") "; done)
+          image="${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager-wg"
+          digests=$(for f in *; do echo -n "${image}@$(cat "$f") "; done)
           tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON")
           docker buildx imagetools create $tags $digests
+          first_tag=$(jq -r '.tags[0]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          digest=$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
+      # Keyless signature over the merged index, so a consumer can verify the
+      # image came from this workflow in this repository.
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign manifest
+        env:
+          COSIGN_YES: "true"
+        run: cosign sign "${{ steps.manifest.outputs.ref }}"
 
   # ---------------- node-agent --------------------------------------------
   node-agent-build:
+    needs: gate
     strategy:
       fail-fast: false
       matrix:
@@ -271,6 +337,10 @@ jobs:
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
           outputs: type=image,name=${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-node-agent,push-by-digest=true,name-canonical=true,push=true
+          # Attach an SBOM and max-mode provenance to each per-arch image;
+          # buildx carries the attestation manifests into the merged index.
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha,scope=node-agent-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=node-agent-${{ matrix.platform }}
       - name: Export digest
@@ -306,10 +376,23 @@ jobs:
           tags: |
             type=ref,event=branch
             type=semver,pattern={{version}}
-            type=raw,value=latest,enable={{is_default_branch}}
+            type=raw,value=edge,enable={{is_default_branch}}
+            type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
       - name: Create + push manifest
+        id: manifest
         working-directory: /tmp/digests
         run: |
-          digests=$(for f in *; do echo -n "${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager-node-agent@$(cat "$f") "; done)
+          image="${REGISTRY}/${{ github.repository_owner }}/caddy-proxy-manager-node-agent"
+          digests=$(for f in *; do echo -n "${image}@$(cat "$f") "; done)
           tags=$(jq -cr '.tags | map("-t " + .) | join(" ")' <<<"$DOCKER_METADATA_OUTPUT_JSON")
           docker buildx imagetools create $tags $digests
+          first_tag=$(jq -r '.tags[0]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
+          digest=$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r .digest)
+          echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
+      # Keyless signature over the merged index, so a consumer can verify the
+      # image came from this workflow in this repository.
+      - uses: sigstore/cosign-installer@v3
+      - name: Sign manifest
+        env:
+          COSIGN_YES: "true"
+        run: cosign sign "${{ steps.manifest.outputs.ref }}"

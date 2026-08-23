@@ -79,3 +79,23 @@ func TestSessionCookieSameSiteMapping(t *testing.T) {
 		}
 	}
 }
+
+// Strict mode keeps Secure on when the deployment is HTTPS-only, so a fronting
+// proxy that forgets X-Forwarded-Proto cannot silently downgrade every cookie.
+func TestSecureForRequestStrict(t *testing.T) {
+	m := NewSessionManager(nil, "hpg_sess", true, "lax", time.Hour)
+	plain := httptest.NewRequest(http.MethodGet, "http://panel.example/login", nil)
+	if m.SecureForRequest(plain) {
+		t.Fatal("non-strict manager set Secure on a plain-HTTP request")
+	}
+	m.SetStrictSecure(true)
+	if !m.SecureForRequest(plain) {
+		t.Error("strict manager dropped Secure on a plain-HTTP request")
+	}
+	// Strict never upgrades a manager configured with secure=false.
+	insecure := NewSessionManager(nil, "hpg_sess", false, "lax", time.Hour)
+	insecure.SetStrictSecure(true)
+	if insecure.SecureForRequest(plain) {
+		t.Error("strict mode set Secure although SESSION_COOKIE_SECURE is off")
+	}
+}

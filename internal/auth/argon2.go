@@ -20,6 +20,20 @@ const (
 	argonSaltLen = 16
 )
 
+// Accepted ranges for parameters read back out of an encoded hash. Wide enough
+// to verify hashes made with other sane settings (including a future cost bump
+// or an imported hash), narrow enough that no encoded value can make one login
+// attempt allocate gigabytes or spin for minutes.
+const (
+	maxArgonTime    = 16
+	minArgonMemory  = 8 * 1024    // 8 MiB
+	maxArgonMemory  = 1024 * 1024 // 1 GiB, in KiB as the PHC string encodes it
+	maxArgonThreads = 16
+	minArgonSaltLen = 8
+	minArgonKeyLen  = 16
+	maxArgonKeyLen  = 64
+)
+
 var ErrPasswordMismatch = errors.New("password mismatch")
 
 // HashPassword returns the PHC-encoded Argon2id hash.
@@ -55,6 +69,23 @@ func VerifyPassword(encoded, password string) error {
 	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &time, &threads); err != nil {
 		return fmt.Errorf("parse params: %w", err)
 	}
+	// Bound everything read out of the encoded hash before handing it to the
+	// KDF. The parameters decide an allocation and a work factor, and
+	// argon2.IDKey panics outright on t=0 or p=0 - so a corrupted row, a bad
+	// restore, or a hash written by anything but HashPassword must be rejected
+	// here rather than turning a login attempt into an OOM or a crash.
+	if version != argon2.Version {
+		return fmt.Errorf("unsupported argon2 version %d", version)
+	}
+	if time < 1 || time > maxArgonTime {
+		return fmt.Errorf("argon2 time parameter out of range: %d", time)
+	}
+	if memory < minArgonMemory || memory > maxArgonMemory {
+		return fmt.Errorf("argon2 memory parameter out of range: %d", memory)
+	}
+	if threads < 1 || threads > maxArgonThreads {
+		return fmt.Errorf("argon2 parallelism out of range: %d", threads)
+	}
 	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
 	if err != nil {
 		return fmt.Errorf("decode salt: %w", err)
@@ -62,6 +93,12 @@ func VerifyPassword(encoded, password string) error {
 	want, err := base64.RawStdEncoding.DecodeString(parts[5])
 	if err != nil {
 		return fmt.Errorf("decode hash: %w", err)
+	}
+	if len(salt) < minArgonSaltLen {
+		return fmt.Errorf("argon2 salt too short: %d bytes", len(salt))
+	}
+	if len(want) < minArgonKeyLen || len(want) > maxArgonKeyLen {
+		return fmt.Errorf("argon2 hash length out of range: %d bytes", len(want))
 	}
 	got := argon2.IDKey([]byte(password), salt, time, memory, threads, uint32(len(want)))
 	if subtle.ConstantTimeCompare(got, want) != 1 {

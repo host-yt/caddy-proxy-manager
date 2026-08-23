@@ -360,6 +360,19 @@ func main() {
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer cancel()
 
+	// Optional: front this node's Caddy admin API so the panel authenticates
+	// to the agent instead of reaching an unauthenticated port on the mesh.
+	// Dormant unless configured; a broken configuration is fatal rather than
+	// leaving the operator thinking the API is protected.
+	if _, err := startAdminProxy(ctx, log, adminProxyConfig{
+		Listen:   os.Getenv("HPG_ADMIN_PROXY_LISTEN"),
+		Key:      os.Getenv("HPG_ADMIN_PROXY_KEY"),
+		AdminURL: envOr("HPG_CADDY_ADMIN_URL", "http://127.0.0.1:2019"),
+	}); err != nil {
+		log.Error("admin proxy config", "err", err)
+		os.Exit(2)
+	}
+
 	if err := ensureInterface(ctx, log, cfg, *dry); err != nil {
 		log.Error("interface setup failed", "err", err)
 		os.Exit(1)

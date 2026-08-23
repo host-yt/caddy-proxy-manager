@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
@@ -92,6 +93,11 @@ func (s *Service) Mint(ctx context.Context, o MintOpts) (Token, error) {
 	}
 	var nameHint sql.NullString
 	if o.NameHint != "" {
+		// The hint becomes caddy_nodes.name, which is rendered into wg0.conf
+		// comments; reject anything but a plain hostname-ish token (NODE-02).
+		if !security.ValidNodeName(o.NameHint) {
+			return Token{}, errors.New("name hint must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric")
+		}
 		nameHint = sql.NullString{String: o.NameHint, Valid: true}
 	}
 	// Expiry is computed DB-side so it shares a clock and timezone with the
@@ -281,7 +287,9 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 		}
 		apiURL = fmt.Sprintf("http://%s:2019", wgIP)
 		nodeName = tk.NameHint
-		if nodeName == "" {
+		// Tokens minted before name-hint validation may carry anything; fall
+		// back to the derived name rather than storing it (NODE-02).
+		if !security.ValidNodeName(nodeName) {
 			nodeName = fmt.Sprintf("node-%s", strings.ReplaceAll(wgIP, ".", "-"))
 		}
 		if publicHostname == "" {
@@ -336,7 +344,7 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 		// Sidecar not enabled — fall back to the manual block.
 		managerPeer := fmt.Sprintf(
 			"# Node #%d (%s)\n[Peer]\nPublicKey = %s\nAllowedIPs = %s/32\n",
-			nodeID, nodeName, nodeKP.PublicKey, wgIP,
+			nodeID, security.SanitizeConfigComment(nodeName), nodeKP.PublicKey, wgIP,
 		)
 		resp.ManagerNote = "On the manager: append the [Peer] block below to /etc/wireguard/wg0.conf, then `sudo wg syncconf wg0 <(wg-quick strip wg0)`."
 		return resp, managerPeer, nil

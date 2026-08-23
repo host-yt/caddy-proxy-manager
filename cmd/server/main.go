@@ -56,6 +56,7 @@ import (
 	hpgoidc "github.com/host-yt/caddy-proxy-manager/internal/oidc"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/sms"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
@@ -133,6 +134,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		cfg.Security.SessionCookieSameSite,
 		sessionTTL,
 	)
+	sessions.SetStrictSecure(cfg.Security.SessionCookieSecureStrict)
 
 	installTpls, err := view.LoadInstallTemplates()
 	if err != nil {
@@ -179,8 +181,19 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		}
 	}
 
+	// MAC key for the per-(node, route) mTLS RBAC check token. Derived from
+	// APP_SECRET, so it needs no storage and is stable across restarts; a
+	// derivation failure only disables token issuance (checks then fall back to
+	// the IP allow-list unless MTLS_RBAC_ALLOW_UNSIGNED is off, which denies).
+	mtlsRBACKey, err := state.DeriveKey(security.MTLSRBACKeyLabel)
+	if err != nil {
+		logger.Warn("mtls rbac key derivation failed; role checks will be refused", "err", err)
+		mtlsRBACKey = nil
+	}
+
 	routesSvc := &routes.Service{
 		DB:                       wizard.DB(),
+		MTLSRBACKey:              mtlsRBACKey,
 		Quota:                    &quota.Service{DB: wizard.DB},
 		Logger:                   logger,
 		AskURL:                   buildAskURL(cfg),
@@ -199,8 +212,11 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		// External-HTTPS-upstream routes: at-rest secret crypto + host allowlist.
 		// Per-purpose sub-key so a route-secret leak/rotation is scoped
 		// (CRYPTO-02); Decrypt auto-detects legacy + v2 envelopes.
-		EncryptSecret:             state.Scoped("route").Encrypt,
-		DecryptSecret:             state.Decrypt,
+		EncryptSecret: state.Scoped("route").Encrypt,
+		DecryptSecret: state.Scoped("route").Decrypt,
+		// Node admin-proxy keys are written by the tunnel enable/rotate flow
+		// with the unscoped state key, so they are read with it too.
+		DecryptNodeSecret:         state.Decrypt,
 		ExternalUpstreamAllowlist: cfg.Security.ExternalUpstreamAllowlist,
 		// Incremental per-route Caddy push (PATCH/POST/DELETE by @id) for
 		// single-route changes; INCREMENTAL_PATCH=0 reverts to full /load.
@@ -382,8 +398,9 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	}
 	// Register process-wide so every audit.Write forwards (149 call-sites).
 	audit.SetDefaultForwarder(siemFwd)
-	// Access log store + live-tail broker. RouteByDomain resolves the host to a
-	// route_id so the ingest handler can tag each log line.
+	// Access log store + live-tail broker. Attribution is scoped to the routes
+	// the authenticated node actually serves, so one node's token cannot write
+	// history onto another node's (or another tenant's) route.
 	alRetention := 500
 	if v := os.Getenv("LOG_RETENTION_PER_ROUTE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
@@ -396,32 +413,26 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Store:  alStore,
 		Broker: alBroker,
 		Logger: logger,
-		RouteByDomain: func(ctx context.Context, domain string) (int64, bool) {
-			db := wizard.DB()
-			if db == nil {
-				return 0, false
-			}
-			var id int64
-			if err := db.QueryRowContext(ctx,
-				"SELECT id FROM routes WHERE domain = ? LIMIT 1", domain,
-			).Scan(&id); err != nil {
-				return 0, false
-			}
-			return id, true
+		ResolveRoutes: func(ctx context.Context, nodeID int64) (accesslog.NodeRouteIndex, error) {
+			return accesslog.LoadNodeRouteIndex(ctx, wizard.DB(), nodeID)
 		},
 		// Validate the per-node agent token against caddy_nodes.agent_token_hash,
-		// the same credential the WG/stats node endpoints use.
-		AuthNode: func(ctx context.Context, token string) bool {
+		// the same credential the WG/stats node endpoints use, and return the
+		// node identity so ingest can scope attribution to that node's routes.
+		AuthNode: func(ctx context.Context, token string) (int64, bool) {
 			db := wizard.DB()
 			if db == nil {
-				return false
+				return 0, false
 			}
 			var id int64
 			err := db.QueryRowContext(ctx,
 				`SELECT id FROM caddy_nodes WHERE agent_token_hash IS NOT NULL AND agent_token_hash = SHA2(?, 256) LIMIT 1`,
 				token,
 			).Scan(&id)
-			return err == nil && id > 0
+			if err != nil || id <= 0 {
+				return 0, false
+			}
+			return id, true
 		},
 	}
 
@@ -431,17 +442,20 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		State: state, Mailer: mailer, OIDC: oidcSvc, Cloudflare: cfSvc, Captcha: captchaV,
 		Joiner: joinSvc, WG: wgSvc, Backups: backupSvc, Webhooks: whSvc, SMS: smsSvc,
 		RDB: rdb, Metrics: mtr,
-		SIEMForwarder:   siemFwd,
-		Enforce2FAEnv:   cfg.Security.RequireAdmin2FA,
-		AdminScope:      adminscope.New(wizard.DB),
-		Quota:           &quota.Service{DB: wizard.DB},
-		Resellers:       reseller.New(wizard.DB),
-		AccessLogs:      alStore,
-		AccessLogBroker: alBroker,
-		WAFEvents:       wafStore,
-		AIFactory:       aichat.NewFactory(wizard.DB(), state.Decrypt),
-		ChatStore:       chatstore.New(wizard.DB()),
-		AITools:         aitools.New(wizard.DB()),
+		SIEMForwarder: siemFwd,
+		Enforce2FAEnv: cfg.Security.RequireAdmin2FA,
+		// mTLS RBAC checks must present the panel-issued (node, route) token.
+		MTLSRBACKey:           mtlsRBACKey,
+		MTLSRBACAllowUnsigned: cfg.Security.MTLSRBACAllowUnsigned,
+		AdminScope:            adminscope.New(wizard.DB),
+		Quota:                 &quota.Service{DB: wizard.DB},
+		Resellers:             reseller.New(wizard.DB),
+		AccessLogs:            alStore,
+		AccessLogBroker:       alBroker,
+		WAFEvents:             wafStore,
+		AIFactory:             aichat.NewFactory(wizard.DB(), state.Decrypt),
+		ChatStore:             chatstore.New(wizard.DB()),
+		AITools:               aitools.New(wizard.DB()),
 	}
 
 	// Bash bootstrap script served at GET /install/node.sh.

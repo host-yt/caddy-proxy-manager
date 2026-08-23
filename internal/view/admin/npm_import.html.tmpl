@@ -5,7 +5,11 @@
     <h2 class="t-eyebrow mb-1">Import from Nginx Proxy Manager</h2>
     <p class="t-small mb-5" style="color:rgb(var(--muted))">
       Upload your own NPM JSON backup (<code>Full Backup</code> export).
-      Only <strong>enabled</strong> proxy hosts are imported; redirects and stream hosts are skipped.
+      Enabled <strong>proxy hosts</strong> and <strong>redirection hosts</strong> are imported.
+      Streams, access lists, custom certificates, 404 hosts, location rules and
+      <code>advanced_config</code> blocks cannot be reproduced automatically - they are listed
+      as <em>manual</em> so you can carry them over yourself.
+      Run <strong>Preview</strong> first: it reports exactly what a real import would do and writes nothing.
     </p>
 
     <form id="npm-import-form" enctype="multipart/form-data" class="space-y-4">
@@ -27,24 +31,46 @@
       </div>
       <p id="npm-file-name" class="t-small hidden" style="color:rgb(var(--accent))"></p>
 
-      <button type="submit" id="npm-import-btn" class="r-btn-primary cursor-pointer transition-colors disabled:opacity-60">
-        Import
-      </button>
+      <div class="flex gap-3">
+        <button type="button" id="npm-preview-btn" class="r-btn cursor-pointer transition-colors disabled:opacity-60">
+          Preview (dry run)
+        </button>
+        <button type="submit" id="npm-import-btn" class="r-btn-primary cursor-pointer transition-colors disabled:opacity-60">
+          Import
+        </button>
+      </div>
     </form>
   </div>
 
   <!-- result card - hidden until submission -->
   <div id="npm-result" class="r-card hidden">
-    <h3 class="t-eyebrow mb-3">Import result</h3>
+    <h3 id="npm-result-title" class="t-eyebrow mb-3">Import result</h3>
     <div class="flex gap-6 mb-4">
       <div class="text-center">
         <div id="npm-imported" class="t-display tabular-nums" style="color:rgb(var(--success))">0</div>
-        <div class="t-small mt-0.5" style="color:rgb(var(--muted))">imported</div>
+        <div id="npm-imported-label" class="t-small mt-0.5" style="color:rgb(var(--muted))">imported</div>
       </div>
       <div class="text-center">
         <div id="npm-skipped" class="t-display tabular-nums" style="color:rgb(var(--warning))">0</div>
         <div class="t-small mt-0.5" style="color:rgb(var(--muted))">skipped</div>
       </div>
+      <div class="text-center">
+        <div id="npm-manual" class="t-display tabular-nums" style="color:rgb(var(--accent))">0</div>
+        <div class="t-small mt-0.5" style="color:rgb(var(--muted))">manual action</div>
+      </div>
+    </div>
+    <div id="npm-items-wrap" class="hidden mb-4" style="max-height:22rem;overflow:auto">
+      <table class="w-full t-small">
+        <thead>
+          <tr style="color:rgb(var(--muted))">
+            <th class="text-left pb-1 pr-3">Kind</th>
+            <th class="text-left pb-1 pr-3">Name</th>
+            <th class="text-left pb-1 pr-3">Action</th>
+            <th class="text-left pb-1">Detail</th>
+          </tr>
+        </thead>
+        <tbody id="npm-items"></tbody>
+      </table>
     </div>
     <div id="npm-errors-wrap" class="hidden">
       <p class="t-small font-medium mb-1" style="color:rgb(var(--text))">Errors</p>
@@ -94,27 +120,64 @@
     }
   });
 
-  form.addEventListener('submit', function (e) {
-    e.preventDefault();
+  var previewBtn = document.getElementById('npm-preview-btn');
+
+  function actionColor(action) {
+    if (action === 'imported') return 'rgb(var(--success))';
+    if (action === 'manual') return 'rgb(var(--accent))';
+    return 'rgb(var(--warning))';
+  }
+
+  function renderItems(items) {
+    var wrap = document.getElementById('npm-items-wrap');
+    var body = document.getElementById('npm-items');
+    body.innerHTML = '';
+    if (!items || !items.length) { wrap.classList.add('hidden'); return; }
+    items.forEach(function (it) {
+      var tr = document.createElement('tr');
+      [it.kind, it.name, it.action, it.detail].forEach(function (v, i) {
+        var td = document.createElement('td');
+        td.textContent = v || '';
+        td.className = 'align-top py-0.5 pr-3';
+        if (i === 2) { td.style.color = actionColor(it.action); }
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    });
+    wrap.classList.remove('hidden');
+  }
+
+  function submitImport(dryRun) {
     if (!fileInput.files.length) {
       alert('Please select a JSON file.');
       return;
     }
+    var active = dryRun ? previewBtn : btn;
     btn.disabled = true;
-    btn.textContent = 'Importing…';
+    previewBtn.disabled = true;
+    active.textContent = dryRun ? 'Analysing…' : 'Importing…';
 
     var fd = new FormData(form);
+    if (dryRun) { fd.append('dry_run', '1'); }
     fetch('/admin/tools/npm-import', { method: 'POST', body: fd })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data.error) {
           alert('Error: ' + data.error);
           btn.disabled = false;
+          previewBtn.disabled = false;
           btn.textContent = 'Import';
+          previewBtn.textContent = 'Preview (dry run)';
           return;
         }
+        document.getElementById('npm-result-title').textContent =
+          data.dry_run ? 'Preview - nothing was written' : 'Import result';
+        document.getElementById('npm-imported-label').textContent =
+          data.dry_run ? 'would import' : 'imported';
         document.getElementById('npm-imported').textContent = data.imported || 0;
         document.getElementById('npm-skipped').textContent  = data.skipped  || 0;
+        document.getElementById('npm-manual').textContent   = data.manual   || 0;
+        renderItems(data.items);
 
         var errWrap = document.getElementById('npm-errors-wrap');
         var errList = document.getElementById('npm-errors');
@@ -131,14 +194,24 @@
         }
 
         resultCard.classList.remove('hidden');
-        btn.textContent = 'Import again';
+        btn.textContent = data.dry_run ? 'Import' : 'Import again';
+        previewBtn.textContent = 'Preview (dry run)';
         btn.disabled = false;
+        previewBtn.disabled = false;
       })
       .catch(function (err) {
         alert('Request failed: ' + err);
         btn.disabled = false;
+        previewBtn.disabled = false;
         btn.textContent = 'Import';
+        previewBtn.textContent = 'Preview (dry run)';
       });
+  }
+
+  previewBtn.addEventListener('click', function () { submitImport(true); });
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    submitImport(false);
   });
 })();
 </script>
