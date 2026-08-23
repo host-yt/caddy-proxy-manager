@@ -108,3 +108,71 @@ func TestCreate_ConcurrentCreatesRespectMaxRoutes(t *testing.T) {
 			ok, routeCount, maxRoutes, capacity, other)
 	}
 }
+
+// TestCreate_ConcurrentWritesAllReachTheNodeConfig is the other half of the
+// concurrency drill: many routes created at once must all end up in the config
+// the node is actually given. A build that raced the writes - or a push that
+// applied an older snapshot - would silently serve a subset.
+func TestCreate_ConcurrentWritesAllReachTheNodeConfig(t *testing.T) {
+	db := newPushTestDB(t)
+	node := newDriftNode(t)
+	const routes = 25
+
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatalf("seed %q: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO users (id, email, password_hash, role) VALUES (1, 'a@b.c', 'x', 'client')`)
+	exec(`INSERT INTO clients (id, user_id, display_name) VALUES (1, 1, 'acme')`)
+	exec(`INSERT INTO node_groups (id, name, mode) VALUES (1, 'default', 'single')`)
+	exec(`INSERT INTO plans (id, name, node_group_id, max_domains) VALUES (1, 'basic', 1, 0)`)
+	exec(`INSERT INTO services (id, client_id, name, backend_ip, allowed_port_start, allowed_port_end, plan_id, node_group_id)
+	      VALUES (1, 1, 'svc', '10.9.9.9', 10000, 20000, 1, 1)`)
+	exec(`INSERT INTO caddy_nodes (id, name, api_url, public_hostname, node_group_id, max_routes, current_routes,
+	        is_enabled, health_status, approved_at)
+	      VALUES (1, 'edge1', ?, 'edge1.example', 1, 1000, 0, 1, 'healthy', CURRENT_TIMESTAMP)`, node.srv.URL)
+
+	bg, cancelBG := context.WithCancel(context.Background())
+	cancelBG() // keep the post-commit advanceRoute goroutines out of the way
+	svc := &Service{DB: db, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), BgCtx: bg}
+
+	var wg sync.WaitGroup
+	errs := make(chan error, routes)
+	for i := 0; i < routes; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			if _, err := svc.Create(context.Background(), 0, CreateInput{
+				ServiceID:    1,
+				UpstreamPort: 10001 + i,
+				Domain:       fmt.Sprintf("r%02d.example", i),
+			}); err != nil {
+				errs <- err
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatalf("concurrent create failed: %v", err)
+	}
+
+	// Routes land as pending_dns; only verified, serving ones are emitted, so
+	// promote them the way advanceRoute would before checking the config.
+	if _, err := db.Exec(`UPDATE routes SET status = 'active', domain_verified = 1`); err != nil {
+		t.Fatalf("promote routes: %v", err)
+	}
+	if err := svc.pushNodeConfig(context.Background(), 1); err != nil {
+		t.Fatalf("push: %v", err)
+	}
+
+	last := node.loads[len(node.loads)-1]
+	for i := 0; i < routes; i++ {
+		want := fmt.Sprintf("r%02d.example", i)
+		if !contains(last, want) {
+			t.Errorf("%s missing from the pushed config", want)
+		}
+	}
+}
