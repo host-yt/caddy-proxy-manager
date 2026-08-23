@@ -942,6 +942,10 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 	// Fan-out modes: record every target node in the assignments join table.
 	// active_active deploys to all peers; failover deploys to primary + one
 	// warm standby so the standby has the route ready when it's promoted.
+	// assignedNodes is the set whose slots we actually hold, which is what the
+	// post-commit pushes must target: a peer skipped for capacity has no
+	// assignment row, so pushing to it would be a no-op round trip.
+	assignedNodes := []int64{nodeID}
 	if groupMode != "single" && len(allNodes) > 1 {
 		for _, n := range allNodes {
 			if n != nodeID {
@@ -966,6 +970,9 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 				routeID, n); err != nil {
 				return 0, fmt.Errorf("fan-out assign: %w", err)
 			}
+			if n != nodeID {
+				assignedNodes = append(assignedNodes, n)
+			}
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -982,9 +989,9 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		s.advanceRoute(ctx, routeID)
 	}()
 	if groupMode != "single" {
-		for _, n := range allNodes {
+		for _, n := range assignedNodes {
 			if n == nodeID {
-				continue
+				continue // the anchor is pushed by advanceRoute
 			}
 			s.schedulePush(n)
 		}
