@@ -209,6 +209,47 @@ Full guide: [docs/MULTI_NODE.md](docs/MULTI_NODE.md).
 
 ---
 
+## See it work: one customer, two nodes, a failover
+
+Roughly 15 minutes on two cheap VPSes, and it exercises the parts that are
+specific to this project rather than to any proxy panel.
+
+**1. Add a customer.** Admin → Clients → **New client**. Give it a plan
+(Admin → Plans) with a domain limit and a port range; that plan is what the
+customer is held to later, in the panel and over the API alike.
+
+**2. Join a second edge node.** Admin → Caddy nodes → **Auto-join** →
+*Generate join command*, run the one-liner on the VPS as root. It joins the
+WireGuard mesh and registers itself - and then waits: a node is not eligible
+for placement until you approve it (Admin → Caddy nodes → **Approve**, after
+matching the fingerprint the installer printed). A stolen join token alone
+never starts carrying customer traffic.
+
+**3. Reach a private backend.** The customer's app does not need a public IP.
+Admin → the node's **Tunnel** modal → *Enable tunnel*, then Clients → the
+customer → **WireGuard peers** → add a peer and run the printed installer on
+the backend host. The backend now has a tunnel address on that node and
+nothing exposed to the internet.
+
+**4. Publish a domain.** Admin → Hosts → **Add host**: domain, the tunnel peer
+as the backend, port. Point the domain's DNS at the node. Caddy issues the
+certificate on demand; the host page shows DNS, certificate and live requests.
+
+**5. Take the node down.** `docker compose stop caddy` on that VPS (or pull the
+node's plug). Health probing marks it `down`; after the grace window automatic
+failover moves its routes to a healthy peer in the same group and pushes the
+config there, and the owning customer is notified.
+
+**6. Watch it come back.** Start the node again. It is re-pushed from the
+database rather than trusted to have kept its own config, so it returns
+serving exactly what the panel says it should.
+
+Two things worth noticing on the way: **Admin → Audit log** has every step with
+actor and IP, and the same six steps are available over the REST API and the
+Terraform provider - the panel is not the only entry point.
+
+---
+
 ## Repository map
 
 ```
@@ -216,8 +257,7 @@ cmd/server/         entrypoint (thin)
 internal/
   accesslog/        access log ingest, rollups, country/ASN enrichment
   adminscope/       non-super-admin client scope enforcement
-  ai/               multi-provider AI client (Anthropic, OpenAI, Gemini, OpenRouter)
-  aichat/           chat session storage and SSE streaming handler
+  aichat/           multi-provider AI client (Anthropic, OpenAI, Gemini, OpenRouter) + SSE streaming
   aitools/          scoped read-only DB tool-calling for AI assistant
   alert/            alert rule evaluation and notification dispatch
   audit/            audit-log writer (actor, IP, impersonator, timestamp)
