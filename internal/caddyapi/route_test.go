@@ -134,6 +134,27 @@ func TestBuildRouteLoadBalancing(t *testing.T) {
 	if s := mustJSON(wOn); !strings.Contains(s, `"weights":[3,1]`) || !strings.Contains(s, `"policy":"weighted_round_robin"`) {
 		t.Errorf("weighted-on must emit weights [3,1]\nfull: %s", s)
 	}
+	// Stock policies added for issue #13: emitted verbatim, with the params
+	// caddy requires for query/random_choose.
+	for _, tc := range []struct{ policy, want string }{
+		{"first", `"selection_policy":{"policy":"first"}`},
+		{"random", `"selection_policy":{"policy":"random"}`},
+		{"client_ip_hash", `"selection_policy":{"policy":"client_ip_hash"}`},
+		{"random_choose", `"selection_policy":{"choose":2,"policy":"random_choose"}`},
+	} {
+		p := base
+		p.LBPolicy = tc.policy
+		if s := mustJSON(p); !strings.Contains(s, tc.want) {
+			t.Errorf("%s missing %q\nfull: %s", tc.policy, tc.want, s)
+		}
+	}
+	q := base
+	q.LBPolicy = "query"
+	q.LBHeaderField = "user"
+	if s := mustJSON(q); !strings.Contains(s, `"selection_policy":{"key":"user","policy":"query"}`) {
+		t.Errorf("query policy must emit key\nfull: %s", s)
+	}
+
 	// No policy => no load_balancing key.
 	if s := mustJSON(base); strings.Contains(s, "load_balancing") {
 		t.Errorf("no policy must omit load_balancing\nfull: %s", s)

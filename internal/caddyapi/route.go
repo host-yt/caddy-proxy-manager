@@ -178,13 +178,15 @@ type Route struct {
 	// without dropping into raw Caddy JSON.
 	LocationRules []LocationRule
 	// LBPolicy: "" | "round_robin" | "least_conn" | "ip_hash" |
-	// "weighted_round_robin" | "uri_hash" | "header" | "cookie".
+	// "weighted_round_robin" | "uri_hash" | "header" | "cookie" |
+	// "random" | "random_choose" | "client_ip_hash" | "query" | "first".
 	LBPolicy string
 	// WeightedLBAvailable gates weighted_round_robin (not guaranteed stock).
 	// When false and LBPolicy=="weighted_round_robin" the builder downgrades
 	// to round_robin so stock Caddy never rejects the /load.
 	WeightedLBAvailable bool
-	// LBHeaderField is the request header name used by the "header" lb policy.
+	// LBHeaderField is the request header name used by the "header" lb policy,
+	// and the query-parameter name for the "query" policy (same input field).
 	LBHeaderField string
 	// LBCookieName is the cookie name for the "cookie" lb policy.
 	LBCookieName string
@@ -1853,6 +1855,13 @@ func buildLoadBalancing(r Route) map[string]any {
 		if r.LBHeaderField != "" {
 			sel["field"] = r.LBHeaderField
 		}
+	case "query":
+		if r.LBHeaderField != "" {
+			sel["key"] = r.LBHeaderField
+		}
+	case "random_choose":
+		// Caddy requires a sample size; 2 is the canonical power-of-two-choices.
+		sel["choose"] = 2
 	case "cookie":
 		if r.LBCookieName != "" {
 			sel["name"] = r.LBCookieName

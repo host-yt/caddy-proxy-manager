@@ -8,6 +8,10 @@ Stabilization pass over the findings from an external review: the tenant
 boundaries on the node-facing endpoints, the two write races in the control
 plane, and the release process that could publish an untested image.
 
+### Added
+
+- **Remaining stock Caddy load-balancing policies** ([#13](https://github.com/host-yt/caddy-proxy-manager/issues/13)). The host LB selector was missing five policies stock Caddy already supports: `first` (send everything to the first healthy upstream, i.e. active/passive failover), `random`, `random_choose` (power-of-two-choices, sample size fixed at 2), `client_ip_hash`, and `query` (hash a query parameter). `query` reuses the existing header-name input - the field is relabelled when the policy is selected. No new Caddy modules are required, so no availability gate.
+
 ### Security
 
 - **A node token could poison another node's - or another tenant's - access
@@ -167,7 +171,7 @@ plane, and the release process that could publish an untested image.
 - README gains a maturity table (stable / beta / experimental per area,
   including the single-writer caveat on the config push) and no longer states a
   migration count that had drifted.
-
+=======
 ## [1.4.7] - 2026-08-07
 
 Three bugs reported against 1.4.6, all in the Caddy configuration the panel generates.

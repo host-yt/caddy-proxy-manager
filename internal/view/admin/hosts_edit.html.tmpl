@@ -673,14 +673,19 @@ X-Authentik-Meta-Version</pre>
             <option value="uri_hash"          {{if eq .LBPolicy "uri_hash"}}selected{{end}}>URI hash</option>
             <option value="header"            {{if eq .LBPolicy "header"}}selected{{end}}>Header</option>
             <option value="cookie"            {{if eq .LBPolicy "cookie"}}selected{{end}}>Cookie</option>
+            <option value="query"             {{if eq .LBPolicy "query"}}selected{{end}}>Query parameter</option>
+            <option value="client_ip_hash"    {{if eq .LBPolicy "client_ip_hash"}}selected{{end}}>Client IP hash (sticky)</option>
+            <option value="random"            {{if eq .LBPolicy "random"}}selected{{end}}>Random</option>
+            <option value="random_choose"     {{if eq .LBPolicy "random_choose"}}selected{{end}}>Random (two choices)</option>
+            <option value="first"             {{if eq .LBPolicy "first"}}selected{{end}}>First available (failover)</option>
             {{if .WeightedLBAvail}}<option value="weighted_round_robin" {{if eq .LBPolicy "weighted_round_robin"}}selected{{end}}>Weighted round robin</option>{{end}}
           </select>
         </label>
       </div>
-      <div id="hpg-lb-header-row" class="{{if ne .LBPolicy "header"}}hidden{{end}}">
+      <div id="hpg-lb-header-row" class="{{if and (ne .LBPolicy "header") (ne .LBPolicy "query")}}hidden{{end}}">
         <label class="block">
-          <span class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Header name</span>
-          <input type="text" name="lb_header_field" value="{{.LBHeaderField}}" placeholder="X-User-ID" class="r-input w-full text-sm">
+          <span id="hpg-lb-header-label" class="block t-caption font-medium text-[rgb(var(--text))] mb-1">{{if eq .LBPolicy "query"}}Query parameter name{{else}}Header name{{end}}</span>
+          <input type="text" name="lb_header_field" id="hpg-lb-header-input" value="{{.LBHeaderField}}" placeholder="{{if eq .LBPolicy "query"}}user{{else}}X-User-ID{{end}}" class="r-input w-full text-sm">
         </label>
       </div>
       <div id="hpg-lb-cookie-row" class="{{if ne .LBPolicy "cookie"}}hidden{{end}} space-y-3">
@@ -1462,9 +1467,14 @@ X-Authentik-Meta-Version</pre>
     var lbPolicySel = document.getElementById('hpg-lb-policy');
     var lbHeaderRow = document.getElementById('hpg-lb-header-row');
     var lbCookieRow = document.getElementById('hpg-lb-cookie-row');
+    var lbHeaderLabel = document.getElementById('hpg-lb-header-label');
+    var lbHeaderInput = document.getElementById('hpg-lb-header-input');
     function syncLBPolicy() {
       var v = lbPolicySel ? lbPolicySel.value : '';
-      if (lbHeaderRow) lbHeaderRow.classList.toggle('hidden', v !== 'header');
+      // "header" and "query" share one input; only the label/placeholder differ.
+      if (lbHeaderRow) lbHeaderRow.classList.toggle('hidden', v !== 'header' && v !== 'query');
+      if (lbHeaderLabel) lbHeaderLabel.textContent = v === 'query' ? 'Query parameter name' : 'Header name';
+      if (lbHeaderInput) lbHeaderInput.placeholder = v === 'query' ? 'user' : 'X-User-ID';
       if (lbCookieRow) lbCookieRow.classList.toggle('hidden', v !== 'cookie');
     }
     if (lbPolicySel) lbPolicySel.addEventListener('change', syncLBPolicy);

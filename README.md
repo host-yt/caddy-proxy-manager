@@ -139,7 +139,7 @@ claim either way - check the project's own docs before relying on it.
 - **Instance sync**: master/slave HPG config replication for HA setups.
 - **Multi-provider CAPTCHA**: Turnstile, hCaptcha, reCAPTCHA v3 per-settings toggle.
 - **Custom fields**: operator-defined fields for clients and hosts (JSON-backed).
-- **Advanced load balancing**: uri_hash, header, cookie (with HMAC secret) in addition to round-robin/least-conn.
+- **Advanced load balancing**: uri_hash, header, cookie (with HMAC secret), query, client_ip_hash, random, random_choose, first (failover) in addition to round-robin/least-conn.
 - **Server-side search/pagination/sort** with saved filter presets across all list pages.
 - **Host groups** with filter and badge support.
 - **Hourly log rollups** (14-day retention) + analytics charts on host logs page.

@@ -3025,7 +3025,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// rejected unless the module gate is on so stock nodes never break.
 	lbPolicy := r.FormValue("lb_policy")
 	switch lbPolicy {
-	case "", "round_robin", "least_conn", "ip_hash", "uri_hash", "header", "cookie":
+	case "", "round_robin", "least_conn", "ip_hash", "uri_hash", "header", "cookie",
+		"random", "random_choose", "client_ip_hash", "query", "first":
 	case "weighted_round_robin":
 		if !h.Routes.WeightedLBAvailable {
 			lbPolicy = "round_robin"
