@@ -4,6 +4,8 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [1.4.8] - 2026-08-29
+
 Stabilization pass over the findings from an external review: the tenant
 boundaries on the node-facing endpoints, the two write races in the control
 plane, and the release process that could publish an untested image.
