@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -105,7 +106,9 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 			bh := sha256.Sum256(reqBody)
 			bodyHash := hex.EncodeToString(bh[:])
 
-			resCtx, resCancel := context.WithTimeout(r.Context(), 300*time.Millisecond)
+			// 300ms was tight enough that a loaded DB (or a CI runner mid-fsync)
+			// blew the deadline and turned a healthy write into a 503.
+			resCtx, resCancel := context.WithTimeout(r.Context(), 2*time.Second)
 			defer resCancel()
 
 			// Expiry is computed DB-side to share a clock with the
@@ -124,6 +127,7 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 				// caller explicitly asked to be deduped - twice, on retry. The
 				// caller asked for idempotency, so refuse instead.
 				if !isDuplicateKeyErr(err) {
+					slog.Warn("idempotency reservation failed", "err", err, "path", r.URL.Path)
 					writeJSONErr(w, http.StatusServiceUnavailable, "idempotency store unavailable; retry")
 					return
 				}
