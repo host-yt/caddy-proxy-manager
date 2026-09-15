@@ -215,6 +215,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	// Operator's fail-open choice governs whether a route whose mTLS enforcement
 	// cannot be emitted is served open or denied. Loaded once per build.
 	mtlsFailOpen := s.loadMTLSFailOpen(ctx)
+	// Suppressed WAF rules are removed from every route's ruleset (#14).
+	wafSups := s.loadWAFSuppressions(ctx)
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT r.id, r.domain, COALESCE(r.aliases,''), COALESCE(r.aliases_verified,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
 		        r.websocket, r.force_https,
@@ -540,6 +542,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		// mTLS respects the operator's mtls.fail_open; the portal never does.
 		portalReady := s.PanelInternalHost != "" && s.PanelInternalPort != 0
 		mtlsEnforceable := sslEnabled && mtlsCACertPEM != "" && caddyapi.MTLSCAUsable(mtlsCACertPEM)
+		if wafEnabled {
+			wafDirectives = appendWAFDirectives(wafDirectives, wafSuppressionDirectives(wafSups, id))
+		}
 		built = append(built, caddyapi.Route{
 			ID:                    fmt.Sprintf("%d", id),
 			Hosts:                 hosts,

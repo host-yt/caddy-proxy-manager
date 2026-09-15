@@ -109,6 +109,24 @@ Two consequences worth knowing:
   request normally, it would be uninspected. Turn WebSocket support off on routes
   that do not need it; the WAF then covers every request with no bypass.
 
+### Blocking mode and JSON API false positives
+
+Detection-only mode never changes a response, so an app that "breaks when the WAF
+is on" is almost always in blocking mode with a CRS rule matching legitimate
+traffic. The Events page shows which rule; suppress it for that route.
+
+Known case - PocketBase-based apps such as Beszel (#14): the dashboard opens its
+`/api/realtime` event stream (SSE) fine, then registers subscriptions with a POST
+whose JSON body contains topics like `systems/*`. Rule `942100` (libinjection SQLi)
+reads the `/*` as a SQL comment, the anomaly score reaches the blocking threshold
+and the POST gets a 403. The SDK reconnects and retries forever, which looks like a
+hung EventSource. Suppress `942100` on that route, or add the equivalent directive
+by hand:
+
+```
+SecRuleRemoveById 942100
+```
+
 ## Events
 
 Every rule match is stored in the `waf_events` table:
@@ -129,6 +147,9 @@ Every rule match is stored in the `waf_events` table:
 View events at Admin → Security → WAF Events, filterable by route and severity.
 Individual events can be acknowledged. Frequent false-positive rules can be suppressed
 globally or per-route in `waf_rule_suppressions` (Admin → Security → WAF Suppressions).
+A suppression does two things: it hides the rule's events, and it is emitted as
+`SecRuleRemoveById <id>` on every affected route, so in blocking mode the rule stops
+blocking as well. Saving or deleting a suppression re-pushes every node.
 
 Export: the WAF Events page has an "Export CSV" button.
 
