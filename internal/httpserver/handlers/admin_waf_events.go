@@ -268,6 +268,11 @@ func (h *AdminHandlers) WAFSuppressRule(w http.ResponseWriter, r *http.Request) 
 			Meta:     map[string]any{"rule_id": ruleID, "route_id": routeID, "reason": reason},
 		})
 	}
+	// Suppressions are baked into node config as SecRuleRemoveById; without a
+	// push a blocking rule keeps firing until an unrelated route change.
+	if h.Routes != nil {
+		h.Routes.SchedulePushAllNodes(h.Routes.BackgroundCtx())
+	}
 	redirectWithFlash(w, r, "/admin/waf", "Rule suppressed", "")
 }
 
@@ -313,6 +318,11 @@ func (h *AdminHandlers) WAFDeleteSuppression(w http.ResponseWriter, r *http.Requ
 			Action: "waf.suppression_deleted", Entity: "waf_rule_suppressions",
 			EntityID: strconv.FormatInt(id, 10),
 		})
+	}
+	// Suppressions are baked into node config as SecRuleRemoveById; without a
+	// push a blocking rule keeps firing until an unrelated route change.
+	if h.Routes != nil {
+		h.Routes.SchedulePushAllNodes(h.Routes.BackgroundCtx())
 	}
 	redirectWithFlash(w, r, "/admin/waf", "Suppression deleted", "")
 }

@@ -4,6 +4,10 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **WAF suppressions now reach the nodes** ([#14](https://github.com/host-yt/caddy-proxy-manager/issues/14)). Suppressing a rule only hid its events; in blocking mode the node kept returning 403. Active suppressions (global and per-route) are now emitted as `SecRuleRemoveById` after the CRS include on every WAF-enabled route, and saving or deleting one re-pushes all nodes. Rule IDs are validated (`NNN` or `NNN-MMM`) before they reach SecLang. The report itself was a CRS `942100` false positive on PocketBase/Beszel realtime subscription topics (`systems/*`), not an SSE transport problem; documented in `docs/WAF.md`.
+
 ## [1.4.8] - 2026-08-29
 
 Stabilization pass over the findings from an external review: the tenant
