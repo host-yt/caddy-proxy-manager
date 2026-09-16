@@ -6,6 +6,7 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- **SSE and other streaming responses stalled behind the WAF** ([#14](https://github.com/host-yt/caddy-proxy-manager/issues/14)). The edge image now builds with coraza-caddy 2.6.1. Its 2.5.0 interceptor propagated `Flush()` with a bare `http.Flusher` type assertion, which fails on the recorder Caddy wraps around the response writer whenever access logging is on - and the panel enables access logs on every node. Every flush was dropped, so an EventSource behind a WAF-enabled host never received its headers, in detection-only mode as much as in blocking mode. Upstream fix: corazawaf/coraza-caddy#344. Reproduced and verified with the same pins as the edge image and a Beszel hub. Requires the v1.4.9 edge image on every node; no config change.
 - **WAF suppressions now reach the nodes** ([#14](https://github.com/host-yt/caddy-proxy-manager/issues/14)). Suppressing a rule only hid its events; in blocking mode the node kept returning 403. Active suppressions (global and per-route) are now emitted as `SecRuleRemoveById` after the CRS include on every WAF-enabled route, and saving or deleting one re-pushes all nodes. Rule IDs are validated (`NNN` or `NNN-MMM`) before they reach SecLang. The report itself was a CRS `942100` false positive on PocketBase/Beszel realtime subscription topics (`systems/*`), not an SSE transport problem; documented in `docs/WAF.md`.
 
 ## [1.4.8] - 2026-08-29
