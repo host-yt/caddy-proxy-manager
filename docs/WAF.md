@@ -109,19 +109,37 @@ Two consequences worth knowing:
   request normally, it would be uninspected. Turn WebSocket support off on routes
   that do not need it; the WAF then covers every request with no bypass.
 
+### Streaming responses (SSE) - edge image before v1.4.9
+
+coraza-caddy 2.5.0 (edge image up to v1.4.8) propagated `Flush()` with a plain
+`http.Flusher` type assertion. Caddy wraps the response writer in a recorder
+whenever access logging is on, and that recorder only exposes flushing through
+`Unwrap()`, so every flush was silently dropped. HPG enables access logs on every
+node, so any streaming response behind the WAF - Server-Sent Events, long-poll,
+chunked progress output - stalled until the buffer filled or the handler returned.
+Browsers showed a pending EventSource; the request never got its headers. Blocking
+vs detection-only made no difference, only disabling the WAF on the host helped.
+
+Fixed upstream in coraza-caddy 2.6.1 ("flush and hijack through the response
+writer Unwrap chain", #344); the v1.4.9 edge image builds with it. Nothing to
+configure - pull the new edge image on every node. One remaining quirk: 2.6.1
+forwards the first flush only once the handler has written body bytes, so an
+endpoint that sends headers and then stays silent delivers those headers with its
+first event rather than immediately. Every mainstream SSE server sends an opening
+comment or event, so in practice this is invisible.
+
 ### Blocking mode and JSON API false positives
 
-Detection-only mode never changes a response, so an app that "breaks when the WAF
-is on" is almost always in blocking mode with a CRS rule matching legitimate
-traffic. The Events page shows which rule; suppress it for that route.
+Once streaming works, an app that only breaks in **blocking** mode has a CRS rule
+matching legitimate traffic. The Events page shows which rule; suppress it for
+that route.
 
 Known case - PocketBase-based apps such as Beszel (#14): the dashboard opens its
-`/api/realtime` event stream (SSE) fine, then registers subscriptions with a POST
-whose JSON body contains topics like `systems/*`. Rule `942100` (libinjection SQLi)
-reads the `/*` as a SQL comment, the anomaly score reaches the blocking threshold
-and the POST gets a 403. The SDK reconnects and retries forever, which looks like a
-hung EventSource. Suppress `942100` on that route, or add the equivalent directive
-by hand:
+`/api/realtime` event stream, then registers subscriptions with a POST whose JSON
+body contains topics like `systems/*`. Rule `942100` (libinjection SQLi) reads the
+`/*` as a SQL comment, the anomaly score reaches the blocking threshold and the
+POST gets a 403. The SDK reconnects and retries forever. Suppress `942100` on that
+route, or add the equivalent directive by hand:
 
 ```
 SecRuleRemoveById 942100

@@ -27,7 +27,7 @@ RUN xcaddy build \
       --with github.com/caddyserver/cache-handler@v0.16.0 \
       --with github.com/mholt/caddy-l4@v0.1.1 \
       --with github.com/mholt/caddy-ratelimit@v0.1.0 \
-      --with github.com/corazawaf/coraza-caddy/v2@v2.5.0 \
+      --with github.com/corazawaf/coraza-caddy/v2@v2.6.1 \
       --with github.com/porech/caddy-maxmind-geolocation@v1.0.3 \
       --with github.com/caddy-dns/cloudflare@v0.2.4 \
       --with github.com/caddy-dns/route53@v1.6.2 \
