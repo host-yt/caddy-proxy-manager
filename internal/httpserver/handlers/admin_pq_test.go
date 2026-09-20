@@ -93,16 +93,25 @@ func TestPQStatusCounts(t *testing.T) {
 	if errPeer != nil {
 		t.Fatalf("insert peer without psk: %v", errPeer)
 	}
+	// Two PQ-only routes on ONE domain (the card counts hosts, not routes) plus
+	// a third PQ-only route with SSL off, whose connection policy is never
+	// emitted - neither the count nor the list may show it.
 	domain := fmt.Sprintf("pq-%d.example.test", time.Now().UnixNano())
+	noSSLDomain := "nossl-" + domain
 	_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0")
 	_, err := db.ExecContext(ctx,
-		`INSERT INTO routes (service_id, caddy_node_id, domain, upstream_port, tls_pq_only)
-		 VALUES (999999, ?, ?, 8080, 1)`, nodeID, domain)
+		`INSERT INTO routes (service_id, caddy_node_id, domain, path_prefix, upstream_port, ssl_enabled, tls_pq_only)
+		 VALUES (999999, ?, ?, '',       8080, 1, 1),
+		        (999999, ?, ?, '/api',   8080, 1, 1),
+		        (999999, ?, ?, '',       8080, 0, 1)`,
+		nodeID, domain, nodeID, domain, nodeID, noSSLDomain)
 	_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=1")
 	if err != nil {
-		t.Fatalf("insert pq-only route: %v", err)
+		t.Fatalf("insert pq-only routes: %v", err)
 	}
-	t.Cleanup(func() { _, _ = db.Exec("DELETE FROM routes WHERE domain = ?", domain) })
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM routes WHERE domain IN (?, ?)", domain, noSSLDomain)
+	})
 
 	got := h.pqStatus(ctx)
 	for _, c := range []struct {
@@ -122,12 +131,17 @@ func TestPQStatusCounts(t *testing.T) {
 		}
 	}
 	if got.PQHostCount <= pqHostsShown {
-		found := false
+		seen := 0
 		for _, d := range got.PQHosts {
-			found = found || d == domain
+			switch d {
+			case domain:
+				seen++
+			case noSSLDomain:
+				t.Errorf("PQHosts lists %s, but SSL is off for it", noSSLDomain)
+			}
 		}
-		if !found {
-			t.Errorf("PQHosts %v does not list %s", got.PQHosts, domain)
+		if seen != 1 {
+			t.Errorf("PQHosts %v lists %s %d times, want exactly 1", got.PQHosts, domain, seen)
 		}
 	}
 	var seeded *pqNodeView
@@ -141,5 +155,80 @@ func TestPQStatusCounts(t *testing.T) {
 	}
 	if !seeded.HybridKEX || !seeded.AgentPSK {
 		t.Errorf("seeded node = %+v, want HybridKEX and AgentPSK true", *seeded)
+	}
+}
+
+// The edit page must agree with the pusher, which gates PQ-only per node: a
+// fan-out peer on older Caddy drops the policy there, so the host is not
+// enforced even when the anchor node is fine.
+func TestPQBlockingNodeSeesFanoutPeer(t *testing.T) {
+	db := openTestDBHandlers(t)
+	ctx := context.Background()
+	anchor, _ := insertPSKNode(t, db, 0)
+	peer, _ := insertPSKNode(t, db, 0)
+	if _, err := db.ExecContext(ctx,
+		`UPDATE caddy_nodes SET caddy_version = CASE id WHEN ? THEN 'v2.11.4' ELSE 'v2.9.1' END,
+		        name = CASE id WHEN ? THEN 'pq-anchor' ELSE 'pq-laggard' END
+		 WHERE id IN (?, ?)`, anchor, anchor, anchor, peer); err != nil {
+		t.Fatalf("stage node versions: %v", err)
+	}
+	domain := fmt.Sprintf("fanout-%d.example.test", time.Now().UnixNano())
+	_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0")
+	res, err := db.ExecContext(ctx,
+		`INSERT INTO routes (service_id, caddy_node_id, domain, upstream_port, tls_pq_only)
+		 VALUES (999999, ?, ?, 8080, 1)`, anchor, domain)
+	_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=1")
+	if err != nil {
+		t.Fatalf("insert route: %v", err)
+	}
+	routeID, _ := res.LastInsertId()
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM route_node_assignments WHERE route_id = ?", routeID)
+		_, _ = db.Exec("DELETE FROM routes WHERE id = ?", routeID)
+	})
+
+	// Anchor alone is capable: no blocker yet.
+	if name, _, blocked := pqBlockingNode(ctx, db, routeID); blocked {
+		t.Fatalf("anchor-only route reported blocker %q, want none", name)
+	}
+	if _, err := db.ExecContext(ctx,
+		`INSERT INTO route_node_assignments (route_id, node_id) VALUES (?, ?)`, routeID, peer); err != nil {
+		t.Fatalf("insert fan-out assignment: %v", err)
+	}
+	name, ver, blocked := pqBlockingNode(ctx, db, routeID)
+	if !blocked || name != "pq-laggard" || ver != "v2.9.1" {
+		t.Errorf("pqBlockingNode = (%q, %q, %v), want the fan-out peer on v2.9.1", name, ver, blocked)
+	}
+}
+
+// Wiring guard: the "saved, not active" line must name the blocking node, not
+// the anchor, or the page contradicts the verdict it just rendered.
+func TestHostEditPQWarningNamesBlockingNode(t *testing.T) {
+	tpls, err := view.LoadAdminTemplates()
+	if err != nil {
+		t.Fatalf("load admin templates: %v", err)
+	}
+	d := hostEditData{
+		baseAdminData:     baseAdminData{Role: "admin", CSRF: "csrf", CSPNonce: "nonce"},
+		RouteID:           1,
+		Domain:            "pq.example.test",
+		SSL:               true,
+		TLSPQOnly:         true,
+		NodeName:          "pq-anchor",
+		NodeCaddyVersion:  "v2.11.4",
+		NodePQCapable:     false,
+		PQBlockingNode:    "pq-laggard",
+		PQBlockingVersion: "v2.9.1",
+	}
+	var buf bytes.Buffer
+	if err := tpls.Render(&buf, "hosts_edit", fillBreadcrumbs("hosts_edit", d)); err != nil {
+		t.Fatalf("render hosts_edit: %v", err)
+	}
+	html := buf.String()
+	if !strings.Contains(html, "saved, not active") {
+		t.Error("PQ pill does not warn that the policy is inert")
+	}
+	if !strings.Contains(html, "pq-laggard") || !strings.Contains(html, "v2.9.1") {
+		t.Error("PQ warning does not name the blocking fan-out node")
 	}
 }

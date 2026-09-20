@@ -2486,12 +2486,16 @@ type hostEditData struct {
 	NodeHasL4        bool
 	NodeHasGeoIP     bool
 	NodeHasRateLimit bool
-	// NodeCaddyVersion is the operator-declared version of the serving node;
-	// NodePQCapable says whether it understands x25519mlkem768 (Caddy 2.10+).
-	// Both drive the PQ-only warning: the toggle must never look active on a
-	// node that would have its /load rejected and the policy dropped.
-	NodeCaddyVersion string
-	NodePQCapable    bool
+	// NodeCaddyVersion is the operator-declared version of the anchor node;
+	// NodePQCapable says whether EVERY node serving the host understands
+	// x25519mlkem768 (Caddy 2.10+), fan-out peers included. Both drive the
+	// PQ-only warning: the toggle must never look active on a node that would
+	// have its /load rejected and the policy dropped. PQBlockingNode names the
+	// first incapable node when there is one.
+	NodeCaddyVersion  string
+	NodePQCapable     bool
+	PQBlockingNode    string
+	PQBlockingVersion string
 	// GeoIPAvailable reflects whether the runtime GeoIP database is loaded.
 	GeoIPAvailable bool
 
@@ -2733,10 +2737,21 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		d.GroupID.Valid = true
 	}
 	d.NodePQCapable = caddyapi.CaddySupportsPQCurve(d.NodeCaddyVersion)
+	if !d.NodePQCapable {
+		d.PQBlockingNode, d.PQBlockingVersion = d.NodeName, d.NodeCaddyVersion
+	}
 	if err != nil {
 		d.Error = "host not found"
 		h.render(w, "hosts_edit", d)
 		return
+	}
+	// The pusher gates PQ-only per node, so a fan-out peer on older Caddy
+	// silently drops the policy there - the page must say so, not "enforced".
+	if d.TLSPQOnly {
+		if name, ver, blocked := pqBlockingNode(ctx, db, id); blocked {
+			d.NodePQCapable = false
+			d.PQBlockingNode, d.PQBlockingVersion = name, ver
+		}
 	}
 	// Decrypt lb_cookie_secret for the edit form (SECRET-02). Legacy plaintext
 	// rows (pre-encryption) fail to decrypt and fall through unchanged.

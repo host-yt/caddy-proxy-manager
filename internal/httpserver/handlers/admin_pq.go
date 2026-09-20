@@ -2,11 +2,14 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"go/version"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 )
 
 // pqHostsShown caps the domain list in the readiness card; the count above it
@@ -98,11 +101,15 @@ func (h *AdminHandlers) pqStatus(ctx context.Context) pqStatusView {
 		`SELECT COUNT(*), COALESCE(SUM(psk_enc IS NOT NULL), 0)
 		 FROM customer_wg_peer WHERE status <> 'revoked'`).Scan(&s.PeerTotal, &s.PeerPSK)
 
+	// Hosts, not routes: several path routes can share one domain. SSL off
+	// means no TLS connection policy is emitted at all (build.go ANDs the two),
+	// so such a route is not enforced and must not be counted as if it were.
 	_ = db.QueryRowContext(qctx,
-		`SELECT COUNT(*) FROM routes WHERE tls_pq_only = 1`).Scan(&s.PQHostCount)
+		`SELECT COUNT(DISTINCT domain) FROM routes WHERE tls_pq_only = 1 AND ssl_enabled = 1`).Scan(&s.PQHostCount)
 	if s.PQHostCount > 0 {
 		hrows, herr := db.QueryContext(qctx,
-			`SELECT domain FROM routes WHERE tls_pq_only = 1 ORDER BY domain LIMIT ?`, pqHostsShown)
+			`SELECT DISTINCT domain FROM routes WHERE tls_pq_only = 1 AND ssl_enabled = 1
+			 ORDER BY domain LIMIT ?`, pqHostsShown)
 		if herr == nil {
 			defer hrows.Close()
 			for hrows.Next() {
@@ -114,6 +121,40 @@ func (h *AdminHandlers) pqStatus(ctx context.Context) pqStatusView {
 		}
 	}
 	return s
+}
+
+// pqBlockingNode names a node serving the route that cannot negotiate
+// x25519mlkem768. The node set mirrors the pusher exactly (anchor
+// routes.caddy_node_id plus the route_node_assignments fan-out, as
+// SchedulePushForRoute enumerates it) because push.go gates the PQ-only policy
+// per node: one lagging fan-out peer and the policy is silently dropped there,
+// so the edit page must not call the toggle enforced.
+// Returns blocked=false when every serving node is capable or the query fails;
+// the caller's anchor-only verdict then stands.
+func pqBlockingNode(ctx context.Context, db *sql.DB, routeID int64) (name, version string, blocked bool) {
+	if db == nil || routeID == 0 {
+		return "", "", false
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT n.name, COALESCE(n.caddy_version,'')
+		 FROM caddy_nodes n
+		 WHERE n.id = (SELECT caddy_node_id FROM routes WHERE id = ?)
+		    OR n.id IN (SELECT node_id FROM route_node_assignments WHERE route_id = ?)
+		 ORDER BY n.id ASC`, routeID, routeID)
+	if err != nil {
+		return "", "", false
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var n, v string
+		if rows.Scan(&n, &v) != nil {
+			continue
+		}
+		if !caddyapi.CaddySupportsPQCurve(v) {
+			return n, v, true
+		}
+	}
+	return "", "", false
 }
 
 // caddyHybridKEX reports whether a caddy_version string is >= 2.10, the first

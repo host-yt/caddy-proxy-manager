@@ -338,7 +338,7 @@
           </span>
           <span class="t-caption text-muted">
             {{if not .SSL}}SSL is off for this host, so no TLS connection policy is emitted.
-            {{else}}Node {{.NodeName}} declares Caddy {{if .NodeCaddyVersion}}{{.NodeCaddyVersion}}{{else}}an unknown version{{end}}; 2.10+ is required. Set it on the node page.{{end}}
+            {{else}}Node {{if .PQBlockingNode}}{{.PQBlockingNode}}{{else}}{{.NodeName}}{{end}} declares Caddy {{if .PQBlockingVersion}}{{.PQBlockingVersion}}{{else}}an unknown version{{end}}; 2.10+ is required on every node serving this host. Set it on the node page.{{end}}
           </span>
           {{else}}
           <span class="r-pill r-pill-neutral inline-flex items-center gap-1">
