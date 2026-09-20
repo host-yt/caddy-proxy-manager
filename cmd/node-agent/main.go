@@ -935,6 +935,12 @@ func reconcile(ctx context.Context, log *slog.Logger, c config, dry bool) {
 	url := c.PanelURL + "/api/node/wg/peers"
 	req, _ := http.NewRequestWithContext(pctx, http.MethodGet, url, nil)
 	req.Header.Set("Authorization", "Bearer "+c.NodeToken)
+	// Declare PSK support on the request that consumes the peer list, not
+	// only in the stats report: the panel must know what it is talking to
+	// before it decides what to hand over. An agent predating PSKs sends no
+	// such header, and the panel then refuses rather than feeding it a peer
+	// set it would apply without the keys.
+	req.Header.Set("X-HPG-Agent-PSK", "1")
 	resp, err := agentHTTP.Do(req)
 	if err != nil {
 		log.Warn("pull failed", "err", err)

@@ -63,12 +63,23 @@ func pskTestHandler(db *sql.DB) *WGBootstrapHandler {
 	}
 }
 
-func pullBody(t *testing.T, h *WGBootstrapHandler, token string) string {
-	t.Helper()
+// pullRec performs the peer pull the way an agent of the given generation
+// would: a current one declares PSK support on the request, a pre-PSK one
+// sends no such header.
+func pullRec(h *WGBootstrapHandler, token string, declaresPSK bool) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, "/api/node/wg/peers", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
+	if declaresPSK {
+		req.Header.Set("X-HPG-Agent-PSK", "1")
+	}
 	rec := httptest.NewRecorder()
 	h.NodePeersPull(rec, req)
+	return rec
+}
+
+func pullBody(t *testing.T, h *WGBootstrapHandler, token string) string {
+	t.Helper()
+	rec := pullRec(h, token, true)
 	if rec.Code != http.StatusOK {
 		t.Fatalf("pull status %d: %s", rec.Code, rec.Body.String())
 	}
@@ -99,6 +110,52 @@ func TestNodePeersPullGatesPresharedKey(t *testing.T) {
 	}
 	if body := pullBody(t, h, okToken); body != `{"peers":[]}` {
 		t.Fatalf("peer with unusable PSK body = %s, want no peers", body)
+	}
+}
+
+// A rolled-back agent must not be handed a peer set it would apply without
+// the keys: that single syncconf would drop every PSK-bearing tunnel on the
+// node at once. Its current config still works, so the pull is refused and
+// the stored capability is corrected on the spot.
+func TestNodePeersPullRefusesDowngradedAgentWithPSKPeers(t *testing.T) {
+	db := openTestDBHandlers(t)
+	defer db.Close()
+	h := pskTestHandler(db)
+	nodeID, token := insertPSKNode(t, db, 1) // node has one peer carrying a PSK
+
+	rec := pullRec(h, token, false)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status %d, want 409 - serving this agent would strip live PSKs", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), testPSKValue) {
+		t.Error("refusal body leaked the preshared key")
+	}
+	var agentPSK int
+	if err := db.QueryRow("SELECT agent_psk FROM caddy_nodes WHERE id = ?", nodeID).Scan(&agentPSK); err != nil {
+		t.Fatal(err)
+	}
+	if agentPSK != 0 {
+		t.Error("capability still recorded as supported after an agent that does not declare it pulled")
+	}
+}
+
+// Without PSK-bearing peers there is nothing to protect, so an old agent is
+// served normally - a downgraded fleet must not be bricked by the guard.
+func TestNodePeersPullServesDowngradedAgentWithoutPSKPeers(t *testing.T) {
+	db := openTestDBHandlers(t)
+	defer db.Close()
+	h := pskTestHandler(db)
+	nodeID, token := insertPSKNode(t, db, 1)
+	if _, err := db.Exec("UPDATE customer_wg_peer SET psk_enc = NULL WHERE node_id = ?", nodeID); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := pullRec(h, token, false)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d, want 200: no PSK peers means nothing to break", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "preshared_key") {
+		t.Error("PSK-less pull still advertised a preshared key")
 	}
 }
 

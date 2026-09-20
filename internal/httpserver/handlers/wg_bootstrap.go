@@ -323,6 +323,24 @@ func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
+	// Capability is negotiated on this request, not read from what a previous
+	// agent build reported. A downgraded agent applies the peer set it is
+	// given as a whole: handing it PSK-bearing peers it cannot express would
+	// silently drop every one of those tunnels on the next syncconf. Its
+	// current config still works, so refusing is what keeps it working.
+	if r.Header.Get("X-HPG-Agent-PSK") != "1" {
+		var withPSK int
+		_ = db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM customer_wg_peer WHERE node_id = ? AND psk_enc IS NOT NULL`, nodeID).Scan(&withPSK)
+		h.setPSKCapability(ctx, db, r, nodeID, false)
+		if withPSK > 0 {
+			h.Logger.Error("node-agent does not support preshared keys but this node has peers that use them; refusing to serve a peer set that would drop them",
+				"node_id", nodeID, "psk_peers", withPSK)
+			http.Error(w, "node-agent predates preshared-key support; upgrade it, or rotate these peers' keys to drop their PSKs", http.StatusConflict)
+			return
+		}
+	}
+
 	peers, err := h.Peers.PeersForNode(ctx, nodeID)
 	if err != nil {
 		http.Error(w, "lookup failed", http.StatusInternalServerError)
