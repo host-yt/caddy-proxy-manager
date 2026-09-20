@@ -250,8 +250,9 @@ func (s *Server) routes() {
 		r.Post("/api/node/wg/stats", s.deps.WGBoot.NodePeerStatsReport)
 	}
 
-	// Mesh-PSK rekey for already-joined nodes. The one-shot token in the
-	// query (fetch) / Authorization header (confirm) is the only authn.
+	// Mesh-PSK rekey for already-joined nodes. A bearer token is the only authn
+	// on both endpoints; it stays valid until confirm promotes the staged key,
+	// so the node script can retry a fetch or a lost confirm.
 	if s.deps.NodePSK != nil {
 		r.Get("/api/node/psk", s.deps.NodePSK.Fetch)
 		r.Post("/api/node/psk/confirm", s.deps.NodePSK.Confirm)

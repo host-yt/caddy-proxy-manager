@@ -44,10 +44,11 @@ jobs:
             echo "::error::CurvePreferences in non-test Go code (keep the Go default curve list, which is post-quantum)"; fail=1; fi
           # One Caddy version across every place we pin the stock image, so a
           # bump cannot leave half the fleet behind.
+          # docs/ is in scope: a stale pin there sends operators to the wrong image.
           caddy_pins=$(grep -rhoE 'caddy:2\.[0-9]+\.[0-9]+' \
             deploy/caddy/Dockerfile deploy/docker-compose.lite.yml \
             deploy/integration/docker-compose.sqlite.yml deploy/integration/docker-compose.multinode.yml \
-            deploy/remote-node/docker-compose.yml scripts/node-join.sh | sort -u || true)
+            deploy/remote-node/docker-compose.yml scripts/node-join.sh docs/ README.md | sort -u || true)
           if [ "$(printf '%s' "$caddy_pins" | grep -c .)" -ne 1 ]; then
             echo "::error::caddy image pins disagree: $(echo $caddy_pins)"; fail=1; fi
           exit $fail
