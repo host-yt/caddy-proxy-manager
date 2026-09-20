@@ -171,12 +171,21 @@ func (s *Service) SchedulePushForRoute(ctx context.Context, routeID int64) {
 	}
 	var direct sql.NullInt64
 	if err := s.DB.QueryRowContext(ctx,
-		`SELECT caddy_node_id FROM routes WHERE id = ?`, routeID).Scan(&direct); err == nil && direct.Valid {
+		`SELECT caddy_node_id FROM routes WHERE id = ?`, routeID).Scan(&direct); err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("push scheduling: anchor node lookup failed", "route_id", routeID, "err", err)
+		}
+	} else if direct.Valid {
 		sched(direct.Int64)
 	}
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT node_id FROM route_node_assignments WHERE route_id = ?`, routeID)
 	if err != nil {
+		// Silence here means fan-out peers keep serving the previous config
+		// with nothing to show for it.
+		if s.Logger != nil {
+			s.Logger.Warn("push scheduling: fan-out lookup failed, assigned nodes not scheduled", "route_id", routeID, "err", err)
+		}
 		return
 	}
 	defer rows.Close()
