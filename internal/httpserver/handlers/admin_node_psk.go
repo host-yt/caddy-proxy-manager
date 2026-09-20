@@ -46,7 +46,10 @@ func (h *AdminHandlers) loadNodePSK(ctx context.Context, db *sql.DB, id int64) n
 		return v
 	}
 	v.Active, v.Pending = active.Int64 != 0, pending.Int64 != 0
-	if tokenLive.Valid && tokenLive.Int64 != 0 && tokenEnc.Valid && h.State != nil {
+	// The token outlives the confirm on purpose (retryable confirm), so gate
+	// the command on a key still being staged - otherwise the page keeps
+	// offering a rekey command for a rekey that already finished.
+	if v.Pending && tokenLive.Valid && tokenLive.Int64 != 0 && tokenEnc.Valid && h.State != nil {
 		if tok, err := h.State.Scoped("wg").Decrypt(tokenEnc.String); err == nil {
 			v.Token = tok
 		}
@@ -97,13 +100,20 @@ func (h *AdminHandlers) NodesPSKEnable(w http.ResponseWriter, r *http.Request) {
 
 	// Expiry is computed DB-side so it shares a clock with the
 	// 'wg_psk_token_expires > NOW()' checks on the public endpoints.
-	if _, err := db.ExecContext(ctx,
+	res, err := db.ExecContext(ctx,
 		`UPDATE caddy_nodes SET wg_psk_pending_enc = ?, wg_psk_token_hash = ?, wg_psk_token_enc = ?,
 		   wg_psk_token_expires = `+store.DateAddMinutes(pskTokenTTLMinutes)+`
 		 WHERE id = ?`,
-		pskEnc, hex.EncodeToString(sum[:]), tokenEnc, id); err != nil {
+		pskEnc, hex.EncodeToString(sum[:]), tokenEnc, id)
+	if err != nil {
 		h.Logger.Error("node psk stage", "node_id", id, "err", err)
 		redirectWithFlash(w, r, dest, "", "db update failed")
+		return
+	}
+	// A stale node id stages nothing; without this the page still flashes a
+	// rekey command that can never work and writes a success audit row.
+	if n, _ := res.RowsAffected(); n == 0 {
+		redirectWithFlash(w, r, dest, "", "node not found")
 		return
 	}
 

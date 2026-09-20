@@ -76,7 +76,7 @@ fi
 log "Asking $MANAGER to register this node"
 payload=$(jq -n \
   --arg t "$TOKEN" --arg h "$PUBLIC_HOSTNAME" --arg i "$PUBLIC_IP" \
-  '{token:$t, public_hostname:$h, public_ip:$i}')
+  '{token:$t, public_hostname:$h, public_ip:$i, supports_psk:true}')
 resp=$(curl -fsS --max-time 30 \
   -H 'Content-Type: application/json' \
   -X POST "$MANAGER/api/v1/nodes/join" \
@@ -121,14 +121,13 @@ Endpoint   = ${peer_ep}
 AllowedIPs = ${peer_allowed}
 PersistentKeepalive = ${peer_keepalive}
 EOF
-# One malformed line makes `wg syncconf` reject the whole config, so the key
-# is only appended when it has the exact wire format (32 bytes, base64).
+# One malformed line makes `wg syncconf` reject the whole config. Joining
+# without the key is not an option either: the panel already stored it and
+# would render it on its own side, so the mesh would never handshake.
 if [[ -n "$peer_psk" ]]; then
-  if [[ "$peer_psk" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
-    echo "PresharedKey = ${peer_psk}" >> /etc/wireguard/wg0.conf
-  else
-    warn "manager returned a malformed preshared key - joining without it"
-  fi
+  [[ "$peer_psk" =~ ^[A-Za-z0-9+/]{43}=$ ]] \
+    || die "manager returned a malformed preshared key - refusing to join with a half-applied key"
+  echo "PresharedKey = ${peer_psk}" >> /etc/wireguard/wg0.conf
 fi
 chmod 600 /etc/wireguard/wg0.conf
 

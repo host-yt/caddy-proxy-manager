@@ -200,6 +200,10 @@ type JoinRequest struct {
 	Token          string `json:"token"`
 	PublicHostname string `json:"public_hostname,omitempty"`
 	PublicIP       string `json:"public_ip,omitempty"`
+	// SupportsPSK is declared by node-join.sh from the version that writes a
+	// PresharedKey line. A cached older script omits it, and must not be
+	// handed a key it will silently drop - the node would never handshake.
+	SupportsPSK bool `json:"supports_psk,omitempty"`
 }
 
 // JoinResponse is the bootstrap config the node consumes.
@@ -279,9 +283,11 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 
 	// Mesh PSK is active from the first handshake: the node writes it into
 	// wg0.conf from this same response, so there is no window where only one
-	// side has it (unlike the rekey flow for already-joined nodes).
+	// side has it (unlike the rekey flow for already-joined nodes). Gated on
+	// the script declaring it can: storing a key the node never installs
+	// reports a successful join and then never handshakes.
 	var psk, pskEnc string
-	if s.Enc != nil {
+	if s.Enc != nil && req.SupportsPSK {
 		psk, err = wireguard.GeneratePresharedKey()
 		if err != nil {
 			s.unclaimToken(ctx, db, tk.ID)

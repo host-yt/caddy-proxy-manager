@@ -182,7 +182,7 @@ func TestRedeemStoresAndReturnsPSK(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	resp, _, err := svc.Redeem(ctx, JoinRequest{Token: plain}, "https://ask.example.com", "ops@example.com")
+	resp, _, err := svc.Redeem(ctx, JoinRequest{Token: plain, SupportsPSK: true}, "https://ask.example.com", "ops@example.com")
 	if err != nil {
 		t.Fatalf("Redeem: %v", err)
 	}
@@ -210,11 +210,42 @@ func TestRedeemWithoutEncryptorOmitsPSK(t *testing.T) {
 	_, plain, cleanup := seedNodeGroupAndToken(t, db, svc)
 	defer cleanup()
 
-	resp, _, err := svc.Redeem(context.Background(), JoinRequest{Token: plain}, "https://ask.example.com", "ops@example.com")
+	resp, _, err := svc.Redeem(context.Background(), JoinRequest{Token: plain, SupportsPSK: true}, "https://ask.example.com", "ops@example.com")
 	if err != nil {
 		t.Fatalf("Redeem: %v", err)
 	}
 	if resp.WireGuard.Peer.PresharedKey != "" {
 		t.Fatal("PSK returned without an encryptor wired")
+	}
+}
+
+// TestRedeemOldScriptGetsNoPSK: a cached node-join.sh from before preshared
+// keys omits supports_psk. Storing a key it will never write would report a
+// successful join and then never handshake.
+func TestRedeemOldScriptGetsNoPSK(t *testing.T) {
+	db := openTestDB(t)
+	svc := newTestService(t, db)
+	mgr, err := installstate.New(t.TempDir(), strings.Repeat("y", 32))
+	if err != nil {
+		t.Fatalf("installstate.New: %v", err)
+	}
+	svc.Enc = mgr.Scoped("wg")
+	_, plain, cleanup := seedNodeGroupAndToken(t, db, svc)
+	defer cleanup()
+
+	resp, _, err := svc.Redeem(context.Background(), JoinRequest{Token: plain}, "https://ask.example.com", "ops@example.com")
+	if err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+	if resp.WireGuard.Peer.PresharedKey != "" {
+		t.Fatal("PSK handed to a script that never declared it writes one")
+	}
+	var stored sql.NullString
+	if err := db.QueryRowContext(context.Background(),
+		"SELECT wg_psk_enc FROM caddy_nodes WHERE id = ?", resp.NodeID).Scan(&stored); err != nil {
+		t.Fatalf("read wg_psk_enc: %v", err)
+	}
+	if stored.Valid {
+		t.Fatal("panel stored a PSK the node will never install - the mesh would be down")
 	}
 }

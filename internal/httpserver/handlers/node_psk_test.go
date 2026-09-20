@@ -76,6 +76,8 @@ func seedPSKNode(t *testing.T, db *sql.DB, enc *installstate.Manager, activePSK 
 	return id, token
 }
 
+const testManagerPubKey = "ManagerPubKeyBase64Placeholder00000000000a="
+
 func newPSKHandler(t *testing.T, db *sql.DB, enc *installstate.Manager, write func(context.Context) error) *NodePSKHandler {
 	t.Helper()
 	return &NodePSKHandler{
@@ -83,7 +85,24 @@ func newPSKHandler(t *testing.T, db *sql.DB, enc *installstate.Manager, write fu
 		Logger:        slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Enc:           enc,
 		WriteWGConfig: write,
+		PeerPublicKey: func(context.Context) (string, error) { return testManagerPubKey, nil },
 	}
+}
+
+// pskGet builds the bearer-authenticated fetch request. The token moved out
+// of the query string so it stays out of proxy logs and /proc.
+func pskGet(token string) *http.Request {
+	req := httptest.NewRequest(http.MethodGet, "/api/node/psk", nil)
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	return req
+}
+
+func pskConfirmReq(token string) *http.Request {
+	req := httptest.NewRequest(http.MethodPost, "/api/node/psk/confirm", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	return req
 }
 
 func pskTestEnc(t *testing.T) *installstate.Manager {
@@ -106,7 +125,7 @@ func TestPSKFetchDoesNotBurnToken(t *testing.T) {
 	var first string
 	for i := range 2 {
 		rec := httptest.NewRecorder()
-		h.Fetch(rec, httptest.NewRequest(http.MethodGet, "/api/node/psk?t="+token, nil))
+		h.Fetch(rec, pskGet(token))
 		if rec.Code != http.StatusOK {
 			t.Fatalf("call %d: status %d, want 200", i, rec.Code)
 		}
@@ -153,16 +172,18 @@ func TestPSKFetchRejectsBadAndExpired(t *testing.T) {
 	}
 	for name, tok := range cases {
 		rec := httptest.NewRecorder()
-		h.Fetch(rec, httptest.NewRequest(http.MethodGet, "/api/node/psk?t="+tok, nil))
+		h.Fetch(rec, pskGet(tok))
 		if rec.Code != http.StatusNotFound {
 			t.Errorf("%s: status %d, want 404", name, rec.Code)
 		}
 	}
 }
 
-// TestPSKConfirmPromotesAndClearsToken is the happy path: pending becomes
-// active, the token is gone, and the config was re-rendered.
-func TestPSKConfirmPromotesAndClearsToken(t *testing.T) {
+// TestPSKConfirmPromotesAndIsIdempotent is the happy path: pending becomes
+// active, the config is re-rendered, and a repeat confirm (lost response,
+// script retry) answers 204 again instead of 404 - a 404 there would make
+// the script roll the node back off a key the panel already committed.
+func TestPSKConfirmPromotesAndIsIdempotent(t *testing.T) {
 	db := openTestDBHandlers(t)
 	enc := pskTestEnc(t)
 	oldPSK, _ := wireguard.GeneratePresharedKey()
@@ -172,14 +193,13 @@ func TestPSKConfirmPromotesAndClearsToken(t *testing.T) {
 
 	// Grab the staged key first so we can assert it is the one promoted.
 	rec := httptest.NewRecorder()
-	h.Fetch(rec, httptest.NewRequest(http.MethodGet, "/api/node/psk?t="+token, nil))
+	h.Fetch(rec, pskGet(token))
 	var body struct {
 		PSK string `json:"psk"`
 	}
 	_ = json.Unmarshal(rec.Body.Bytes(), &body)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/node/psk/confirm", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req := pskConfirmReq(token)
 	rec = httptest.NewRecorder()
 	h.Confirm(rec, req)
 	if rec.Code != http.StatusNoContent {
@@ -202,17 +222,127 @@ func TestPSKConfirmPromotesAndClearsToken(t *testing.T) {
 	if got != body.PSK {
 		t.Fatal("active key is not the one the node was handed")
 	}
-	if pending.Valid || tokenHash.Valid {
-		t.Fatal("pending key or token survived the confirm")
+	if pending.Valid {
+		t.Fatal("pending key survived the confirm")
+	}
+	if !tokenHash.Valid {
+		t.Fatal("token cleared on confirm - a retried confirm would 404")
 	}
 
-	// The token is spent: a replay must look like any other bad token.
-	req = httptest.NewRequest(http.MethodPost, "/api/node/psk/confirm", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	// Retry of a confirm whose response was lost: same 204, no re-render.
 	rec = httptest.NewRecorder()
-	h.Confirm(rec, req)
+	h.Confirm(rec, pskConfirmReq(token))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("retry status %d, want 204", rec.Code)
+	}
+	if rendered != 1 {
+		t.Fatalf("WriteWGConfig called %d times after the retry, want 1", rendered)
+	}
+	// A GET is still refused though: there is nothing staged any more.
+	rec = httptest.NewRecorder()
+	h.Fetch(rec, pskGet(token))
 	if rec.Code != http.StatusNotFound {
-		t.Fatalf("replay status %d, want 404", rec.Code)
+		t.Fatalf("post-confirm fetch status %d, want 404", rec.Code)
+	}
+}
+
+// TestPSKConfirmCompensatesWithCancelledRequestContext: the two likeliest
+// render failures are the request context expiring and the client
+// disconnecting, so the compensating UPDATE must not ride on that context.
+func TestPSKConfirmCompensatesWithCancelledRequestContext(t *testing.T) {
+	db := openTestDBHandlers(t)
+	enc := pskTestEnc(t)
+	oldPSK, _ := wireguard.GeneratePresharedKey()
+	id, token := seedPSKNode(t, db, enc, oldPSK, store.DateAddMinutes(30))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	h := newPSKHandler(t, db, enc, func(context.Context) error {
+		cancel() // client walked away mid-render
+		return errors.New("context canceled")
+	})
+
+	rec := httptest.NewRecorder()
+	h.Confirm(rec, pskConfirmReq(token).WithContext(ctx))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500", rec.Code)
+	}
+
+	var active, pending, tokenHash sql.NullString
+	if err := db.QueryRowContext(context.Background(),
+		"SELECT wg_psk_enc, wg_psk_pending_enc, wg_psk_token_hash FROM caddy_nodes WHERE id = ?", id,
+	).Scan(&active, &pending, &tokenHash); err != nil {
+		t.Fatal(err)
+	}
+	got, err := enc.Decrypt(active.String)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != oldPSK {
+		t.Fatal("compensation did not run on the cancelled request context - the panel kept the promoted key")
+	}
+	if !pending.Valid || !tokenHash.Valid {
+		t.Fatal("pending key / token not restored, the operator cannot retry")
+	}
+}
+
+// TestPSKFetchRequiresManagerPubKey: without it the script cannot tell the
+// panel's [Peer] block from a hand-added one, so the panel must refuse
+// rather than let it stamp the key onto every peer.
+func TestPSKFetchRequiresManagerPubKey(t *testing.T) {
+	db := openTestDBHandlers(t)
+	enc := pskTestEnc(t)
+	_, token := seedPSKNode(t, db, enc, "", store.DateAddMinutes(30))
+	h := newPSKHandler(t, db, enc, nil)
+	h.PeerPublicKey = func(context.Context) (string, error) { return "", errors.New("no keypair") }
+
+	rec := httptest.NewRecorder()
+	h.Fetch(rec, pskGet(token))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500", rec.Code)
+	}
+}
+
+// TestPSKFetchReturnsManagerPubKey: the script matches on it, so it has to
+// be in the response next to the key.
+func TestPSKFetchReturnsManagerPubKey(t *testing.T) {
+	db := openTestDBHandlers(t)
+	enc := pskTestEnc(t)
+	_, token := seedPSKNode(t, db, enc, "", store.DateAddMinutes(30))
+	h := newPSKHandler(t, db, enc, nil)
+
+	rec := httptest.NewRecorder()
+	h.Fetch(rec, pskGet(token))
+	var body struct {
+		PSK  string `json:"psk"`
+		Peer string `json:"peer_public_key"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if body.Peer != testManagerPubKey {
+		t.Fatalf("peer_public_key = %q, want %q", body.Peer, testManagerPubKey)
+	}
+}
+
+// TestPSKRateLimitFailsClosedWithoutRedis: Redis is optional here and these
+// endpoints are unauthenticated, so the cap must still bite without it.
+func TestPSKRateLimitFailsClosedWithoutRedis(t *testing.T) {
+	h := &NodePSKHandler{
+		DB:          func() *sql.DB { return nil },
+		Logger:      slog.New(slog.NewTextHandler(io.Discard, nil)),
+		PerIPPerMin: 3,
+	}
+	limited := 0
+	for range 10 {
+		rec := httptest.NewRecorder()
+		h.Fetch(rec, pskGet(strings.Repeat("a", 64)))
+		if rec.Code == http.StatusTooManyRequests {
+			limited++
+		}
+	}
+	if limited != 7 {
+		t.Fatalf("got %d rate-limited of 10 with a cap of 3, want 7", limited)
 	}
 }
 
@@ -225,8 +355,7 @@ func TestPSKConfirmCompensatesOnRenderFailure(t *testing.T) {
 	id, token := seedPSKNode(t, db, enc, oldPSK, store.DateAddMinutes(30))
 	h := newPSKHandler(t, db, enc, func(context.Context) error { return errors.New("disk on fire") })
 
-	req := httptest.NewRequest(http.MethodPost, "/api/node/psk/confirm", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req := pskConfirmReq(token)
 	rec := httptest.NewRecorder()
 	h.Confirm(rec, req)
 	if rec.Code != http.StatusInternalServerError {
@@ -252,8 +381,7 @@ func TestPSKConfirmCompensatesOnRenderFailure(t *testing.T) {
 
 	// And the restored token still works, so the retry is a real one.
 	h2 := newPSKHandler(t, db, enc, func(context.Context) error { return nil })
-	req = httptest.NewRequest(http.MethodPost, "/api/node/psk/confirm", nil)
-	req.Header.Set("Authorization", "Bearer "+token)
+	req = pskConfirmReq(token)
 	rec = httptest.NewRecorder()
 	h2.Confirm(rec, req)
 	if rec.Code != http.StatusNoContent {

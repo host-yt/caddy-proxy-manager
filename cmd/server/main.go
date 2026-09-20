@@ -490,6 +490,10 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		PerIPPerMin:   30,
 		ScriptBody:    pskScript,
 		WriteWGConfig: writeWG,
+		PeerPublicKey: func(ctx context.Context) (string, error) {
+			cp, err := wgSvc.Get(ctx)
+			return cp.PublicKey, err
+		},
 	}
 	adminH.SetConfigRefs(&routesSvc.ACMEEmail, &routesSvc.ACMEStaging, &routesSvc.ACMECaURL, &routesSvc.ACMEEabKID, &routesSvc.ACMEEabHMAC)
 	adminH.ResyncNode = routesSvc.Resync

@@ -34,6 +34,13 @@ BEGIN
                     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='caddy_nodes' AND COLUMN_NAME='wg_psk_token_expires') THEN
         ALTER TABLE caddy_nodes ADD COLUMN wg_psk_token_expires TIMESTAMP NULL;
     END IF;
+    -- The unauthenticated rekey endpoints look nodes up by this hash and the
+    -- confirm does it FOR UPDATE; unindexed that is a full scan plus next-key
+    -- locks across caddy_nodes on every request, authenticated or not.
+    IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS
+                    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='caddy_nodes' AND INDEX_NAME='idx_node_wg_psk_token') THEN
+        ALTER TABLE caddy_nodes ADD KEY idx_node_wg_psk_token (wg_psk_token_hash);
+    END IF;
 END;
 CALL hpg_mig142_up();
 DROP PROCEDURE IF EXISTS hpg_mig142_up;
@@ -44,6 +51,10 @@ DROP PROCEDURE IF EXISTS hpg_mig142_up;
 DROP PROCEDURE IF EXISTS hpg_mig142_down;
 CREATE PROCEDURE hpg_mig142_down()
 BEGIN
+    IF EXISTS (SELECT 1 FROM information_schema.STATISTICS
+                WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='caddy_nodes' AND INDEX_NAME='idx_node_wg_psk_token') THEN
+        ALTER TABLE caddy_nodes DROP KEY idx_node_wg_psk_token;
+    END IF;
     IF EXISTS (SELECT 1 FROM information_schema.COLUMNS
                 WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='caddy_nodes' AND COLUMN_NAME='wg_psk_token_expires') THEN
         ALTER TABLE caddy_nodes DROP COLUMN wg_psk_token_expires;
