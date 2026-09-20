@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
@@ -48,6 +49,9 @@ type Token struct {
 type Service struct {
 	DB func() *sql.DB
 	WG *wireguard.Service
+	// Enc seals the mesh preshared key at rest (purpose-scoped "wg"). Nil =
+	// nodes join without a PSK, exactly as before.
+	Enc *installstate.Manager
 	// WriteWGConfig is called after a successful Redeem so the WG sidecar
 	// picks up the new peer. Nil-safe.
 	WriteWGConfig func(ctx context.Context) error
@@ -211,6 +215,9 @@ type JoinResponse struct {
 			Endpoint            string `json:"endpoint"`
 			AllowedIPs          string `json:"allowed_ips"`
 			PersistentKeepalive int    `json:"persistent_keepalive"`
+			// PresharedKey is omitted when the panel has no encryptor wired;
+			// an older node script ignores it either way.
+			PresharedKey string `json:"preshared_key,omitempty"`
 		} `json:"peer"`
 	} `json:"wireguard"`
 	Caddy struct {
@@ -270,6 +277,23 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 		fingerprint = fingerprint[:16]
 	}
 
+	// Mesh PSK is active from the first handshake: the node writes it into
+	// wg0.conf from this same response, so there is no window where only one
+	// side has it (unlike the rekey flow for already-joined nodes).
+	var psk, pskEnc string
+	if s.Enc != nil {
+		psk, err = wireguard.GeneratePresharedKey()
+		if err != nil {
+			s.unclaimToken(ctx, db, tk.ID)
+			return JoinResponse{}, "", fmt.Errorf("generate psk: %w", err)
+		}
+		pskEnc, err = s.Enc.Encrypt(psk)
+		if err != nil {
+			s.unclaimToken(ctx, db, tk.ID)
+			return JoinResponse{}, "", fmt.Errorf("encrypt psk: %w", err)
+		}
+	}
+
 	// AllocateNodeIP does an unlocked read-all-then-pick, so concurrent joins
 	// can race onto the same IP and collide on uq_nodes_wg_ip. Retry the
 	// allocate+insert pair a few times on that specific collision rather than
@@ -299,10 +323,11 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 		var res sql.Result
 		res, err = db.ExecContext(ctx,
 			`INSERT INTO caddy_nodes (name, api_url, public_hostname, public_ip, node_group_id,
-			   max_routes, priority, is_enabled, health_status, wg_ip, wg_public_key, fingerprint)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'unknown', ?, ?, ?)`,
+			   max_routes, priority, is_enabled, health_status, wg_ip, wg_public_key, fingerprint, wg_psk_enc)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, 0, 'unknown', ?, ?, ?, ?)`,
 			nodeName, apiURL, publicHostname, publicIP, tk.NodeGroupID,
 			tk.MaxRoutes, tk.Priority, wgIP, nodeKP.PublicKey, fingerprint,
+			sql.NullString{String: pskEnc, Valid: pskEnc != ""},
 		)
 		if err != nil {
 			if isDupKeyErr(err) && attempt < maxIPAllocAttempts {
@@ -327,6 +352,7 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 	resp.WireGuard.Peer.Endpoint = cp.Endpoint
 	resp.WireGuard.Peer.AllowedIPs = cp.ControlIP + "/32"
 	resp.WireGuard.Peer.PersistentKeepalive = 25
+	resp.WireGuard.Peer.PresharedKey = psk
 	resp.Caddy.AdminListen = wgIP + ":2019"
 	resp.Caddy.AskEndpointURL = askEndpointURL
 	resp.Caddy.ACMEEmail = acmeEmail
@@ -342,9 +368,13 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 		}
 	} else {
 		// Sidecar not enabled — fall back to the manual block.
+		pskLine := ""
+		if psk != "" {
+			pskLine = "PresharedKey = " + psk + "\n"
+		}
 		managerPeer := fmt.Sprintf(
-			"# Node #%d (%s)\n[Peer]\nPublicKey = %s\nAllowedIPs = %s/32\n",
-			nodeID, security.SanitizeConfigComment(nodeName), nodeKP.PublicKey, wgIP,
+			"# Node #%d (%s)\n[Peer]\nPublicKey = %s\n%sAllowedIPs = %s/32\n",
+			nodeID, security.SanitizeConfigComment(nodeName), nodeKP.PublicKey, pskLine, wgIP,
 		)
 		resp.ManagerNote = "On the manager: append the [Peer] block below to /etc/wireguard/wg0.conf, then `sudo wg syncconf wg0 <(wg-quick strip wg0)`."
 		return resp, managerPeer, nil

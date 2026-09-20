@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
@@ -19,6 +20,9 @@ import (
 // Atomic via temp-file + rename. Concurrent writes serialized by mu.
 type ConfigWriter struct {
 	Dir string // shared volume path, e.g. /app/wg
+	// Enc decrypts caddy_nodes.wg_psk_enc (purpose-scoped "wg"). Nil = mesh
+	// preshared keys are not rendered at all.
+	Enc *installstate.Manager
 	mu  sync.Mutex
 }
 
@@ -54,8 +58,10 @@ func (cw *ConfigWriter) Render(ctx context.Context, db *sql.DB, cp ControlPlane)
 
 	// Only approved + enabled nodes join the mesh - unapproved nodes must not
 	// be added as peers just because they generated a keypair at join time.
+	// wg_psk_pending_enc is deliberately NOT selected: a staged key must never
+	// reach the sidecar before the node confirms it installed it.
 	rows, err := db.QueryContext(ctx,
-		`SELECT id, name, wg_public_key, wg_ip
+		`SELECT id, name, wg_public_key, wg_ip, wg_psk_enc
 		 FROM caddy_nodes
 		 WHERE wg_public_key IS NOT NULL AND wg_public_key <> '' AND wg_ip IS NOT NULL
 		   AND approved_at IS NOT NULL AND is_enabled = 1
@@ -69,13 +75,30 @@ func (cw *ConfigWriter) Render(ctx context.Context, db *sql.DB, cp ControlPlane)
 		name   string
 		pubKey string
 		wgIP   string
+		psk    string
 	}
 	var peers []peer
 	for rows.Next() {
 		var p peer
-		var pk, ip sql.NullString
-		if err := rows.Scan(&p.id, &p.name, &pk, &ip); err != nil {
+		var pk, ip, pskEnc sql.NullString
+		if err := rows.Scan(&p.id, &p.name, &pk, &ip, &pskEnc); err != nil {
 			return "", err
+		}
+		if pskEnc.Valid && pskEnc.String != "" {
+			// Hard fail instead of silently dropping the line: a config
+			// written without the PSK the node already installed kills the
+			// mesh. Returning the error leaves the last good file in place.
+			if cw.Enc == nil {
+				return "", fmt.Errorf("node %d has a mesh PSK but no decryptor is configured", p.id)
+			}
+			psk, derr := cw.Enc.Decrypt(pskEnc.String)
+			if derr != nil {
+				return "", fmt.Errorf("decrypt wg psk for node %d: %w", p.id, derr)
+			}
+			if !ValidPresharedKey(psk) {
+				return "", fmt.Errorf("stored wg psk for node %d is malformed", p.id)
+			}
+			p.psk = psk
 		}
 		if pk.Valid && ip.Valid {
 			p.pubKey, p.wgIP = pk.String, ip.String
@@ -90,6 +113,9 @@ func (cw *ConfigWriter) Render(ctx context.Context, db *sql.DB, cp ControlPlane)
 		fmt.Fprintf(&b, "# Node #%d (%s)\n", p.id, security.SanitizeConfigComment(p.name))
 		b.WriteString("[Peer]\n")
 		fmt.Fprintf(&b, "PublicKey  = %s\n", p.pubKey)
+		if p.psk != "" {
+			fmt.Fprintf(&b, "PresharedKey = %s\n", p.psk)
+		}
 		fmt.Fprintf(&b, "AllowedIPs = %s/32\n", p.wgIP)
 		b.WriteString("PersistentKeepalive = 25\n\n")
 	}

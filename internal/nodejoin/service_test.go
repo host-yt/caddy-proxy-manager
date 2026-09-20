@@ -165,3 +165,56 @@ func TestRedeemConcurrentOnlyOneWins(t *testing.T) {
 		t.Fatalf("concurrent redeems left %d node rows, want exactly 1 (losers must leave no rows behind)", nodeCount)
 	}
 }
+
+// TestRedeemStoresAndReturnsPSK: a fresh join gets a mesh preshared key in
+// the same response that carries the private key, so both sides have it
+// before the first handshake.
+func TestRedeemStoresAndReturnsPSK(t *testing.T) {
+	db := openTestDB(t)
+	svc := newTestService(t, db)
+	mgr, err := installstate.New(t.TempDir(), strings.Repeat("y", 32))
+	if err != nil {
+		t.Fatalf("installstate.New: %v", err)
+	}
+	enc := mgr.Scoped("wg")
+	svc.Enc = enc
+	_, plain, cleanup := seedNodeGroupAndToken(t, db, svc)
+	defer cleanup()
+
+	ctx := context.Background()
+	resp, _, err := svc.Redeem(ctx, JoinRequest{Token: plain}, "https://ask.example.com", "ops@example.com")
+	if err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+	if !wireguard.ValidPresharedKey(resp.WireGuard.Peer.PresharedKey) {
+		t.Fatalf("response PSK %q is not a valid preshared key", resp.WireGuard.Peer.PresharedKey)
+	}
+	var stored string
+	if err := db.QueryRowContext(ctx, "SELECT wg_psk_enc FROM caddy_nodes WHERE id = ?", resp.NodeID).Scan(&stored); err != nil {
+		t.Fatalf("read wg_psk_enc: %v", err)
+	}
+	got, err := enc.Decrypt(stored)
+	if err != nil {
+		t.Fatalf("decrypt stored psk: %v", err)
+	}
+	if got != resp.WireGuard.Peer.PresharedKey {
+		t.Fatal("stored PSK differs from the one handed to the node")
+	}
+}
+
+// TestRedeemWithoutEncryptorOmitsPSK keeps the join path working when no
+// encryptor is wired (older deployments, tests).
+func TestRedeemWithoutEncryptorOmitsPSK(t *testing.T) {
+	db := openTestDB(t)
+	svc := newTestService(t, db)
+	_, plain, cleanup := seedNodeGroupAndToken(t, db, svc)
+	defer cleanup()
+
+	resp, _, err := svc.Redeem(context.Background(), JoinRequest{Token: plain}, "https://ask.example.com", "ops@example.com")
+	if err != nil {
+		t.Fatalf("Redeem: %v", err)
+	}
+	if resp.WireGuard.Peer.PresharedKey != "" {
+		t.Fatal("PSK returned without an encryptor wired")
+	}
+}

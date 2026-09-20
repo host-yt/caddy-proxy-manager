@@ -1365,6 +1365,8 @@ type nodeDetailData struct {
 	GeoIPMeta geoipView
 	// ModuleMismatches lists routes that require a module the node lacks.
 	ModuleMismatches []nodeMismatch
+	// PSK is the mesh WireGuard preshared-key state (PQ-01).
+	PSK nodePSKView
 	// 24h traffic aggregates for this node.
 	NodeBandwidth24h int64
 	NodeRequests24h  int64
@@ -1564,6 +1566,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Load global GeoIP DB status so the template can show it next to the badge.
 	d.GeoIPMeta = h.loadGeoIPView(ctx, db)
+	d.PSK = h.loadNodePSK(ctx, db, id)
 
 	// 24h total bandwidth + request count for all routes on this node (from rollups).
 	_ = db.QueryRowContext(ctx,

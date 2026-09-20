@@ -94,6 +94,9 @@ peer_pub=$(echo "$resp" | jq -r '.wireguard.peer.public_key')
 peer_ep=$(echo "$resp" | jq -r '.wireguard.peer.endpoint')
 peer_allowed=$(echo "$resp" | jq -r '.wireguard.peer.allowed_ips')
 peer_keepalive=$(echo "$resp" | jq -r '.wireguard.peer.persistent_keepalive')
+# Mesh preshared key (post-quantum hardening). Absent on an older panel, in
+# which case the peer block stays exactly as it was.
+peer_psk=$(echo "$resp" | jq -r '.wireguard.peer.preshared_key // ""')
 admin_listen=$(echo "$resp" | jq -r '.caddy.admin_listen')
 ask_url=$(echo "$resp" | jq -r '.caddy.ask_endpoint_url')
 acme_email=$(echo "$resp" | jq -r '.caddy.acme_email')
@@ -118,6 +121,15 @@ Endpoint   = ${peer_ep}
 AllowedIPs = ${peer_allowed}
 PersistentKeepalive = ${peer_keepalive}
 EOF
+# One malformed line makes `wg syncconf` reject the whole config, so the key
+# is only appended when it has the exact wire format (32 bytes, base64).
+if [[ -n "$peer_psk" ]]; then
+  if [[ "$peer_psk" =~ ^[A-Za-z0-9+/]{43}=$ ]]; then
+    echo "PresharedKey = ${peer_psk}" >> /etc/wireguard/wg0.conf
+  else
+    warn "manager returned a malformed preshared key - joining without it"
+  fi
+fi
 chmod 600 /etc/wireguard/wg0.conf
 
 log "Bringing up WireGuard"
@@ -128,7 +140,6 @@ systemctl enable --now wg-quick@wg0 || {
 
 # 4. Write Caddy compose + Caddyfile -------------------------------------
 mkdir -p "$INSTALL_DIR"
-admin_ip="${admin_listen%:*}"
 
 log "Writing $INSTALL_DIR/docker-compose.yml"
 cat > "$INSTALL_DIR/docker-compose.yml" <<EOF
