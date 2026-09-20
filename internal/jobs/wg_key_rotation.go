@@ -34,6 +34,7 @@ type rotationCandidate struct {
 	peerID   int64
 	clientID int64
 	nodeID   int64
+	group    string
 }
 
 // Run loops on Interval until ctx is cancelled.
@@ -67,7 +68,7 @@ func (j *WGKeyRotationJob) tick(ctx context.Context) {
 	// → global setting wg.key_rotation_days. The subquery for plan days prevents duplicate
 	// peer rows when a client has multiple active services/plans.
 	rows, err := db.QueryContext(tickCtx, `
-		SELECT p.id, p.client_id, p.node_id
+		SELECT p.id, p.client_id, p.node_id, COALESCE(p.peer_group_id, '')
 		FROM customer_wg_peer p
 		LEFT JOIN (
 			SELECT sv.client_id, MAX(pl.wg_key_rotation_days) AS plan_days
@@ -106,7 +107,7 @@ func (j *WGKeyRotationJob) tick(ctx context.Context) {
 	var candidates []rotationCandidate
 	for rows.Next() {
 		var c rotationCandidate
-		if err := rows.Scan(&c.peerID, &c.clientID, &c.nodeID); err != nil {
+		if err := rows.Scan(&c.peerID, &c.clientID, &c.nodeID, &c.group); err != nil {
 			j.Logger.Warn("wg key rotation scan", "err", err)
 			continue
 		}
@@ -117,23 +118,40 @@ func (j *WGKeyRotationJob) tick(ctx context.Context) {
 		return
 	}
 
+	// RotateKey rotates a whole peer_group_id at once, so every sibling of a
+	// rotated HA peer is already done - rotating it again would churn the
+	// group's keypair once per member and mail the customer once per node.
+	// Their nodes still need the resync.
+	done := map[string]bool{}
 	for _, c := range candidates {
+		if c.group != "" && done[c.group] {
+			j.resync(tickCtx, c.nodeID)
+			continue
+		}
 		if err := j.rotatePeer(tickCtx, db, c.peerID); err != nil {
 			j.Logger.Error("wg key rotation failed", "peer_id", c.peerID, "err", err)
 			continue
 		}
-		j.Logger.Info("wg key rotated", "peer_id", c.peerID)
-		if j.Routes != nil && c.nodeID > 0 {
-			if err := j.Routes.Resync(tickCtx, c.nodeID); err != nil {
-				j.Logger.Warn("wg key rotation: caddy resync failed", "node_id", c.nodeID, "err", err)
-			}
+		if c.group != "" {
+			done[c.group] = true
 		}
+		j.Logger.Info("wg key rotated", "peer_id", c.peerID, "peer_group_id", c.group)
+		j.resync(tickCtx, c.nodeID)
 		if j.Notifier != nil {
 			j.Notifier.Notify(tickCtx, c.clientID,
 				"[Hostyt] WireGuard key rotated",
 				"Your WireGuard tunnel key was automatically rotated. "+
 					"Download the updated configuration from the client portal to restore connectivity.")
 		}
+	}
+}
+
+func (j *WGKeyRotationJob) resync(ctx context.Context, nodeID int64) {
+	if j.Routes == nil || nodeID <= 0 {
+		return
+	}
+	if err := j.Routes.Resync(ctx, nodeID); err != nil {
+		j.Logger.Warn("wg key rotation: caddy resync failed", "node_id", nodeID, "err", err)
 	}
 }
 

@@ -264,7 +264,23 @@ func (s *Service) Revoke(ctx context.Context, peerID int64) error {
 // the customer can re-install with new credentials. Old key stays valid
 // until the new .conf is downloaded and applied; reconciler swaps the
 // peer block atomically on next pull.
+//
+// HA groups rotate as one unit. CreateHA gives every row in a
+// peer_group_id the SAME customer keypair (one .conf, one [Interface]
+// PrivateKey, many [Peer] blocks), so rotating a single row left the
+// sibling nodes authorising the old pubkey: the customer's new .conf
+// only worked against the one rotated node and every failover path was
+// silently dead until the next full re-provision.
 func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
+	var (
+		nodeID int64
+		group  sql.NullString
+	)
+	if err := s.DB.QueryRowContext(ctx,
+		`SELECT node_id, peer_group_id FROM customer_wg_peer WHERE id=?`, peerID).
+		Scan(&nodeID, &group); err != nil {
+		return "", err
+	}
 	kp, err := wireguard.GenerateKeypair()
 	if err != nil {
 		return "", err
@@ -275,16 +291,8 @@ func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
 	}
 	// Rotation is also the moment a classic peer picks up a PSK: the customer
 	// has to re-import the .conf anyway, so nothing breaks retroactively.
-	var (
-		nodeID int64
-		group  sql.NullString
-	)
-	if err := s.DB.QueryRowContext(ctx,
-		`SELECT node_id, peer_group_id FROM customer_wg_peer WHERE id=?`, peerID).
-		Scan(&nodeID, &group); err != nil {
-		return "", err
-	}
-	encPSK, err := s.newEncPSK(ctx, s.groupNodeIDs(ctx, nodeID, group.String), group.String)
+	nodeIDs := s.groupNodeIDs(ctx, nodeID, group.String)
+	withPSK, err := s.groupSupportsPSK(ctx, nodeIDs, group.String)
 	if err != nil {
 		if !errors.Is(err, ErrPSKUnsupported) {
 			return "", err
@@ -293,7 +301,7 @@ func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
 		// turns a security control into one that never runs again. Drop to a
 		// classic peer (psk_enc goes NULL below, so the node's pull and the
 		// rendered .conf agree) and make the degradation findable.
-		encPSK = nil
+		withPSK = false
 		if s.Logger != nil {
 			s.Logger.Warn("wg key rotated without a preshared key", "peer_id", peerID, "node_id", nodeID, "err", err)
 		}
@@ -309,18 +317,73 @@ func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
 			},
 		})
 	}
-	// Stamp both timestamp columns so key-age UX and alerts treat manual
-	// rotation the same as job-driven rotation.
-	if _, err := s.DB.ExecContext(ctx,
-		`UPDATE customer_wg_peer
-		    SET pubkey=?, server_privkey_e2=?, psk_enc=?, status='pending',
-		        last_rotated_at=NOW(), last_key_rotation_at=NOW(),
-		        rotation_alert_sent_at=NULL
-		  WHERE id=?`,
-		kp.PublicKey, []byte(encPriv), encPSK, peerID); err != nil {
+
+	// One transaction for the whole group: a group left half-rotated is the
+	// exact failure mode this fixes, so it must not be reachable via a
+	// mid-loop error either.
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	ids, err := rotationTargets(ctx, tx, peerID, group.String)
+	if err != nil {
+		return "", err
+	}
+	for _, id := range ids {
+		// Shared keypair, per-row PSK: CreateHA stores a distinct PSK per
+		// row (each node gets its own), all present or all NULL.
+		var encPSK any
+		if withPSK {
+			if encPSK, err = s.encryptNewPSK(); err != nil {
+				return "", err
+			}
+		}
+		// Stamp both timestamp columns so key-age UX and alerts treat manual
+		// rotation the same as job-driven rotation.
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE customer_wg_peer
+			    SET pubkey=?, server_privkey_e2=?, psk_enc=?, status='pending',
+			        last_rotated_at=NOW(), last_key_rotation_at=NOW(),
+			        rotation_alert_sent_at=NULL
+			  WHERE id=?`,
+			kp.PublicKey, []byte(encPriv), encPSK, id); err != nil {
+			return "", err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return "", err
 	}
 	return s.issueBootstrap(ctx, peerID)
+}
+
+// rotationTargets lists the peer rows one rotation must cover: the peer
+// itself plus every live HA sibling, locked so a concurrent rotation of
+// another member of the same group cannot interleave. Revoked siblings are
+// left alone - their keys are meant to be dead.
+func rotationTargets(ctx context.Context, tx *sql.Tx, peerID int64, groupID string) ([]int64, error) {
+	if groupID == "" {
+		return []int64{peerID}, nil
+	}
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id FROM customer_wg_peer WHERE peer_group_id=? AND status<>'revoked' ORDER BY id`+store.ForUpdate(),
+		groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []int64{peerID}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if id != peerID {
+			ids = append(ids, id)
+		}
+	}
+	return ids, rows.Err()
 }
 
 // ErrPSKUnsupported is returned when a peer group already carries preshared
