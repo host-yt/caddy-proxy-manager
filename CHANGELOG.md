@@ -95,8 +95,9 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
   and route-level drift detection cannot see a node-level difference. When
   either gate blocks the policy, the host page says so and the push logs it.
   Breaks old clients on purpose - Chrome < 131, Firefox < 132, Safari/iOS < 26,
-  curl without OpenSSL 3.5+ - and TLS-ALPN-01 renewals can fail on such a host,
-  so prefer HTTP-01 or DNS-01 there.
+  curl without OpenSSL 3.5+. TLS-ALPN-01 is disabled for such a host rather
+  than left to fail silently at renewal time, so its certificate must be
+  issuable over HTTP-01 (port 80 reachable) or DNS-01.
 - **Post-quantum readiness card in Settings.** Read-only checklist of where
   hybrid protection is actually in effect: panel runtime, per-node Caddy
   versions, mesh PSK coverage, customer-tunnel PSK coverage, PQ-only hosts, and
