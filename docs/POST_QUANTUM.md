@@ -96,8 +96,8 @@ drives the rekey:
    carries `peer_public_key` for exactly this reason, so a hand-added peer on
    the same interface is left untouched - and applies it with `wg syncconf`.
 4. It then calls `POST /api/node/psk/confirm` with the same bearer token. The
-   panel promotes pending -> active, re-renders its own `wg0.conf`, and answers
-   `204`.
+   panel promotes the staged key to active, re-renders its own `wg0.conf`,
+   clears the pending marker **last** (see below), and answers `204`.
 5. The script waits up to 130 s for a fresh handshake and reports the result.
    A missing handshake is a warning, not a failure - by then both sides are
    already committed.
@@ -108,11 +108,25 @@ are never more than one handshake apart.
 ### Idempotence and retries
 
 Confirm is **idempotent for the lifetime of the token**: the token columns are
-not cleared on promotion, and a repeated confirm on an already-promoted stage
-returns `204` again. That is deliberate. If the response to the first confirm
-were lost, a one-shot token would make the retry fail, the script would roll the
-node back, and the mesh would end up split across two keys with no way to
-recover.
+not cleared on promotion, and a repeated confirm returns `204` again. That is
+deliberate. If the response to the first confirm were lost, a one-shot token
+would make the retry fail, the script would roll the node back, and the mesh
+would end up split across two keys with no way to recover.
+
+**`wg_psk_pending_enc` marks "the panel has not applied this yet", not "not
+promoted yet".** Promotion copies pending into `wg_psk_enc` and *leaves pending
+in place*; it is cleared only once the panel's own `wg0.conf` is on disk. So a
+NULL pending means **applied here**, and that is the only state in which a
+confirm short-circuits to `204` without doing any work.
+
+That distinction is what makes a concurrent or retried confirm safe. The row is
+taken with `SELECT ... FOR UPDATE`, so a second confirm arriving while the first
+is still rendering blocks on the row lock and then finds pending still set - it
+repeats the same idempotent promote-and-render rather than reporting success.
+Before this, the retry read "pending is NULL, therefore done" and answered `204`
+while the first call could still fail its render and compensate back to the
+*old* key: the node would then hold the new key against a panel that had
+abandoned it, which is precisely the split the token TTL exists to prevent.
 
 So the script only rolls back on a *definite* `4xx`. On a `5xx`, a timeout or no
 answer at all it retries (5 attempts with backoff) and, if the outcome is still
@@ -120,9 +134,17 @@ unknown, **keeps the new key** and tells you to re-run the same command.
 Re-running it is always safe.
 
 Should the panel fail to render its own `wg0.conf` after promoting, it
-compensates - puts the previous state back, re-extends the token, and answers
-`500` so the script rolls the node back too. If even that fails it logs
-`node.psk.compensate.failed` in the audit log; that case needs **Clear PSK**.
+compensates - puts the previous active key back (pending and the token were
+never cleared, so restoring the old active key is the whole rollback),
+re-extends the token, and answers `500` so the script rolls the node back too.
+If even that fails it logs `node.psk.compensate.failed` in the audit log; that
+case needs **Clear PSK**.
+
+The one remaining crack is harmless: if the render succeeds but the final
+"clear pending" write fails, the key is live on both sides anyway and the next
+confirm re-promotes the same key, re-renders, and clears the marker. Until then
+the node still reads as `PSK` active - the readiness card reports active in
+preference to pending.
 
 ### Timing: what a mismatch actually breaks
 
@@ -137,6 +159,29 @@ What that costs:
 - **Visitor traffic is unaffected.** The node keeps serving whatever config it
   already has; the mesh is a control plane, not a data path.
 
+### Multi-replica: the 60 s mesh reconcile
+
+Every replica re-renders `wg0.conf` from the database **every 60 s**, and this
+loop is deliberately *not* leader-gated - unlike almost every other background
+job here. The file is replica-local and each replica feeds its own WireGuard
+sidecar, so a mesh mutation handled by one replica (a node join, a PSK rekey
+confirm) would otherwise never reach the other replicas' sidecars, and half the
+panel would stop being able to talk to the node.
+
+The cadence is chosen against WireGuard's `REKEY_AFTER_TIME` of 120 s: a key
+confirmed on replica A lands in replica B's config well inside the window in
+which B's existing session is still valid, so the change costs no handshake.
+
+Two things keep the loop cheap:
+
+- `Write` compares the rendered body against what is on disk, ignoring the
+  generated-at header line, and returns without touching the file when they
+  match. The sidecar polls mtime and runs `wg syncconf` on every change, so
+  before this an unrelated admin action that happened to re-render the config
+  poked the interface for nothing.
+- With WireGuard mode off in Settings the reconcile is a silent no-op; it does
+  not log.
+
 ### Clear PSK (emergency exit)
 
 **Clear PSK** drops `wg_psk_enc`, the pending key and the token on the *panel
@@ -148,7 +193,16 @@ sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
 wg syncconf wg0 <(wg-quick strip wg0)
 ```
 
-The flash message on the node page repeats that command verbatim.
+The flash message on the node page repeats that command verbatim - but **only
+when the panel's own config really changed**. If `wg0.conf` cannot be written,
+the previous state (active key, pending key, token hash and token) is restored,
+the page says that nothing was cleared, and the node-side command is
+deliberately **not** printed: stripping the key on the node while the panel
+still holds it is exactly what takes the mesh down. Retry, and read the panel
+log if it keeps failing.
+
+If that restore also fails, the database and the panel's config disagree about
+this node - logged at ERROR and audited as `node.psk.clear.failed`.
 
 ### Endpoints and audit trail
 
@@ -156,7 +210,7 @@ The flash message on the node page repeats that command verbatim.
 |---|---|---|
 | `GET /install/node-psk.sh` | none (non-secret script) | the rekey script |
 | `GET /api/node/psk` | `Authorization: Bearer <token>` | returns `{"psk", "peer_public_key"}`; does **not** consume the token |
-| `POST /api/node/psk/confirm` | `Authorization: Bearer <token>` | promotes pending -> active, `204` |
+| `POST /api/node/psk/confirm` | `Authorization: Bearer <token>` | promotes the staged key, re-renders the panel config, clears the pending marker last; `204` |
 
 Both API endpoints sit outside the session middleware - the token hash in
 `caddy_nodes.wg_psk_token_hash` is the entire authentication. Every failure
@@ -165,8 +219,9 @@ calls are rate-limited per source IP (30/min, Redis-backed with an in-process
 fallback).
 
 Audit actions: `node.psk.enable`, `node.psk.rotate`, `node.psk.confirm`,
-`node.psk.clear`, `node.psk.ratelimited`, `node.psk.fetch.denied`,
-`node.psk.confirm.denied`, `node.psk.compensate.failed`.
+`node.psk.clear`, `node.psk.clear.failed`, `node.psk.ratelimited`,
+`node.psk.fetch.denied`, `node.psk.confirm.denied`,
+`node.psk.compensate.failed`.
 
 ---
 
@@ -183,12 +238,48 @@ Per-peer PSKs on `wg-tun0` are automatic, but gated on both sides because a
   with one `[Peer]` block per node, so a PSK on some and not others would leave
   it half-broken.
 - A **node** only receives `preshared_key` in its `GET /api/node/wg/peers` pull
-  when *that* node itself reports support.
+  when *that* node itself supports them - and the pull negotiates that on the
+  request itself, see below.
 
 `node-agent` re-asserts `node.psk_supported` on every `POST /api/node/wg/stats`
 report (roughly every 30 s). It is a plain boolean and **an absent field means
 "not supported"** - so rolling an agent back to a pre-PSK image clears the flag
 on its own within one report cycle, rather than leaving a stale `1` behind.
+
+### The pull negotiates capability (409 Conflict)
+
+`node-agent` sends `X-HPG-Agent-PSK: 1` on every `GET /api/node/wg/peers`. The
+**header**, not the stored flag, decides how that request is answered: the flag
+describes whichever agent build reported last, while the header comes from the
+build that is about to apply the answer.
+
+An agent that does not send it is recorded as PSK-incapable
+(`caddy_nodes.agent_psk` goes to 0 on that same request, with the
+`node.psk_capability_lost` audit entry on the 1 -> 0 edge), and then:
+
+| That node's peers | Response |
+|---|---|
+| none holds a PSK | `200` with the peer set, PSKs omitted as before |
+| one or more hold a PSK | **`409 Conflict`**, no peer set at all |
+
+The 409 is the safe answer, not the timid one. `wg syncconf` replaces the peer
+set **atomically**, so an agent that cannot express `PresharedKey` would apply
+the PSK-less set wholesale and drop every one of those tunnels at once. Its
+*currently running* config still carries them and still works - so refusing to
+answer is what keeps those customers up, while answering is what takes them
+down. The agent logs the 409 body and changes nothing.
+
+**Getting out of it**, two operator moves:
+
+- upgrade `node-agent` on that node - the intended fix; or
+- rotate the affected peers' keys, which drops their PSKs (see [Rotation
+  degrades rather than fails](#rotation-degrades-rather-than-fails)), after
+  which the pull succeeds again with a PSK-less peer set.
+
+One asymmetry worth knowing during an upgrade: the header only corrects the
+stored flag **downwards**. An upgraded agent gets `agent_psk` back to 1 from its
+next `POST /api/node/wg/stats` report (~30 s), so PSKs start flowing one report
+cycle after the upgrade, not on its first pull.
 
 ### When a node loses PSK support
 
@@ -197,8 +288,9 @@ carries `psk_peers`, the number of peers on that node that already hold a PSK,
 and logs the same at WARN. This is an outage that nothing can repair
 server-side: those peers' `.conf` files already contain a `PresharedKey` line
 the rolled-back agent will never apply, so **their configs must be
-re-downloaded** (or the agent upgraded again). Refusing the downgrade would not
-help - such an agent breaks those peers either way, just silently.
+re-downloaded** (or the agent upgraded again). The *flag* downgrade is recorded
+rather than refused - it is a report, not a request - and what actually gets
+refused is that agent's next peer pull, as above.
 
 ### Rotation degrades rather than fails
 
@@ -267,15 +359,41 @@ How to check which applies:
 
 - The host's SSL tab shows a pill: *"Post-quantum only - enforced"* (green),
   or *"Post-quantum only - saved, not active"* (amber) with the reason - SSL
-  off, or the node's declared Caddy version.
+  off, or the declared Caddy version of the node that blocks it, named.
 - Every dropped policy is logged on push: `PQ-only TLS policy dropped: node has
   not declared Caddy 2.10+`, with `node_id`, `caddy_version` and `route_id`.
 - **Settings -> Post-quantum** lists node Caddy versions and the PQ-only hosts.
+  It counts **distinct SSL-enabled domains**, not routes: several path routes
+  collapse into one connection policy per hostname, and a PQ-only route with
+  SSL off emits no policy at all - counting either as a host would overstate
+  the posture.
 
-Note that the host page checks the route's **anchor node**. A route fanned out
-to additional nodes is gated per node at push time, so a fan-out peer still
-running an older Caddy keeps classical key exchange without the edit page
-saying so. Check the node list if the host is served from more than one node.
+The host page checks **every node that serves the host** - the route's anchor
+node plus its `route_node_assignments` fan-out, the same set the pusher walks -
+and the amber caption names the first node that blocks it together with the
+version that node declares. A fan-out peer on older Caddy therefore reads as
+*"saved, not active"* instead of the page claiming an enforcement that the
+push will silently drop on that node.
+
+### Making a change actually take effect
+
+PQ-only is a *node-level* TLS connection policy, not a route setting, so it only
+becomes real when the node in question is pushed to. Two pushes that used to be
+missing now happen on save:
+
+- **Saving a host** queues a push for every node serving it - anchor plus
+  `route_node_assignments` fan-out - and queues it *before* the anchor resync
+  runs, on its own 10 s deadline. Queueing is pure database work while the
+  resync does network I/O, and sharing one deadline let a single hung anchor eat
+  the window and drop the healthy peers on the floor.
+- **Saving a node** schedules a push for that node. Declaring Caddy 2.10 on the
+  node edit form is what un-gates PQ-only for its routes; without a push the
+  node kept serving the old config while the panel already reported the new
+  capability. The same holds for the WAF, GeoIP and PROXY-protocol flags on that
+  form.
+
+So "is PQ-only in effect?" resolves to: the pill is green, **and** every serving
+node has been pushed to since it declared 2.10+.
 
 ### Client compatibility
 
@@ -336,11 +454,18 @@ handshakes that stop happening, not as an error.
 
 **In CI and at release:** the build fails if anything sets a `GODEBUG` that
 disables ML-KEM, if non-test Go code sets `CurvePreferences`, or if the
-`caddy:2.11.x` pins disagree across the deploy files. At release time the
-merged edge image is started and probed with `TestEdgePQHandshake`, which
-asserts both that a stock Go client negotiates X25519MLKEM768 and that a
-classical X25519-only client still connects. An image that fails is never
-signed or pushed.
+`caddy:2.11.x` pins disagree across the deploy files, `docs/` and `README.md` -
+a stale pin in the documentation sends operators to the wrong image, so it is
+guarded like the real ones.
+
+At release time the freshly built **amd64 image is started by digest** and
+probed with `TestEdgePQHandshake`, which asserts both that a stock Go client
+negotiates X25519MLKEM768 and that a classical X25519-only client still
+connects. This runs **before** the `edge` / `latest` / semver tags are created:
+the per-arch images already exist in the registry addressed by digest, so the
+candidate can be run without publishing anything a consumer would pull. A
+rejected build therefore leaves nothing pullable, rather than merely unsigned -
+the manifest is assembled and cosign-signed only after the probe passes.
 
 ---
 
