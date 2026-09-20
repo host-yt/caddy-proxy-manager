@@ -233,6 +233,69 @@ sudo wg show wg0 transfer   # confirm traffic is flowing
 
 If no handshake: check that UDP 51820 is open on the manager's firewall, the node's public endpoint is correct in **Settings -> WireGuard**, and the join token was redeemed (not expired).
 
+### Mesh PSK mismatch: node goes offline about 2 minutes after enabling
+
+**Symptom:** you enabled or rotated the mesh WireGuard preshared key, everything
+looked fine, and one to two minutes later the node went offline in the panel.
+Config pushes and resyncs to it fail; visitor traffic the node already serves
+keeps working.
+
+**Cause:** the two sides disagree about the PSK. WireGuard keeps an established
+session until the next handshake (`REKEY_AFTER_TIME` = 120 s), so a mismatch
+never shows up immediately. This happens when the rekey script rewrote
+`wg0.conf` on the node but the panel never promoted the staged key (or the
+reverse, after a failed compensation).
+
+**Confirm it:**
+
+```bash
+# on the node and on the manager host
+sudo wg show wg0
+# 'latest handshake' stops advancing; one side prints
+# 'preshared key: (hidden)' and the other does not
+```
+
+The panel's node detail page shows the PSK state: `active`, `pending
+confirmation`, or `not set`. `pending` plus a node that stopped handshaking
+means the node applied a key the panel has not promoted.
+
+**Fix, in order of preference:**
+
+1. **Re-run the rekey command** from the node page. Confirm is idempotent for
+   the token's 30-minute lifetime, so re-running finishes the job:
+
+   ```bash
+   curl -fsSL https://panel.example.com/install/node-psk.sh | sudo bash -s -- \
+     --panel https://panel.example.com --token <64-hex token>
+   ```
+
+   If the token has expired, click **Rotate PSK** for a fresh one first.
+
+2. **Restore the backup on the node.** The script keeps
+   `/etc/wireguard/wg0.conf.bak.<epoch>`:
+
+   ```bash
+   cp /etc/wireguard/wg0.conf.bak.<epoch> /etc/wireguard/wg0.conf
+   wg syncconf wg0 <(wg-quick strip wg0)
+   ```
+
+3. **Emergency exit.** Click **Clear PSK** in the panel (panel side only), then
+   remove the line on the node:
+
+   ```bash
+   sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
+   wg syncconf wg0 <(wg-quick strip wg0)
+   ```
+
+   The mesh comes back without a PSK; re-enable it later.
+
+Note that the rekey endpoints answer `404` for a bad *or* expired token by
+design, so "panel refused the token" does not tell you which - generate a fresh
+one. Audit entries `node.psk.enable` / `node.psk.rotate` /
+`node.psk.confirm` / `node.psk.clear` show how far the flow got;
+`node.psk.compensate.failed` means the panel could not roll itself back and the
+PSK must be cleared. Background: [POST_QUANTUM.md](POST_QUANTUM.md).
+
 ### Caddy Admin API unreachable
 
 **On the manager, for the local bundled Caddy:**

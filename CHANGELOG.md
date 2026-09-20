@@ -4,6 +4,103 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+Post-quantum readiness (PQ-01). The threat is harvest-now-decrypt-later:
+traffic recorded today and decrypted once a quantum computer exists. TLS
+already negotiated hybrid ML-KEM by default on every hop; WireGuard did not,
+because the protocol has no hybrid mode. Both WireGuard planes now mix a
+preshared key into every handshake, a host can be pinned to post-quantum-only
+TLS, and regressions are caught in CI and at release. Full detail, verification
+commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
+
+### Security
+
+- **Enabling mTLS on one host broke the TLS handshake for every other host on
+  the same node.** Caddy only supplies a default connection policy when the
+  policy list is `nil`; with any per-SNI policy present, an unmatched
+  ClientHello gets `no server TLS configuration available` and the handshake
+  dies. One mTLS route therefore took down plain HTTPS for every other site on
+  that node - and TLS-ALPN-01 renewals with it, so certificates quietly stopped
+  renewing. The emitted policy list now always ends with a catch-all `{}`.
+  Verified against a real Caddy 2.11.4 both before and after. No configuration
+  change is needed; the fix lands on the next config push.
+- **Rotating `APP_SECRET` orphaned two node secrets.** `cmd/rotate-secret` was
+  missing `caddy_nodes.tunnel_privkey_e2` and `caddy_nodes.admin_proxy_key_enc`
+  from its column list, so a rotation left the tunnel server key and the
+  agent's admin-proxy key sealed under the old key - bricking WireGuard tunnels
+  and authenticated config push on the next restart (security review CRYPTO-01,
+  round two). Both are now rotated, along with the new preshared-key columns,
+  and a column whose migration has not run yet is skipped with a log line
+  instead of failing the run, so a newer image can rotate an older database.
+
+### Added
+
+- **Preshared keys on the panel-node WireGuard mesh.** The mesh carries Caddy
+  config pushes, manual-certificate private keys included, so a recorded
+  handshake is worth storing until X25519 falls. A node joining now gets a
+  32-byte `PresharedKey` automatically, gated on the join script declaring
+  support - a node bootstrapped from an older cached `node-join.sh` joins
+  without one and keeps working. For nodes that joined earlier, the node detail
+  page stages a key and prints a one-time command
+  (`curl -fsSL https://<panel>/install/node-psk.sh | sudo bash -s -- ...`); the
+  current key stays live until the node fetches, applies and confirms the new
+  one, so the two sides are never more than one handshake apart. Confirm is
+  idempotent for the token's 30-minute lifetime, so a lost response is retried
+  rather than rolled back into a split mesh. **Clear PSK** is the emergency
+  exit and needs a matching edit on the node. Note the timing: WireGuard holds
+  an established session until the next handshake, so a mismatch takes up to
+  ~120 s to appear, stops config pushes to that node, and does not interrupt
+  traffic the node is already serving.
+- **Preshared keys on customer tunnels.** Per-peer keys on `wg-tun0`, gated on
+  both sides: a peer only gets one when every node in its group reports
+  support, and a node only receives `preshared_key` in its peer pull when that
+  node itself reports support - a `PresharedKey` line an old agent does not
+  understand would make `wg syncconf` reject the whole config and drop every
+  peer on the node. `node-agent` re-asserts the capability on every stats
+  report and an absent field means "not supported", so rolling an agent back
+  clears the flag within one cycle; the `1 -> 0` edge writes a
+  `node.psk_capability_lost` audit entry with the number of affected peers,
+  whose configs then have to be re-downloaded. Key rotation degrades instead of
+  failing: if a group node lags, the rotation proceeds without a PSK, clears
+  `psk_enc` so the node's pull and the rendered config still agree, and audits
+  `wg_peer.psk_dropped`. Existing peers stay classical until their next
+  rotation or config re-download.
+- **Post-quantum-only TLS per host.** Opt-in on the host's SSL & Protocols tab;
+  pins that hostname to `curves=[x25519mlkem768]` and TLS 1.3, so a client
+  without hybrid ML-KEM fails the handshake instead of quietly negotiating
+  classical X25519. Connection policies are merged **per SNI**, not per route,
+  and the strictest wins - a TLS policy is matched before the request path is
+  known, so enabling this (or mTLS) on one path enforces it for every route on
+  that hostname, and two routes on one hostname with different mTLS CAs keep
+  the first by route id and log the conflict. The policy is emitted only when
+  SSL is on for the host and the serving node declares Caddy 2.10 or newer
+  (`caddy_nodes.caddy_version`, operator-entered, not probed): an older Caddy
+  rejects the entire `/load` on the unknown curve name. When either gate blocks
+  it, the host page says so and the push logs it. Breaks old clients on
+  purpose - Chrome < 131, Firefox < 132, Safari/iOS < 26, curl without OpenSSL
+  3.5+ - and TLS-ALPN-01 renewals can fail on such a host, so prefer HTTP-01 or
+  DNS-01 there.
+- **Post-quantum readiness card in Settings.** Read-only checklist of where
+  hybrid protection is actually in effect: panel runtime, per-node Caddy
+  versions, mesh PSK coverage, customer-tunnel PSK coverage, PQ-only hosts, and
+  what is still classical upstream. The node list gained a `PSK` /
+  `PSK pending` pill.
+- **CI guards and a release handshake smoke test.** The build fails on a
+  `GODEBUG` that disables ML-KEM, on `CurvePreferences` in non-test Go code, or
+  on `caddy:2.11.x` pins that disagree across the deploy files. At release, the
+  merged edge image is started and probed: a stock Go client must negotiate
+  X25519MLKEM768 and a classical X25519-only client must still connect. An
+  image that fails neither gets signed nor pushed.
+
+### Fixed
+
+- **`docs/INSTALL.md` still pinned `caddy:2.11.3`** for the lite stack while
+  the rest of the repository moved to 2.11.4.
+
+Migrations `00142` (mesh PSK columns), `00143` (`customer_wg_peer.psk_enc`,
+`caddy_nodes.agent_psk`) and `00144` (`routes.tls_pq_only`). All additive and
+defaulting to the previous behaviour.
+
+
 ## [1.4.9] - 2026-09-20
 
 Two bugs behind one report (#14): the edge image could not stream a response

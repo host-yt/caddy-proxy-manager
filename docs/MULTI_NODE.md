@@ -266,6 +266,10 @@ PersistentKeepalive = 25
 `AllowedIPs = 10.66.0.1/32` routes only the manager's WG IP through the
 tunnel; all other traffic (public) goes via the default route.
 
+If the manager returned a mesh preshared key (it does whenever the panel has
+mesh preshared keys available), the script validates it and appends a
+`PresharedKey = <44-char base64>` line to the `[Peer]` block. See section 13.
+
 Brings up the interface:
 
 ```bash
@@ -833,3 +837,86 @@ Order matters: the panel must be able to reach the node at every step.
   environment in the same pass or the panel will start getting 401s from it.
 - A node that has not been migrated keeps working exactly as before - the key is
   simply unused. There is no fleet-wide flag day.
+
+
+---
+
+## 13. Mesh preshared keys (rekeying an existing node)
+
+WireGuard's handshake is classical X25519 with no hybrid mode. Because the mesh
+carries Caddy config pushes - including manual-certificate private keys - a
+recorded session is worth storing until quantum computers can break X25519. A
+`PresharedKey` mixes 32 symmetric bytes into every handshake and removes that
+risk. Background and the wider picture: [POST_QUANTUM.md](POST_QUANTUM.md).
+
+Nodes joining a panel that supports mesh preshared keys get one automatically. Nodes that joined
+earlier need a one-time rekey, run per node, and the same flow rotates an
+existing key.
+
+### 13.1 Enable or rotate
+
+1. **Admin -> Caddy nodes -> <node> -> Mesh WireGuard PSK -> Enable PSK**
+   (or **Rotate PSK**). This only *stages* a key and mints a 30-minute token;
+   the mesh keeps running on the current key.
+2. Run the printed command **on the node**:
+
+   ```bash
+   curl -fsSL https://panel.example.com/install/node-psk.sh | sudo bash -s -- \
+     --panel https://panel.example.com \
+     --token <64-hex token>
+   ```
+
+   Needs root and `curl`, `jq`, `wg`, `wg-quick`, and the panel reachable over
+   public HTTPS - the same requirements as the join script. `--interface`
+   defaults to `wg0`.
+3. The script backs up `/etc/wireguard/wg0.conf`, rewrites only the `[Peer]`
+   block belonging to the manager (matched on the manager's public key, which
+   the panel returns alongside the key), applies it with `wg syncconf`, and
+   confirms with the panel. The panel promotes the staged key and re-renders
+   its own config only after that confirmation.
+4. The script then waits up to 130 s for a fresh handshake and prints the
+   outcome.
+
+Verify on both sides:
+
+```bash
+sudo wg show wg0
+# the peer line should now read: preshared key: (hidden)
+# and 'latest handshake' should be recent
+```
+
+The node list shows a green `PSK` pill once the key is active, and
+`PSK pending` while a staged key is waiting for confirmation.
+
+### 13.2 If it goes wrong
+
+- **Re-running the exact same command is always safe.** Confirm is idempotent
+  for the lifetime of the token, so the script retries on `5xx`/timeouts and
+  only rolls back on a definite `4xx`. If it reports an unknown outcome it
+  keeps the new key on the node and asks you to re-run.
+- **Nothing happens for two minutes, then the node goes offline.** WireGuard
+  holds an established session until the next handshake (120 s), so a mismatch
+  is always delayed. Config pushes to that node stop; traffic the node is
+  already serving does not. See
+  [TROUBLESHOOTING.md](TROUBLESHOOTING.md#mesh-psk-mismatch-node-goes-offline-about-2-minutes-after-enabling).
+- **Emergency exit.** **Clear PSK** on the node page removes the key on the
+  panel side only. The node still has its line, so finish on the node:
+
+  ```bash
+  sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
+  wg syncconf wg0 <(wg-quick strip wg0)
+  ```
+
+  This requires shell access to the node - if the panel is only reachable
+  *through* the mesh on your install, that is the only way back.
+
+### 13.3 Notes
+
+- A node bootstrapped from an older cached `node-join.sh` joins without a PSK
+  and keeps working; the join request declares the capability and the panel
+  never stores a key the node would not install.
+- The key is stored encrypted (`caddy_nodes.wg_psk_enc`, envelope purpose
+  `wg`). Losing `APP_SECRET` makes it unrecoverable - clear and re-enable.
+- Customer tunnels (`wg-tun0`) are a separate plane with their own per-peer
+  preshared keys, handled automatically by `node-agent`; nothing in this
+  section applies to them.
