@@ -45,19 +45,30 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
   current key stays live until the node fetches, applies and confirms the new
   one, so the two sides are never more than one handshake apart. Confirm is
   idempotent for the token's 30-minute lifetime, so a lost response is retried
-  rather than rolled back into a split mesh. **Clear PSK** is the emergency
-  exit and needs a matching edit on the node. Note the timing: WireGuard holds
-  an established session until the next handshake, so a mismatch takes up to
-  ~120 s to appear, stops config pushes to that node, and does not interrupt
-  traffic the node is already serving.
+  rather than rolled back into a split mesh, and the staged key is cleared only
+  once the panel has written its own WireGuard config - a repeat confirm can
+  therefore never report success for a promotion that is still able to roll
+  back. `wg0.conf` is replica-local and each replica feeds its own WireGuard
+  sidecar, so every replica re-renders it from the database every 60 s, inside
+  WireGuard's 120 s rekey window; that is what makes a rekey confirmed against
+  one replica of a multi-replica panel safe. **Clear PSK** is the emergency exit
+  and needs a matching edit on the node - and if the panel's own config cannot
+  be rewritten, the clear is rolled back and reported as a failure instead of
+  printing that node-side command, which on its own would take the mesh down.
+  Note the timing: WireGuard holds an established session until the next
+  handshake, so a mismatch takes up to ~120 s to appear, stops config pushes to
+  that node, and does not interrupt traffic the node is already serving.
 - **Preshared keys on customer tunnels.** Per-peer keys on `wg-tun0`, gated on
   both sides: a peer only gets one when every node in its group reports
-  support, and a node only receives `preshared_key` in its peer pull when that
-  node itself reports support - a `PresharedKey` line an old agent does not
-  understand would make `wg syncconf` reject the whole config and drop every
-  peer on the node. `node-agent` re-asserts the capability on every stats
-  report and an absent field means "not supported", so rolling an agent back
-  clears the flag within one cycle; the `1 -> 0` edge writes a
+  support, and `node-agent` declares its support on the peer pull itself, so
+  the panel knows what it is talking to before it decides what to hand over. An
+  agent that declares nothing while the node still has PSK-bearing peers is
+  refused with `409`: it would apply the peer set without the keys and drop
+  every one of those tunnels on the next `wg syncconf`, whereas the config it
+  is already running keeps them up. A node with no PSK-bearing peers is served
+  as before, so a downgraded fleet is not bricked. The capability is also
+  re-asserted on every stats report and an absent field means "not supported",
+  so rolling an agent back clears the flag; the `1 -> 0` edge writes a
   `node.psk_capability_lost` audit entry with the number of affected peers,
   whose configs then have to be re-downloaded. Key rotation degrades instead of
   failing: if a group node lags, the rotation proceeds without a PSK, clears
@@ -72,27 +83,45 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
   known, so enabling this (or mTLS) on one path enforces it for every route on
   that hostname, and two routes on one hostname with different mTLS CAs keep
   the first by route id and log the conflict. The policy is emitted only when
-  SSL is on for the host and the serving node declares Caddy 2.10 or newer
+  SSL is on for the host and the node declares Caddy 2.10 or newer
   (`caddy_nodes.caddy_version`, operator-entered, not probed): an older Caddy
-  rejects the entire `/load` on the unknown curve name. When either gate blocks
-  it, the host page says so and the push logs it. Breaks old clients on
-  purpose - Chrome < 131, Firefox < 132, Safari/iOS < 26, curl without OpenSSL
-  3.5+ - and TLS-ALPN-01 renewals can fail on such a host, so prefer HTTP-01 or
-  DNS-01 there.
+  rejects the entire `/load` on the unknown curve name. That gate is per node,
+  so the host page checks every node serving the host - the anchor plus the
+  `route_node_assignments` fan-out - and names the one holding it back instead
+  of judging by the anchor alone. Saving a host pushes to that same set, and
+  saving a node's capabilities (the Caddy version included) pushes that node:
+  connection policies are rebuilt per node, so anything less left fan-out peers
+  on the previous policy while the panel called PQ-only - or mTLS - enforced,
+  and route-level drift detection cannot see a node-level difference. When
+  either gate blocks the policy, the host page says so and the push logs it.
+  Breaks old clients on purpose - Chrome < 131, Firefox < 132, Safari/iOS < 26,
+  curl without OpenSSL 3.5+ - and TLS-ALPN-01 renewals can fail on such a host,
+  so prefer HTTP-01 or DNS-01 there.
 - **Post-quantum readiness card in Settings.** Read-only checklist of where
   hybrid protection is actually in effect: panel runtime, per-node Caddy
   versions, mesh PSK coverage, customer-tunnel PSK coverage, PQ-only hosts, and
-  what is still classical upstream. The node list gained a `PSK` /
-  `PSK pending` pill.
+  what is still classical upstream. PQ-only hosts are counted as distinct
+  SSL-enabled domains: several path routes can share one hostname, and a route
+  with SSL off gets no TLS connection policy at all, so neither inflates the
+  number. The node list gained a `PSK` / `PSK pending` pill.
 - **CI guards and a release handshake smoke test.** The build fails on a
   `GODEBUG` that disables ML-KEM, on `CurvePreferences` in non-test Go code, or
-  on `caddy:2.11.x` pins that disagree across the deploy files. At release, the
-  merged edge image is started and probed: a stock Go client must negotiate
-  X25519MLKEM768 and a classical X25519-only client must still connect. An
-  image that fails neither gets signed nor pushed.
+  on `caddy:2.11.x` pins that disagree across the deploy files, the docs or the
+  README. At release, the freshly built edge image is started and probed by
+  digest: a stock Go client must negotiate X25519MLKEM768 and a classical
+  X25519-only client must still connect. The gate runs before `edge`, `latest`
+  and the semver tags are created, so an image that fails it is unpullable
+  rather than merely unsigned.
 
 ### Fixed
 
+- **The WireGuard sidecar was told to `wg syncconf` on every unrelated admin
+  action.** The rendered `wg0.conf` carried a generated-at timestamp in its
+  header, so every render produced a different file and the sidecar, which
+  reloads on a change to it, reloaded the mesh interface each time. A render now
+  compares the part of the file that actually configures the interface and skips
+  the write when it is unchanged. Affects every multi-node install, post-quantum
+  or not.
 - **`docs/INSTALL.md` still pinned `caddy:2.11.3`** for the lite stack while
   the rest of the repository moved to 2.11.4.
 

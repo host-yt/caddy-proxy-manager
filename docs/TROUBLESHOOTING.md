@@ -243,8 +243,13 @@ keeps working.
 **Cause:** the two sides disagree about the PSK. WireGuard keeps an established
 session until the next handshake (`REKEY_AFTER_TIME` = 120 s), so a mismatch
 never shows up immediately. This happens when the rekey script rewrote
-`wg0.conf` on the node but the panel never promoted the staged key (or the
-reverse, after a failed compensation).
+`wg0.conf` on the node but the confirm never reached the panel - the run was
+interrupted, or the panel compensated back to the old key after failing to
+render its own config. A confirm that answered `204` is not a cause: the staged
+key is cleared only once the panel's config has been written, so a `204` means
+both sides are on the new key. On a multi-replica panel, allow 60 s for the
+other replicas to re-render their own `wg0.conf` before calling it a
+mismatch.
 
 **Confirm it:**
 
@@ -257,7 +262,8 @@ sudo wg show wg0
 
 The panel's node detail page shows the PSK state: `active`, `pending
 confirmation`, or `not set`. `pending` plus a node that stopped handshaking
-means the node applied a key the panel has not promoted.
+means the node applied a key the panel has not finished applying on its own
+side.
 
 **Fix, in order of preference:**
 
@@ -295,6 +301,63 @@ one. Audit entries `node.psk.enable` / `node.psk.rotate` /
 `node.psk.confirm` / `node.psk.clear` show how far the flow got;
 `node.psk.compensate.failed` means the panel could not roll itself back and the
 PSK must be cleared. Background: [POST_QUANTUM.md](POST_QUANTUM.md).
+
+### Peer pull returns 409: "node-agent predates preshared-key support"
+
+**Symptom:** the `hpg-node-agent` container on one node logs its peer pull
+failing, and customer tunnels on that node stop picking up peer changes.
+`GET /api/node/wg/peers` answers `409` with *node-agent predates preshared-key
+support; upgrade it, or rotate these peers' keys to drop their PSKs*. Tunnels
+already established on that node keep working.
+
+**Cause:** the agent did not declare preshared-key support on the pull, and
+peers on that node carry preshared keys. Support is negotiated on the pull
+itself, not read back from what an earlier build reported, so this means the
+agent running right now is older than PSK support - usually a rollback, a
+pinned image tag, or a container that was never redeployed. Serving it the peer
+set would be worse than refusing: it ignores the `preshared_key` field and
+applies every peer without it, dropping all PSK-bearing tunnels on the node in
+one `wg syncconf`. The panel also corrects the node's stored capability on that
+same request, so no new peer is issued a key it could not install.
+
+**Fix:**
+
+1. Upgrade the agent on that node - pull the current `hpg-node-agent` image and
+   recreate the container. The next pull succeeds on its own; no panel-side
+   action is needed.
+2. If you cannot upgrade, rotate those peers' keys from the panel. Rotation
+   degrades instead of failing: it reissues them without a PSK, clears
+   `psk_enc` and audits `wg_peer.psk_dropped`. With no PSK-bearing peers left,
+   the node is served normally again - and those tunnels are back to classical
+   WireGuard, so treat it as temporary.
+
+### Clear PSK reports that the panel config could not be written
+
+**Symptom:** **Clear PSK** on the node page comes back with *PSK not cleared:
+the panel WireGuard config could not be written, so nothing changed*, and the
+`PSK` pill is still there.
+
+**Cause:** the panel could not rewrite its own `wg0.conf` - a full or read-only
+volume, or wrong permissions on the WireGuard config directory. The database
+change is rolled back, so both sides are still on the old key and the mesh is
+still up.
+
+**Fix:** do **not** strip the `PresharedKey` line on the node. The panel still
+has the key; removing it on the node is exactly what would take the mesh down,
+and that is why no node-side command is printed in this case. Check the panel
+logs for `node psk clear: wg render failed`, make the WireGuard config
+directory writable, and retry **Clear PSK**.
+
+If the logs instead show `node psk clear: RESTORE FAILED` (audit entry
+`node.psk.clear.failed`), the restore itself did not land: the database no
+longer has the key while the panel's `wg0.conf` may still carry it. The next
+successful render - at the latest the 60 s mesh reconcile - drops it there too,
+so once the directory is writable again, finish the clear on the node as well:
+
+```bash
+sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
+wg syncconf wg0 <(wg-quick strip wg0)
+```
 
 ### Caddy Admin API unreachable
 

@@ -873,7 +873,9 @@ existing key.
    block belonging to the manager (matched on the manager's public key, which
    the panel returns alongside the key), applies it with `wg syncconf`, and
    confirms with the panel. The panel promotes the staged key and re-renders
-   its own config only after that confirmation.
+   its own config only after that confirmation, and only drops the staged
+   marker once that render succeeded - so a repeated confirm always reports the
+   state that is actually live.
 4. The script then waits up to 130 s for a fresh handshake and prints the
    outcome.
 
@@ -912,6 +914,14 @@ The node list shows a green `PSK` pill once the key is active, and
 
 ### 13.3 Notes
 
+- **Multi-replica panels.** `wg0.conf` is replica-local and each replica feeds
+  its own WireGuard sidecar, so the confirm alone would only fix up the replica
+  that happened to serve the request. Every replica therefore re-renders the
+  mesh config from the database every 60 s - well inside WireGuard's 120 s
+  rekey window, so the other replicas are on the new key before a handshake is
+  due. Allow for that lag before treating a stale handshake as a mismatch. A
+  render whose output is unchanged is skipped, so this does not reload the
+  sidecar.
 - A node bootstrapped from an older cached `node-join.sh` joins without a PSK
   and keeps working; the join request declares the capability and the panel
   never stores a key the node would not install.

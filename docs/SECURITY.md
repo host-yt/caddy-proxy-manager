@@ -293,12 +293,15 @@ not (a signature only has to be unforgeable when it is verified).
 
 - TLS, panel and edge: hybrid X25519MLKEM768 offered by default. CI fails the
   build on a `GODEBUG` that disables ML-KEM or a `CurvePreferences` in non-test
-  Go code, and the release pipeline refuses to sign an edge image that cannot
-  negotiate it.
+  Go code, and the release pipeline probes the freshly built edge image by
+  digest before the `edge`, `latest` and semver tags are created: one that
+  cannot negotiate it is never published.
 - WireGuard has no hybrid mode, so both planes use a 32-byte `PresharedKey`
   mixed into every handshake: the panel-node mesh (automatic on join, one-time
   rekey script for older nodes) and customer tunnels (automatic once the node's
-  agent reports support).
+  agent declares support on its peer pull; an agent that does not, on a node
+  with PSK-bearing peers, is refused rather than handed a peer set it would
+  apply without the keys).
 - Per-host PQ-only enforcement is opt-in and rejects clients without ML-KEM.
 - Certificates, ACME account keys, OIDC tokens and image signatures stay
   classical - blocked upstream, and outside the harvest-now threat model.
