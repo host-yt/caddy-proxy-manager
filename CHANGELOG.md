@@ -4,10 +4,22 @@ All notable changes to this project. Format: [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [1.4.9] - 2026-09-20
+
+Two bugs behind one report (#14): the edge image could not stream a response
+through the WAF, and suppressing a rule in the panel never reached the nodes.
+Plus a CVE bump in the app image.
+
 ### Fixed
 
 - **SSE and other streaming responses stalled behind the WAF** ([#14](https://github.com/host-yt/caddy-proxy-manager/issues/14)). The edge image now builds with coraza-caddy 2.6.1. Its 2.5.0 interceptor propagated `Flush()` with a bare `http.Flusher` type assertion, which fails on the recorder Caddy wraps around the response writer whenever access logging is on - and the panel enables access logs on every node. Every flush was dropped, so an EventSource behind a WAF-enabled host never received its headers, in detection-only mode as much as in blocking mode. Upstream fix: corazawaf/coraza-caddy#344. Reproduced and verified with the same pins as the edge image and a Beszel hub. Requires the v1.4.9 edge image on every node; no config change.
 - **WAF suppressions now reach the nodes** ([#14](https://github.com/host-yt/caddy-proxy-manager/issues/14)). Suppressing a rule only hid its events; in blocking mode the node kept returning 403. Active suppressions (global and per-route) are now emitted as `SecRuleRemoveById` after the CRS include on every WAF-enabled route, and saving or deleting one re-pushes all nodes. Rule IDs are validated (`NNN` or `NNN-MMM`) before they reach SecLang. The report itself was a CRS `942100` false positive on PocketBase/Beszel realtime subscription topics (`systems/*`), not an SSE transport problem; documented in `docs/WAF.md`.
+- **Spurious 503 on idempotent requests under load.** The reservation INSERT that backs `Idempotency-Key` had a 300 ms deadline; a busy database or a runner mid-fsync missed it, and the fail-closed branch then rejected a request that would have succeeded. The deadline is now 2 s (still bounded) and the swallowed error is logged, so the next occurrence is diagnosable instead of a bare 503.
+
+### Security
+
+- **golang.org/x/crypto 0.55.0** in the app image, fixing CVE-2026-56854 (`x/crypto/ssh` source-address restrictions not enforced), flagged CRITICAL by the release Trivy gate. The rest of the `x/` set moves with it.
+- **google.golang.org/grpc 1.83.2** in the Terraform provider (GHSA-2v4p-qf9q-27wj, xDS server DoS); indirect via terraform-plugin-go.
 
 ## [1.4.8] - 2026-08-29
 
