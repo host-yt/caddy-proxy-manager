@@ -17,6 +17,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/wgpeer"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -539,8 +540,9 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 			LastSetupError            string `json:"last_setup_error"`
 			WstunnelHealthy           *bool  `json:"wstunnel_healthy"`
 			// PSKSupported gates whether this node may be served
-			// preshared keys at all. nil = agent too old to say.
-			PSKSupported *bool `json:"psk_supported"`
+			// preshared keys at all. Re-asserted on every report: absent
+			// (old agent, rolled-back agent) means "does not support".
+			PSKSupported bool `json:"psk_supported"`
 		} `json:"node"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&body); err != nil {
@@ -572,12 +574,6 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 			boolPtrToNull(n.IPForwardEnabled), boolPtrToNull(n.ForwardPolicyDropDetected),
 			boolPtrToNull(n.DockerRulesInstalled), nullStr(fwBackend), nullInt(n.MTU),
 			nullStr(setupErr), nodeID)
-		// agent_psk is NOT NULL, so only a reporting agent may move it - an
-		// old agent omits the field and the column keeps its last value.
-		if n.PSKSupported != nil {
-			_, _ = db.ExecContext(ctx,
-				`UPDATE caddy_nodes SET agent_psk = ? WHERE id = ?`, *n.PSKSupported, nodeID)
-		}
 		// Record wstunnel liveness + freshness so the panel can gate WSS
 		// route/installer rendering. Only when the agent reported it (non-UDP).
 		if n.WstunnelHealthy != nil {
@@ -600,6 +596,12 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 			}
 		}
 	}
+
+	// PSK capability is re-asserted on every report, never remembered: an
+	// agent that does not declare it does not have it. A node rolled back to
+	// a pre-PSK agent silently ignores the preshared_key field, so leaving the
+	// flag at 1 would kill every PSK peer on it with no signal anywhere.
+	h.setPSKCapability(ctx, db, r, nodeID, body.Node != nil && body.Node.PSKSupported)
 
 	// Batch-load each peer's id + previous raw counters so we can compute
 	// reset-safe deltas (wg counters zero on rekey/restart) without an N+1
@@ -693,6 +695,45 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// setPSKCapability stores the capability the agent just re-asserted and makes
+// the 1->0 edge loud. Losing support is an outage that nothing can repair
+// server-side: peers whose .conf already carries a PSK stay down until the
+// customer re-downloads it, so the operator has to learn about it here.
+// Refusing the downgrade would not help - an agent that ignores preshared_key
+// breaks those peers either way, just without a trace.
+func (h *WGBootstrapHandler) setPSKCapability(ctx context.Context, db *sql.DB, r *http.Request, nodeID int64, supported bool) {
+	var was bool
+	if err := db.QueryRowContext(ctx,
+		`SELECT agent_psk FROM caddy_nodes WHERE id = ?`, nodeID).Scan(&was); err != nil {
+		return
+	}
+	if was == supported {
+		return
+	}
+	if _, err := db.ExecContext(ctx,
+		`UPDATE caddy_nodes SET agent_psk = ? WHERE id = ?`, supported, nodeID); err != nil {
+		return
+	}
+	if supported {
+		return
+	}
+	var affected int
+	_ = db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM customer_wg_peer WHERE node_id = ? AND psk_enc IS NOT NULL`,
+		nodeID).Scan(&affected)
+	if h.Logger != nil {
+		h.Logger.Warn("node-agent no longer supports preshared keys; PSK peers on this node are down until their configs are re-downloaded",
+			"node_id", nodeID, "psk_peers", affected)
+	}
+	audit.Write(ctx, db, h.Logger, r, audit.Entry{
+		ActorType: audit.ActorSystem,
+		Action:    "node.psk_capability_lost",
+		Entity:    "node",
+		EntityID:  strconv.FormatInt(nodeID, 10),
+		Meta:      map[string]any{"psk_peers": affected},
+	})
 }
 
 // publicBaseURL returns the panel's external base URL. When appURL is

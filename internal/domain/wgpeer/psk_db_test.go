@@ -181,9 +181,9 @@ func TestPeersForNodeGatesOnAgentPSK(t *testing.T) {
 	}
 }
 
-// Rotation is the migration path for classic peers; it must also refuse to
-// downgrade a group that already carries PSKs.
-func TestRotateKeyAddsPSKAndRefusesUnsupportedNode(t *testing.T) {
+// Rotation is the migration path for classic peers, and it must keep running
+// even when a group node lags: key rotation outranks the PSK.
+func TestRotateKeyAddsPSKAndDegradesOnUnsupportedNode(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 	ctx := context.Background()
@@ -213,7 +213,33 @@ func TestRotateKeyAddsPSKAndRefusesUnsupportedNode(t *testing.T) {
 	if _, err := db.ExecContext(ctx, "UPDATE caddy_nodes SET agent_psk=0 WHERE id=?", nodeID); err != nil {
 		t.Fatalf("downgrade node: %v", err)
 	}
-	if _, err := svc.RotateKey(ctx, peer.ID); err != ErrPSKUnsupported {
-		t.Fatalf("rotate err = %v, want ErrPSKUnsupported", err)
+	before := peerPubkey(t, db, peer.ID)
+	if _, err := svc.RotateKey(ctx, peer.ID); err != nil {
+		t.Fatalf("rotate must not fail closed on a lagging node: %v", err)
 	}
+	if after := peerPubkey(t, db, peer.ID); after == before {
+		t.Fatal("rotation skipped: pubkey unchanged")
+	}
+	if got := peerPSK(t, db, peer.ID); got.Valid {
+		t.Fatalf("psk_enc = %q after degraded rotation, want NULL so node and .conf agree", got.String)
+	}
+	var audits int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM audit_log WHERE action='wg_peer.psk_dropped' AND entity_id=?`,
+		fmt.Sprint(peer.ID)).Scan(&audits); err != nil {
+		t.Fatalf("read audit_log: %v", err)
+	}
+	if audits != 1 {
+		t.Fatalf("audit rows = %d, want 1", audits)
+	}
+	_, _ = db.Exec("DELETE FROM audit_log WHERE action='wg_peer.psk_dropped' AND entity_id=?", fmt.Sprint(peer.ID))
+}
+
+func peerPubkey(t *testing.T, db *sql.DB, peerID int64) string {
+	t.Helper()
+	var pk string
+	if err := db.QueryRow("SELECT pubkey FROM customer_wg_peer WHERE id=?", peerID).Scan(&pk); err != nil {
+		t.Fatalf("read pubkey: %v", err)
+	}
+	return pk
 }

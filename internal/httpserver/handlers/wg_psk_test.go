@@ -102,7 +102,9 @@ func TestNodePeersPullGatesPresharedKey(t *testing.T) {
 	}
 }
 
-// psk_supported flips agent_psk; an agent that omits the field leaves it alone.
+// psk_supported is re-asserted on every report: absent means "not supported",
+// so a rollback to a pre-PSK agent clears the flag instead of leaving peers
+// with a key the agent ignores. The 1->0 edge is audited.
 func TestNodeStatsPSKSupportedCapability(t *testing.T) {
 	db := openTestDBHandlers(t)
 	defer db.Close()
@@ -129,9 +131,39 @@ func TestNodeStatsPSKSupportedCapability(t *testing.T) {
 		return v
 	}
 
-	post(`{"ip_forward_enabled":true}`) // old agent: field absent
+	auditRows := func() int {
+		t.Helper()
+		var n int
+		if err := db.QueryRow(
+			`SELECT COUNT(*) FROM audit_log
+			  WHERE action='node.psk_capability_lost' AND entity_id=?
+			    AND JSON_EXTRACT(meta, '$.psk_peers') = 1`,
+			fmt.Sprint(nodeID)).Scan(&n); err != nil {
+			t.Fatalf("read audit_log: %v", err)
+		}
+		return n
+	}
+	t.Cleanup(func() {
+		_, _ = db.Exec("DELETE FROM audit_log WHERE entity_id=? AND action='node.psk_capability_lost'", fmt.Sprint(nodeID))
+	})
+
+	post(`{"ip_forward_enabled":true,"psk_supported":true}`)
+	if got := agentPSK(); got != 1 {
+		t.Fatalf("agent_psk = %d after psk_supported=true, want 1", got)
+	}
+	// Rolled back to a pre-PSK agent: the field is gone, the flag must follow,
+	// and the operator must see how many peers that just broke.
+	post(`{"ip_forward_enabled":true}`)
 	if got := agentPSK(); got != 0 {
 		t.Fatalf("agent_psk = %d after a report without psk_supported, want 0", got)
+	}
+	if n := auditRows(); n != 1 {
+		t.Fatalf("audit rows for the 1->0 edge = %d, want 1 (with psk_peers=1)", n)
+	}
+	// Steady state at 0: no repeated audit spam.
+	post(`{"ip_forward_enabled":true}`)
+	if n := auditRows(); n != 1 {
+		t.Fatalf("audit rows after a second unsupported report = %d, want 1", n)
 	}
 	post(`{"ip_forward_enabled":true,"psk_supported":true}`)
 	if got := agentPSK(); got != 1 {
@@ -140,5 +172,8 @@ func TestNodeStatsPSKSupportedCapability(t *testing.T) {
 	post(`{"ip_forward_enabled":true,"psk_supported":false}`)
 	if got := agentPSK(); got != 0 {
 		t.Fatalf("agent_psk = %d after psk_supported=false, want 0", got)
+	}
+	if n := auditRows(); n != 2 {
+		t.Fatalf("audit rows after an explicit false = %d, want 2", n)
 	}
 }

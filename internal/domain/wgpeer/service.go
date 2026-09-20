@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
@@ -285,7 +286,28 @@ func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
 	}
 	encPSK, err := s.newEncPSK(ctx, s.groupNodeIDs(ctx, nodeID, group.String), group.String)
 	if err != nil {
-		return "", err
+		if !errors.Is(err, ErrPSKUnsupported) {
+			return "", err
+		}
+		// Rotating the key matters more than keeping the PSK: refusing here
+		// turns a security control into one that never runs again. Drop to a
+		// classic peer (psk_enc goes NULL below, so the node's pull and the
+		// rendered .conf agree) and make the degradation findable.
+		encPSK = nil
+		if s.Logger != nil {
+			s.Logger.Warn("wg key rotated without a preshared key", "peer_id", peerID, "node_id", nodeID, "err", err)
+		}
+		audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
+			ActorType: audit.ActorSystem,
+			Action:    "wg_peer.psk_dropped",
+			Entity:    "wg_peer",
+			EntityID:  strconv.FormatInt(peerID, 10),
+			Meta: map[string]any{
+				"node_id":       nodeID,
+				"peer_group_id": group.String,
+				"reason":        err.Error(),
+			},
+		})
 	}
 	// Stamp both timestamp columns so key-age UX and alerts treat manual
 	// rotation the same as job-driven rotation.
@@ -307,23 +329,41 @@ func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
 var ErrPSKUnsupported = errors.New("wgpeer: node-agent on this node does not support preshared keys - upgrade node-agent first")
 
 // groupSupportsPSK reports whether every node in nodeIDs has reported
-// psk_supported. When the group already has PSK-bearing peers, an unsupported
-// node is a hard error instead of a silent downgrade.
+// psk_supported. When the group already has PSK-bearing peers it returns
+// ErrPSKUnsupported (wrapped, naming the laggards) so the caller can choose
+// between refusing and degrading; otherwise it logs the silent downgrade.
 func (s *Service) groupSupportsPSK(ctx context.Context, nodeIDs []int64, groupID string) (bool, error) {
 	if len(nodeIDs) == 0 {
 		return false, nil
 	}
-	q := `SELECT COUNT(*) FROM caddy_nodes WHERE agent_psk=1 AND id IN (?` +
+	q := `SELECT id FROM caddy_nodes WHERE agent_psk=1 AND id IN (?` +
 		strings.Repeat(",?", len(nodeIDs)-1) + `)`
 	args := make([]any, len(nodeIDs))
 	for i, id := range nodeIDs {
 		args[i] = id
 	}
-	var supported int
-	if err := s.DB.QueryRowContext(ctx, q, args...).Scan(&supported); err != nil {
+	rows, err := s.DB.QueryContext(ctx, q, args...)
+	if err != nil {
 		return false, err
 	}
-	if supported == len(nodeIDs) {
+	supported := make(map[int64]bool, len(nodeIDs))
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			supported[id] = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	var missing []int64
+	for _, id := range nodeIDs {
+		if !supported[id] {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) == 0 {
 		return true, nil
 	}
 	if groupID != "" {
@@ -334,8 +374,14 @@ func (s *Service) groupSupportsPSK(ctx context.Context, nodeIDs []int64, groupID
 			return false, err
 		}
 		if withPSK > 0 {
-			return false, ErrPSKUnsupported
+			return false, fmt.Errorf("%w (nodes %v)", ErrPSKUnsupported, missing)
 		}
+	}
+	// Name the laggards: otherwise "why is this peer classical?" is
+	// unanswerable without hand-querying agent_psk.
+	if s.Logger != nil {
+		s.Logger.Warn("wg peer provisioned without a preshared key: node-agent does not report psk support",
+			"nodes", missing, "peer_group_id", groupID)
 	}
 	return false, nil
 }
