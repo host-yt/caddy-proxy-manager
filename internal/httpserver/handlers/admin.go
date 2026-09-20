@@ -5118,7 +5118,7 @@ func (h *AdminHandlers) TwoFAConfirm(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/2fa", "", "invalid code; try again")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 8_000_000_000)
+	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 	codes, hashes, err := auth.GenerateRecoveryCodes(8)
 	if err != nil {
