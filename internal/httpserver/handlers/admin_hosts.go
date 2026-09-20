@@ -4199,11 +4199,16 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Anchor node first (Resync runs AfterPush), then every other node serving
+	// this route. Node-level settings - TLS connection policies above all - are
+	// rebuilt per node, so pushing only the anchor leaves fan-out peers on the
+	// previous policy while the UI reports the new one as enforced.
 	go func() {
 		defer recoverBg(h.Logger, "resync")
 		ctx, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
 		defer cancel()
 		_ = h.Routes.Resync(ctx, nodeID)
+		h.Routes.SchedulePushForRoute(ctx, id)
 	}()
 
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
