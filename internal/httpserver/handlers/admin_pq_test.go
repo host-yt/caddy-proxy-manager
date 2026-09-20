@@ -84,10 +84,14 @@ func TestPQStatusCounts(t *testing.T) {
 		`UPDATE caddy_nodes SET wg_psk_enc = 'ciphertext', caddy_version = 'v2.11.4' WHERE id = ?`, nodeID); err != nil {
 		t.Fatalf("stage mesh psk: %v", err)
 	}
-	if _, err := db.ExecContext(ctx,
+	// Same FK bypass insertPSKNode uses: client 1 need not exist on a fresh DB.
+	_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0")
+	_, errPeer := db.ExecContext(ctx,
 		`INSERT INTO customer_wg_peer (client_id, node_id, name, pubkey, assigned_ip, status)
-		 VALUES (1, ?, 'nopsk', 'PUBKEY2', '100.96.9.6', 'active')`, nodeID); err != nil {
-		t.Fatalf("insert peer without psk: %v", err)
+		 VALUES (1, ?, 'nopsk', 'PUBKEY2', '100.96.9.6', 'active')`, nodeID)
+	_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=1")
+	if errPeer != nil {
+		t.Fatalf("insert peer without psk: %v", errPeer)
 	}
 	domain := fmt.Sprintf("pq-%d.example.test", time.Now().UnixNano())
 	_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0")
