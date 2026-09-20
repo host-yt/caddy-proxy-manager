@@ -759,6 +759,7 @@ type nodeRow struct {
 	Fingerprint    string // first 16 chars of wg_public_key for fingerprint match
 	Transport      string // tunnel transport: udp|wss|auto
 	WstunnelPort   int    // 0 = unset; prefilled into the tunnel modal
+	PSKState       string // mesh WireGuard PSK: "active" | "pending" | ""
 
 	// Caddy capability flags set by the node-agent probe.
 	HasWAF       bool
@@ -4233,7 +4234,7 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 	// Branding tab: pre-fill from the shared cached loader (same source as
 	// BrandingPage). Form still POSTs to /admin/branding.
 	d.Branding = LoadBranding(r.Context(), db)
-	h.render(w, "settings", d)
+	h.render(w, "settings", settingsPQData{settingsData: d, PQ: h.pqStatus(r.Context())})
 }
 
 func (h *AdminHandlers) SettingsSMTP(w http.ResponseWriter, r *http.Request) {
@@ -5711,6 +5712,8 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 		        COALESCE(n.has_waf,0), COALESCE(n.has_l4,0),
 		        COALESCE(n.has_geoip,0), COALESCE(n.has_rate_limit,0),
 		        COALESCE(n.caddy_version,''), n.last_rtt_ms,
+		        CASE WHEN n.wg_psk_enc IS NOT NULL THEN 'active'
+		             WHEN n.wg_psk_pending_enc IS NOT NULL THEN 'pending' ELSE '' END,
 		        COALESCE((SELECT SUM(lr.bytes_resp)
 		                  FROM log_rollups lr
 		                  JOIN routes rr ON rr.id = lr.route_id
@@ -5731,7 +5734,7 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 				&n.FwdFirewallBackend, &n.FwdLastSetupError,
 				&n.FwdReportedAt,
 				&n.HasWAF, &n.HasL4, &n.HasGeoIP, &n.HasRateLimit, &n.CaddyVersion, &n.LastRTTMs,
-				&n.Bandwidth24h); err == nil {
+				&n.PSKState, &n.Bandwidth24h); err == nil {
 				n.WGKeepalive = 25
 				d.Nodes = append(d.Nodes, n)
 			}

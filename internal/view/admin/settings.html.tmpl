@@ -52,6 +52,7 @@
         <button type="button" data-settings-tab="cloudflare" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Cloudflare</button>
         <button type="button" data-settings-tab="acme" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">ACME / TLS</button>
         <button type="button" data-settings-tab="mtls" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">mTLS</button>
+        <button type="button" data-settings-tab="pq" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Post-quantum</button>
         <button type="button" data-settings-tab="analytics" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Analytics</button>
         <button type="button" data-settings-tab="failover" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Failover</button>
         <button type="button" data-settings-tab="alerts" class="hpg-settings-tab r-segment-item text-left px-3 py-2 rounded-lg text-sm cursor-pointer transition-colors">Alerts</button>
@@ -1117,6 +1118,99 @@
         <button class="r-btn-primary cursor-pointer">Save</button>
       </div>
     </form>
+  </section>
+
+  <!-- ── Post-quantum readiness (read-only) ─────────────────── -->
+  <section data-settings-pane="pq" class="hpg-settings-pane hidden r-card">
+    <p class="t-eyebrow mb-1">Infrastructure</p>
+    <h2 class="t-h3 mb-2">Post-quantum readiness</h2>
+    <p class="t-small mb-4" style="color:rgb(var(--muted))">Where hybrid post-quantum protection is already in effect. Read-only - each row is configured on its own page. The threat model is harvest-now-decrypt-later: key exchange and tunnel keys are what matter today, signatures are not yet available upstream.</p>
+
+    <!-- 1. Panel runtime -->
+    <div class="flex items-start justify-between gap-4 py-3 border-t border-[rgb(var(--border))]">
+      <div class="flex items-start gap-2 min-w-0">
+        <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:rgb(var(--accent))" aria-hidden="true"><path fill-rule="evenodd" d="M2 4.25A2.25 2.25 0 0 1 4.25 2h11.5A2.25 2.25 0 0 1 18 4.25v8.5A2.25 2.25 0 0 1 15.75 15h-3.105l.401 1.607a.75.75 0 0 1-.728.893H7.682a.75.75 0 0 1-.728-.893L7.355 15H4.25A2.25 2.25 0 0 1 2 12.75v-8.5Zm2.25-.75a.75.75 0 0 0-.75.75v8.5c0 .414.336.75.75.75h11.5a.75.75 0 0 0 .75-.75v-8.5a.75.75 0 0 0-.75-.75H4.25Z" clip-rule="evenodd"/></svg>
+        <div class="min-w-0">
+          <p class="t-body font-medium" style="color:rgb(var(--text))">Panel runtime (TLS to the browser and to node APIs)</p>
+          <p class="t-caption" style="color:rgb(var(--muted))">{{.PQ.GoVersion}} - {{if .PQ.GoHybrid}}hybrid X25519MLKEM768 offered by default{{else}}too old for X25519MLKEM768; rebuild on Go 1.24 or newer{{end}}</p>
+        </div>
+      </div>
+      <span class="r-pill {{if .PQ.GoHybrid}}r-pill-success{{else}}r-pill-warning{{end}}">{{if .PQ.GoHybrid}}on{{else}}off{{end}}</span>
+    </div>
+
+    <!-- 2. Edge nodes -->
+    <div class="flex items-start justify-between gap-4 py-3 border-t border-[rgb(var(--border))]">
+      <div class="flex items-start gap-2 min-w-0">
+        <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:rgb(var(--accent))" aria-hidden="true"><path fill-rule="evenodd" d="M4.25 2A2.25 2.25 0 0 0 2 4.25v2.5A2.25 2.25 0 0 0 4.25 9h11.5A2.25 2.25 0 0 0 18 6.75v-2.5A2.25 2.25 0 0 0 15.75 2H4.25Zm0 9A2.25 2.25 0 0 0 2 13.25v2.5A2.25 2.25 0 0 0 4.25 18h11.5A2.25 2.25 0 0 0 18 15.75v-2.5A2.25 2.25 0 0 0 15.75 11H4.25Zm10 1.75a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Zm0-9a.75.75 0 1 0 0 1.5.75.75 0 0 0 0-1.5Z" clip-rule="evenodd"/></svg>
+        <div class="min-w-0">
+          <p class="t-body font-medium" style="color:rgb(var(--text))">Edge nodes (TLS to visitors)</p>
+          <p class="t-caption" style="color:rgb(var(--muted))">Caddy 2.10 or newer negotiates X25519MLKEM768. Version comes from the node record; unknown counts as not ready.</p>
+          {{if .PQ.Nodes}}
+          <div class="flex flex-wrap gap-1 mt-2">
+            {{range .PQ.Nodes}}<span class="r-pill {{if .HybridKEX}}r-pill-success{{else}}r-pill-neutral{{end}}">{{.Name}}{{if .CaddyVersion}} {{.CaddyVersion}}{{else}} unknown{{end}}</span>{{end}}
+          </div>
+          {{end}}
+        </div>
+      </div>
+      <span class="r-pill {{if and .PQ.NodeTotal (eq .PQ.NodesHybrid .PQ.NodeTotal)}}r-pill-success{{else if .PQ.NodesHybrid}}r-pill-warning{{else}}r-pill-neutral{{end}} tabular-nums">{{.PQ.NodesHybrid}} / {{.PQ.NodeTotal}}</span>
+    </div>
+
+    <!-- 3. Mesh PSK -->
+    <div class="flex items-start justify-between gap-4 py-3 border-t border-[rgb(var(--border))]">
+      <div class="flex items-start gap-2 min-w-0">
+        <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:rgb(var(--accent))" aria-hidden="true"><path fill-rule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clip-rule="evenodd"/></svg>
+        <div class="min-w-0">
+          <p class="t-body font-medium" style="color:rgb(var(--text))">Mesh WireGuard preshared keys</p>
+          <p class="t-caption" style="color:rgb(var(--muted))">Panel-to-node tunnel. {{if .PQ.MeshPending}}{{.PQ.MeshPending}} staged, waiting for node confirmation. {{end}}Enable or rotate on <a href="/admin/nodes" style="color:rgb(var(--accent))" class="hover:underline">Nodes</a>.</p>
+        </div>
+      </div>
+      <span class="r-pill {{if and .PQ.NodeTotal (eq .PQ.MeshActive .PQ.NodeTotal)}}r-pill-success{{else if .PQ.MeshActive}}r-pill-warning{{else}}r-pill-neutral{{end}} tabular-nums">{{.PQ.MeshActive}} / {{.PQ.NodeTotal}}</span>
+    </div>
+
+    <!-- 4. Customer tunnels -->
+    <div class="flex items-start justify-between gap-4 py-3 border-t border-[rgb(var(--border))]">
+      <div class="flex items-start gap-2 min-w-0">
+        <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:rgb(var(--accent))" aria-hidden="true"><path fill-rule="evenodd" d="M15.5 4.5a3 3 0 0 0-5.121-2.121l-2 2a.75.75 0 0 0 1.06 1.06l2-2A1.5 1.5 0 1 1 13.56 5.56l-2 2a.75.75 0 1 0 1.06 1.061l2-2A2.99 2.99 0 0 0 15.5 4.5ZM7.44 11.38a.75.75 0 0 0-1.06-1.06l-2 2a3 3 0 1 0 4.242 4.242l2-2a.75.75 0 1 0-1.06-1.06l-2 2A1.5 1.5 0 1 1 5.44 13.38l2-2Zm5.12-2.94a.75.75 0 0 0-1.06-1.06l-4 4a.75.75 0 1 0 1.06 1.06l4-4Z" clip-rule="evenodd"/></svg>
+        <div class="min-w-0">
+          <p class="t-body font-medium" style="color:rgb(var(--text))">Customer tunnel preshared keys</p>
+          <p class="t-caption" style="color:rgb(var(--muted))">Keys are only handed out to nodes whose agent reported PSK support: {{.PQ.AgentPSK}} / {{.PQ.NodeTotal}} nodes. Peers re-download their config after a node agent upgrade.</p>
+        </div>
+      </div>
+      <span class="r-pill {{if and .PQ.PeerTotal (eq .PQ.PeerPSK .PQ.PeerTotal)}}r-pill-success{{else if .PQ.PeerPSK}}r-pill-warning{{else}}r-pill-neutral{{end}} tabular-nums">{{.PQ.PeerPSK}} / {{.PQ.PeerTotal}}</span>
+    </div>
+
+    <!-- 5. PQ-only hosts -->
+    <div class="flex items-start justify-between gap-4 py-3 border-t border-[rgb(var(--border))]">
+      <div class="flex items-start gap-2 min-w-0">
+        <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:rgb(var(--accent))" aria-hidden="true"><path fill-rule="evenodd" d="M10 2a8 8 0 1 0 0 16 8 8 0 0 0 0-16ZM6.05 6.5A6.52 6.52 0 0 1 10 3.52c.74.77 1.6 2.2 1.9 4.23h-3.8c.3-2.03 1.16-3.46 1.9-4.23a6.52 6.52 0 0 1 3.95 2.98A9.6 9.6 0 0 1 10 7.5c-1.4 0-2.76-.35-3.95-1ZM3.5 10c0-.52.06-1.02.18-1.5A11.1 11.1 0 0 0 10 9.75c1.6 0 3.15-.34 4.55-.98.12.47.18.97.18 1.48s-.06 1.01-.18 1.48A11.1 11.1 0 0 0 10 10.75c-2.2 0-4.31.53-6.32 1.23A6.47 6.47 0 0 1 3.5 10Zm2.55 3.5a11.1 11.1 0 0 1 3.95-.73c1.4 0 2.76.25 3.95.73A6.52 6.52 0 0 1 10 16.48a6.52 6.52 0 0 1-3.95-2.98Z" clip-rule="evenodd"/></svg>
+        <div class="min-w-0">
+          <p class="t-body font-medium" style="color:rgb(var(--text))">Hosts pinned to post-quantum only</p>
+          <p class="t-caption" style="color:rgb(var(--muted))">These reject any client without ML-KEM. Per-host toggle lives in the host's SSL tab.</p>
+          {{if .PQ.PQHosts}}
+          <div class="flex flex-wrap gap-1 mt-2">
+            {{range .PQ.PQHosts}}<span class="r-pill r-pill-info">{{.}}</span>{{end}}
+            {{if .PQ.HostsTruncated}}<span class="t-caption" style="color:rgb(var(--muted))">+{{.PQ.HostsTruncated}} more</span>{{end}}
+          </div>
+          {{end}}
+        </div>
+      </div>
+      <span class="r-pill {{if .PQ.PQHostCount}}r-pill-info{{else}}r-pill-neutral{{end}} tabular-nums">{{.PQ.PQHostCount}}</span>
+    </div>
+
+    <!-- 6. Signatures -->
+    <div class="flex items-start justify-between gap-4 py-3 border-t border-[rgb(var(--border))]">
+      <div class="flex items-start gap-2 min-w-0">
+        <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 mt-0.5 flex-shrink-0" style="color:rgb(var(--muted))" aria-hidden="true"><path fill-rule="evenodd" d="M4.5 2A1.5 1.5 0 0 0 3 3.5v13A1.5 1.5 0 0 0 4.5 18h11a1.5 1.5 0 0 0 1.5-1.5V7.621a1.5 1.5 0 0 0-.44-1.06l-3.62-3.622A1.5 1.5 0 0 0 11.878 2H4.5Zm2 7a.75.75 0 0 0 0 1.5h7a.75.75 0 0 0 0-1.5h-7Zm0 3.5a.75.75 0 0 0 0 1.5h7a.75.75 0 0 0 0-1.5h-7Z" clip-rule="evenodd"/></svg>
+        <div class="min-w-0">
+          <p class="t-body font-medium" style="color:rgb(var(--text))">Certificates (ML-DSA)</p>
+          <p class="t-caption" style="color:rgb(var(--muted))">Not available upstream yet - no public CA issues post-quantum certificates and ACME has no profile for them. Signatures are not part of the harvest-now-decrypt-later risk.</p>
+        </div>
+      </div>
+      <span class="r-pill r-pill-neutral">n/a</span>
+    </div>
+
+    <!-- 7. Docs -->
+    <p class="t-caption pt-3 border-t border-[rgb(var(--border))]" style="color:rgb(var(--muted))">Background, verification commands and rollout order: <code class="text-xs">docs/POST_QUANTUM.md</code>.</p>
   </section>
 
   <!-- ── Analytics ─────────────────────────────────────────── -->
