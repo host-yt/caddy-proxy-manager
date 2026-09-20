@@ -13,7 +13,7 @@ var MigrationsFS embed.FS
 // ScriptsFS holds installable shell scripts served from the panel
 // (e.g. /install/node.sh for one-command node join).
 //
-//go:embed scripts/node-join.sh
+//go:embed scripts/node-join.sh scripts/node-psk.sh
 var ScriptsFS embed.FS
 
 // StaticFS embeds the entire web/static tree so the binary is self-contained

@@ -201,6 +201,41 @@ jobs:
             type=semver,pattern={{version}}
             type=raw,value=edge,enable={{is_default_branch}}
             type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}
+      - name: Resolve amd64 candidate digest
+        id: candidate
+        working-directory: /tmp/digests
+        run: echo "digest=$(cat linux-amd64)" >> "$GITHUB_OUTPUT"
+      # Gate BEFORE the consumer tags exist. The per-arch images are already in
+      # the registry addressed by digest, so the amd64 one can be run on this
+      # runner without publishing edge/latest/semver first: a failure here must
+      # leave nothing pullable, not merely unsigned.
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+      - name: Post-quantum handshake smoke test
+        env:
+          IMAGE_REF: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-edge@${{ steps.candidate.outputs.digest }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/pq.Caddyfile <<'EOF'
+          localhost {
+            tls internal
+            respond "ok"
+          }
+          EOF
+          cid=$(docker run -d -p 8443:443 -v /tmp/pq.Caddyfile:/etc/caddy/Caddyfile:ro "$IMAGE_REF")
+          trap 'docker logs "$cid" || true; docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          for _ in $(seq 1 30); do
+            if openssl s_client -connect 127.0.0.1:8443 -servername localhost </dev/null >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          HPG_TEST_EDGE_ADDR=127.0.0.1:8443 HPG_TEST_EDGE_SNI=localhost \
+            go test -tags integration -count=1 -run TestEdgePQHandshake ./internal/integration/
+      # Only now do edge/latest/semver start pointing at this build.
       - name: Create + push manifest
         id: manifest
         working-directory: /tmp/digests

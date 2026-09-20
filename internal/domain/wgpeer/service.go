@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/wireguard"
 )
@@ -116,11 +117,15 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Peer, string, err
 	if err != nil {
 		return Peer{}, "", fmt.Errorf("encrypt priv: %w", err)
 	}
+	encPSK, err := s.newEncPSK(ctx, []int64{in.NodeID}, "")
+	if err != nil {
+		return Peer{}, "", err
+	}
 
 	res, err := s.DB.ExecContext(ctx,
-		`INSERT INTO customer_wg_peer (client_id, node_id, name, pubkey, server_privkey_e2, assigned_ip, status)
-		 VALUES (?, ?, ?, ?, ?, ?, 'pending')`,
-		in.ClientID, in.NodeID, name, kp.PublicKey, []byte(encPriv), ip)
+		`INSERT INTO customer_wg_peer (client_id, node_id, name, pubkey, server_privkey_e2, psk_enc, assigned_ip, status)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
+		in.ClientID, in.NodeID, name, kp.PublicKey, []byte(encPriv), encPSK, ip)
 	if err != nil {
 		return Peer{}, "", fmt.Errorf("insert peer: %w", err)
 	}
@@ -192,6 +197,13 @@ func (s *Service) CreateHA(ctx context.Context, in CreateHAInput) (string, []Pee
 	}
 	groupID := hex.EncodeToString(groupRaw[:])
 
+	// All-or-nothing across the group: a PSK on some nodes and not others
+	// would leave the customer's single .conf half-broken.
+	pskAllowed, err := s.groupSupportsPSK(ctx, nodeIDs, "")
+	if err != nil {
+		return "", nil, "", err
+	}
+
 	out := make([]Peer, 0, len(nodeIDs))
 	var firstPeerID int64
 	for _, nid := range nodeIDs {
@@ -203,10 +215,16 @@ func (s *Service) CreateHA(ctx context.Context, in CreateHAInput) (string, []Pee
 		if err != nil {
 			return "", nil, "", fmt.Errorf("node %d alloc: %w", nid, err)
 		}
+		var encPSK any
+		if pskAllowed {
+			if encPSK, err = s.encryptNewPSK(); err != nil {
+				return "", nil, "", err
+			}
+		}
 		res, err := s.DB.ExecContext(ctx,
-			`INSERT INTO customer_wg_peer (client_id, node_id, name, peer_group_id, pubkey, server_privkey_e2, assigned_ip, status)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
-			in.ClientID, nid, name, groupID, kp.PublicKey, []byte(encPriv), ip)
+			`INSERT INTO customer_wg_peer (client_id, node_id, name, peer_group_id, pubkey, server_privkey_e2, psk_enc, assigned_ip, status)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
+			in.ClientID, nid, name, groupID, kp.PublicKey, []byte(encPriv), encPSK, ip)
 		if err != nil {
 			return "", nil, "", fmt.Errorf("insert peer node %d: %w", nid, err)
 		}
@@ -246,7 +264,23 @@ func (s *Service) Revoke(ctx context.Context, peerID int64) error {
 // the customer can re-install with new credentials. Old key stays valid
 // until the new .conf is downloaded and applied; reconciler swaps the
 // peer block atomically on next pull.
+//
+// HA groups rotate as one unit. CreateHA gives every row in a
+// peer_group_id the SAME customer keypair (one .conf, one [Interface]
+// PrivateKey, many [Peer] blocks), so rotating a single row left the
+// sibling nodes authorising the old pubkey: the customer's new .conf
+// only worked against the one rotated node and every failover path was
+// silently dead until the next full re-provision.
 func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
+	var (
+		nodeID int64
+		group  sql.NullString
+	)
+	if err := s.DB.QueryRowContext(ctx,
+		`SELECT node_id, peer_group_id FROM customer_wg_peer WHERE id=?`, peerID).
+		Scan(&nodeID, &group); err != nil {
+		return "", err
+	}
 	kp, err := wireguard.GenerateKeypair()
 	if err != nil {
 		return "", err
@@ -255,18 +289,212 @@ func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	// Stamp both timestamp columns so key-age UX and alerts treat manual
-	// rotation the same as job-driven rotation.
-	if _, err := s.DB.ExecContext(ctx,
-		`UPDATE customer_wg_peer
-		    SET pubkey=?, server_privkey_e2=?, status='pending',
-		        last_rotated_at=NOW(), last_key_rotation_at=NOW(),
-		        rotation_alert_sent_at=NULL
-		  WHERE id=?`,
-		kp.PublicKey, []byte(encPriv), peerID); err != nil {
+	// Rotation is also the moment a classic peer picks up a PSK: the customer
+	// has to re-import the .conf anyway, so nothing breaks retroactively.
+	nodeIDs := s.groupNodeIDs(ctx, nodeID, group.String)
+	withPSK, err := s.groupSupportsPSK(ctx, nodeIDs, group.String)
+	if err != nil {
+		if !errors.Is(err, ErrPSKUnsupported) {
+			return "", err
+		}
+		// Rotating the key matters more than keeping the PSK: refusing here
+		// turns a security control into one that never runs again. Drop to a
+		// classic peer (psk_enc goes NULL below, so the node's pull and the
+		// rendered .conf agree) and make the degradation findable.
+		withPSK = false
+		if s.Logger != nil {
+			s.Logger.Warn("wg key rotated without a preshared key", "peer_id", peerID, "node_id", nodeID, "err", err)
+		}
+		audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
+			ActorType: audit.ActorSystem,
+			Action:    "wg_peer.psk_dropped",
+			Entity:    "wg_peer",
+			EntityID:  strconv.FormatInt(peerID, 10),
+			Meta: map[string]any{
+				"node_id":       nodeID,
+				"peer_group_id": group.String,
+				"reason":        err.Error(),
+			},
+		})
+	}
+
+	// One transaction for the whole group: a group left half-rotated is the
+	// exact failure mode this fixes, so it must not be reachable via a
+	// mid-loop error either.
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	ids, err := rotationTargets(ctx, tx, peerID, group.String)
+	if err != nil {
+		return "", err
+	}
+	for _, id := range ids {
+		// Shared keypair, per-row PSK: CreateHA stores a distinct PSK per
+		// row (each node gets its own), all present or all NULL.
+		var encPSK any
+		if withPSK {
+			if encPSK, err = s.encryptNewPSK(); err != nil {
+				return "", err
+			}
+		}
+		// Stamp both timestamp columns so key-age UX and alerts treat manual
+		// rotation the same as job-driven rotation.
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE customer_wg_peer
+			    SET pubkey=?, server_privkey_e2=?, psk_enc=?, status='pending',
+			        last_rotated_at=NOW(), last_key_rotation_at=NOW(),
+			        rotation_alert_sent_at=NULL
+			  WHERE id=?`,
+			kp.PublicKey, []byte(encPriv), encPSK, id); err != nil {
+			return "", err
+		}
+	}
+	if err := tx.Commit(); err != nil {
 		return "", err
 	}
 	return s.issueBootstrap(ctx, peerID)
+}
+
+// rotationTargets lists the peer rows one rotation must cover: the peer
+// itself plus every live HA sibling, locked so a concurrent rotation of
+// another member of the same group cannot interleave. Revoked siblings are
+// left alone - their keys are meant to be dead.
+func rotationTargets(ctx context.Context, tx *sql.Tx, peerID int64, groupID string) ([]int64, error) {
+	if groupID == "" {
+		return []int64{peerID}, nil
+	}
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id FROM customer_wg_peer WHERE peer_group_id=? AND status<>'revoked' ORDER BY id`+store.ForUpdate(),
+		groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ids := []int64{peerID}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		if id != peerID {
+			ids = append(ids, id)
+		}
+	}
+	return ids, rows.Err()
+}
+
+// ErrPSKUnsupported is returned when a peer group already carries preshared
+// keys but one of its nodes runs a node-agent too old to apply them. Emitting
+// a PresharedKey line there would make `wg syncconf` reject the whole config.
+var ErrPSKUnsupported = errors.New("wgpeer: node-agent on this node does not support preshared keys - upgrade node-agent first")
+
+// groupSupportsPSK reports whether every node in nodeIDs has reported
+// psk_supported. When the group already has PSK-bearing peers it returns
+// ErrPSKUnsupported (wrapped, naming the laggards) so the caller can choose
+// between refusing and degrading; otherwise it logs the silent downgrade.
+func (s *Service) groupSupportsPSK(ctx context.Context, nodeIDs []int64, groupID string) (bool, error) {
+	if len(nodeIDs) == 0 {
+		return false, nil
+	}
+	q := `SELECT id FROM caddy_nodes WHERE agent_psk=1 AND id IN (?` +
+		strings.Repeat(",?", len(nodeIDs)-1) + `)`
+	args := make([]any, len(nodeIDs))
+	for i, id := range nodeIDs {
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx, q, args...)
+	if err != nil {
+		return false, err
+	}
+	supported := make(map[int64]bool, len(nodeIDs))
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			supported[id] = true
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return false, err
+	}
+	var missing []int64
+	for _, id := range nodeIDs {
+		if !supported[id] {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) == 0 {
+		return true, nil
+	}
+	if groupID != "" {
+		var withPSK int
+		if err := s.DB.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM customer_wg_peer WHERE peer_group_id=? AND psk_enc IS NOT NULL`,
+			groupID).Scan(&withPSK); err != nil {
+			return false, err
+		}
+		if withPSK > 0 {
+			return false, fmt.Errorf("%w (nodes %v)", ErrPSKUnsupported, missing)
+		}
+	}
+	// Name the laggards: otherwise "why is this peer classical?" is
+	// unanswerable without hand-querying agent_psk.
+	if s.Logger != nil {
+		s.Logger.Warn("wg peer provisioned without a preshared key: node-agent does not report psk support",
+			"nodes", missing, "peer_group_id", groupID)
+	}
+	return false, nil
+}
+
+// groupNodeIDs lists the nodes a peer's config spans: its own node plus every
+// HA sibling. Best-effort - on a query error we fall back to the single node,
+// which can only make the PSK gate stricter.
+func (s *Service) groupNodeIDs(ctx context.Context, nodeID int64, groupID string) []int64 {
+	if groupID == "" {
+		return []int64{nodeID}
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT DISTINCT node_id FROM customer_wg_peer WHERE peer_group_id=? AND status<>'revoked'`,
+		groupID)
+	if err != nil {
+		return []int64{nodeID}
+	}
+	defer rows.Close()
+	seen := map[int64]bool{nodeID: true}
+	out := []int64{nodeID}
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil && !seen[id] {
+			seen[id] = true
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// newEncPSK returns the encrypted PSK to store for a peer, or nil (SQL NULL)
+// when the group cannot take one yet.
+func (s *Service) newEncPSK(ctx context.Context, nodeIDs []int64, groupID string) (any, error) {
+	ok, err := s.groupSupportsPSK(ctx, nodeIDs, groupID)
+	if err != nil || !ok {
+		return nil, err
+	}
+	return s.encryptNewPSK()
+}
+
+func (s *Service) encryptNewPSK() (any, error) {
+	psk, err := wireguard.GeneratePresharedKey()
+	if err != nil {
+		return nil, fmt.Errorf("psk gen: %w", err)
+	}
+	enc, err := s.Enc.Encrypt(psk)
+	if err != nil {
+		return nil, fmt.Errorf("encrypt psk: %w", err)
+	}
+	return []byte(enc), nil
 }
 
 // ConsumeBootstrap looks up a bootstrap token, marks it consumed, and
@@ -287,6 +515,7 @@ type BootstrapResult struct {
 	TunnelTransport string // "udp"|"wss"|"auto"
 	WstunnelPort    int    // 0 = not configured
 	NodeHostname    string // hostname part of tunnel_endpoint, for WSS URL
+	PresharedKey    string // "" = classic peer (no PSK provisioned)
 }
 
 type HAPeerInfo struct {
@@ -294,6 +523,7 @@ type HAPeerInfo struct {
 	Endpoint     string
 	TunnelPubkey string
 	TunnelSubnet string
+	PresharedKey string // per-peer; "" = classic
 }
 
 func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (BootstrapResult, error) {
@@ -335,11 +565,12 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 		assignedIP string
 		status     string
 		peerGroup  sql.NullString
+		encPSK     sql.NullString
 	)
 	if err := s.DB.QueryRowContext(ctx,
-		`SELECT client_id, node_id, name, pubkey, server_privkey_e2, assigned_ip, status, peer_group_id
+		`SELECT client_id, node_id, name, pubkey, server_privkey_e2, assigned_ip, status, peer_group_id, psk_enc
 		 FROM customer_wg_peer WHERE id=?`,
-		peerID).Scan(&clientID, &nodeID, &name, &pubkey, &encPriv, &assignedIP, &status, &peerGroup); err != nil {
+		peerID).Scan(&clientID, &nodeID, &name, &pubkey, &encPriv, &assignedIP, &status, &peerGroup, &encPSK); err != nil {
 		return BootstrapResult{}, err
 	}
 	if status == "revoked" {
@@ -349,6 +580,12 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 	priv, err := s.Enc.Decrypt(string(encPriv))
 	if err != nil {
 		return BootstrapResult{}, fmt.Errorf("decrypt priv: %w", err)
+	}
+	// A PSK that won't decrypt is fatal here: shipping the customer a .conf
+	// silently missing the line the node expects would kill the tunnel.
+	psk, err := s.decryptPSK(encPSK)
+	if err != nil {
+		return BootstrapResult{}, err
 	}
 
 	var (
@@ -391,7 +628,7 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 	var haPeers []HAPeerInfo
 	if peerGroup.Valid && peerGroup.String != "" {
 		rows, err := s.DB.QueryContext(ctx,
-			`SELECT p.assigned_ip, n.tunnel_endpoint, n.tunnel_pubkey, n.tunnel_subnet, n.tunnel_listen_port
+			`SELECT p.assigned_ip, n.tunnel_endpoint, n.tunnel_pubkey, n.tunnel_subnet, n.tunnel_listen_port, p.psk_enc
 			   FROM customer_wg_peer p JOIN caddy_nodes n ON n.id = p.node_id
 			  WHERE p.peer_group_id = ? AND p.id <> ? AND p.status <> 'revoked'`,
 			peerGroup.String, peerID)
@@ -399,15 +636,21 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 			defer rows.Close()
 			for rows.Next() {
 				var (
-					hp   HAPeerInfo
-					port sql.NullInt64
+					hp     HAPeerInfo
+					port   sql.NullInt64
+					sibPSK sql.NullString
 				)
 				// A scan error means an incomplete HA failover set - log it
 				// instead of silently degrading.
-				if err := rows.Scan(&hp.AssignedIP, &hp.Endpoint, &hp.TunnelPubkey, &hp.TunnelSubnet, &port); err != nil {
+				if err := rows.Scan(&hp.AssignedIP, &hp.Endpoint, &hp.TunnelPubkey, &hp.TunnelSubnet, &port, &sibPSK); err != nil {
 					s.Logger.Warn("ha peer scan", "peer_group", peerGroup.String, "err", err)
 					continue
 				}
+				sib, derr := s.decryptPSK(sibPSK)
+				if derr != nil {
+					return BootstrapResult{}, derr
+				}
+				hp.PresharedKey = sib
 				hp.Endpoint = ensureEndpointPort(hp.Endpoint, port.Int64)
 				haPeers = append(haPeers, hp)
 			}
@@ -442,34 +685,70 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 		TunnelTransport:  tunnelTransport,
 		WstunnelPort:     int(wstunnelPort.Int64),
 		NodeHostname:     nodeHostname,
+		PresharedKey:     psk,
 	}, nil
+}
+
+// decryptPSK unwraps a stored psk_enc value. NULL/empty means a classic peer.
+func (s *Service) decryptPSK(enc sql.NullString) (string, error) {
+	if !enc.Valid || enc.String == "" {
+		return "", nil
+	}
+	psk, err := s.Enc.Decrypt(enc.String)
+	if err != nil {
+		return "", fmt.Errorf("decrypt psk: %w", err)
+	}
+	if !wireguard.ValidPresharedKey(psk) {
+		return "", errors.New("wgpeer: stored preshared key is malformed")
+	}
+	return psk, nil
 }
 
 // PeersForNode returns the active+pending peers for one Caddy node, in
 // the shape the node-agent needs to drive `wg set wg-tun0 peer ...`.
 type NodePeerSnapshot struct {
-	Pubkey     string
-	AssignedIP string // already includes /32 suffix when used in AllowedIPs
-	Status     string
+	Pubkey       string
+	AssignedIP   string // already includes /32 suffix when used in AllowedIPs
+	Status       string
+	PresharedKey string // "" unless the peer has a PSK and this node can apply it
 }
 
 func (s *Service) PeersForNode(ctx context.Context, nodeID int64) ([]NodePeerSnapshot, error) {
+	// agent_psk is the second half of the capability gate: an agent that
+	// doesn't understand PresharedKey must never see one, because a single
+	// unknown line makes `wg syncconf` drop every peer on the node.
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT pubkey, assigned_ip, status FROM customer_wg_peer
-		 WHERE node_id=? AND pubkey IS NOT NULL`, nodeID)
+		`SELECT p.pubkey, p.assigned_ip, p.status, p.psk_enc, n.agent_psk
+		   FROM customer_wg_peer p JOIN caddy_nodes n ON n.id = p.node_id
+		  WHERE p.node_id=? AND p.pubkey IS NOT NULL`, nodeID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var out []NodePeerSnapshot
 	for rows.Next() {
-		var p NodePeerSnapshot
-		if err := rows.Scan(&p.Pubkey, &p.AssignedIP, &p.Status); err != nil {
+		var (
+			p        NodePeerSnapshot
+			encPSK   sql.NullString
+			agentPSK bool
+		)
+		if err := rows.Scan(&p.Pubkey, &p.AssignedIP, &p.Status, &encPSK, &agentPSK); err != nil {
 			return nil, err
+		}
+		if agentPSK {
+			psk, derr := s.decryptPSK(encPSK)
+			if derr != nil {
+				// Serving this peer without its PSK would fail the handshake
+				// anyway, with no signal. Drop it and say why.
+				s.Logger.Warn("wg peer psk unusable, skipping peer",
+					"node_id", nodeID, "pubkey", p.Pubkey, "err", derr)
+				continue
+			}
+			p.PresharedKey = psk
 		}
 		out = append(out, p)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 // ------------------------------------------------------------------
@@ -631,7 +910,7 @@ func RenderConfig(r BootstrapResult) string {
 	// Skip fully-duplicate [Peer] blocks (same key + endpoint) - wg-quick
 	// tolerates them but cryptokey routing gets confusing; defensive only.
 	seenPeer := map[string]bool{}
-	writePeer := func(pub, endpoint, subnet string) {
+	writePeer := func(pub, endpoint, subnet, psk string) {
 		if k := pub + "|" + endpoint; seenPeer[k] {
 			return
 		} else {
@@ -641,6 +920,11 @@ func RenderConfig(r BootstrapResult) string {
 		b.WriteString("PublicKey = ")
 		b.WriteString(pub)
 		b.WriteString("\n")
+		if psk != "" {
+			b.WriteString("PresharedKey = ")
+			b.WriteString(psk)
+			b.WriteString("\n")
+		}
 		b.WriteString("Endpoint = ")
 		b.WriteString(endpoint)
 		b.WriteString("\n")
@@ -658,9 +942,9 @@ func RenderConfig(r BootstrapResult) string {
 	if r.TunnelTransport == "wss" {
 		primaryEndpoint = fmt.Sprintf("127.0.0.1:%d", wgWstunnelClientPort)
 	}
-	writePeer(r.NodeTunnelPubkey, primaryEndpoint, r.NodeTunnelSubnet)
+	writePeer(r.NodeTunnelPubkey, primaryEndpoint, r.NodeTunnelSubnet, r.PresharedKey)
 	for _, hp := range r.HAPeers {
-		writePeer(hp.TunnelPubkey, hp.Endpoint, hp.TunnelSubnet)
+		writePeer(hp.TunnelPubkey, hp.Endpoint, hp.TunnelSubnet, hp.PresharedKey)
 	}
 	return b.String()
 }

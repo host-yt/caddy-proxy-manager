@@ -80,7 +80,7 @@ Two compose files ship. Pick by whether you can run the custom Caddy build.
 
 | | `docker-compose.yml` (full) | `docker-compose.lite.yml` (lite) |
 |---|---|---|
-| Caddy image | `caddy-proxy-manager-edge` (xcaddy build) | stock `caddy:2.11.3` |
+| Caddy image | `caddy-proxy-manager-edge` (xcaddy build) | stock `caddy:2.11.4` |
 | Core reverse proxy + ACME | yes | yes |
 | Panel, clients, tunnels, access logs, analytics rollups | yes | yes |
 | WAF (coraza) | yes (flag) | **no** |

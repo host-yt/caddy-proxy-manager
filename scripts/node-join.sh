@@ -76,7 +76,7 @@ fi
 log "Asking $MANAGER to register this node"
 payload=$(jq -n \
   --arg t "$TOKEN" --arg h "$PUBLIC_HOSTNAME" --arg i "$PUBLIC_IP" \
-  '{token:$t, public_hostname:$h, public_ip:$i}')
+  '{token:$t, public_hostname:$h, public_ip:$i, supports_psk:true}')
 resp=$(curl -fsS --max-time 30 \
   -H 'Content-Type: application/json' \
   -X POST "$MANAGER/api/v1/nodes/join" \
@@ -94,6 +94,9 @@ peer_pub=$(echo "$resp" | jq -r '.wireguard.peer.public_key')
 peer_ep=$(echo "$resp" | jq -r '.wireguard.peer.endpoint')
 peer_allowed=$(echo "$resp" | jq -r '.wireguard.peer.allowed_ips')
 peer_keepalive=$(echo "$resp" | jq -r '.wireguard.peer.persistent_keepalive')
+# Mesh preshared key (post-quantum hardening). Absent on an older panel, in
+# which case the peer block stays exactly as it was.
+peer_psk=$(echo "$resp" | jq -r '.wireguard.peer.preshared_key // ""')
 admin_listen=$(echo "$resp" | jq -r '.caddy.admin_listen')
 ask_url=$(echo "$resp" | jq -r '.caddy.ask_endpoint_url')
 acme_email=$(echo "$resp" | jq -r '.caddy.acme_email')
@@ -118,6 +121,14 @@ Endpoint   = ${peer_ep}
 AllowedIPs = ${peer_allowed}
 PersistentKeepalive = ${peer_keepalive}
 EOF
+# One malformed line makes `wg syncconf` reject the whole config. Joining
+# without the key is not an option either: the panel already stored it and
+# would render it on its own side, so the mesh would never handshake.
+if [[ -n "$peer_psk" ]]; then
+  [[ "$peer_psk" =~ ^[A-Za-z0-9+/]{43}=$ ]] \
+    || die "manager returned a malformed preshared key - refusing to join with a half-applied key"
+  echo "PresharedKey = ${peer_psk}" >> /etc/wireguard/wg0.conf
+fi
 chmod 600 /etc/wireguard/wg0.conf
 
 log "Bringing up WireGuard"
@@ -128,7 +139,6 @@ systemctl enable --now wg-quick@wg0 || {
 
 # 4. Write Caddy compose + Caddyfile -------------------------------------
 mkdir -p "$INSTALL_DIR"
-admin_ip="${admin_listen%:*}"
 
 log "Writing $INSTALL_DIR/docker-compose.yml"
 cat > "$INSTALL_DIR/docker-compose.yml" <<EOF

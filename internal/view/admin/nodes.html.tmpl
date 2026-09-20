@@ -215,8 +215,10 @@ HPG_ADMIN_PROXY_KEY={{.TunnelCreds.AdminProxyKey}}{{end}}</textarea>
                 {{if .HasGeoIP}}<span class="r-pill r-pill-info">GeoIP</span>{{end}}
                 {{if .HasRateLimit}}<span class="r-pill r-pill-warning">RL</span>{{end}}
                 {{if .HasL4}}<span class="r-pill" style="background:rgb(var(--accent)/0.1);color:rgb(var(--accent))">L4</span>{{end}}
+                {{if eq .PSKState "active"}}<span class="r-pill r-pill-success" title="Mesh WireGuard preshared key active">PSK</span>
+                {{else if eq .PSKState "pending"}}<span class="r-pill r-pill-warning" title="Preshared key staged, waiting for the node to confirm">PSK pending</span>{{end}}
                 {{if .CaddyVersion}}<span class="t-caption">{{.CaddyVersion}}</span>{{end}}
-                {{if and (not .HasWAF) (not .HasGeoIP) (not .HasRateLimit) (not .HasL4) (not .CaddyVersion)}}-{{end}}
+                {{if and (not .HasWAF) (not .HasGeoIP) (not .HasRateLimit) (not .HasL4) (not .CaddyVersion) (not .PSKState)}}-{{end}}
               </div>
             </td>
             <td class="text-right whitespace-nowrap">

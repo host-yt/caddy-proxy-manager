@@ -1365,6 +1365,8 @@ type nodeDetailData struct {
 	GeoIPMeta geoipView
 	// ModuleMismatches lists routes that require a module the node lacks.
 	ModuleMismatches []nodeMismatch
+	// PSK is the mesh WireGuard preshared-key state (PQ-01).
+	PSK nodePSKView
 	// 24h traffic aggregates for this node.
 	NodeBandwidth24h int64
 	NodeRequests24h  int64
@@ -1564,6 +1566,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 
 	// Load global GeoIP DB status so the template can show it next to the badge.
 	d.GeoIPMeta = h.loadGeoIPView(ctx, db)
+	d.PSK = h.loadNodePSK(ctx, db, id)
 
 	// 24h total bandwidth + request count for all routes on this node (from rollups).
 	_ = db.QueryRowContext(ctx,
@@ -2483,6 +2486,16 @@ type hostEditData struct {
 	NodeHasL4        bool
 	NodeHasGeoIP     bool
 	NodeHasRateLimit bool
+	// NodeCaddyVersion is the operator-declared version of the anchor node;
+	// NodePQCapable says whether EVERY node serving the host understands
+	// x25519mlkem768 (Caddy 2.10+), fan-out peers included. Both drive the
+	// PQ-only warning: the toggle must never look active on a node that would
+	// have its /load rejected and the policy dropped. PQBlockingNode names the
+	// first incapable node when there is one.
+	NodeCaddyVersion  string
+	NodePQCapable     bool
+	PQBlockingNode    string
+	PQBlockingVersion string
 	// GeoIPAvailable reflects whether the runtime GeoIP database is loaded.
 	GeoIPAvailable bool
 
@@ -2553,8 +2566,10 @@ type hostEditData struct {
 	// the dropdown (id + label). MTLSCAActive reflects saved CA health.
 	RequireClientCert bool
 	MTLSCAID          int64
-	MTLSCAActive      bool // true when the saved CA status='active'
-	MTLSCAs           []mtlsCAOption
+	// TLSPQOnly pins this host's TLS policy to hybrid ML-KEM + TLS 1.3.
+	TLSPQOnly    bool
+	MTLSCAActive bool // true when the saved CA status='active'
+	MTLSCAs      []mtlsCAOption
 	// MTLSPathRules lists RBAC path rules for this route.
 	MTLSPathRules []mtlsPathRuleRow
 	// MTLSCARoles lists available roles for the selected CA (feeds rule add dropdown).
@@ -2668,7 +2683,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(r.dns_resolver_via_wg_peer_id,0),
 	        COALESCE(r.dns_address_family,'any'),
-	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0),
+	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0), COALESCE(r.tls_pq_only,0),
+		        COALESCE(n.caddy_version,''),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?), COALESCE(n.has_l4,0),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?),
@@ -2712,17 +2728,30 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.ErrorOverride, &d.ErrorHTML, &d.ErrorLogoURL, &d.ErrorBrand, &d.ErrorBgColor,
 		&d.OutboundIPMode, &d.OutboundIP,
 		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily,
-		&d.RequireClientCert, &d.MTLSCAID,
+		&d.RequireClientCert, &d.MTLSCAID, &d.TLSPQOnly,
+		&d.NodeCaddyVersion,
 		&d.NodeHasWAF, &d.NodeHasL4, &d.NodeHasGeoIP, &d.NodeHasRateLimit,
 		&d.DialTimeoutMs, &d.ResponseHeaderTimeoutMs,
 		&d.GroupID.Int64)
 	if d.GroupID.Int64 > 0 {
 		d.GroupID.Valid = true
 	}
+	d.NodePQCapable = caddyapi.CaddySupportsPQCurve(d.NodeCaddyVersion)
+	if !d.NodePQCapable {
+		d.PQBlockingNode, d.PQBlockingVersion = d.NodeName, d.NodeCaddyVersion
+	}
 	if err != nil {
 		d.Error = "host not found"
 		h.render(w, "hosts_edit", d)
 		return
+	}
+	// The pusher gates PQ-only per node, so a fan-out peer on older Caddy
+	// silently drops the policy there - the page must say so, not "enforced".
+	if d.TLSPQOnly {
+		if name, ver, blocked := pqBlockingNode(ctx, db, id); blocked {
+			d.NodePQCapable = false
+			d.PQBlockingNode, d.PQBlockingVersion = name, ver
+		}
 	}
 	// Decrypt lb_cookie_secret for the edit form (SECRET-02). Legacy plaintext
 	// rows (pre-encryption) fail to decrypt and fall through unchanged.
@@ -3168,6 +3197,9 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "geo block list: "+sanitizeErr(errGB))
 		return
 	}
+	// Post-quantum-only TLS: no validation needed, it is a pure connection
+	// policy knob whose blast radius is documented inline in the form.
+	tlsPQOnly := r.FormValue("tls_pq_only") == "1"
 	// mTLS client-cert enforcement. require_client_cert needs a valid CA; an
 	// enforced host with no CA would brick the handshake, so reject early.
 	requireClientCert := r.FormValue("require_client_cert") == "1"
@@ -3908,7 +3940,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   geo_mode = ?, geo_countries = ?,
 			   geo_response_code = ?, geo_fail_closed = ?, geo_allow_cidrs = ?,
 			   geo_continents = ?, geo_block_cidrs = ?,
-			   require_client_cert = ?, mtls_ca_id = ?,
+			   require_client_cert = ?, mtls_ca_id = ?, tls_pq_only = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
 			   maintenance_mode = ?, maintenance_message = ?,
@@ -3945,7 +3977,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			geoMode, geoCountries,
 			geoResponseCodeRaw, geoFailClosed, geoAllowCIDRs,
 			geoContinents, geoBlockCIDRs,
-			requireClientCert, nullableInt64(mtlsCAID),
+			requireClientCert, nullableInt64(mtlsCAID), tlsPQOnly,
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,
 			maintenanceMode, maintMsgVal,
@@ -3984,7 +4016,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   geo_mode = ?, geo_countries = ?,
 			   geo_response_code = ?, geo_fail_closed = ?, geo_allow_cidrs = ?,
 			   geo_continents = ?, geo_block_cidrs = ?,
-			   require_client_cert = ?, mtls_ca_id = ?,
+			   require_client_cert = ?, mtls_ca_id = ?, tls_pq_only = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
 			   maintenance_mode = ?, maintenance_message = ?,
@@ -4021,7 +4053,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			geoMode, geoCountries,
 			geoResponseCodeRaw, geoFailClosed, geoAllowCIDRs,
 			geoContinents, geoBlockCIDRs,
-			requireClientCert, nullableInt64(mtlsCAID),
+			requireClientCert, nullableInt64(mtlsCAID), tlsPQOnly,
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,
 			maintenanceMode, maintMsgVal,
@@ -4167,8 +4199,20 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
+	// Node-level settings - TLS connection policies above all - are rebuilt per
+	// node, so pushing only the anchor leaves every route_node_assignments peer
+	// on the previous policy while the UI reports the new one as enforced.
+	//
+	// Queueing comes first and on its own context: it is pure DB work, while
+	// Resync does network I/O to a node that may be hung. Sharing one deadline
+	// would let a single unreachable anchor eat the whole window and silently
+	// drop the healthy peers on the floor.
 	go func() {
 		defer recoverBg(h.Logger, "resync")
+		qctx, qcancel := context.WithTimeout(h.Routes.BackgroundCtx(), 10*time.Second)
+		h.Routes.SchedulePushForRoute(qctx, id)
+		qcancel()
+
 		ctx, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
 		defer cancel()
 		_ = h.Routes.Resync(ctx, nodeID)
@@ -4184,6 +4228,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			"cache_public":     cachePublic,
 			"maintenance_mode": maintenanceMode,
 			"location_rules":   len(newLocationRules),
+			"tls_pq_only":      tlsPQOnly,
 		},
 	})
 	// Stay on the edit page (preserving the active tab via #fragment so the

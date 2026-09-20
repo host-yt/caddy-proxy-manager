@@ -238,6 +238,49 @@
   </section>
   {{end}}
 
+  <section class="r-card">
+    <div class="flex items-center gap-2 mb-2">
+      <svg viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4 flex-shrink-0" style="color:rgb(var(--accent))">
+        <path fill-rule="evenodd" d="M10 1a4.5 4.5 0 0 0-4.5 4.5V9H5a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-.5V5.5A4.5 4.5 0 0 0 10 1Zm3 8V5.5a3 3 0 1 0-6 0V9h6Z" clip-rule="evenodd"/>
+      </svg>
+      <h3 class="t-h3">Mesh WireGuard PSK</h3>
+      {{if .PSK.Active}}<span class="r-pill r-pill-success">active</span>
+      {{else}}<span class="r-pill r-pill-neutral">not set</span>{{end}}
+      {{if .PSK.Pending}}<span class="r-pill r-pill-warning">pending confirmation</span>{{end}}
+    </div>
+    <p class="t-caption mb-3">
+      A preshared key mixes 32 symmetric bytes into every handshake on the panel-node mesh, so a recorded
+      session stays unreadable even to an attacker with a quantum computer. Nodes that joined recently have
+      one already; older nodes need the one-time command below.
+    </p>
+    {{if .PSK.Token}}
+    <div class="mb-3">
+      <p class="t-caption mb-1">Run this on the node within 30 minutes. The current key stays active until the node confirms:</p>
+      <pre class="r-card text-xs font-mono whitespace-pre-wrap break-all p-3" style="background:rgb(var(--bg));border-color:rgb(var(--warning)/0.3)">curl -fsSL {{.PSK.PanelURL}}/install/node-psk.sh | sudo bash -s -- --panel {{.PSK.PanelURL}} --token {{.PSK.Token}}</pre>
+    </div>
+    {{end}}
+    <div class="flex items-center gap-3 flex-wrap">
+      {{if .PSK.Active}}
+      <form method="POST" action="/admin/nodes/{{.Node.ID}}/psk/rotate">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="r-btn-secondary text-xs cursor-pointer">Rotate PSK</button>
+      </form>
+      {{else}}
+      <form method="POST" action="/admin/nodes/{{.Node.ID}}/psk/enable">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="r-btn-primary text-xs cursor-pointer">Enable PSK</button>
+      </form>
+      {{end}}
+      {{if or .PSK.Active .PSK.Pending}}
+      <form method="POST" action="/admin/nodes/{{.Node.ID}}/psk/clear"
+        data-confirm="Clear the PSK on the panel only? The node keeps its own PresharedKey line, so the mesh stays down until you remove it there too. Emergency use only.">
+        <input type="hidden" name="csrf_token" value="{{.CSRF}}">
+        <button class="r-btn-ghost text-xs cursor-pointer" style="color:rgb(var(--danger))">Clear PSK</button>
+      </form>
+      {{end}}
+    </div>
+  </section>
+
   {{if .NodeAlerts}}
   <section class="r-card p-0 overflow-hidden">
     <div class="px-5 py-3 flex items-center gap-2 border-b border-[rgb(var(--border))]">

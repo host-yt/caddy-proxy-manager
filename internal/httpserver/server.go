@@ -38,6 +38,7 @@ type Deps struct {
 	APIDocs      *handlers.APIDocsHandler
 	Passkey      *handlers.PasskeyHandlers
 	NodeJoin     *handlers.NodeJoinHandler
+	NodePSK      *handlers.NodePSKHandler
 	WGBoot       *handlers.WGBootstrapHandler
 	NodeGeoIP    *handlers.NodeGeoIPHandler
 	TrustCFIP    func() bool // returns true when CF-Connecting-IP should be honoured
@@ -223,6 +224,9 @@ func (s *Server) routes() {
 	// Public node bootstrap script - content is non-secret; only useful
 	// in combination with a one-time join token.
 	r.Get("/install/node.sh", s.deps.NodeJoin.Script)
+	if s.deps.NodePSK != nil {
+		r.Get("/install/node-psk.sh", s.deps.NodePSK.Script)
+	}
 
 	// Optional source-bind (ASK_ALLOW_CIDRS). Empty = open, unchanged.
 	r.Method(http.MethodGet, "/internal/ask", mw.IPAllowList(mw.ParseCIDRList(s.deps.Config.Security.AskAllowCIDRs), http.HandlerFunc(s.deps.Ask.ServeHTTP)))
@@ -244,6 +248,14 @@ func (s *Server) routes() {
 		r.Get("/api/node/wg/peers", s.deps.WGBoot.NodePeersPull)
 		r.Post("/api/node/wg/handshakes", s.deps.WGBoot.NodeHandshakeReport)
 		r.Post("/api/node/wg/stats", s.deps.WGBoot.NodePeerStatsReport)
+	}
+
+	// Mesh-PSK rekey for already-joined nodes. A bearer token is the only authn
+	// on both endpoints; it stays valid until confirm promotes the staged key,
+	// so the node script can retry a fetch or a lost confirm.
+	if s.deps.NodePSK != nil {
+		r.Get("/api/node/psk", s.deps.NodePSK.Fetch)
+		r.Post("/api/node/psk/confirm", s.deps.NodePSK.Confirm)
 	}
 
 	// GeoIP DB distribution: node-agents pull the central mmdb over the tunnel.
@@ -432,6 +444,9 @@ func (s *Server) routes() {
 			r.Post("/{id}/approve", s.deps.Admin.NodesApprove)
 			r.Post("/{id}/decommission", s.deps.Admin.NodesDecommission)
 			r.Post("/{id}/rekey", s.deps.Admin.NodesRekey)
+			r.Post("/{id}/psk/enable", s.deps.Admin.NodesPSKEnable)
+			r.Post("/{id}/psk/rotate", s.deps.Admin.NodesPSKEnable)
+			r.Post("/{id}/psk/clear", s.deps.Admin.NodesPSKClear)
 			r.Post("/bulk", s.deps.Admin.NodesBulk)
 			r.Get("/{id}/failover-preview", s.deps.Admin.FailoverPreview)
 			r.Get("/{id}/preflight.json", s.deps.Admin.NodePreflight)
@@ -999,7 +1014,7 @@ func installRedirectMiddleware(state *installstate.Manager) func(http.Handler) h
 			p := r.URL.Path
 			switch {
 			case p == "/install",
-				p == "/install/node.sh",
+				p == "/install/node.sh", p == "/install/node-psk.sh",
 				p == "/healthz", p == "/readyz", p == "/metrics",
 				p == "/internal/ask", p == "/internal/access-log", p == "/favicon.ico":
 				next.ServeHTTP(w, r)

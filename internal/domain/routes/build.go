@@ -263,6 +263,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(dns_peer.assigned_ip,''),
 	        COALESCE(r.dns_address_family,'any'),
 	        COALESCE(r.require_client_cert,0), COALESCE(mca.cert_pem,''),
+	        COALESCE(r.tls_pq_only,0),
 	        COALESCE(r.dial_timeout_ms,0), COALESCE(r.response_header_timeout_ms,0),
 	        COALESCE(cl.geo_block_action,''), COALESCE(cl.geo_block_redirect_url,''),
 	        COALESCE(cl.geo_block_title,''), COALESCE(cl.geo_block_message,''),
@@ -381,6 +382,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var dnsResolverIP, dnsResolverPeerIP, dnsAddressFamily string
 		var requireClientCert bool
 		var mtlsCACertPEM string
+		var tlsPQOnly bool
 		var dialTimeoutMs, responseHeaderTimeoutMs int
 		var clGeoAction, clGeoRedirect, clGeoTitle, clGeoMessage, clGeoLogo, clGeoBg string
 		if err := rows.Scan(&id, &domain, &aliases, &aliasesVerified, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
@@ -409,7 +411,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&errOverride, &errHTML, &errLogo, &errBrand, &errBg,
 			&outboundIPMode, &outboundIP, &planAllowEgress,
 			&dnsResolverIP, &dnsResolverPeerIP, &dnsAddressFamily,
-			&requireClientCert, &mtlsCACertPEM,
+			&requireClientCert, &mtlsCACertPEM, &tlsPQOnly,
 			&dialTimeoutMs, &responseHeaderTimeoutMs,
 			&clGeoAction, &clGeoRedirect, &clGeoTitle, &clGeoMessage, &clGeoLogo, &clGeoBg); err != nil {
 			return nil, nil, err
@@ -663,7 +665,10 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			// No enforceable policy + fail-closed operator setting = deny the
 			// route instead of serving it with no client-cert requirement.
 			MTLSDenyOnMisconfig: requireClientCert && !mtlsEnforceable && !mtlsFailOpen,
-			PanelBaseURL:        panelBaseURL(s.AskURL),
+			// PQ-only is a TLS connection policy, so it is meaningless (and
+			// unreachable) without TLS on this host.
+			TLSPQOnly:    tlsPQOnly && sslEnabled,
+			PanelBaseURL: panelBaseURL(s.AskURL),
 		})
 		// Audit the quarantine: BuildRoute replaces the whole route with a 503,
 		// so without this the operator sees an outage with no stated cause.

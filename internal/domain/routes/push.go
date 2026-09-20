@@ -171,12 +171,21 @@ func (s *Service) SchedulePushForRoute(ctx context.Context, routeID int64) {
 	}
 	var direct sql.NullInt64
 	if err := s.DB.QueryRowContext(ctx,
-		`SELECT caddy_node_id FROM routes WHERE id = ?`, routeID).Scan(&direct); err == nil && direct.Valid {
+		`SELECT caddy_node_id FROM routes WHERE id = ?`, routeID).Scan(&direct); err != nil {
+		if s.Logger != nil {
+			s.Logger.Warn("push scheduling: anchor node lookup failed", "route_id", routeID, "err", err)
+		}
+	} else if direct.Valid {
 		sched(direct.Int64)
 	}
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT node_id FROM route_node_assignments WHERE route_id = ?`, routeID)
 	if err != nil {
+		// Silence here means fan-out peers keep serving the previous config
+		// with nothing to show for it.
+		if s.Logger != nil {
+			s.Logger.Warn("push scheduling: fan-out lookup failed, assigned nodes not scheduled", "route_id", routeID, "err", err)
+		}
 		return
 	}
 	defer rows.Close()
@@ -417,6 +426,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		proxyProtoTimeoutMs int
 	)
 	var nodeHasWAF, nodeHasL4, nodeHasGeoIP, nodeHasRateLimit, nodeHasDNS sql.NullBool
+	var nodeCaddyVersion string
 	if err := s.DB.QueryRowContext(ctx,
 		`SELECT api_url, tunnel_transport, tunnel_wstunnel_port, tunnel_endpoint, tunnel_enabled,
 		        tunnel_wstunnel_healthy,
@@ -426,12 +436,14 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip     ELSE NULL END,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit ELSE NULL END,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_dns_module ELSE NULL END,
-		        proxy_protocol_in, proxy_protocol_allow, proxy_protocol_timeout_ms
+		        proxy_protocol_in, proxy_protocol_allow, proxy_protocol_timeout_ms,
+		        COALESCE(caddy_version,'')
 		   FROM caddy_nodes WHERE id = ?`,
 		nodeID).Scan(&apiURL, &transport, &wstunnelPort, &tunnelEndpoint, &tunnelEnabled,
 		&wstHealthy, &wstFresh,
 		&nodeHasWAF, &nodeHasL4, &nodeHasGeoIP, &nodeHasRateLimit, &nodeHasDNS,
-		&proxyProtoIn, &proxyProtoAllow, &proxyProtoTimeoutMs); err != nil {
+		&proxyProtoIn, &proxyProtoAllow, &proxyProtoTimeoutMs,
+		&nodeCaddyVersion); err != nil {
 		return nil, err
 	}
 	// If the node has been probed, its per-node capability flags are authoritative.
@@ -479,6 +491,21 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		}
 	}
 
+	// PQ-only is gated on the node's DECLARED Caddy version (operator-entered,
+	// same trust model as has_waf/has_geoip): an older Caddy rejects the whole
+	// /load on the unknown x25519mlkem768 curve. Warn loudly when a host asked
+	// for it and the gate dropped it, otherwise the toggle looks active but the
+	// policy is never emitted.
+	pqAvailable := caddyapi.CaddySupportsPQCurve(nodeCaddyVersion)
+	if !pqAvailable {
+		for _, r := range built {
+			if r.TLSPQOnly {
+				s.Logger.Warn("PQ-only TLS policy dropped: node has not declared Caddy 2.10+",
+					"node_id", nodeID, "caddy_version", nodeCaddyVersion, "route_id", r.ID)
+			}
+		}
+	}
+
 	mtlsFailOpen := s.loadMTLSFailOpen(ctx)
 	trustCFIP := s.loadTrustCloudflareIP(ctx)
 	cfg := caddyapi.BuildNodeConfig(built, caddyapi.NodeSettings{
@@ -501,6 +528,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		WstunnelRoute:            wstunnelRoute,
 		AccessLogURL:             s.AccessLogURL,
 		MTLSFailOpen:             mtlsFailOpen,
+		PQCurveAvailable:         pqAvailable,
 		AdminListen:              s.CaddyAdminListen,
 		TrustCloudflareIP:        trustCFIP,
 		CloudflareRanges:         cloudflare.EdgeCIDRs(),

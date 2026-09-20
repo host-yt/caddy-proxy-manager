@@ -15,6 +15,7 @@ Primary threats considered:
 | Reaching the node control plane through tenant config | Custom-handler allow-list (no `reverse_proxy`/`templates`, no env/file placeholders); L4 stream destinations screened against an infrastructure deny set incl. port 2019 - see "Caddy Admin API - known limitation" |
 | Hostname takeover (claiming someone else's domain) | Per-route and **per-alias** DNS-TXT proof at `_hpg-verify.<host>`; unproven hosts are neither emitted into the host matcher nor certificate-eligible - see [ROUTES.md](ROUTES.md) |
 | Compromised node agent poisoning other tenants' data | Node ingest (access log, WAF) attributes only to routes that node serves; mTLS RBAC checks need a panel-issued per-(node, route) token - see "Node ingest endpoints" |
+| Harvest-now-decrypt-later (recorded traffic decrypted by a future quantum computer) | Hybrid X25519MLKEM768 key exchange on every TLS hop by default; WireGuard preshared keys on the panel-node mesh and on customer tunnels; optional PQ-only enforcement per host - see [POST_QUANTUM.md](POST_QUANTUM.md) |
 | Supply chain / binary tampering | Single static Go binary; no runtime plugins; module flags disable non-stock blocks |
 | Secrets at rest | AES-256-GCM for WG private keys and DB credentials in install state; `APP_SECRET` ≥ 32 chars enforced |
 
@@ -216,6 +217,8 @@ own streams and cannot clear a quarantine without fixing the destination.
 | WireGuard private key | `settings` table | AES-256-GCM, key from `APP_SECRET` |
 | Install-state DB credentials | `data/install_state.json` | AES-256-GCM, key derived via HKDF-SHA256 from `APP_SECRET` |
 | TOTP secrets | `users` table | AES-256-GCM |
+| WireGuard preshared keys (mesh) | `caddy_nodes.wg_psk_enc`, `wg_psk_pending_enc` | AES-256-GCM, envelope purpose `wg` |
+| WireGuard preshared keys (customer tunnel) | `customer_wg_peer.psk_enc` | AES-256-GCM, envelope purpose `wg` |
 | API key hashes | `api_keys` table | Argon2id hash |
 | User passwords | `users` table | Argon2id hash |
 
@@ -279,6 +282,31 @@ Each check therefore carries a panel-issued token:
 upgrade window on a fleet whose pushed config predates signed checks (the next
 push adds the token) and logs a warning on every accepted request; leaving it on
 keeps the old "anyone on the mesh may query the RBAC oracle" trust model.
+
+---
+
+## Post-quantum
+
+The threat is harvest-now-decrypt-later: traffic recorded today, decrypted once
+a quantum computer exists. Key exchange is therefore hardened and signatures are
+not (a signature only has to be unforgeable when it is verified).
+
+- TLS, panel and edge: hybrid X25519MLKEM768 offered by default. CI fails the
+  build on a `GODEBUG` that disables ML-KEM or a `CurvePreferences` in non-test
+  Go code, and the release pipeline probes the freshly built edge image by
+  digest before the `edge`, `latest` and semver tags are created: one that
+  cannot negotiate it is never published.
+- WireGuard has no hybrid mode, so both planes use a 32-byte `PresharedKey`
+  mixed into every handshake: the panel-node mesh (automatic on join, one-time
+  rekey script for older nodes) and customer tunnels (automatic once the node's
+  agent declares support on its peer pull; an agent that does not, on a node
+  with PSK-bearing peers, is refused rather than handed a peer set it would
+  apply without the keys).
+- Per-host PQ-only enforcement is opt-in and rejects clients without ML-KEM.
+- Certificates, ACME account keys, OIDC tokens and image signatures stay
+  classical - blocked upstream, and outside the harvest-now threat model.
+
+Full detail, verification commands and rollout order: [POST_QUANTUM.md](POST_QUANTUM.md).
 
 ---
 

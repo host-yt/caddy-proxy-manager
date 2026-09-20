@@ -297,6 +297,13 @@ type Route struct {
 	// instead of serving the upstream with no client-cert requirement.
 	MTLSDenyOnMisconfig bool
 
+	// TLSPQOnly pins this route's TLS connection policy to the hybrid
+	// post-quantum group (x25519mlkem768) and TLS 1.3. Opt-in: a client
+	// without ML-KEM fails the handshake instead of negotiating classical
+	// X25519, so it shares the per-SNI policy entry with mTLS (first match
+	// wins, one entry per SNI).
+	TLSPQOnly bool
+
 	// MTLSPathRules drives per-path RBAC when RequireClientCert is true.
 	// Non-empty triggers a forward_auth check subroute before the backend.
 	MTLSPathRules []MTLSPathRule

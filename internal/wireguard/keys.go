@@ -258,3 +258,24 @@ func itoa(n int) string {
 	}
 	return string(buf[i:])
 }
+
+// GeneratePresharedKey produces a WireGuard preshared key: 32 random bytes,
+// base64-StdEncoding (44 chars), the same wire format as `wg genpsk`.
+func GeneratePresharedKey() (string, error) {
+	var psk [32]byte
+	if _, err := rand.Read(psk[:]); err != nil {
+		return "", err
+	}
+	return base64.StdEncoding.EncodeToString(psk[:]), nil
+}
+
+// ValidPresharedKey reports whether s is a well-formed WG preshared key. Used
+// before writing it into a config file: one bad line makes `wg syncconf`
+// reject the whole config.
+func ValidPresharedKey(s string) bool {
+	if len(s) != 44 {
+		return false
+	}
+	b, err := base64.StdEncoding.DecodeString(s)
+	return err == nil && len(b) == 32
+}
