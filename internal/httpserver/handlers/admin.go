@@ -1016,6 +1016,14 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, editPath, "", "update failed: "+sanitizeErr(err))
 		return
 	}
+	// Every flag above feeds the generated config - WAF and GeoIP handlers,
+	// PROXY protocol listeners, and the Caddy version that gates the
+	// post-quantum curve. Without a push the node keeps serving the old
+	// config while the panel reports the new capability as being in effect,
+	// and route-level drift detection cannot see a node-level difference.
+	if h.Routes != nil {
+		h.Routes.SchedulePush(id)
+	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.update", Entity: "node", EntityID: fmt.Sprintf("%d", id),
