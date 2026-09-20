@@ -208,6 +208,12 @@ func (h *NodePSKHandler) Fetch(w http.ResponseWriter, r *http.Request) {
 // TTL and a repeat confirm answers 204 again. A lost or timed-out RESPONSE
 // would otherwise make the retry 404, the script roll the node back, and the
 // mesh end up split across two keys with no way to retry.
+//
+// wg_psk_pending_enc is cleared only once our own config is on disk, so a
+// NULL pending means "applied here", not merely "promoted in the database".
+// A concurrent retry that raced ahead of the render would otherwise get a 204
+// while the first call was still about to compensate: the node would keep the
+// new key against a panel that had rolled back to the old one.
 func (h *NodePSKHandler) Confirm(w http.ResponseWriter, r *http.Request) {
 	if h.rateLimited(w, r, "confirm") {
 		return
@@ -239,16 +245,20 @@ func (h *NodePSKHandler) Confirm(w http.ResponseWriter, r *http.Request) {
 		h.pskDeny(w, r, "node.psk.confirm.denied", "no staged key")
 		return
 	}
-	// Already promoted by an earlier call whose response the node never saw.
+	// Already promoted AND applied by an earlier call whose response the node
+	// never saw. Pending is cleared last, so reaching here means our config is
+	// live too.
 	if !pending.Valid {
 		_ = tx.Rollback()
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	// Pending deliberately survives the promotion: it is the marker that the
+	// render below has not happened yet. A racing confirm blocks on the row
+	// lock, then sees pending still set and repeats the same idempotent work
+	// instead of reporting a success that may still be rolled back.
 	if _, err := tx.ExecContext(ctx,
-		`UPDATE caddy_nodes
-		 SET wg_psk_enc = wg_psk_pending_enc, wg_psk_pending_enc = NULL
-		 WHERE id = ?`, nodeID); err != nil {
+		`UPDATE caddy_nodes SET wg_psk_enc = wg_psk_pending_enc WHERE id = ?`, nodeID); err != nil {
 		http.Error(w, "confirm failed", http.StatusInternalServerError)
 		return
 	}
@@ -270,6 +280,9 @@ func (h *NodePSKHandler) Confirm(w http.ResponseWriter, r *http.Request) {
 			// needed exactly then - so it runs detached, on its own deadline.
 			cctx, ccancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
 			defer ccancel()
+			// Pending and the token were never cleared, so putting the old
+			// active key back is the whole rollback; the TTL is extended so
+			// the operator's retry still has a live token.
 			if _, cerr := db.ExecContext(cctx,
 				`UPDATE caddy_nodes SET wg_psk_enc = ?, wg_psk_pending_enc = ?, wg_psk_token_hash = ?,
 				   wg_psk_token_enc = ?, wg_psk_token_expires = `+store.DateAddMinutes(pskTokenTTLMinutes)+`
@@ -289,6 +302,14 @@ func (h *NodePSKHandler) Confirm(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "confirm failed", http.StatusInternalServerError)
 			return
 		}
+	}
+
+	// Our config is live: only now does pending clear, which is what lets a
+	// later retry answer 204. A failure here is self-healing - the next
+	// confirm re-promotes the same key, re-renders and clears it again.
+	if _, err := db.ExecContext(ctx,
+		`UPDATE caddy_nodes SET wg_psk_pending_enc = NULL WHERE id = ?`, nodeID); err != nil {
+		h.Logger.Warn("node psk confirm: clearing pending failed, retry will heal it", "node_id", nodeID, "err", err)
 	}
 
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{

@@ -388,3 +388,45 @@ func TestPSKConfirmCompensatesOnRenderFailure(t *testing.T) {
 		t.Fatalf("retry status %d, want 204", rec.Code)
 	}
 }
+
+// TestPSKConfirmKeepsPendingUntilRenderSucceeds pins the invariant that makes
+// a concurrent confirm safe: wg_psk_pending_enc is the "not applied here yet"
+// marker and must survive until our own config is written. Were it cleared at
+// promotion time, a retry racing the render would read pending=NULL, answer
+// 204, and leave the node on the new key while the first call compensated the
+// panel back to the old one - a split mesh that no retry can repair.
+func TestPSKConfirmKeepsPendingUntilRenderSucceeds(t *testing.T) {
+	db := openTestDBHandlers(t)
+	enc := pskTestEnc(t)
+	oldPSK, _ := wireguard.GeneratePresharedKey()
+	id, token := seedPSKNode(t, db, enc, oldPSK, store.DateAddMinutes(30))
+
+	pendingDuringRender := false
+	h := newPSKHandler(t, db, enc, func(ctx context.Context) error {
+		var pending sql.NullString
+		if err := db.QueryRowContext(ctx,
+			"SELECT wg_psk_pending_enc FROM caddy_nodes WHERE id = ?", id).Scan(&pending); err != nil {
+			t.Errorf("read pending during render: %v", err)
+		}
+		pendingDuringRender = pending.Valid
+		return nil
+	})
+
+	rec := httptest.NewRecorder()
+	h.Confirm(rec, pskConfirmReq(token))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d, want 204", rec.Code)
+	}
+	if !pendingDuringRender {
+		t.Error("pending was already cleared while the config was still being written: a racing confirm would report success for a state that can still roll back")
+	}
+
+	var pending sql.NullString
+	if err := db.QueryRowContext(context.Background(),
+		"SELECT wg_psk_pending_enc FROM caddy_nodes WHERE id = ?", id).Scan(&pending); err != nil {
+		t.Fatal(err)
+	}
+	if pending.Valid {
+		t.Error("pending still set after a successful confirm: a later retry would redo the promotion instead of answering 204")
+	}
+}
