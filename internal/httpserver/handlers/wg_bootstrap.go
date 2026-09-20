@@ -132,12 +132,12 @@ func (h *WGBootstrapHandler) BootstrapConf(w http.ResponseWriter, r *http.Reques
 
 // Pinned wstunnel release: version + per-arch sha256 of the linux tarball.
 // Bump together (fetch checksums.txt from the release) - never unpin to "latest".
-const wstunnelVersion = "10.5.5"
+const wstunnelVersion = "11.0.0"
 
 var wstunnelSHA256 = map[string]string{
-	"amd64": "b20ffa02e945ec0c0d6b153ba69a290593f0957ed2892aee8f987f715ccd95d6",
-	"arm64": "db85183da9732f26c110a08e3fffdfcfc4a44d544035d01eeefa708ed23874bb",
-	"armv7": "c61c804018bf8184a48aee1d543d144e2176fbc60ebf2eea9c716c07a9f83aba",
+	"amd64": "9708a99717b5a951453c2ff7c14c25d3418d02ca7fcb96fdb382a8f2083bab5e",
+	"arm64": "b86abf73e340ed0c3ff9a77a5458aa27213784920ec65513132b36def45edc94",
+	"armv7": "50e2855b527869b77402a902b58b83872ddd24271550df289b54729836c8abbc",
 }
 
 // installTransport carries node-level tunnel transport info for script rendering.

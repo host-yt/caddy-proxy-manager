@@ -28,7 +28,7 @@ and per-host PQ-only enforcement.
 | TLS from the panel (Go 1.26) | hybrid, on by default | Go 1.24+ offers X25519MLKEM768 first; no `CurvePreferences` anywhere in non-test code (CI-guarded) |
 | Panel -> node mesh (WireGuard) | preshared key | automatic on new joins, one-time rekey script for older nodes |
 | Customer tunnels (WireGuard) | per-peer preshared key | automatic once the node's `node-agent` reports support |
-| WSS transport (wstunnel 10.5.5) | hybrid, on by default | its rustls/aws-lc-rs build already offers X25519MLKEM768 on the outer WSS layer; the inner WireGuard adds the PSK |
+| WSS transport (wstunnel 11.0.0) | hybrid, on by default | its rustls/aws-lc-rs build already offers X25519MLKEM768 on the outer WSS layer; the inner WireGuard adds the PSK |
 | Secrets at rest, passwords, tokens | already quantum-resistant | AES-256-GCM + HKDF-SHA256, Argon2id, HMAC-SHA256 - symmetric primitives lose at most half their bit strength |
 | Certificates and other signatures | not available | see [Not covered](#not-covered-upstream-blocked) |
 
@@ -504,7 +504,6 @@ time it is verified* - so they are tracked, not worked around.
 | ACME account keys | same: ECDSA/RSA only, defined by the ACME ecosystem |
 | OIDC token signatures | determined by the identity provider, not by HPG |
 | Container image signatures (cosign) | keyless Sigstore signing is ECDSA/P-256 |
-| wstunnel 11 | deferred; still pinned to 10.5.5. Not urgent: its rustls build already offers X25519MLKEM768 on the outer WSS layer, so the bump is maintenance, not a PQ gap |
 
 SSH is not used by the control plane, and Redis/MySQL traffic stays inside the
 compose network (an unencrypted-transport question, not a post-quantum one).

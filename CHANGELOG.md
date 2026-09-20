@@ -34,6 +34,15 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
 
 ### Added
 
+- **wstunnel bumped 10.5.5 -> 11.0.0 on both pins.** The WSS tunnel binary is
+  pinned twice - in the node-agent image and in the customer install script -
+  and a bump that lands on one side only leaves half the tunnel behind, so a
+  CI gate now fails when the two version or sha256 pins disagree. Upstream
+  calls v11 non-breaking; verified locally with a real WireGuard handshake and
+  traffic over WSS through Caddy, in all four client/server version
+  combinations, plus `--restrict-to` still rejecting a non-WireGuard
+  destination.
+
 - **Preshared keys on the panel-node WireGuard mesh.** The mesh carries Caddy
   config pushes, manual-certificate private keys included, so a recorded
   handshake is worth storing until X25519 falls. A node joining now gets a

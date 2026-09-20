@@ -26,12 +26,12 @@ RUN apk add --no-cache wireguard-tools nftables iproute2 curl ca-certificates ta
 # wstunnel for the WSS-over-TLS tunnel transport (HPG_TUNNEL_TRANSPORT=wss|auto).
 # Version + per-arch sha256 PINNED (release checksums.txt). Bump together.
 ARG TARGETARCH
-ARG WSTUNNEL_VERSION=10.5.5
+ARG WSTUNNEL_VERSION=11.0.0
 RUN set -eux; \
     case "$TARGETARCH" in \
-      amd64) WST_ASSET="wstunnel_${WSTUNNEL_VERSION}_linux_amd64.tar.gz"; WST_SHA="b20ffa02e945ec0c0d6b153ba69a290593f0957ed2892aee8f987f715ccd95d6" ;; \
-      arm64) WST_ASSET="wstunnel_${WSTUNNEL_VERSION}_linux_arm64.tar.gz"; WST_SHA="db85183da9732f26c110a08e3fffdfcfc4a44d544035d01eeefa708ed23874bb" ;; \
-      arm)   WST_ASSET="wstunnel_${WSTUNNEL_VERSION}_linux_armv7.tar.gz"; WST_SHA="c61c804018bf8184a48aee1d543d144e2176fbc60ebf2eea9c716c07a9f83aba" ;; \
+      amd64) WST_ASSET="wstunnel_${WSTUNNEL_VERSION}_linux_amd64.tar.gz"; WST_SHA="9708a99717b5a951453c2ff7c14c25d3418d02ca7fcb96fdb382a8f2083bab5e" ;; \
+      arm64) WST_ASSET="wstunnel_${WSTUNNEL_VERSION}_linux_arm64.tar.gz"; WST_SHA="b86abf73e340ed0c3ff9a77a5458aa27213784920ec65513132b36def45edc94" ;; \
+      arm)   WST_ASSET="wstunnel_${WSTUNNEL_VERSION}_linux_armv7.tar.gz"; WST_SHA="50e2855b527869b77402a902b58b83872ddd24271550df289b54729836c8abbc" ;; \
       *) echo "unsupported TARGETARCH $TARGETARCH"; exit 1 ;; \
     esac; \
     curl -fsSL -o /tmp/wst.tgz "https://github.com/erebe/wstunnel/releases/download/v${WSTUNNEL_VERSION}/${WST_ASSET}"; \

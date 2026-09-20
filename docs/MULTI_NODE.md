@@ -461,7 +461,7 @@ the manager connects to it over WebSocket-over-TLS (port configurable via
 UDP entirely (strict corporate firewalls, some cloud providers).
 
 The node-agent image (`deploy/node-agent/Dockerfile`) bundles `wstunnel`
-(version 10.5.5, pinned sha256 per arch). It is enabled via environment
+(version 11.0.0, pinned sha256 per arch). It is enabled via environment
 variable:
 
 ```yaml
