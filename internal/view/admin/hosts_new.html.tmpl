@@ -188,6 +188,31 @@
         </div>
       </details>
 
+      {{if .MTLSCAs}}
+      <!-- Client certificates (mTLS). Only rendered when at least one active
+           CA exists - otherwise the control could never be honoured. -->
+      <details class="hpg-adv group rounded-xl" {{if .Form.RequireClientCert}}open{{end}} style="border:1px solid rgb(var(--border))">
+        <summary class="cursor-pointer select-none px-4 py-3 t-small font-medium flex items-center justify-between rounded-xl transition-colors" style="color:rgb(var(--text))">
+          <span>Client certificates (mTLS)</span>
+          <span style="color:rgb(var(--muted))" class="group-open:rotate-90 transition-transform">&#8250;</span>
+        </summary>
+        <div class="px-4 pb-4 pt-1 space-y-3">
+          <label class="flex items-center gap-2 t-body cursor-pointer">
+            <input type="checkbox" name="require_client_cert" value="1" {{if .Form.RequireClientCert}}checked{{end}} class="rounded cursor-pointer">
+            Require a client certificate (mutual TLS)
+          </label>
+          <div>
+            <label class="t-eyebrow mb-1 block">Trust anchor (CA)</label>
+            <select name="mtls_ca_id" class="r-select w-full cursor-pointer">
+              <option value="0">- select a CA -</option>
+              {{range .MTLSCAs}}<option value="{{.ID}}" {{if eq .ID $.Form.MTLSCAID}}selected{{end}}>{{.Label}}</option>{{end}}
+            </select>
+            <p class="t-caption mt-1">Enforced from the first push, so the host is never briefly reachable without a client cert. Requires SSL above; a CA is mandatory when the box is ticked. Per-path role rules are set on the host's edit page.</p>
+          </div>
+        </div>
+      </details>
+      {{end}}
+
       <!-- Routing metadata -->
       <details class="hpg-adv group rounded-xl" style="border:1px solid rgb(var(--border))">
         <summary class="cursor-pointer select-none px-4 py-3 t-small font-medium flex items-center justify-between rounded-xl transition-colors" style="color:rgb(var(--text))">

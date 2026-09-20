@@ -14,6 +14,17 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
 
 ### Security
 
+- **"Require a client certificate" was silently discarded when adding a host.**
+  The create handler validated `require_client_cert` and the chosen CA, then
+  never wrote either column, and the add-host form had no such inputs - so the
+  check guarded a value that was thrown away. An operator who expected a new
+  host to demand client certificates got one that accepted anyone, with no
+  error and no warning. The add form now offers mTLS whenever an active CA
+  exists, the flag and its trust anchor are persisted in the same INSERT as the
+  route (so the host is enforced on its very first config push, never briefly
+  open), and a create that asks for enforcement without a usable CA is refused
+  instead of quietly downgraded. Existing hosts are unaffected.
+
 - **Enabling mTLS on one host broke the TLS handshake for every other host on
   the same node.** Caddy only supplies a default connection policy when the
   policy list is `nil`; with any per-SNI policy present, an unmatched

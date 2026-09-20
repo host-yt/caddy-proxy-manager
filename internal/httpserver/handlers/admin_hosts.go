@@ -589,6 +589,9 @@ type hostsNewData struct {
 	CFViews    []customfields.View
 	// ClientTunnels: admin-self client's WG peers for the "Backend via" picker.
 	ClientTunnels []tunnelOption
+	// MTLSCAs feeds the trust-anchor dropdown. Empty = the mTLS block is not
+	// rendered at all, so the form can never offer a control that cannot work.
+	MTLSCAs []mtlsCAOption
 }
 
 type hostsNewNode struct {
@@ -630,6 +633,10 @@ type hostsNewForm struct {
 	WildcardZone    string
 	GroupID         int64
 	ViaWGPeerID     string
+	// mTLS client-cert enforcement, set at create so a host meant to be
+	// locked is never served open in the window before the first edit.
+	RequireClientCert bool
+	MTLSCAID          int64
 }
 
 // HostsNew renders /admin/hosts/new (GET).
@@ -644,6 +651,7 @@ func (h *AdminHandlers) HostsNew(w http.ResponseWriter, r *http.Request) {
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		d.Groups = loadHostGroups(ctx, db)
+		d.MTLSCAs = loadMTLSCAOptions(ctx, db)
 		if defs, err := customfields.LoadDefs(ctx, db, "host"); err == nil {
 			d.CFViews = customfields.Merge(defs, nil)
 		}
@@ -701,6 +709,11 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		WildcardEnabled:    r.FormValue("wildcard_enabled") == "1",
 		WildcardZone:       strings.ToLower(strings.TrimSpace(r.FormValue("wildcard_zone"))),
 		ViaWGPeerID:        strings.TrimSpace(r.FormValue("via_wg_peer_id")),
+		RequireClientCert:  r.FormValue("require_client_cert") == "1",
+	}
+	form.MTLSCAID, _ = strconv.ParseInt(r.FormValue("mtls_ca_id"), 10, 64)
+	if !form.RequireClientCert {
+		form.MTLSCAID = 0 // no enforcement, no anchor - mirrors the edit path
 	}
 	viaWGPeerID, _ := strconv.ParseInt(form.ViaWGPeerID, 10, 64)
 	if form.External {
@@ -856,19 +869,18 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate mTLS CA when client-cert enforcement is requested.
-	requireClientCert := r.FormValue("require_client_cert") == "1"
-	mtlsCAID, _ := strconv.ParseInt(r.FormValue("mtls_ca_id"), 10, 64)
-	if requireClientCert && mtlsCAID <= 0 {
-		h.renderHostsNewErr(w, r, form, "require_client_cert needs an mTLS CA assigned")
-		return
-	}
-	if requireClientCert && mtlsCAID > 0 {
+	// Validate the mTLS CA up front for a readable error; Create re-checks it
+	// (it is the choke point for every create path) and refuses otherwise.
+	if form.RequireClientCert {
+		if form.MTLSCAID <= 0 {
+			h.renderHostsNewErr(w, r, form, "require_client_cert needs an mTLS CA assigned")
+			return
+		}
 		// Reject if CA has no uploaded certificate or is not active.
 		var caCount int
 		_ = db.QueryRowContext(ctx,
 			"SELECT COUNT(*) FROM mtls_cas WHERE id=? AND status='active' AND cert_pem IS NOT NULL AND cert_pem != ''",
-			mtlsCAID).Scan(&caCount)
+			form.MTLSCAID).Scan(&caCount)
 		if caCount == 0 {
 			h.renderHostsNewErr(w, r, form, "selected mTLS CA is not active - upload a certificate first")
 			return
@@ -927,6 +939,9 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		GroupID:      groupID,
 		CustomFields: cfJSON,
 		ViaWGPeerID:  viaWGPeerID,
+
+		RequireClientCert: form.RequireClientCert,
+		MTLSCAID:          form.MTLSCAID,
 	})
 	if err != nil {
 		h.Logger.Warn("admin hosts: route create", "err", err)
@@ -942,6 +957,9 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 			"domain": form.Domain, "backend_ip": form.BackendIP, "port": port,
 			"node_group_id": nodeGroupID, "kind": form.Kind, "redirect_url": form.RedirectURL,
 			"external": form.External, "external_host": form.ExternalHost,
+			// Create persists these or fails, so the entry never claims more
+			// enforcement than the route actually got.
+			"require_client_cert": form.RequireClientCert, "mtls_ca_id": form.MTLSCAID,
 		},
 	})
 	if form.External && proxySecret != "" {
@@ -968,6 +986,7 @@ func (h *AdminHandlers) renderHostsNewErr(w http.ResponseWriter, r *http.Request
 		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 		d.Groups = loadHostGroups(ctx, db)
+		d.MTLSCAs = loadMTLSCAOptions(ctx, db)
 		if defs, err := customfields.LoadDefs(ctx, db, "host"); err == nil {
 			// Preserve submitted values on re-render after validation error.
 			_ = r.ParseForm()
@@ -2599,6 +2618,25 @@ type mtlsCAOption struct {
 	Label string
 }
 
+// loadMTLSCAOptions lists active trust-anchor CAs, newest first. Best-effort:
+// the dropdown just stays empty on error (create/edit both re-validate).
+func loadMTLSCAOptions(ctx context.Context, db *sql.DB) []mtlsCAOption {
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, COALESCE(NULLIF(name,''), common_name) FROM mtls_cas WHERE status='active' ORDER BY id DESC`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []mtlsCAOption
+	for rows.Next() {
+		var o mtlsCAOption
+		if rows.Scan(&o.ID, &o.Label) == nil {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
 // dnsProviderOption is one selectable dns_providers row (DNS steering dropdown).
 type dnsProviderOption struct {
 	ID    int64
@@ -2760,17 +2798,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 			d.LBCookieSecret = dec
 		}
 	}
-	// mTLS CA dropdown: active CAs only, newest first (best-effort).
-	if car, cerr := db.QueryContext(ctx,
-		`SELECT id, COALESCE(NULLIF(name,''), common_name) FROM mtls_cas WHERE status='active' ORDER BY id DESC`); cerr == nil {
-		for car.Next() {
-			var o mtlsCAOption
-			if car.Scan(&o.ID, &o.Label) == nil {
-				d.MTLSCAs = append(d.MTLSCAs, o)
-			}
-		}
-		car.Close()
-	}
+	d.MTLSCAs = loadMTLSCAOptions(ctx, db)
 	// Check whether the saved CA is currently active (drives status pill).
 	if d.MTLSCAID > 0 {
 		var caStatus string

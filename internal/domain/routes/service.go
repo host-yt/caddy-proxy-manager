@@ -299,6 +299,13 @@ type CreateInput struct {
 
 	// ViaWGPeerID binds the backend dial to a WG tunnel peer (0 = none).
 	ViaWGPeerID int64
+
+	// RequireClientCert turns on mTLS from the very first push, so a host the
+	// operator meant to lock is never briefly served without client certs.
+	// MTLSCAID is the trust anchor: mandatory when the flag is on, cleared
+	// when it is off (an anchor with no enforcement is dead state).
+	RequireClientCert bool
+	MTLSCAID          int64
 }
 
 // Validation errors exposed to handlers.
@@ -328,6 +335,10 @@ var (
 	// ErrTunnelNotOnNode: selected WG peer missing, not the client's, or not
 	// present on the placed Caddy node.
 	ErrTunnelNotOnNode = errors.New("selected tunnel must belong to this client and exist on the placed node")
+	// ErrMTLSCAUnusable: client-cert enforcement was requested without an
+	// active CA that has a certificate, so no client-auth policy could be
+	// emitted. Refuse rather than create a host that looks locked and is not.
+	ErrMTLSCAUnusable = errors.New("mTLS requires an active CA with an uploaded certificate")
 )
 
 // ExternalHostAllowed is the exported wrapper so handlers can validate an
