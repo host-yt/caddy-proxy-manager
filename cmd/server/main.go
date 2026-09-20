@@ -70,6 +70,10 @@ const (
 	sessionTTL = 12 * time.Hour
 )
 
+// errWGDisabled marks "WireGuard mode is off", which is a normal state the
+// periodic mesh reconcile must not log about.
+var errWGDisabled = errors.New("wireguard mode disabled in Settings")
+
 func main() {
 	// "server doctor" (subcommand) and "server -doctor" (flag) both run the
 	// preflight checks and exit - never falls through to normal boot.
@@ -335,7 +339,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 			return err
 		}
 		if !cp.Enabled {
-			return errors.New("wireguard mode disabled in Settings")
+			return errWGDisabled
 		}
 		return wgCW.Write(ctx, db, cp)
 	}
@@ -736,6 +740,30 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// Auto-failover: routes on down nodes (≥5 min) migrate to healthy
 	// peers in the same group; leader-only, 2 min cadence.
 	go runTicker(rootCtx, 2*time.Minute, leaderElec, guard(logger, "failover", routesSvc.AutoFailover))
+
+	// Mesh wg0.conf reconcile - deliberately NOT leader-gated: the file is
+	// replica-local and each replica feeds its own WireGuard sidecar, so every
+	// one of them has to re-render from the shared database. Without this, a
+	// mesh mutation handled by one replica (a node join, a PSK rekey confirm)
+	// would never reach the others' sidecars. 60s keeps the gap under
+	// WireGuard's 120s rekey window, so a handshake is not lost. Write is a
+	// no-op when the rendered content is unchanged.
+	go func() {
+		t := time.NewTicker(60 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-rootCtx.Done():
+				return
+			case <-t.C:
+				ctx, cancel := context.WithTimeout(rootCtx, 30*time.Second)
+				if err := writeWG(ctx); err != nil && !errors.Is(err, errWGDisabled) {
+					logger.Warn("mesh wg config reconcile failed", "err", err)
+				}
+				cancel()
+			}
+		}
+	}()
 
 	// Webhook dispatcher — leader-only, 30s cadence.
 	go runTicker(rootCtx, 30*time.Second, leaderElec, guard(logger, "webhooks", whSvc.Dispatch))
