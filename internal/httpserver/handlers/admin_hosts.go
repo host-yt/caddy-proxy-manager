@@ -934,18 +934,6 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// PQ-only is not part of CreateInput (the add form stays minimal), so a
-	// caller that posts the flag gets it applied right after the INSERT and
-	// re-pushed - Create already pushed the route without it.
-	tlsPQOnly := r.FormValue("tls_pq_only") == "1"
-	if tlsPQOnly {
-		if _, perr := db.ExecContext(ctx, `UPDATE routes SET tls_pq_only=1 WHERE id=?`, routeID); perr != nil {
-			h.Logger.Warn("admin hosts: tls_pq_only persist", "id", routeID, "err", perr)
-		} else {
-			h.Routes.SchedulePushForRoute(ctx, routeID)
-		}
-	}
-
 	// Never log the secret in the audit meta.
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.host.create", Entity: "route",
@@ -954,7 +942,6 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 			"domain": form.Domain, "backend_ip": form.BackendIP, "port": port,
 			"node_group_id": nodeGroupID, "kind": form.Kind, "redirect_url": form.RedirectURL,
 			"external": form.External, "external_host": form.ExternalHost,
-			"tls_pq_only": tlsPQOnly,
 		},
 	})
 	if form.External && proxySecret != "" {
@@ -2499,6 +2486,12 @@ type hostEditData struct {
 	NodeHasL4        bool
 	NodeHasGeoIP     bool
 	NodeHasRateLimit bool
+	// NodeCaddyVersion is the operator-declared version of the serving node;
+	// NodePQCapable says whether it understands x25519mlkem768 (Caddy 2.10+).
+	// Both drive the PQ-only warning: the toggle must never look active on a
+	// node that would have its /load rejected and the policy dropped.
+	NodeCaddyVersion string
+	NodePQCapable    bool
 	// GeoIPAvailable reflects whether the runtime GeoIP database is loaded.
 	GeoIPAvailable bool
 
@@ -2687,6 +2680,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(r.dns_resolver_via_wg_peer_id,0),
 	        COALESCE(r.dns_address_family,'any'),
 	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0), COALESCE(r.tls_pq_only,0),
+		        COALESCE(n.caddy_version,''),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?), COALESCE(n.has_l4,0),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?),
@@ -2731,12 +2725,14 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.OutboundIPMode, &d.OutboundIP,
 		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily,
 		&d.RequireClientCert, &d.MTLSCAID, &d.TLSPQOnly,
+		&d.NodeCaddyVersion,
 		&d.NodeHasWAF, &d.NodeHasL4, &d.NodeHasGeoIP, &d.NodeHasRateLimit,
 		&d.DialTimeoutMs, &d.ResponseHeaderTimeoutMs,
 		&d.GroupID.Int64)
 	if d.GroupID.Int64 > 0 {
 		d.GroupID.Valid = true
 	}
+	d.NodePQCapable = caddyapi.CaddySupportsPQCurve(d.NodeCaddyVersion)
 	if err != nil {
 		d.Error = "host not found"
 		h.render(w, "hosts_edit", d)

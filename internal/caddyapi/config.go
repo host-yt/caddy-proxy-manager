@@ -4,6 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/pem"
 	"fmt"
+	"log/slog"
+	"strconv"
 	"strings"
 )
 
@@ -96,6 +98,14 @@ type NodeSettings struct {
 	// true = "request" (present cert if available, never block); false (default)
 	// = "require_and_verify" (deny handshake when no valid cert presented).
 	MTLSFailOpen bool
+
+	// PQCurveAvailable gates the per-host PQ-only connection policy
+	// (curves=[x25519mlkem768] + protocol_min=tls1.3). Caddy < 2.10 does not
+	// know that curve name and rejects the WHOLE /load, which would freeze
+	// every route on the node - same footgun as the WAF/Geo/DNS module gates.
+	// Derived from the node's declared caddy_version via CaddySupportsPQCurve;
+	// unknown version = false.
+	PQCurveAvailable bool
 
 	// ProxyProtocolIn enables the stock caddy.listeners.proxy_protocol wrapper
 	// on srv0 so Caddy reads the real client IP from a PROXY protocol header
@@ -337,7 +347,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	// so the builder appends a catch-all {} policy: Caddy only supplies a
 	// default policy when the list is nil, and an unmatched ClientHello on a
 	// non-empty list fails the handshake outright. Skipped when no route opts in.
-	if pols := buildConnPolicies(routes, s.MTLSFailOpen); len(pols) > 0 {
+	if pols := buildConnPolicies(routes, s.MTLSFailOpen, s.PQCurveAvailable); len(pols) > 0 {
 		srv0["tls_connection_policies"] = pols
 	}
 
@@ -527,45 +537,91 @@ func buildLoadPEM(certs []ManualCertPEM) []any {
 	return out
 }
 
-// buildConnPolicies returns the tls_connection_policies array for every route
-// that opts into mTLS or PQ-only TLS. Caddy matches policies first-match by
-// SNI, so a route using both options gets ONE merged entry - two entries would
-// leave the second unreachable. failOpen=true uses Caddy mode "request"
-// (present cert if available, never block); false uses "require_and_verify".
-func buildConnPolicies(routes []Route, failOpen bool) []any {
+// hostConnPolicy is the merged TLS connection policy for ONE SNI. Several
+// routes can share a host (routes is UNIQUE(domain, path_prefix), plus
+// aliases), but a connection policy is matched by SNI before any path is
+// known, so it cannot be path-scoped: the options of every route on a host
+// collapse into one entry and the strictest wins.
+type hostConnPolicy struct {
+	caPEM string // non-empty: require a client cert chaining to this CA
+	pq    bool   // hybrid ML-KEM only + TLS 1.3 floor
+}
+
+// buildConnPolicies returns the tls_connection_policies array for every host
+// with at least one route opting into mTLS or PQ-only TLS.
+//
+// Merge semantics (Caddy matches policies first-match by SNI, one entry per
+// SNI or the later ones are dead): a host is mTLS if ANY route on it requires
+// a usable client-cert CA, and PQ-only if ANY route on it is PQ-only. Two
+// routes on one host with DIFFERENT CAs cannot both be honoured - the first in
+// route order (the SELECT is ORDER BY r.id) wins and the conflict is logged.
+//
+// failOpen=true uses Caddy mode "request" (present cert if available, never
+// block); false uses "require_and_verify". pqAvailable=false drops the
+// curves/protocol_min knob entirely: Caddy < 2.10 does not know
+// x25519mlkem768 and rejects the whole /load, freezing every route on the node.
+func buildConnPolicies(routes []Route, failOpen, pqAvailable bool) []any {
 	mode := "require_and_verify"
 	if failOpen {
 		mode = "request"
 	}
-	var out []any
+	var hosts []string // emission order: first route that opts the host in
+	merged := map[string]hostConnPolicy{}
 	for _, r := range routes {
-		if len(r.Hosts) == 0 {
+		ca := ""
+		// Unparsable trust anchor: fail open rather than brick /load.
+		if r.RequireClientCert && MTLSCAUsable(r.MTLSCACertPEM) {
+			ca = r.MTLSCACertPEM
+		}
+		pq := r.TLSPQOnly && pqAvailable
+		if ca == "" && !pq {
 			continue
 		}
-		pol := map[string]any{}
-		if r.RequireClientCert && r.MTLSCACertPEM != "" {
-			// Unparsable trust anchor: fail open rather than brick /load.
-			if ders := pemCertsToBase64DER(r.MTLSCACertPEM); len(ders) > 0 {
-				pol["client_authentication"] = map[string]any{
-					"ca": map[string]any{
-						"provider":         "inline",
-						"trusted_ca_certs": ders,
-					},
-					"mode": mode,
-				}
+		for _, h := range r.Hosts {
+			cur, seen := merged[h]
+			if !seen {
+				hosts = append(hosts, h)
+			}
+			switch {
+			case cur.caPEM == "":
+				cur.caPEM = ca
+			case ca != "" && ca != cur.caPEM:
+				slog.Warn("conflicting mTLS trust anchors on one SNI; keeping the first route's CA",
+					"sni", h, "dropped_route_id", r.ID)
+			}
+			cur.pq = cur.pq || pq
+			merged[h] = cur
+		}
+	}
+	var out []any
+	var prev hostConnPolicy
+	for i, h := range hosts {
+		p := merged[h]
+		if i > 0 && p == prev {
+			// Same policy as the previous host (a route's aliases, typically):
+			// extend that entry's SNI list instead of emitting a duplicate.
+			m := out[len(out)-1].(map[string]any)["match"].(map[string]any)
+			m["sni"] = append(m["sni"].([]string), h)
+			continue
+		}
+		pol := map[string]any{"match": map[string]any{"sni": []string{h}}}
+		if p.caPEM != "" {
+			pol["client_authentication"] = map[string]any{
+				"ca": map[string]any{
+					"provider":         "inline",
+					"trusted_ca_certs": pemCertsToBase64DER(p.caPEM),
+				},
+				"mode": mode,
 			}
 		}
-		if r.TLSPQOnly {
+		if p.pq {
 			// Hybrid ML-KEM only + TLS 1.3 floor: anything else can't even
 			// offer the group, so a legacy client is rejected at handshake.
 			pol["curves"] = []string{"x25519mlkem768"}
 			pol["protocol_min"] = "tls1.3"
 		}
-		if len(pol) == 0 {
-			continue
-		}
-		pol["match"] = map[string]any{"sni": r.Hosts}
 		out = append(out, pol)
+		prev = p
 	}
 	if len(out) > 0 {
 		// Catch-all: every host without its own policy keeps plain TLS. Without
@@ -574,6 +630,34 @@ func buildConnPolicies(routes []Route, failOpen bool) []any {
 		out = append(out, map[string]any{})
 	}
 	return out
+}
+
+// CaddySupportsPQCurve reports whether a node running this Caddy version
+// understands the x25519mlkem768 curve name (Caddy >= 2.10, which is the
+// release that exposed Go 1.24 hybrid ML-KEM as a configurable curve).
+// Unknown, empty or unparsable = false: an older node rejects the entire
+// /load on an unknown curve, so the feature must never be flipped on before
+// the node proves it is capable.
+func CaddySupportsPQCurve(version string) bool {
+	v := strings.TrimSpace(version)
+	v = strings.TrimPrefix(strings.TrimPrefix(v, "v"), "V")
+	// Tolerate "2.10.0-beta.1", "2.10.0 h1:..." and friends.
+	if i := strings.IndexAny(v, "-+ \t"); i >= 0 {
+		v = v[:i]
+	}
+	parts := strings.Split(v, ".")
+	if len(parts) < 2 {
+		return false
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	return major > 2 || (major == 2 && minor >= 10)
 }
 
 // MTLSCAUsable reports whether a CA PEM bundle yields at least one parsable
