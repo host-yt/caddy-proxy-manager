@@ -212,6 +212,34 @@ jobs:
           first_tag=$(jq -r '.tags[0]' <<<"$DOCKER_METADATA_OUTPUT_JSON")
           digest=$(docker buildx imagetools inspect "$first_tag" --format '{{json .Manifest}}' | jq -r .digest)
           echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
+      # Refuse to sign an edge image that lost the hybrid post-quantum key
+      # exchange (bad xcaddy pin, a GODEBUG, an upstream regression).
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+      - name: Post-quantum handshake smoke test
+        env:
+          IMAGE_REF: ${{ steps.manifest.outputs.ref }}
+        run: |
+          set -euo pipefail
+          cat > /tmp/pq.Caddyfile <<'EOF'
+          localhost {
+            tls internal
+            respond "ok"
+          }
+          EOF
+          cid=$(docker run -d -p 8443:443 -v /tmp/pq.Caddyfile:/etc/caddy/Caddyfile:ro "$IMAGE_REF")
+          trap 'docker logs "$cid" || true; docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          for _ in $(seq 1 30); do
+            if openssl s_client -connect 127.0.0.1:8443 -servername localhost </dev/null >/dev/null 2>&1; then
+              break
+            fi
+            sleep 2
+          done
+          HPG_TEST_EDGE_ADDR=127.0.0.1:8443 HPG_TEST_EDGE_SNI=localhost \
+            go test -tags integration -count=1 -run TestEdgePQHandshake ./internal/integration/
       # Keyless signature over the merged index, so a consumer can verify the
       # image came from this workflow in this repository.
       - uses: sigstore/cosign-installer@v3

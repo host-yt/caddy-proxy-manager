@@ -16,8 +16,13 @@
 //     dns_providers.api_token_enc, webhook_endpoints.secret_enc,
 //     oauth_providers.client_secret (is_encrypted=1), sync_slaves.token_enc,
 //     customer_wg_peer.server_privkey_e2, mtls_cas.key_pem_enc,
-//     manual_certs.key_pem_enc. Missing any of these silently orphans the
+//     manual_certs.key_pem_enc, caddy_nodes.tunnel_privkey_e2,
+//     caddy_nodes.admin_proxy_key_enc, caddy_nodes.wg_psk*_enc,
+//     customer_wg_peer.psk_enc. Missing any of these silently orphans the
 //     secret under the old key after rotation (security review CRYPTO-01).
+//
+// Columns whose migration has not been applied yet are skipped with a log
+// line: a newer image may be used to rotate an older database.
 //
 // Usage:
 //
@@ -282,6 +287,45 @@ var encColumns = []encColumn{
 	// lb_cookie_secret is encrypted at rest as of SECRET-02, but legacy rows
 	// may still hold plaintext until re-saved - tolerate undecryptable rows.
 	{"routes", "id", "lb_cookie_secret", "", "", true},
+	// Node secrets sealed with the unscoped state manager (AdminHandlers.
+	// encryptSetting / routes.DecryptNodeSecret). Both were missing until
+	// CRYPTO-01 round two: a rotation orphaned the tunnel server key and the
+	// agent admin-proxy key, bricking WG tunnels and config push.
+	{"caddy_nodes", "id", "tunnel_privkey_e2", "", "", false},
+	{"caddy_nodes", "id", "admin_proxy_key_enc", "", "", false},
+	// WireGuard pre-shared keys (PQ-01). Sealed under the "wg" purpose, so
+	// they carry a v2 envelope - decEnvelope/encEnvelope handle that.
+	{"caddy_nodes", "id", "wg_psk_enc", "", "", false},
+	{"caddy_nodes", "id", "wg_psk_pending_enc", "", "", false},
+	{"caddy_nodes", "id", "wg_psk_token_enc", "", "", false},
+	{"customer_wg_peer", "id", "psk_enc", "", "", false},
+}
+
+// schemaColumns lists every column of the current database as "table.column",
+// lowercased. rotate-secret ships with the newest encColumns list but may be
+// pointed at a database whose latest migrations have not run yet (operator
+// rotates before first boot of the new image), so a missing column must be a
+// skip, not a hard failure on an unknown-column SELECT.
+func schemaColumns(db *sql.DB) (map[string]bool, error) {
+	rows, err := db.Query(
+		"SELECT TABLE_NAME, COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = DATABASE()")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	have := make(map[string]bool)
+	for rows.Next() {
+		var t, c string
+		if err := rows.Scan(&t, &c); err != nil {
+			return nil, err
+		}
+		have[strings.ToLower(t+"."+c)] = true
+	}
+	return have, rows.Err()
+}
+
+func hasColumn(have map[string]bool, table, col string) bool {
+	return have[strings.ToLower(table+"."+col)]
 }
 
 func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
@@ -376,7 +420,15 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 	// Dedicated `_enc` columns: same installstate key, so they must be
 	// re-sealed too. Fail hard on a row we cannot decrypt (a skip would
 	// leave a forever-broken secret) — matches the settings/totp posture.
+	have, err := schemaColumns(db)
+	if err != nil {
+		return s, fmt.Errorf("schema introspection: %w", err)
+	}
 	for _, c := range encColumns {
+		if !hasColumn(have, c.table, c.col) {
+			fmt.Printf("[skip] %s.%s: column absent (migration not applied yet)\n", c.table, c.col)
+			continue
+		}
 		q := fmt.Sprintf("SELECT `%s`, `%s` FROM `%s` WHERE `%s` IS NOT NULL AND `%s` <> ''",
 			c.idCol, c.col, c.table, c.col, c.col)
 		if c.where != "" {
