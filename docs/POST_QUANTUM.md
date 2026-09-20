@@ -406,12 +406,36 @@ Behind Cloudflare, the CF edge does offer post-quantum key exchange to origins,
 but verify it on that exact host before enabling - a proxied host that cannot
 negotiate goes fully dark.
 
-### Certificate renewal caveat
+### Certificate renewal: TLS-ALPN-01 is disabled
 
-**TLS-ALPN-01 can fail on a PQ-only host**: the challenge is itself a TLS
-handshake, and a CA validator that does not offer ML-KEM will be rejected by
-your own policy. There is no guard against this - use **HTTP-01 (port 80) or
-DNS-01** on PQ-only hosts. Both are unaffected.
+The TLS-ALPN-01 challenge is itself a TLS handshake, and a CA validator that
+does not offer ML-KEM gets rejected by the host's own policy - the certificate
+would silently stop renewing and the host would go dark ~90 days later.
+
+The panel therefore **disables that challenge** for every PQ-only subject. Each
+one gets its own on-demand automation policy:
+
+```json
+{
+  "subjects": ["pq.example.com"],
+  "on_demand": true,
+  "issuers": [{
+    "module": "acme",
+    "email": "you@example.com",
+    "challenges": {"tls-alpn": {"disabled": true}}
+  }]
+}
+```
+
+Consequence: issuance must go through **HTTP-01 (port 80 reachable from the
+internet)** or **DNS-01**. If neither works, the certificate is never issued -
+the host fails at enable time instead of at the first renewal. That is the
+trade: a visible failure now over a silent one in three months.
+
+The policy is emitted only when the node is PQ-capable (Caddy 2.10+), because
+only then is the PQ-only connection policy itself emitted. It sits *after* the
+wildcard DNS-01 policies, so a PQ host inside a wildcard zone keeps DNS-01. A
+node with no PQ-only route produces byte-identical JSON to before.
 
 ---
 
@@ -526,8 +550,8 @@ If you had avoided mTLS because it "broke the other sites", that is why.
   claimed but not installed means the node rejects the push.
 - There is no global "PQ-only everywhere" switch, by design - it is a per-host
   opt-in with real client-compatibility cost.
-- PQ-only conflicts with TLS-ALPN-01 renewals and nothing enforces the
-  alternative challenge; that is a documented warning, not a guard.
+- PQ-only disables TLS-ALPN-01 for that subject, so the host needs a working
+  HTTP-01 (port 80) or DNS-01 path or it gets no certificate at all.
 - Preshared keys protect the *key exchange*, not the endpoints. A node with a
   PSK whose disk is read still hands over everything it holds.
 

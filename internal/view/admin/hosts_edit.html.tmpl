@@ -361,8 +361,10 @@
               fails the handshake: Chrome &lt; 131, Firefox &lt; 132, Safari/iOS &lt; 26,
               curl without OpenSSL 3.5+, and most monitoring bots.
               <br>
-              <strong>Certificate renewals:</strong> TLS-ALPN-01 can fail if the CA validator does not
-              offer ML-KEM. HTTP-01 (port 80) and DNS-01 are unaffected - prefer those on a PQ-only host.
+              <strong>Certificate renewals:</strong> TLS-ALPN-01 is disabled for this host - the CA
+              validator would have to speak ML-KEM to complete that handshake, and the cert would
+              quietly stop renewing. Issuance must go through HTTP-01 (port 80 reachable from the
+              internet) or DNS-01; if neither works, the certificate is never issued.
               <br>
               <strong>Behind Cloudflare:</strong> the CF edge does offer post-quantum key exchange to the
               origin, but verify it on this exact host before enabling - a proxied host that cannot

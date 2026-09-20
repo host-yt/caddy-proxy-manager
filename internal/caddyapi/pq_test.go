@@ -198,3 +198,67 @@ func TestBuildNodeConfig_PQEmitsPolicy(t *testing.T) {
 		t.Errorf("ungated node must emit no connection policies\n%s", string(b2))
 	}
 }
+
+// TestBuildNodeConfig_PQDisablesTLSALPN: a PQ-only subject cannot complete the
+// TLS-ALPN-01 handshake (the CA validator does not offer ML-KEM), so its
+// automation policy must disable that challenge and fall back to HTTP-01/DNS-01.
+func TestBuildNodeConfig_PQDisablesTLSALPN(t *testing.T) {
+	routes := []Route{
+		{ID: "1", Hosts: []string{"pq.example.com", "www.pq.example.com"}, TLSPQOnly: true},
+		{ID: "2", Hosts: []string{"plain.example.com"}, UpstreamIP: "10.0.0.2", UpstreamPort: 80},
+	}
+	cfg := BuildNodeConfig(routes, NodeSettings{ACMEEmail: "a@b.c", PQCurveAvailable: true})
+	pols := cfg["apps"].(map[string]any)["tls"].(map[string]any)["automation"].(map[string]any)["policies"].([]any)
+	if len(pols) != 2 {
+		t.Fatalf("want PQ policy + on-demand catch-all, got %d: %v", len(pols), pols)
+	}
+	b, _ := json.Marshal(pols[0])
+	for _, want := range []string{
+		`"subjects":["pq.example.com","www.pq.example.com"]`,
+		`"challenges":{"tls-alpn":{"disabled":true}}`,
+		`"on_demand":true`,
+	} {
+		if !contains(string(b), want) {
+			t.Errorf("PQ automation policy missing %q\nfull: %s", want, string(b))
+		}
+	}
+	// The non-PQ host stays on the untouched catch-all issuer.
+	last, _ := json.Marshal(pols[1])
+	if contains(string(last), "subjects") || contains(string(last), "challenges") {
+		t.Errorf("catch-all policy must stay unchanged: %s", string(last))
+	}
+}
+
+// TestBuildNodeConfig_PQALPNGate: without the node capability there is no
+// PQ-only connection policy, so TLS-ALPN-01 still works and nothing changes.
+func TestBuildNodeConfig_PQALPNGate(t *testing.T) {
+	routes := []Route{{ID: "1", Hosts: []string{"pq.example.com"}, TLSPQOnly: true}}
+	b, _ := json.Marshal(BuildNodeConfig(routes, NodeSettings{ACMEEmail: "a@b.c"}))
+	if contains(string(b), "tls-alpn") {
+		t.Errorf("ungated node must not touch the challenges block\n%s", string(b))
+	}
+}
+
+// TestBuildNodeConfig_NoPQByteIdentical: a node without a single PQ-only route
+// must serialize exactly as it did before the guard existed, or every such node
+// sees a spurious drift push.
+func TestBuildNodeConfig_NoPQByteIdentical(t *testing.T) {
+	routes := []Route{
+		{ID: "1", Hosts: []string{"a.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80},
+		{ID: "2", Hosts: []string{"b.example.com"}, UpstreamIP: "10.0.0.2", UpstreamPort: 443},
+	}
+	b, err := json.Marshal(BuildNodeConfig(routes, NodeSettings{ACMEEmail: "a@b.c", PQCurveAvailable: true}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"tls-alpn", "challenges", "subjects", "tls_connection_policies"} {
+		if contains(string(b), forbidden) {
+			t.Errorf("no-PQ node must not emit %q\n%s", forbidden, string(b))
+		}
+	}
+	// Capability flag alone must not move a byte either.
+	b2, _ := json.Marshal(BuildNodeConfig(routes, NodeSettings{ACMEEmail: "a@b.c"}))
+	if string(b) != string(b2) {
+		t.Errorf("PQCurveAvailable changed the JSON of a node with no PQ route:\n%s\n%s", b, b2)
+	}
+}

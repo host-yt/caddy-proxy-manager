@@ -5,6 +5,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"log/slog"
+	"maps"
 	"strconv"
 	"strings"
 )
@@ -307,6 +308,23 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 				"issuers":  []any{dnsIssuer},
 			})
 		}
+	}
+	// PQ-only subjects: TLS-ALPN-01 would have to complete a handshake against
+	// the PQ-only connection policy, which no CA validator can do today, so the
+	// cert would silently stop renewing. Disable that challenge for those
+	// subjects and let HTTP-01 (:80) or DNS-01 carry issuance. Still on-demand
+	// (same ask endpoint), just a different issuer; placed after the wildcard
+	// policies so a PQ host inside a DNS-01 zone keeps its DNS-01 path.
+	if subs := pqSubjects(routes, s.PQCurveAvailable); len(subs) > 0 {
+		pqIssuer := maps.Clone(acmeIssuer)
+		pqIssuer["challenges"] = map[string]any{
+			"tls-alpn": map[string]any{"disabled": true},
+		}
+		policies = append(policies, map[string]any{
+			"subjects":  subs,
+			"on_demand": true,
+			"issuers":   []any{pqIssuer},
+		})
 	}
 	// Catch-all on-demand policy LAST (no subjects) - unchanged behaviour.
 	policies = append(policies, map[string]any{
@@ -628,6 +646,31 @@ func buildConnPolicies(routes []Route, failOpen, pqAvailable bool) []any {
 		// this, enabling mTLS on one host breaks the handshake for all others
 		// on the node (including TLS-ALPN-01 renewals).
 		out = append(out, map[string]any{})
+	}
+	return out
+}
+
+// pqSubjects lists, in route order and deduplicated, every hostname that ends
+// up behind a PQ-only connection policy. Gated by the same pqAvailable flag as
+// the policy itself: without the curve the host serves plain TLS and
+// TLS-ALPN-01 still works, so the config must stay byte-identical.
+func pqSubjects(routes []Route, pqAvailable bool) []string {
+	if !pqAvailable {
+		return nil
+	}
+	var out []string
+	seen := map[string]bool{}
+	for _, r := range routes {
+		if !r.TLSPQOnly {
+			continue
+		}
+		for _, h := range r.Hosts {
+			if h == "" || seen[h] {
+				continue
+			}
+			seen[h] = true
+			out = append(out, h)
+		}
 	}
 	return out
 }
