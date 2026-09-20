@@ -340,7 +340,15 @@ func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Reques
 		b.WriteString(jsonEsc(p.AssignedIP))
 		b.WriteString(`/32","status":"`)
 		b.WriteString(jsonEsc(p.Status))
-		b.WriteString(`"}`)
+		b.WriteString(`"`)
+		// omitempty: an agent that predates PSK support never sees the key
+		// (PeersForNode already gates on caddy_nodes.agent_psk).
+		if p.PresharedKey != "" {
+			b.WriteString(`,"preshared_key":"`)
+			b.WriteString(jsonEsc(p.PresharedKey))
+			b.WriteString(`"`)
+		}
+		b.WriteString(`}`)
 	}
 	b.WriteString(`]}`)
 	w.Header().Set("Content-Type", "application/json")
@@ -530,6 +538,9 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 			ListenPort                string `json:"listen_port"`
 			LastSetupError            string `json:"last_setup_error"`
 			WstunnelHealthy           *bool  `json:"wstunnel_healthy"`
+			// PSKSupported gates whether this node may be served
+			// preshared keys at all. nil = agent too old to say.
+			PSKSupported *bool `json:"psk_supported"`
 		} `json:"node"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&body); err != nil {
@@ -561,6 +572,12 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 			boolPtrToNull(n.IPForwardEnabled), boolPtrToNull(n.ForwardPolicyDropDetected),
 			boolPtrToNull(n.DockerRulesInstalled), nullStr(fwBackend), nullInt(n.MTU),
 			nullStr(setupErr), nodeID)
+		// agent_psk is NOT NULL, so only a reporting agent may move it - an
+		// old agent omits the field and the column keeps its last value.
+		if n.PSKSupported != nil {
+			_, _ = db.ExecContext(ctx,
+				`UPDATE caddy_nodes SET agent_psk = ? WHERE id = ?`, *n.PSKSupported, nodeID)
+		}
 		// Record wstunnel liveness + freshness so the panel can gate WSS
 		// route/installer rendering. Only when the agent reported it (non-UDP).
 		if n.WstunnelHealthy != nil {

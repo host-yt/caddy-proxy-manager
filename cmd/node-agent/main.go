@@ -89,6 +89,10 @@ type forwardHealth struct {
 	ListenPort                string `json:"listen_port"`
 	LastSetupError            string `json:"last_setup_error,omitempty"`
 	WstunnelHealthy           *bool  `json:"wstunnel_healthy,omitempty"` // nil on UDP nodes; gates WSS advertising
+	// PSKSupported tells the panel this agent applies peers[].preshared_key.
+	// Pointer + omitempty only for symmetry with the rest; this build always
+	// sets it, and the panel treats a missing field as "old agent".
+	PSKSupported *bool `json:"psk_supported,omitempty"`
 }
 
 // healthState holds the latest forwarding diagnostic + setup error string.
@@ -909,12 +913,17 @@ func ensureWstunnelHostInputRule(ctx context.Context, log *slog.Logger, c config
 	wstunnelIngressOK.Store(ok)
 }
 
+type peerEntry struct {
+	Pubkey    string `json:"pubkey"`
+	AllowedIP string `json:"allowed_ip"`
+	Status    string `json:"status"`
+	// PresharedKey is optional: absent for classic peers and for panels
+	// that predate PSK support.
+	PresharedKey string `json:"preshared_key"`
+}
+
 type peerListReply struct {
-	Peers []struct {
-		Pubkey    string `json:"pubkey"`
-		AllowedIP string `json:"allowed_ip"`
-		Status    string `json:"status"`
-	} `json:"peers"`
+	Peers []peerEntry `json:"peers"`
 }
 
 // reconcile fetches the desired peer set from the panel and applies it
@@ -943,9 +952,33 @@ func reconcile(ctx context.Context, log *slog.Logger, c config, dry bool) {
 		return
 	}
 
-	// Build a `wg syncconf` config snippet. syncconf replaces the whole
-	// peer set atomically - exactly the semantics we want (revoked peers
-	// disappear without an explicit `peer remove`).
+	b, active := buildSyncconf(log, c, reply)
+	if dry {
+		log.Info("(dry) syncconf would apply", "peers", active)
+		return
+	}
+	confPath, err := writeTemp(b)
+	if err != nil {
+		log.Warn("temp conf", "err", err)
+		return
+	}
+	defer os.Remove(confPath)
+	if _, err := run(pctx, false, "wg", "syncconf", c.Interface, confPath); err != nil {
+		log.Warn("wg syncconf", "err", err)
+		return
+	}
+	log.Info("reconciled", "peers", active)
+
+	// Best-effort handshake report (form-encoded so the panel handler
+	// stays trivial).
+	go reportStats(ctx, log, c)
+}
+
+// buildSyncconf renders the `wg syncconf` body for the desired peer set and
+// returns it with the count of peers that made the cut. syncconf replaces the
+// whole peer set atomically - exactly the semantics we want (revoked peers
+// disappear without an explicit `peer remove`).
+func buildSyncconf(log *slog.Logger, c config, reply peerListReply) (string, int) {
 	var b strings.Builder
 	fmt.Fprintf(&b, "[Interface]\nListenPort = %s\nPrivateKey = %s\n\n", c.ListenPort, c.PrivateKey)
 	active := 0
@@ -962,31 +995,24 @@ func reconcile(ctx context.Context, log *slog.Logger, c config, dry bool) {
 			log.Warn("skipping malformed peer", "pubkey", p.Pubkey, "allowed_ip", p.AllowedIP)
 			continue
 		}
+		// A PSK has the same wire shape as a pubkey (32 bytes, base64).
+		// Drop the WHOLE peer on a bad one - emitting it without the PSK
+		// would just fail the handshake silently.
+		psk := ""
+		if p.PresharedKey != "" {
+			if !validPubkey(p.PresharedKey) {
+				log.Warn("skipping peer with malformed preshared key", "pubkey", p.Pubkey)
+				continue
+			}
+			psk = "PresharedKey = " + p.PresharedKey + "\n"
+		}
 		// PersistentKeepalive keeps the NAT mapping warm in both directions so
 		// idle reverse-proxy tunnels don't blackhole (node→customer) until the
 		// customer re-punches. 25s is the WireGuard-recommended value.
-		fmt.Fprintf(&b, "[Peer]\nPublicKey = %s\nAllowedIPs = %s\nPersistentKeepalive = 25\n\n", p.Pubkey, p.AllowedIP)
+		fmt.Fprintf(&b, "[Peer]\nPublicKey = %s\n%sAllowedIPs = %s\nPersistentKeepalive = 25\n\n", p.Pubkey, psk, p.AllowedIP)
 		active++
 	}
-	if dry {
-		log.Info("(dry) syncconf would apply", "peers", active)
-		return
-	}
-	confPath, err := writeTemp(b.String())
-	if err != nil {
-		log.Warn("temp conf", "err", err)
-		return
-	}
-	defer os.Remove(confPath)
-	if _, err := run(pctx, false, "wg", "syncconf", c.Interface, confPath); err != nil {
-		log.Warn("wg syncconf", "err", err)
-		return
-	}
-	log.Info("reconciled", "peers", active)
-
-	// Best-effort handshake report (form-encoded so the panel handler
-	// stays trivial).
-	go reportStats(ctx, log, c)
+	return b.String(), active
 }
 
 // peerStat is one peer's WireGuard counters as parsed from `wg show <iface> dump`.
@@ -1652,6 +1678,10 @@ func reportStats(ctx context.Context, log *slog.Logger, c config) {
 	// Always POST node diagnostics even when no peers are configured, so a
 	// blackholed node (ip_forward=0, FORWARD drop) is visible in the panel.
 	hh := health.get()
+	// Capability signal: this build understands peers[].preshared_key, so the
+	// panel may start provisioning PSKs for peers on this node.
+	pskOK := true
+	hh.PSKSupported = &pskOK
 	// Report wstunnel liveness so the panel only advertises WSS when the node
 	// is actually serving it (nil on UDP nodes - not applicable).
 	if c.TunnelTransport != "udp" {
