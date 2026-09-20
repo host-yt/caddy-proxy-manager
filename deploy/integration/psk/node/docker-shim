@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Stand-in for the `docker` CLI on the harness node. node-join.sh only ever
+# calls `docker compose -f <file> up -d` to start the edge Caddy; run that
+# Caddyfile natively instead of nesting a Docker daemon in the container.
+set -euo pipefail
+[[ "${1:-}" == "compose" ]] || exit 0
+f=""
+while [[ $# -gt 0 ]]; do
+  [[ "$1" == "-f" ]] && f="${2:-}"
+  shift
+done
+[[ -n "$f" ]] || exit 0
+dir=$(dirname "$f")
+nohup caddy run --config "$dir/Caddyfile.bootstrap" --adapter caddyfile \
+  >/var/log/caddy.log 2>&1 &
+sleep 2
+echo "[docker-shim] started caddy from $dir/Caddyfile.bootstrap"
