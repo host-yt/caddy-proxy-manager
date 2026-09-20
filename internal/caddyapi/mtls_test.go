@@ -47,8 +47,8 @@ func TestBuildMTLSConnPolicies_Shape(t *testing.T) {
 		MTLSCACertPEM:     caPEM,
 	}}
 	pols := buildMTLSConnPolicies(routes, false)
-	if len(pols) != 1 {
-		t.Fatalf("want 1 policy, got %d", len(pols))
+	if len(pols) != 2 {
+		t.Fatalf("want 2 policies (mTLS + catch-all), got %d", len(pols))
 	}
 	b, _ := json.Marshal(pols[0])
 	s := string(b)
@@ -76,6 +76,29 @@ func TestBuildMTLSConnPolicies_Shape(t *testing.T) {
 	}
 	if _, err := x509.ParseCertificate(der); err != nil {
 		t.Fatalf("decoded DER is not a valid cert: %v", err)
+	}
+}
+
+func TestBuildMTLSConnPolicies_CatchAllLast(t *testing.T) {
+	// Caddy only injects a default policy when the list is nil. With a non-empty
+	// list, an SNI that matches nothing aborts the handshake - so the last entry
+	// must be an unconditional {} that keeps every other host on plain TLS.
+	routes := []Route{{
+		ID: "1", Hosts: []string{"secure.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 443,
+		RequireClientCert: true, MTLSCACertPEM: testCAPEM(t),
+	}}
+	pols := buildMTLSConnPolicies(routes, false)
+	last, ok := pols[len(pols)-1].(map[string]any)
+	if !ok {
+		t.Fatalf("last policy has unexpected type %T", pols[len(pols)-1])
+	}
+	if len(last) != 0 {
+		t.Errorf("last policy must be an empty catch-all, got %v", last)
+	}
+	for i, p := range pols[:len(pols)-1] {
+		if _, has := p.(map[string]any)["match"]; !has {
+			t.Errorf("policy %d before the catch-all has no match", i)
+		}
 	}
 }
 

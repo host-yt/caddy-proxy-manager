@@ -334,8 +334,9 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 
 	// mTLS client-cert enforcement: emit per-host TLS connection policies that
 	// require + verify a client cert against the route's selected CA. First-match
-	// by SNI; unmatched handshakes fall back to Caddy's default zero-value policy,
-	// so non-mTLS hosts keep working. Skipped entirely when no route opts in.
+	// by SNI, so the builder appends a catch-all {} policy: Caddy only supplies a
+	// default policy when the list is nil, and an unmatched ClientHello on a
+	// non-empty list fails the handshake outright. Skipped when no route opts in.
 	if pols := buildMTLSConnPolicies(routes, s.MTLSFailOpen); len(pols) > 0 {
 		srv0["tls_connection_policies"] = pols
 	}
@@ -553,6 +554,12 @@ func buildMTLSConnPolicies(routes []Route, failOpen bool) []any {
 				"mode": mode,
 			},
 		})
+	}
+	if len(out) > 0 {
+		// Catch-all: every host without its own policy keeps plain TLS. Without
+		// this, enabling mTLS on one host breaks the handshake for all others
+		// on the node (including TLS-ALPN-01 renewals).
+		out = append(out, map[string]any{})
 	}
 	return out
 }
