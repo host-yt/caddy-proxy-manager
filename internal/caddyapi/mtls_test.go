@@ -36,7 +36,7 @@ func testCAPEM(t *testing.T) string {
 	return string(pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der}))
 }
 
-func TestBuildMTLSConnPolicies_Shape(t *testing.T) {
+func TestBuildConnPolicies_Shape(t *testing.T) {
 	caPEM := testCAPEM(t)
 	routes := []Route{{
 		ID:                "7",
@@ -46,7 +46,7 @@ func TestBuildMTLSConnPolicies_Shape(t *testing.T) {
 		RequireClientCert: true,
 		MTLSCACertPEM:     caPEM,
 	}}
-	pols := buildMTLSConnPolicies(routes, false)
+	pols := buildConnPolicies(routes, false)
 	if len(pols) != 2 {
 		t.Fatalf("want 2 policies (mTLS + catch-all), got %d", len(pols))
 	}
@@ -79,7 +79,7 @@ func TestBuildMTLSConnPolicies_Shape(t *testing.T) {
 	}
 }
 
-func TestBuildMTLSConnPolicies_CatchAllLast(t *testing.T) {
+func TestBuildConnPolicies_CatchAllLast(t *testing.T) {
 	// Caddy only injects a default policy when the list is nil. With a non-empty
 	// list, an SNI that matches nothing aborts the handshake - so the last entry
 	// must be an unconditional {} that keeps every other host on plain TLS.
@@ -87,7 +87,7 @@ func TestBuildMTLSConnPolicies_CatchAllLast(t *testing.T) {
 		ID: "1", Hosts: []string{"secure.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 443,
 		RequireClientCert: true, MTLSCACertPEM: testCAPEM(t),
 	}}
-	pols := buildMTLSConnPolicies(routes, false)
+	pols := buildConnPolicies(routes, false)
 	last, ok := pols[len(pols)-1].(map[string]any)
 	if !ok {
 		t.Fatalf("last policy has unexpected type %T", pols[len(pols)-1])
@@ -102,13 +102,13 @@ func TestBuildMTLSConnPolicies_CatchAllLast(t *testing.T) {
 	}
 }
 
-func TestBuildMTLSConnPolicies_SkippedWhenNoCAOrFlag(t *testing.T) {
+func TestBuildConnPolicies_SkippedWhenNoCAOrFlag(t *testing.T) {
 	// flag on but no PEM -> fail open, no policy emitted.
-	if got := buildMTLSConnPolicies([]Route{{Hosts: []string{"h"}, RequireClientCert: true}}, false); got != nil {
+	if got := buildConnPolicies([]Route{{Hosts: []string{"h"}, RequireClientCert: true}}, false); got != nil {
 		t.Errorf("expected nil policies with empty CA PEM, got %v", got)
 	}
 	// PEM present but flag off -> no policy.
-	if got := buildMTLSConnPolicies([]Route{{Hosts: []string{"h"}, MTLSCACertPEM: testCAPEM(t)}}, false); got != nil {
+	if got := buildConnPolicies([]Route{{Hosts: []string{"h"}, MTLSCACertPEM: testCAPEM(t)}}, false); got != nil {
 		t.Errorf("expected nil policies with flag off, got %v", got)
 	}
 }

@@ -332,12 +332,12 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		srv0["logs"] = map[string]any{}
 	}
 
-	// mTLS client-cert enforcement: emit per-host TLS connection policies that
-	// require + verify a client cert against the route's selected CA. First-match
-	// by SNI, so the builder appends a catch-all {} policy: Caddy only supplies a
+	// Per-host TLS connection policies: mTLS client-cert enforcement and/or
+	// PQ-only key exchange, merged into one entry per SNI. First-match by SNI,
+	// so the builder appends a catch-all {} policy: Caddy only supplies a
 	// default policy when the list is nil, and an unmatched ClientHello on a
 	// non-empty list fails the handshake outright. Skipped when no route opts in.
-	if pols := buildMTLSConnPolicies(routes, s.MTLSFailOpen); len(pols) > 0 {
+	if pols := buildConnPolicies(routes, s.MTLSFailOpen); len(pols) > 0 {
 		srv0["tls_connection_policies"] = pols
 	}
 
@@ -527,33 +527,45 @@ func buildLoadPEM(certs []ManualCertPEM) []any {
 	return out
 }
 
-// buildMTLSConnPolicies returns the tls_connection_policies array for every
-// route that requires a client cert. failOpen=true uses Caddy mode "request"
+// buildConnPolicies returns the tls_connection_policies array for every route
+// that opts into mTLS or PQ-only TLS. Caddy matches policies first-match by
+// SNI, so a route using both options gets ONE merged entry - two entries would
+// leave the second unreachable. failOpen=true uses Caddy mode "request"
 // (present cert if available, never block); false uses "require_and_verify".
-func buildMTLSConnPolicies(routes []Route, failOpen bool) []any {
+func buildConnPolicies(routes []Route, failOpen bool) []any {
 	mode := "require_and_verify"
 	if failOpen {
 		mode = "request"
 	}
 	var out []any
 	for _, r := range routes {
-		if !r.RequireClientCert || r.MTLSCACertPEM == "" || len(r.Hosts) == 0 {
+		if len(r.Hosts) == 0 {
 			continue
 		}
-		ders := pemCertsToBase64DER(r.MTLSCACertPEM)
-		if len(ders) == 0 {
-			continue // unparsable trust anchor: fail open rather than brick /load
+		pol := map[string]any{}
+		if r.RequireClientCert && r.MTLSCACertPEM != "" {
+			// Unparsable trust anchor: fail open rather than brick /load.
+			if ders := pemCertsToBase64DER(r.MTLSCACertPEM); len(ders) > 0 {
+				pol["client_authentication"] = map[string]any{
+					"ca": map[string]any{
+						"provider":         "inline",
+						"trusted_ca_certs": ders,
+					},
+					"mode": mode,
+				}
+			}
 		}
-		out = append(out, map[string]any{
-			"match": map[string]any{"sni": r.Hosts},
-			"client_authentication": map[string]any{
-				"ca": map[string]any{
-					"provider":         "inline",
-					"trusted_ca_certs": ders,
-				},
-				"mode": mode,
-			},
-		})
+		if r.TLSPQOnly {
+			// Hybrid ML-KEM only + TLS 1.3 floor: anything else can't even
+			// offer the group, so a legacy client is rejected at handshake.
+			pol["curves"] = []string{"x25519mlkem768"}
+			pol["protocol_min"] = "tls1.3"
+		}
+		if len(pol) == 0 {
+			continue
+		}
+		pol["match"] = map[string]any{"sni": r.Hosts}
+		out = append(out, pol)
 	}
 	if len(out) > 0 {
 		// Catch-all: every host without its own policy keeps plain TLS. Without
@@ -565,7 +577,7 @@ func buildMTLSConnPolicies(routes []Route, failOpen bool) []any {
 }
 
 // MTLSCAUsable reports whether a CA PEM bundle yields at least one parsable
-// certificate, i.e. whether buildMTLSConnPolicies can emit a real trust anchor.
+// certificate, i.e. whether buildConnPolicies can emit a real trust anchor.
 // Callers use it to decide fail-open vs fail-closed before the config is built.
 func MTLSCAUsable(pemBundle string) bool {
 	return len(pemCertsToBase64DER(pemBundle)) > 0

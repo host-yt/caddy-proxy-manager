@@ -934,6 +934,18 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// PQ-only is not part of CreateInput (the add form stays minimal), so a
+	// caller that posts the flag gets it applied right after the INSERT and
+	// re-pushed - Create already pushed the route without it.
+	tlsPQOnly := r.FormValue("tls_pq_only") == "1"
+	if tlsPQOnly {
+		if _, perr := db.ExecContext(ctx, `UPDATE routes SET tls_pq_only=1 WHERE id=?`, routeID); perr != nil {
+			h.Logger.Warn("admin hosts: tls_pq_only persist", "id", routeID, "err", perr)
+		} else {
+			h.Routes.SchedulePushForRoute(ctx, routeID)
+		}
+	}
+
 	// Never log the secret in the audit meta.
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.host.create", Entity: "route",
@@ -942,6 +954,7 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 			"domain": form.Domain, "backend_ip": form.BackendIP, "port": port,
 			"node_group_id": nodeGroupID, "kind": form.Kind, "redirect_url": form.RedirectURL,
 			"external": form.External, "external_host": form.ExternalHost,
+			"tls_pq_only": tlsPQOnly,
 		},
 	})
 	if form.External && proxySecret != "" {
@@ -2556,8 +2569,10 @@ type hostEditData struct {
 	// the dropdown (id + label). MTLSCAActive reflects saved CA health.
 	RequireClientCert bool
 	MTLSCAID          int64
-	MTLSCAActive      bool // true when the saved CA status='active'
-	MTLSCAs           []mtlsCAOption
+	// TLSPQOnly pins this host's TLS policy to hybrid ML-KEM + TLS 1.3.
+	TLSPQOnly    bool
+	MTLSCAActive bool // true when the saved CA status='active'
+	MTLSCAs      []mtlsCAOption
 	// MTLSPathRules lists RBAC path rules for this route.
 	MTLSPathRules []mtlsPathRuleRow
 	// MTLSCARoles lists available roles for the selected CA (feeds rule add dropdown).
@@ -2671,7 +2686,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(r.outbound_ip_mode,'default'), COALESCE(r.outbound_ip,''),
 	        COALESCE(r.dns_resolver_ip,''), COALESCE(r.dns_resolver_via_wg_peer_id,0),
 	        COALESCE(r.dns_address_family,'any'),
-	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0),
+	        COALESCE(r.require_client_cert,0), COALESCE(r.mtls_ca_id,0), COALESCE(r.tls_pq_only,0),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?), COALESCE(n.has_l4,0),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?),
@@ -2715,7 +2730,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.ErrorOverride, &d.ErrorHTML, &d.ErrorLogoURL, &d.ErrorBrand, &d.ErrorBgColor,
 		&d.OutboundIPMode, &d.OutboundIP,
 		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily,
-		&d.RequireClientCert, &d.MTLSCAID,
+		&d.RequireClientCert, &d.MTLSCAID, &d.TLSPQOnly,
 		&d.NodeHasWAF, &d.NodeHasL4, &d.NodeHasGeoIP, &d.NodeHasRateLimit,
 		&d.DialTimeoutMs, &d.ResponseHeaderTimeoutMs,
 		&d.GroupID.Int64)
@@ -3171,6 +3186,9 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "geo block list: "+sanitizeErr(errGB))
 		return
 	}
+	// Post-quantum-only TLS: no validation needed, it is a pure connection
+	// policy knob whose blast radius is documented inline in the form.
+	tlsPQOnly := r.FormValue("tls_pq_only") == "1"
 	// mTLS client-cert enforcement. require_client_cert needs a valid CA; an
 	// enforced host with no CA would brick the handshake, so reject early.
 	requireClientCert := r.FormValue("require_client_cert") == "1"
@@ -3911,7 +3929,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   geo_mode = ?, geo_countries = ?,
 			   geo_response_code = ?, geo_fail_closed = ?, geo_allow_cidrs = ?,
 			   geo_continents = ?, geo_block_cidrs = ?,
-			   require_client_cert = ?, mtls_ca_id = ?,
+			   require_client_cert = ?, mtls_ca_id = ?, tls_pq_only = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
 			   maintenance_mode = ?, maintenance_message = ?,
@@ -3948,7 +3966,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			geoMode, geoCountries,
 			geoResponseCodeRaw, geoFailClosed, geoAllowCIDRs,
 			geoContinents, geoBlockCIDRs,
-			requireClientCert, nullableInt64(mtlsCAID),
+			requireClientCert, nullableInt64(mtlsCAID), tlsPQOnly,
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,
 			maintenanceMode, maintMsgVal,
@@ -3987,7 +4005,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   geo_mode = ?, geo_countries = ?,
 			   geo_response_code = ?, geo_fail_closed = ?, geo_allow_cidrs = ?,
 			   geo_continents = ?, geo_block_cidrs = ?,
-			   require_client_cert = ?, mtls_ca_id = ?,
+			   require_client_cert = ?, mtls_ca_id = ?, tls_pq_only = ?,
 			   wildcard_enabled = ?, wildcard_zone = ?,
 			   custom_headers = ?, tag = ?,
 			   maintenance_mode = ?, maintenance_message = ?,
@@ -4024,7 +4042,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			geoMode, geoCountries,
 			geoResponseCodeRaw, geoFailClosed, geoAllowCIDRs,
 			geoContinents, geoBlockCIDRs,
-			requireClientCert, nullableInt64(mtlsCAID),
+			requireClientCert, nullableInt64(mtlsCAID), tlsPQOnly,
 			wildcardEnabled, wildcardZone,
 			headersVal, tagVal,
 			maintenanceMode, maintMsgVal,
@@ -4187,6 +4205,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			"cache_public":     cachePublic,
 			"maintenance_mode": maintenanceMode,
 			"location_rules":   len(newLocationRules),
+			"tls_pq_only":      tlsPQOnly,
 		},
 	})
 	// Stay on the edit page (preserving the active tab via #fragment so the
