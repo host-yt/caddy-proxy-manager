@@ -143,6 +143,17 @@ func (h *AdminHandlers) NodesPSKClear(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	// Keep the current state: if the render fails we put it back, so the
+	// database never claims the key is gone while our wg0.conf still carries
+	// it. Recovery advice is only safe once our own side really changed.
+	var prevActive, prevPending, prevTokenHash, prevTokenEnc sql.NullString
+	if err := db.QueryRowContext(ctx,
+		`SELECT wg_psk_enc, wg_psk_pending_enc, wg_psk_token_hash, wg_psk_token_enc
+		 FROM caddy_nodes WHERE id = ?`, id,
+	).Scan(&prevActive, &prevPending, &prevTokenHash, &prevTokenEnc); err != nil {
+		redirectWithFlash(w, r, dest, "", "node not found")
+		return
+	}
 	if _, err := db.ExecContext(ctx,
 		`UPDATE caddy_nodes SET wg_psk_enc = NULL, wg_psk_pending_enc = NULL, wg_psk_token_hash = NULL,
 		   wg_psk_token_enc = NULL, wg_psk_token_expires = NULL WHERE id = ?`, id); err != nil {
@@ -150,7 +161,28 @@ func (h *AdminHandlers) NodesPSKClear(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.WriteWGConfig != nil {
-		_ = h.WriteWGConfig(ctx)
+		if werr := h.WriteWGConfig(ctx); werr != nil {
+			h.Logger.Error("node psk clear: wg render failed, restoring previous state", "node_id", id, "err", werr)
+			cctx, ccancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+			defer ccancel()
+			if _, cerr := db.ExecContext(cctx,
+				`UPDATE caddy_nodes SET wg_psk_enc = ?, wg_psk_pending_enc = ?, wg_psk_token_hash = ?,
+				   wg_psk_token_enc = ? WHERE id = ?`,
+				prevActive, prevPending, prevTokenHash, prevTokenEnc, id); cerr != nil {
+				h.Logger.Error("node psk clear: RESTORE FAILED - panel config and database disagree on this node's PSK",
+					"node_id", id, "err", cerr)
+				audit.Write(cctx, db, h.Logger, r, audit.Entry{
+					UserID: actorUserID(middleware.SessionFromContext(r.Context())),
+					Action: "node.psk.clear.failed", Entity: "node", EntityID: strconv.FormatInt(id, 10),
+					Meta: map[string]any{"render_err": werr.Error(), "restore_err": cerr.Error()},
+				})
+			}
+			// No node-side command here on purpose: stripping the key on the
+			// node while our config still has it is what takes the mesh down.
+			redirectWithFlash(w, r, dest, "",
+				"PSK not cleared: the panel WireGuard config could not be written, so nothing changed. Do not remove the key on the node yet - retry, and check the panel logs if it keeps failing.")
+			return
+		}
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
