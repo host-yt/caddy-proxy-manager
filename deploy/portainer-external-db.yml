@@ -27,7 +27,7 @@ services:
       - internal
 
   app:
-    image: ghcr.io/host-yt/caddy-proxy-manager:1.6.0
+    image: ghcr.io/host-yt/caddy-proxy-manager:1.7.0
     pull_policy: if_not_present
     restart: unless-stopped
     healthcheck:
@@ -103,7 +103,7 @@ services:
       retries: 5
 
   caddy:
-    image: ghcr.io/host-yt/caddy-proxy-manager-edge:1.6.0
+    image: ghcr.io/host-yt/caddy-proxy-manager-edge:1.7.0
     pull_policy: if_not_present
     restart: unless-stopped
     # Falls back to the socket file when the admin endpoint has no TCP port:
@@ -141,7 +141,7 @@ services:
       - internal
 
   hpg-node-agent:
-    image: ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.6.0
+    image: ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.7.0
     pull_policy: if_not_present
     restart: unless-stopped
     network_mode: host

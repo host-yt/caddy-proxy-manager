@@ -47,6 +47,60 @@ is deliberately left as published.
   (`caddyapi.ScreenDialTarget`): Caddy also accepts socket and
   file-descriptor upstream forms, which no address-based screen covers.
 
+## [1.7.0] - 2026-09-21
+
+Follow-up to the 1.6.0 remediation: an independent review of that work found
+three paths it left open, and this closes them, plus the architectural issue
+underneath the whole class - the node's administrative endpoint being
+reachable from the component that serves untrusted traffic. Mechanism details
+are withheld until operators have had time to upgrade.
+
+### Security
+
+- **Backend addresses are now fixed when the configuration is built.**
+  Previously a backend hostname was checked when the route was saved and
+  resolved again later by the node, so the address that was approved and the
+  address actually used could differ. The panel now emits the address it
+  screened and keeps presenting the original hostname for TLS verification.
+- **Every existing SSO route moves to strict mode.** 1.6.0 made strict the
+  default for new routes only; routes created before it kept a mode that did
+  not cover write requests. Permissive remains selectable per route as a
+  deliberate, audited choice.
+- **A backend name the panel cannot resolve is no longer accepted silently.**
+  It has to be either resolvable or explicitly marked as resolved by the node,
+  per route. Existing tunnel-bound routes are marked automatically so nothing
+  goes down on upgrade.
+- **Upstreams that name no address are refused.** Only ordinary host:port
+  targets are emitted.
+
+### Added
+
+- **The node administrative endpoint can run on a unix socket** instead of a
+  TCP port, opt-in per node with `HPG_CADDY_ADMIN_LISTEN_NODES`. It stops
+  being reachable from anything that shares a network with the node, and from
+  most of what could otherwise address it. Both `server doctor` and the node
+  agent report which transport is actually in use, so the old path is only
+  removed once the new one is proven. Rollout and rollback order are in
+  `docs/MULTI_NODE.md`.
+- A node's Admin API URL is now editable after registration - it used to be
+  write-once, which left no way to move an existing node.
+- `server doctor` lists every SSO route still in permissive mode, so the
+  routes this release changes can be seen before upgrading.
+
+### Upgrade notes - read before deploying
+
+1. **Run `server doctor` with the new binary before starting it.** It lists
+   every SSO route the migration will change. Applications behind those routes
+   that relied on unauthenticated write requests will start receiving 401.
+2. **DNS round-robin across a single backend name no longer spreads traffic** -
+   one address is chosen and used. Configure several upstreams instead.
+   A changed backend address is picked up on the next push: immediately on a
+   route change, otherwise within the five-minute drift sweep.
+3. Saving a route whose backend name the panel cannot resolve now fails until
+   either DNS is fixed or the per-route "resolved by the node" switch is set.
+4. The unix socket mode is opt-in. A deployment that upgrades and changes
+   nothing behaves exactly as before.
+
 ## [1.6.0] - 2026-09-21
 
 Remediation release from an external security review of the whole system.
