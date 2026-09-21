@@ -142,6 +142,9 @@ func (cw *ConfigWriter) Write(ctx context.Context, db *sql.DB, cp ControlPlane) 
 	}
 	tmp := target + ".tmp"
 	if err := os.WriteFile(tmp, []byte(content), 0o600); err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return fmt.Errorf("write tmp: %w (%s must be writable by the app user, uid 65532 - a wg volume created by an older image is owned by root; fix with: docker run --rm -v <stack>_wg_config:/c alpine chown 65532:65532 /c)", err, cw.Dir)
+		}
 		return fmt.Errorf("write tmp: %w", err)
 	}
 	if err := os.Rename(tmp, target); err != nil {

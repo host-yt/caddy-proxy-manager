@@ -73,18 +73,6 @@ services:
       - "127.0.0.1:19080:8080"
     networks: [psk]
 
-  # BUG-1 workaround. The panel image never creates /app/wg, so Docker
-  # creates the wg_config mountpoint root:root and the distroless nonroot
-  # app (uid 65532) cannot write wg0.conf. deploy/docker-compose.yml has
-  # the exact same shape, so a fresh prod install hits this too. Kept as a
-  # separate service rather than fixed in the product: this harness only
-  # reports the bug, it does not own the fix.
-  wg-perm:
-    image: alpine:3.20
-    command: ["chown", "65532:65532", "/config"]
-    volumes:
-      - wg_config:/config
-
   # The panel's WireGuard sidecar, in the panel's own netns so wg0 is
   # reachable from the panel process (prod uses network_mode: host).
   wg-panel:
@@ -99,8 +87,6 @@ services:
     depends_on:
       panel:
         condition: service_started
-      wg-perm:
-        condition: service_completed_successfully
 
   node-a:
     build:
