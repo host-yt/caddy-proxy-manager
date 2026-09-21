@@ -22,8 +22,9 @@
 		# burst 5
 	}
 
-	# Storage: filesystem by default. Switch to Redis module for HA later.
-	# storage redis { host redis:6379  password "{$REDIS_PASSWORD}" }
+	# Storage: filesystem, per node. The image builds no shared-storage
+	# module (see deploy/caddy/Dockerfile), so do NOT uncomment a `storage`
+	# directive here - Caddy would reject the whole config at load.
 
 	# Use staging while testing to avoid burning Let's Encrypt rate limit.
 	# acme_ca https://acme-staging-v02.api.letsencrypt.org/directory

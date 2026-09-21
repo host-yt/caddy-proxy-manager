@@ -13,8 +13,11 @@ import (
 //	active_active → every enabled+approved node in the group with capacity.
 //	failover      → primary (highest priority enabled+approved+healthy);
 //	                warm-secondary (next-highest) tracked for future
-//	                promotion. We deploy to both so the cert exists when
-//	                we need it (caddy-tlsredis shares cert storage).
+//	                promotion. We deploy the route to both so the secondary
+//	                can answer immediately; certificate storage is per node
+//	                (the shipped image has no shared-storage module), so the
+//	                secondary issues its own cert on the first handshake it
+//	                serves. See docs/MULTI_NODE.md "Certificates on failover".
 //
 // Capacity check uses current_routes < max_routes per node.
 func nodePlacement(ctx context.Context, db *sql.DB, groupID int64) (primary int64, all []int64, mode string, err error) {

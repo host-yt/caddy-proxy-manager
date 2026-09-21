@@ -37,9 +37,9 @@ Single binary ~21 MB image, ~28 MB idle RAM.
   hosts across the group automatically. Customer/origin backends reach the
   fleet over a dedicated WireGuard tunnel that falls back to WSS
   (WebSocket-over-TLS) when UDP is blocked, so backends behind NAT or a
-  restrictive firewall stay reachable. Certificate storage can be shared
-  across a group (Redis-backed) so a failover or active_active peer already
-  holds the cert before it needs to serve traffic. Node health is scraped
+  restrictive firewall stay reachable. Each node keeps its own certificate
+  store and issues on demand, so a peer taking over a host issues its own
+  certificate on the first TLS handshake it serves. Node health is scraped
   from Caddy's Prometheus endpoint, and automatic failover moves routes off
   a dead node onto a healthy sibling in the same group.
 

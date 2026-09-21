@@ -529,6 +529,29 @@ to another peer in the same group without requiring manual intervention.
   whether IP forwarding and iptables/nftables rules are correctly set on each
   node.
 
+### Certificates on failover
+
+**Certificate storage is per node.** Each node keeps its own `caddy_data`
+volume and there is no shared store: the edge image (`deploy/caddy/Dockerfile`)
+builds no TLS-storage module, so do not add a `storage` directive to a node's
+Caddyfile - Caddy would reject the whole config at load.
+
+What that means in practice:
+
+- A route on an `active_active`/`failover` group is pushed to every node in the
+  group, so a peer can answer the moment traffic arrives - but it holds no
+  certificate for that host until it serves a handshake itself.
+- The first TLS handshake a peer serves triggers on-demand issuance, gated by
+  the panel's `ask` endpoint. That is one ACME order per node per host, and it
+  costs the client a slow first handshake (seconds), not an error - unless the
+  CA's rate limit has been hit.
+- Budget ACME rate limits for `nodes x hosts`, not `hosts`. Let's Encrypt's
+  50 certificates/registered-domain/week is the one that bites on a large
+  active_active group; move to a CA with a higher limit or a wildcard via
+  DNS-01 (Section on DNS providers in [DNS_PROVIDERS.md](DNS_PROVIDERS.md)) if you are near it.
+- To pre-warm a peer before a planned failover, resolve the host to that node
+  and complete one HTTPS request against it.
+
 **Automatic failover** is implemented. When `failover.auto_enabled` is set
 (`Admin → Settings → Failover`), the alert evaluator moves active routes from
 a dead node to a healthy sibling in the same `mode=failover` node group and
