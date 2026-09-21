@@ -3480,12 +3480,19 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// HPG-001: Caddy expands placeholders in a static_response body and in the
 	// Location header, so a tenant string landing there is screened at write
 	// time, not only before emission. Fail closed.
-	for _, f := range []struct{ name, val string }{
-		{"custom error HTML", errHTML},
-		{"maintenance message", maintenanceMsg},
-		{"redirect URL", redirectURL},
+	for _, f := range []struct {
+		name, val string
+		strict    bool // HTML and free text carry legitimate braces; URLs never do
+	}{
+		{"custom error HTML", errHTML, false},
+		{"maintenance message", maintenanceMsg, false},
+		{"redirect URL", redirectURL, true},
 	} {
-		if err := routes.ScreenTenantString(f.val); err != nil {
+		screen := routes.ScreenTenantText
+		if f.strict {
+			screen = routes.ScreenTenantString
+		}
+		if err := screen(f.val); err != nil {
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", f.name+": "+sanitizeErr(err))
 			return
 		}

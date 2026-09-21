@@ -197,6 +197,12 @@ func resolveRandomEgressIP(ips []string, routeID int64) string {
 	return ips[int(routeID)%len(ips)]
 }
 
+// serviceActiveSQL keeps a suspended or terminated service off the node even if
+// some path left its routes in a serving status. Route status alone is not the
+// authority; SuspendService is, and this is the defence in depth for it.
+const serviceActiveSQL = ` AND EXISTS (SELECT 1 FROM services sv
+                WHERE sv.id = r.service_id AND sv.status = 'active')`
+
 // buildRoutesForNode collects every active/dns_ok/pending_ssl route placed on
 // the given node, applies plan overrides, and returns Caddy route structs.
 func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddyapi.Route, []int64, error) {
@@ -312,7 +318,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		   -- Defence in depth: only advanceRoute should be able to put a route
 		   -- in a serving status, and it refuses unverified ones. A status set
 		   -- by any other path must still not emit an unproven host matcher.
-		   AND COALESCE(r.domain_verified, 0) = 1
+		   AND COALESCE(r.domain_verified, 0) = 1`+serviceActiveSQL+`
 		 ORDER BY r.id ASC`, nodeID, nodeID, nodeID, nodeID)
 	if err != nil {
 		return nil, nil, err
@@ -1003,7 +1009,7 @@ func (s *Service) buildWildcardPolicies(ctx context.Context, nodeID int64) []cad
 		   JOIN dns_providers dp ON dp.name = r.wildcard_zone
 		  WHERE r.caddy_node_id = ?
 		    AND r.wildcard_enabled = 1
-		    AND r.status IN ('dns_ok','active','pending_ssl')
+		    AND r.status IN ('dns_ok','active','pending_ssl')`+serviceActiveSQL+`
 		  ORDER BY dp.name ASC`, nodeID)
 	if err != nil {
 		s.Logger.Error("wildcard: policy query failed, no DNS-01 policy emitted", "node_id", nodeID, "err", err)
@@ -1059,7 +1065,7 @@ func (s *Service) buildManualCertsForNode(ctx context.Context, nodeID int64) []c
 		         OR EXISTS (SELECT 1 FROM route_node_assignments rna
 		                     WHERE rna.route_id = r.id AND rna.node_id = ?))
 		    AND r.ssl_enabled = 1
-		    AND r.status IN ('dns_ok','active','pending_ssl')
+		    AND r.status IN ('dns_ok','active','pending_ssl')`+serviceActiveSQL+`
 		  ORDER BY mc.id ASC`, nodeID, nodeID)
 	if err != nil {
 		s.Logger.Error("manual certs: query failed", "node_id", nodeID, "err", err)

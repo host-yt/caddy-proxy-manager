@@ -112,10 +112,17 @@ func (s *Service) checkRouteState(ctx context.Context, serviceID, routeID int64,
 // placeholder reading the node's environment or filesystem. It is the write-time
 // half of the screening the emission path already does; fail closed.
 //
-// TODO(integrator): WP1 owns the shared screener in internal/caddyapi. This is
-// a thin wrapper over the existing caddyapi.ScreenReplacerValue - point it at
-// WP1's function when it lands instead of keeping a second copy.
 func ScreenTenantString(v string) error {
+	if err := caddyapi.ScreenTenantTemplate(v); err != nil {
+		return fmt.Errorf("%w: %v", ErrUnsafePlaceholder, err)
+	}
+	return nil
+}
+
+// ScreenTenantText is the looser check for free-text and HTML values, where a
+// stray brace is legitimate (CSS). Emission neutralizes what survives this, so
+// the write-time job is only to tell the operator early about the obvious ones.
+func ScreenTenantText(v string) error {
 	if err := caddyapi.ScreenReplacerValue(v); err != nil {
 		return fmt.Errorf("%w: %v", ErrUnsafePlaceholder, err)
 	}
