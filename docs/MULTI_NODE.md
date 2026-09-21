@@ -858,9 +858,25 @@ node's entire configuration - every tenant on it. See
 **This is now required for remote nodes.** `deploy/remote-node/docker-compose.yml`
 publishes Caddy's admin port on host loopback only, the node-agent example has
 the proxy switched on, and the panel refuses to register a node whose API URL is
-a raw remote `:2019` (`/admin/nodes` and `POST /api/v1/nodes`). A fleet that is
-mid-migration can set `HPG_ALLOW_UNAUTHENTICATED_NODE_ADMIN=1` on the panel to
-restore the old behaviour; `server doctor` warns for every node still on it.
+a raw remote `:2019` (`/admin/nodes` and `POST /api/v1/nodes`).
+
+Registration and pushing are two separate gates:
+
+- `HPG_ALLOW_UNAUTHENTICATED_NODE_ADMIN=1` on the panel re-opens *registration*
+  of a legacy API URL while a fleet migrates. It does not authorize a push.
+- The push itself is per node: **Allow pushing to this node over an
+  unauthenticated admin API** on `/admin/nodes/{id}/edit`
+  (`caddy_nodes.allow_unauthenticated_admin`). It is off for every node
+  registered from this version on; nodes that had no key when the column was
+  added were grandfathered on so an upgrade does not stop a fleet mid-flight.
+  The panel clears the box by itself on the first push where the node's key
+  works. A node with neither a working key nor that box ticked is refused, and
+  the push fails with the node named.
+- `HPG_ADMIN_PROXY_PORTS` (comma-separated) declares the port(s) this
+  deployment runs the admin proxy on when it is not `2021`, so a node
+  registered on that port counts as the authenticated path.
+
+`server doctor` warns for every node still on the legacy path.
 
 The node-agent goes **in front of the admin API**:
 
@@ -913,13 +929,15 @@ Order matters: the panel must be able to reach the node at every step.
 
 - The key lives in `caddy_nodes.admin_proxy_key_enc`, encrypted with
   `APP_SECRET`. Restoring a backup onto an installation with a different
-  `APP_SECRET` makes it undecryptable: the panel then falls back to a direct
-  connection and the agent answers 401, which `server doctor` reports. Rotate
-  to re-issue.
+  `APP_SECRET` makes it undecryptable: pushes to that node then fail with a
+  decrypt error rather than dropping to an unauthenticated connection, and
+  `server doctor` reports it. Rotate to re-issue.
 - Rotating agent credentials issues a new admin-proxy key; update the agent's
   environment in the same pass or the panel will start getting 401s from it.
-- A node that has not been migrated keeps working exactly as before - the key is
-  simply unused. There is no fleet-wide flag day.
+- A node that has not been migrated keeps working only while its per-node
+  allowance is on (nodes present at upgrade were grandfathered). There is no
+  fleet-wide flag day, but there is no fleet-wide switch either: the allowance
+  is per node and clears itself once that node's key works.
 
 ### Moving a node off the TCP admin port
 

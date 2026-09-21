@@ -506,12 +506,30 @@ host loopback - see
 [MULTI_NODE.md](MULTI_NODE.md#12-authenticating-the-nodes-admin-api) for the
 order, which matters.
 
-Existing fleets are not cut off: nothing changes for nodes already registered,
-the auto-join script still onboards a node on the direct path (its agent, and
-therefore its key, only exists after tunnel-enable), and
-`HPG_ALLOW_UNAUTHENTICATED_NODE_ADMIN=1` on the panel re-opens registration for
-a fleet mid-migration. `server doctor` prints an `admin API auth` row per node
-so the remaining ones are visible.
+Pushing to a node is authenticated by default. A node is pushed to over an
+unauthenticated admin API only where there is no network to authenticate over
+(loopback, a unix socket, the manager's own compose bridge) or where an
+operator has ticked that single node's migration-window allowance. A key that
+is present but will not decrypt (a restore under a different `APP_SECRET`)
+fails the push instead of falling back. Two separate controls exist, and they
+are not interchangeable:
+
+- **`caddy_nodes.allow_unauthenticated_admin`** - the per-node allowance for
+  the push itself. It is the **Allow pushing to this node over an
+  unauthenticated admin API** box on the node's edit page, off for every node
+  registered from this version on. Nodes that had no key when the column was
+  added were grandfathered on so an upgrade does not stop a fleet mid-flight.
+  The panel clears it by itself on the first push where the node's key works.
+- **`HPG_ALLOW_UNAUTHENTICATED_NODE_ADMIN=1`** on the panel - re-opens
+  *registration* of a legacy API URL while a fleet migrates. It authorizes
+  nothing at push time.
+
+`HPG_ADMIN_PROXY_PORTS` (comma-separated) declares the port(s) a deployment
+runs the node-agent admin proxy on when it is not the documented `2021`, so a
+node registered on that port is recognised as the authenticated path. The
+auto-join script still onboards a node on the direct path (its agent, and
+therefore its key, only exists after tunnel-enable). `server doctor` prints an
+`admin API auth` row per node so the remaining ones are visible.
 
 **Still outstanding.** Until a node is migrated, treat reachability of
 `<wg_ip>:2019` as equivalent to root on that node and keep the control-plane
