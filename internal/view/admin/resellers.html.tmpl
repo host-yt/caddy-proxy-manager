@@ -60,7 +60,7 @@
       <div class="flex gap-2">
         <button type="submit" class="r-btn r-btn-secondary">Save</button>
         <button type="submit" formaction="/admin/reseller-plans/{{.ID}}/delete" class="r-btn r-btn-danger-ghost"
-                onclick="return confirm('Delete package? Fails if any reseller still uses it.')">Delete</button>
+                data-confirm="Delete package? Fails if any reseller still uses it.">Delete</button>
       </div>
       <div class="col-span-2 md:col-span-6">
         <span class="t-caption mr-2" style="color:rgb(var(--muted))">Pools:</span>
@@ -116,7 +116,7 @@
           {{else}}{{.ClientCount}} clients / {{.AdminCount}} admins · no package (unlimited){{end}}
         </span>
       </div>
-      <form method="POST" action="/admin/resellers/{{.ID}}/delete" onsubmit="return confirm('Delete reseller? Owned clients/admins return to platform-direct and their sessions are revoked.')">
+      <form method="POST" action="/admin/resellers/{{.ID}}/delete" data-confirm="Delete reseller? Owned clients/admins return to platform-direct and their sessions are revoked.">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
         <button type="submit" class="r-btn r-btn-danger-ghost">Delete</button>
       </form>
@@ -187,7 +187,7 @@
 
     <!-- Provision a reseller-admin -->
     <form method="POST" action="/admin/resellers/{{.ID}}/admins" class="flex items-end gap-2 flex-wrap"
-          onsubmit="return confirm('This revokes the user active sessions so the new scope takes effect. Continue?')">
+          data-confirm="This revokes the user active sessions so the new scope takes effect. Continue?">
       <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
       <div class="grow">
         <label class="block t-caption mb-1" style="color:rgb(var(--muted))">Provision reseller-admin (revokes their sessions)</label>
