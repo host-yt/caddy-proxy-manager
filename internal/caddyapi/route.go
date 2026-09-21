@@ -175,6 +175,15 @@ type Route struct {
 	CustomErrorHTML     string
 	CustomErrorBranding ErrorBranding
 
+	// PortalPublicPaths lists the Caddy path matchers an operator has declared
+	// public for this route; GET/HEAD requests matching one skip the portal
+	// gate. EMPTY BY DEFAULT: the path a resource sits under is not proof it is
+	// public, so there are no implicit exceptions (HPG-003).
+	PortalPublicPaths []string
+	// PortalNoGrants distinguishes "verifier missing" from "protection on with
+	// an empty grant set" in the fail-closed denial an operator sees.
+	PortalNoGrants bool
+
 	// CustomHandlers is a JSON-encoded array of additional Caddy handler
 	// objects (e.g. rate_limit, request_body, encode). They run BEFORE
 	// the proxy/redirect/maintenance primary in declaration order so the
@@ -412,7 +421,19 @@ func BuildRoute(r Route) map[string]any {
 		return map[string]any{
 			"@id":      "route_" + r.ID,
 			"match":    []any{match},
-			"handle":   []any{quarantineDenyHandler()},
+			"handle":   []any{quarantineDenyHandler("custom-handlers")},
+			"terminal": true,
+		}
+	}
+
+	// Fail closed: a stored redirect/rewrite/header carries a placeholder the
+	// node would expand against its own disk or environment. Publishing the
+	// route would publish the leak, so serve the quarantine page instead.
+	if TenantTemplateQuarantine(r) != "" {
+		return map[string]any{
+			"@id":      "route_" + r.ID,
+			"match":    []any{match},
+			"handle":   []any{quarantineDenyHandler("placeholder")},
 			"terminal": true,
 		}
 	}
@@ -1086,43 +1107,13 @@ func BuildRoute(r Route) map[string]any {
 		// (ssoMatch restrictions apply) - POST/PUT/PATCH/DELETE reach the
 		// origin unauthenticated, so this mode is for browser apps with
 		// their own API auth layer, never for APIs with none of their own.
-		authRoute := map[string]any{
-			"handle": []any{
-				map[string]any{
-					"handler": "subroute",
-					"routes": []any{
-						map[string]any{
-							"handle": []any{
-								map[string]any{
-									"handler": "rewrite",
-									"method":  "GET",
-									"uri":     "/outpost.goauthentik.io/auth/caddy",
-								},
-								fwd,
-							},
-						},
-					},
-				},
-			},
-		}
+		// Default mode only: restrict the auth gate to document-load GET/HEAD.
+		// Strict mode (no matcher) catches everything after the outpost passthrough.
+		var ssoMatchers []any
 		if !r.SSOStrictMode {
-			// Default mode only: restrict the auth gate to document-load GET/HEAD.
-			// Strict mode (no match key) catches everything after the outpost passthrough.
-			authRoute["match"] = []any{ssoMatch}
+			ssoMatchers = []any{ssoMatch}
 		}
-		handlers = append(handlers, map[string]any{
-			"handler": "subroute",
-			"routes":  []any{authRoute},
-		})
-		// Belt + braces: restore the original URI after forward_auth so the
-		// downstream backend reverse_proxy never sees the rewritten /auth/caddy
-		// path. Caddy subroute scope doesn't reliably isolate URI rewrites;
-		// this rewrite back to orig_uri is a no-op on the happy path and
-		// safety net otherwise.
-		handlers = append(handlers, map[string]any{
-			"handler": "rewrite",
-			"uri":     "{http.request.orig_uri}",
-		})
+		handlers = append(handlers, forwardAuthGate(fwd, "/outpost.goauthentik.io/auth/caddy", ssoMatchers))
 	}
 
 	// Built-in forward-auth portal. Same Caddy forward_auth mechanism as the
@@ -1398,6 +1389,9 @@ func misconfigDenyHandler(r Route) map[string]any {
 	reason := "client certificate enforcement is unavailable"
 	if r.PortalDenyOnMisconfig {
 		reason = "access portal verifier is unavailable"
+		if r.PortalNoGrants {
+			reason = "access portal protection is on but nobody has been granted access"
+		}
 	}
 	return map[string]any{
 		"handler":     "static_response",
@@ -1427,7 +1421,7 @@ func CustomHandlerQuarantine(r Route) string {
 // quarantineDenyHandler is the terminal response for a quarantined route. The
 // reason stays out of the body (it echoes stored config to the internet); the
 // header names the cause so an operator curling the domain knows why.
-func quarantineDenyHandler() map[string]any {
+func quarantineDenyHandler(kind string) map[string]any {
 	return map[string]any{
 		"handler":     "static_response",
 		"status_code": 503,
@@ -1435,9 +1429,9 @@ func quarantineDenyHandler() map[string]any {
 			"Content-Type":     []string{"text/plain; charset=utf-8"},
 			"Cache-Control":    []string{"no-store"},
 			"Retry-After":      []string{"60"},
-			"X-Hpg-Quarantine": []string{"custom-handlers"},
+			"X-Hpg-Quarantine": []string{kind},
 		},
-		"body": "Service unavailable: this route is quarantined because its custom handler chain failed validation. A platform administrator must review it.\n",
+		"body": "Service unavailable: this route is quarantined because its stored configuration failed validation. A platform administrator must review it.\n",
 	}
 }
 
@@ -2117,45 +2111,36 @@ func buildPortalForwardAuth(r Route) []any {
 		},
 		"handle_response": []any{hr},
 	})
-	// All methods verified. The static-asset bypass (a hard refresh must not
-	// stampede the verifier) is restricted to GET/HEAD: a mutating request
-	// under a *.js-looking path is a handler, not a subresource.
-	staticBypass := map[string]any{
-		"method": []string{"GET", "HEAD"},
-		"not": []any{
-			map[string]any{"path": []string{
-				"*.js", "*.css", "*.map",
-				"*.png", "*.jpg", "*.jpeg", "*.gif", "*.svg", "*.ico", "*.webp", "*.avif",
-				"*.woff", "*.woff2", "*.ttf", "*.eot", "*.otf",
-				"*.mp4", "*.webm", "*.mp3", "*.wav",
-				"/static/*", "/assets/*", "/_next/static/*",
-			}},
-		},
-	}
-	// Matcher sets OR together: gate every non-GET/HEAD request unconditionally.
-	unsafeMethods := map[string]any{
-		"not": []any{map[string]any{"method": []string{"GET", "HEAD"}}},
-	}
-	authRoute := map[string]any{
-		"match": []any{staticBypass, unsafeMethods},
-		"handle": []any{
+	// Default: no matcher, so EVERY request is verified. Exceptions exist only
+	// where the operator named an explicitly public path (HPG-003).
+	var gateMatchers []any
+	if len(r.PortalPublicPaths) > 0 {
+		gateMatchers = []any{
+			// Gate everything except the declared public paths...
 			map[string]any{
-				"handler": "subroute",
-				"routes": []any{
-					map[string]any{
-						"handle": []any{
-							map[string]any{"handler": "rewrite", "method": "GET", "uri": "/hpg-portal/verify"},
-							fwd,
-						},
-					},
-				},
+				"method": []string{"GET", "HEAD"},
+				"not":    []any{map[string]any{"path": r.PortalPublicPaths}},
 			},
-		},
+			// ...and, since matcher sets OR, gate every unsafe method even
+			// there: a POST under /assets/* is a handler, not a subresource.
+			map[string]any{"not": []any{map[string]any{"method": []string{"GET", "HEAD"}}}},
+		}
 	}
-	out = append(out, map[string]any{"handler": "subroute", "routes": []any{authRoute}})
-	// Restore original URI so the backend proxy never sees /hpg-portal/verify.
-	out = append(out, map[string]any{"handler": "rewrite", "uri": "{http.request.orig_uri}"})
+	out = append(out, forwardAuthGate(fwd, "/hpg-portal/verify", gateMatchers))
 	return out
+}
+
+// forwardAuthGate wraps a verifier reverse_proxy in a subroute. The rewrite to
+// the check endpoint lives INSIDE the proxy, so only the auth SUBREQUEST
+// becomes a GET; a standalone rewrite handler would also turn the real
+// downstream request into a GET and drop its body (HPG-006).
+func forwardAuthGate(fwd map[string]any, checkURI string, match []any) map[string]any {
+	fwd["rewrite"] = map[string]any{"method": "GET", "uri": checkURI}
+	route := map[string]any{"handle": []any{fwd}}
+	if len(match) > 0 {
+		route["match"] = match
+	}
+	return map[string]any{"handler": "subroute", "routes": []any{route}}
 }
 
 // itoa avoids strconv dep in this hot path; ports are 1..65535.

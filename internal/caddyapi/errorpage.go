@@ -1,9 +1,30 @@
 package caddyapi
 
 import (
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// cssColorSafe bounds what may be spliced into the page's <style> block. The
+// value is admin/tenant supplied and is NOT html-escaped there, so anything
+// able to close the block (`<`, `;`, `}`, `/`) would be script injection.
+var cssColorSafe = regexp.MustCompile(`^[#a-zA-Z0-9(),.% -]{1,64}$`)
+
+// safeAssetURL keeps a tenant logo out of href/src as a javascript: (or data:)
+// URL. Absolute http(s) or site-relative only; anything else drops the link.
+func safeAssetURL(u string) string {
+	t := strings.TrimSpace(u)
+	switch {
+	case t == "":
+		return ""
+	case strings.HasPrefix(t, "https://"), strings.HasPrefix(t, "http://"):
+		return t
+	case strings.HasPrefix(t, "/") && !strings.HasPrefix(t, "//"):
+		return t
+	}
+	return ""
+}
 
 // renderErrorPage returns a self-contained HTML doc for error /
 // maintenance responses. Single source of truth so 404 / 503 / 502 etc.
@@ -13,24 +34,30 @@ import (
 // title:  short headline (e.g. "Service under maintenance").
 // msg:    operator-supplied detail (escaped before splicing).
 func renderErrorPage(status int, title, msg string, b ErrorBranding) string {
-	bg := b.BgColor
-	if bg == "" {
+	// Caddy expands static_response bodies through the replacer, so every
+	// tenant-supplied fragment spliced in here is neutralized first (HPG-001).
+	title = NeutralizeTenantTemplate(title)
+	msg = NeutralizeTenantTemplate(msg)
+	bg := strings.TrimSpace(b.BgColor)
+	if !cssColorSafe.MatchString(bg) {
 		bg = "#1f2937" // slate-800 deep gray
 	}
-	brand := b.Brand
+	brand := NeutralizeTenantTemplate(b.Brand)
 	if brand == "" {
 		brand = "Hostyt"
 	}
+	logoURL := NeutralizeTenantTemplate(safeAssetURL(b.LogoURL))
+	logoLink := NeutralizeTenantTemplate(safeAssetURL(b.LogoLink))
 	logoHTML := ""
 	switch {
-	case b.LogoURL != "" && b.LogoLink != "":
-		logoHTML = `<a href="` + htmlEscape(b.LogoLink) + `" class="logo"><img src="` +
-			htmlEscape(b.LogoURL) + `" alt="` + htmlEscape(brand) + `"></a>`
-	case b.LogoURL != "":
-		logoHTML = `<img class="logo" src="` + htmlEscape(b.LogoURL) + `" alt="` + htmlEscape(brand) + `">`
+	case logoURL != "" && logoLink != "":
+		logoHTML = `<a href="` + htmlEscape(logoLink) + `" class="logo"><img src="` +
+			htmlEscape(logoURL) + `" alt="` + htmlEscape(brand) + `"></a>`
+	case logoURL != "":
+		logoHTML = `<img class="logo" src="` + htmlEscape(logoURL) + `" alt="` + htmlEscape(brand) + `">`
 	default:
-		if b.LogoLink != "" {
-			logoHTML = `<a href="` + htmlEscape(b.LogoLink) + `" class="brand">` + htmlEscape(brand) + `</a>`
+		if logoLink != "" {
+			logoHTML = `<a href="` + htmlEscape(logoLink) + `" class="brand">` + htmlEscape(brand) + `</a>`
 		} else {
 			logoHTML = `<span class="brand">` + htmlEscape(brand) + `</span>`
 		}
@@ -75,12 +102,13 @@ func routeErrorBranding(r Route) ErrorBranding {
 	return r.ErrorBranding
 }
 
-// routeMaintenanceBody renders a route's maintenance 503 body: a verbatim
-// admin-supplied HTML page when provided, else the branded shell. The HTML is
-// admin-scoped and capped at save time, so it is emitted as-is (not templated).
+// routeMaintenanceBody renders a route's maintenance 503 body: the tenant's own
+// HTML page when provided, else the branded shell. Caddy expands the body
+// through its replacer, so the page is neutralized rather than emitted verbatim
+// - CSS braces survive, {file.*}/{env.*} become literal text (HPG-001).
 func routeMaintenanceBody(r Route, msg string) string {
 	if r.CustomErrorOverride && strings.TrimSpace(r.CustomErrorHTML) != "" {
-		return r.CustomErrorHTML
+		return NeutralizeTenantTemplate(r.CustomErrorHTML)
 	}
 	return maintenanceBody(msg, routeErrorBranding(r))
 }
