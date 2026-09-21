@@ -761,6 +761,11 @@ type nodeRow struct {
 	WstunnelPort   int    // 0 = unset; prefilled into the tunnel modal
 	PSKState       string // mesh WireGuard PSK: "active" | "pending" | ""
 
+	// AllowUnauthAdmin: per-node migration-window allowance for pushing over
+	// an admin API that nothing authenticates. Clears itself on the first
+	// push where the node's key decrypts.
+	AllowUnauthAdmin bool
+
 	// Caddy capability flags set by the node-agent probe.
 	HasWAF       bool
 	HasL4        bool
@@ -907,6 +912,9 @@ type nodeEditData struct {
 	ProxyProtocolIn        bool
 	ProxyProtocolAllow     string // comma-separated CIDRs, raw for the textarea
 	ProxyProtocolTimeoutMs int
+
+	// AllowUnauthAdmin: per-node migration-window allowance (see nodeRow).
+	AllowUnauthAdmin bool
 }
 
 // NodesEdit renders GET /admin/nodes/{id}/edit.
@@ -932,7 +940,8 @@ func (h *AdminHandlers) NodesEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_dns_module END, ?),
 		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit END, ?),
 		        COALESCE(CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip      END, ?), COALESCE(caddy_version,''),
-		        proxy_protocol_in, proxy_protocol_allow, proxy_protocol_timeout_ms
+		        proxy_protocol_in, proxy_protocol_allow, proxy_protocol_timeout_ms,
+		        COALESCE(allow_unauthenticated_admin,0)
 		   FROM caddy_nodes WHERE id = ?`,
 		b2i(h.Routes != nil && h.Routes.WAFModuleAvailable),
 		b2i(h.Routes != nil && h.Routes.Layer4ModuleAvailable),
@@ -941,7 +950,8 @@ func (h *AdminHandlers) NodesEdit(w http.ResponseWriter, r *http.Request) {
 		b2i(h.Routes != nil && h.Routes.GeoModuleAvailable), id,
 	).Scan(&d.Name, &d.APIURL, &d.PublicHostname, &d.PublicIP, &outboundIPsJSON,
 		&d.HasWAF, &d.HasL4, &d.HasDNSModule, &d.HasRateLimit, &d.HasGeoIP, &d.CaddyVersion,
-		&d.ProxyProtocolIn, &d.ProxyProtocolAllow, &d.ProxyProtocolTimeoutMs); err != nil {
+		&d.ProxyProtocolIn, &d.ProxyProtocolAllow, &d.ProxyProtocolTimeoutMs,
+		&d.AllowUnauthAdmin); err != nil {
 		d.Error = "node not found"
 		h.render(w, "node_edit", d)
 		return
@@ -1018,6 +1028,11 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, editPath, "", "PROXY protocol allow-list: "+ppErr.Error())
 		return
 	}
+	// Migration-window allowance: unticked means this node's pushes require an
+	// authenticated admin endpoint. The form prefills the stored value, so a
+	// routine save keeps it; the push path clears it once a key decrypts.
+	allowUnauthAdmin := r.FormValue("allow_unauthenticated_admin") == "1"
+
 	proxyProtocolTimeoutMs, err := strconv.Atoi(strings.TrimSpace(r.FormValue("proxy_protocol_timeout_ms")))
 	if err != nil || proxyProtocolTimeoutMs <= 0 {
 		proxyProtocolTimeoutMs = 5000
@@ -1032,10 +1047,11 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 		        has_waf = ?, has_l4 = ?, has_dns_module = ?,
 		        has_rate_limit = ?, has_geoip = ?, caddy_version = ?,
 		        proxy_protocol_in = ?, proxy_protocol_allow = ?, proxy_protocol_timeout_ms = ?,
+		        allow_unauthenticated_admin = ?,
 		        modules_probed_at = NOW()
 		 WHERE id = ?`,
 		outboundIPsVal, apiURL, hasWAF, hasL4, hasDNSModule, hasRateLimit, hasGeoIP, caddyVersion,
-		proxyProtocolIn, proxyProtocolAllow, proxyProtocolTimeoutMs, id); err != nil {
+		proxyProtocolIn, proxyProtocolAllow, proxyProtocolTimeoutMs, allowUnauthAdmin, id); err != nil {
 		redirectWithFlash(w, r, editPath, "", "update failed: "+sanitizeErr(err))
 		return
 	}
@@ -1050,7 +1066,8 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.update", Entity: "node", EntityID: fmt.Sprintf("%d", id),
-		Meta: map[string]any{"outbound_ips": ips, "caddy_version": caddyVersion, "proxy_protocol_in": proxyProtocolIn},
+		Meta: map[string]any{"outbound_ips": ips, "caddy_version": caddyVersion, "proxy_protocol_in": proxyProtocolIn,
+			"allow_unauthenticated_admin": allowUnauthAdmin},
 	})
 	redirectWithFlash(w, r, "/admin/nodes", "Node updated", "")
 }
@@ -1556,7 +1573,9 @@ func (h *AdminHandlers) NodesApprove(w http.ResponseWriter, r *http.Request) {
 	msg := "Node approved"
 	if security.UnauthenticatedNodeAdminURL(joinURL) {
 		msg += ". This node is reached over Caddy's unauthenticated admin API - " +
-			"enable the tunnel, run the node-agent admin proxy, then repoint its API URL at :2021 (docs/MULTI_NODE.md)"
+			"enable the tunnel, run the node-agent admin proxy, then repoint its API URL at :2021 (docs/MULTI_NODE.md). " +
+			"Until it has an admin-proxy key, or the per-node \"unauthenticated admin API\" allowance is ticked on its " +
+			"edit page, config pushes to this node are refused"
 	}
 	redirectWithFlash(w, r, "/admin/nodes", msg, "")
 }
@@ -5675,6 +5694,7 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 		        COALESCE(n.caddy_version,''), n.last_rtt_ms,
 		        CASE WHEN n.wg_psk_enc IS NOT NULL THEN 'active'
 		             WHEN n.wg_psk_pending_enc IS NOT NULL THEN 'pending' ELSE '' END,
+		        COALESCE(n.allow_unauthenticated_admin,0),
 		        COALESCE((SELECT SUM(lr.bytes_resp)
 		                  FROM log_rollups lr
 		                  JOIN routes rr ON rr.id = lr.route_id
@@ -5695,7 +5715,7 @@ func (h *AdminHandlers) populateNodesData(ctx context.Context, d *nodesData) {
 				&n.FwdFirewallBackend, &n.FwdLastSetupError,
 				&n.FwdReportedAt,
 				&n.HasWAF, &n.HasL4, &n.HasGeoIP, &n.HasRateLimit, &n.CaddyVersion, &n.LastRTTMs,
-				&n.PSKState, &n.Bandwidth24h); err == nil {
+				&n.PSKState, &n.AllowUnauthAdmin, &n.Bandwidth24h); err == nil {
 				n.WGKeepalive = 25
 				d.Nodes = append(d.Nodes, n)
 			}

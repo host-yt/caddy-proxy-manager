@@ -75,6 +75,19 @@
         </div>
       </fieldset>
 
+      <!-- SEC-002: the panel authenticates itself to the node-agent admin proxy
+           with a per-node key. This box is the migration window, not a setting. -->
+      <fieldset class="space-y-3 border-t border-[rgb(var(--border))] pt-4">
+        <legend class="t-eyebrow mb-2">Admin API transport</legend>
+        <label class="flex items-center gap-2 cursor-pointer t-body">
+          <input type="checkbox" id="allow_unauth_admin" name="allow_unauthenticated_admin" value="1"
+            {{if .AllowUnauthAdmin}}checked{{end}}
+            class="rounded accent-[rgb(var(--accent))] transition-colors">
+          Allow pushing to this node over an unauthenticated admin API (migration window)
+        </label>
+        <p class="t-caption -mt-1">Temporary allowance for a node that has not been migrated yet. Leave it off: pushes then require the node-agent admin proxy and this node's key. The panel clears the box by itself on the first push where the key works. See <a href="https://github.com/host-yt/caddy-proxy-manager/blob/main/docs/MULTI_NODE.md" target="_blank" rel="noopener" class="underline hover:no-underline transition-all">MULTI_NODE.md &sect;12</a>.</p>
+      </fieldset>
+
       <!-- Inbound PROXY protocol: node sits behind an L4 balancer (HAProxy etc.)
            that prepends a PROXY v1/v2 header so Caddy sees the real client IP. -->
       <fieldset class="space-y-3 border-t border-[rgb(var(--border))] pt-4">
