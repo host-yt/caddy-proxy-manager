@@ -331,8 +331,10 @@ func (s *Server) routes() {
 			r.Get("/verify", s.deps.Portal.Verify)
 			r.Get("/login", s.deps.Portal.LoginPage)
 			r.Post("/login", s.deps.Portal.LoginSubmit)
+			// HPG-SEC-007: logout is a state change, POST-only + CSRF-checked
+			// (Portal.Logout). GET only renders a confirmation that posts to it.
 			r.Post("/logout", s.deps.Portal.Logout)
-			r.Get("/logout", s.deps.Portal.Logout)
+			r.Get("/logout", s.deps.Portal.LogoutConfirm)
 			r.Get("/2fa", s.deps.Portal.Portal2FAPage)
 			r.Post("/2fa", s.deps.Portal.Portal2FASubmit)
 			// OAuth2 social login for the portal (provider-agnostic).
