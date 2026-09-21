@@ -15,7 +15,7 @@ Comparison of HPG with common alternatives.
 | GeoIP analytics | yes | no | no | Country-level; world map view |
 | AI assistant | yes | no | no | Scoped to role; per-user rate limit |
 | Analytics dashboard | yes | partial | no | HPG: Prometheus-backed charts + KPI cards |
-| mTLS per route | yes | no | no | Requires mTLS Caddy module |
+| mTLS per route | yes | no | no | Stock Caddy `tls_connection_policies`, no extra module; optional per-path RBAC roles |
 | Post-quantum key exchange | yes | no | no | Hybrid X25519MLKEM768 by default; WireGuard preshared keys on mesh + customer tunnels; optional PQ-only per host |
 | Manual TLS certs (served) | yes | no | no | Import cert+key, link to a route, served on the edge with no ACME |
 | HTTP cache per route | yes | no | no | Souin module; per-route toggle. Shared caching is opt-in ("content is public"); auth-gated and audience-restricted routes stay `private, no-store` |

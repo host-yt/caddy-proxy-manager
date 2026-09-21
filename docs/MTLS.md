@@ -82,6 +82,26 @@ requires a client certificate, so a request cannot reach the enforced host by
 presenting a different, unenforced SNI and then sending the enforced host's
 name in the `Host` header.
 
+## Per-path role rules
+
+Once a hostname enforces client certificates, **Path access rules (RBAC)**
+on the host edit page (available once a CA is selected) narrow what a given
+certificate may reach: each rule maps a path pattern to a required role
+(exact match, or a trailing `/*` prefix match), and a client certificate
+must carry that role to reach the path. This is a second, path-level check
+on top of the per-hostname cert requirement above - it does not change
+*whether* a certificate is required, only what a presented one is allowed to
+reach. The check itself runs as a Caddy `forward_auth` subrequest against
+the panel; the request/token mechanics are documented in
+[SECURITY.md](SECURITY.md#mtls) under "Path RBAC checks".
+
+These rules are treated as a required part of the route's policy, not an
+optional extra: if they cannot be read while the panel is building a node's
+config, the push for that node is aborted entirely rather than publishing
+the route without them. The node keeps serving whatever config it already
+has until the next successful push. A route's per-path rules are therefore
+never silently dropped in favour of "enforce the cert, skip the roles."
+
 ## SSL is required for enforcement
 
 Client authentication is part of the route's TLS connection policy, so it has
@@ -130,10 +150,13 @@ A catch-all policy at the end allows non-mTLS routes to use default TLS.
 
 ## Limitations
 
-- Enforcement is per hostname, not per route or per URI path. It is decided by
-  the TLS connection policy matched on SNI, before Caddy has any request path
-  to match against - see [Per-hostname enforcement](#per-hostname-enforcement).
-  Turning mTLS on for a host covers every path served under that hostname.
+- **Requiring** a certificate is per hostname, not per route or per URI path.
+  It is decided by the TLS connection policy matched on SNI, before Caddy has
+  any request path to match against - see
+  [Per-hostname enforcement](#per-hostname-enforcement). Turning mTLS on for
+  a host covers every path served under that hostname. What a *presented*
+  certificate is allowed to reach can still be narrowed per path - see
+  [Per-path role rules](#per-path-role-rules).
 - Certificate revocation is handled by HPG state only (no OCSP/CRL endpoint is
   published). A revoked cert takes effect on the next Caddy config push.
 - The CA private key is stored encrypted in the database. Back up `APP_SECRET` and the

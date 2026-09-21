@@ -12,7 +12,7 @@ Primary threats considered:
 | Cross-tenant data access | Privilege changes revoke live sessions immediately; client handlers filter by `client_id`; backend IPs never exposed to clients |
 | API key compromise | Argon2id hash + HMAC pre-screen; per-key RPM cap; key disable takes effect immediately |
 | Config injection to Caddy | Panel is the only writer to Caddy Admin API; nodes are firewalled behind WireGuard; raw custom handler JSON is allow-listed and a failing chain is quarantined behind a 503 |
-| Reaching the node control plane through tenant config | Custom-handler allow-list (no `reverse_proxy`/`templates`, no env/file placeholders); L4 stream destinations screened against an infrastructure deny set incl. port 2019 - see "Caddy Admin API - known limitation" |
+| Reaching the node control plane through tenant config | Custom-handler allow-list (no `reverse_proxy`/`templates`, no env/file placeholders); the same allow-list applies to every other tenant-editable field Caddy expands (redirect URL, upstream host header/SNI, custom headers, location rules) - see [ROUTES.md](ROUTES.md#12-tenant-placeholder-allow-list); L4 stream destinations screened against an infrastructure deny set incl. port 2019 - see "Caddy Admin API - known limitation" |
 | Hostname takeover (claiming someone else's domain) | Per-route and **per-alias** DNS-TXT proof at `_hpg-verify.<host>`; unproven hosts are neither emitted into the host matcher nor certificate-eligible - see [ROUTES.md](ROUTES.md) |
 | Compromised node agent poisoning other tenants' data | Node ingest (access log, WAF) attributes only to routes that node serves; mTLS RBAC checks need a panel-issued per-(node, route) token - see "Node ingest endpoints" |
 | Harvest-now-decrypt-later (recorded traffic decrypted by a future quantum computer) | Hybrid X25519MLKEM768 key exchange on every TLS hop by default; WireGuard preshared keys on the panel-node mesh and on customer tunnels; optional PQ-only enforcement per host - see [POST_QUANTUM.md](POST_QUANTUM.md) |
@@ -44,6 +44,13 @@ Out of scope: physical access to the host, kernel exploits, cloud provider compr
 
 - Standard Web Authentication API, requires HTTPS
 - Credential stored in DB; no private key touches the server
+- The passwordless (discoverable-credential) login path requires user
+  verification, since that assertion mints a full session on its own and
+  must itself carry the second factor. A credential that cannot perform
+  user verification is rejected with `passkey did not verify the user; sign
+  in with your password and re-register this passkey` - sign in with a
+  password and register the passkey again to restore passwordless login for
+  it.
 
 ### OAuth2 / OIDC
 
@@ -129,6 +136,25 @@ the owner's epoch from issue time, the lookup joins `users`, and any epoch bump,
 `is_active = 0` or a deleted owner denies on the next request. Revoking an
 operator's access therefore takes their API keys with it - though issuing them a
 fresh key after a legitimate role change is then a deliberate step.
+
+---
+
+## Access portal
+
+The built-in per-route login gate (`routes.portal_protect`,
+`route_access_grants`) binds a check to the exact route a request lands on -
+host **and** path, not hostname alone - and the identity it checks comes
+from the gate config the panel itself wrote into the route, not from
+anything the request can add. Two routes tying on path specificity is an
+ambiguous match, and an ambiguous match denies rather than guessing.
+Protection intent with nobody granted access is a misconfiguration and
+denies the route; it never falls open. Full behaviour, the matching rule
+and the public-paths exception: [ROUTES.md](ROUTES.md#10-built-in-access-portal).
+
+A portal session carries the account's [authorization epoch](#authorization-epoch)
+at mint time and is re-checked on every verify, so a disabled account or a
+privilege change drops the session on its very next request - the same
+guarantee admin and client sessions get.
 
 ---
 

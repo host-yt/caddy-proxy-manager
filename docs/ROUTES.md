@@ -422,3 +422,163 @@ lists routes left permissive on purpose). An application behind an affected
 route that relied on an unauthenticated non-GET/HEAD request, or on a request
 under one of the skipped static paths, starts getting a `401` from the panel
 instead of reaching the backend.
+
+---
+
+## 10. Built-in access portal
+
+**Admin → Hosts → edit → Portal** (`routes.portal_protect`,
+`route_access_grants`, `routes.portal_public_paths` since migration `00148`).
+
+A self-hosted login gate, an alternative to external SSO: protected GET/HEAD
+page loads are checked against the panel's own verifier and an
+unauthenticated visitor is sent to a login form on the same host. Members
+sign in with their normal email + password; groups and members are managed
+under **Security → Access groups**.
+
+### Protection intent alone does not gate the route
+
+Turning "Protect with built-in portal" on has no serving effect by itself -
+the gate only takes effect once at least one access group is **granted**
+access to the route. An empty grant list is a misconfiguration, not "no
+gate": the route is emitted as a terminal `503`
+
+```
+Service unavailable: access portal protection is on but nobody has been granted access.
+```
+
+instead of being served publicly and instead of being silently skipped. The
+distinction matters for anyone reasoning from the checkbox alone: enabling
+protection and forgetting to grant a group takes the route down, it does not
+leave it open.
+
+### How a request is matched to a route
+
+The verifier does not trust anything the request claims about itself; it
+looks the request up the same way the node does when it builds config
+(`RouteForRequest`):
+
+- **Host**: the primary domain, or any alias whose ownership is proven -
+  the same set described in [Alias verification](#2-alias-verification).
+- **Path**: the longest `path_prefix` under that host the request path
+  starts with (a route with no prefix is the host's catch-all).
+- Only routes with `domain_verified = 1` and status `dns_ok`, `active` or
+  `pending_ssl` are candidates - the same set the node actually serves.
+- Two routes on the host tying on prefix length is an **ambiguous** match,
+  and an ambiguous match is denied. There is no "probably right" route for
+  an access check.
+
+Both the host and the path used for this lookup come from the gate config
+the panel itself wrote into the route's Caddy handler chain (forwarded
+`Host` and `X-Forwarded-Uri`); a check missing either is refused outright.
+
+### Public paths are explicit and opt-in
+
+`routes.portal_public_paths` (Portal tab → **"Public paths (bypass the
+portal)"**) is a list of Caddy path matchers, one glob per line (for
+example `/assets/*`, `*.js`) that a GET/HEAD request may reach without a
+portal session. **Empty means no exceptions**: every request to a protected
+route, whatever its path, hits the verifier. Any method other than GET/HEAD
+is always gated, even under a listed public path.
+
+This replaces an older implicit bypass that treated any path merely
+*looking* like a static asset as public. Migration `00148` removes that
+inference. On upgrade, a protected route whose assets used to load
+anonymously starts sending every one of those requests to the verifier -
+list the paths explicitly first, or an SPA hard-refresh stampedes it.
+
+### Sessions
+
+A portal session is minted with the account's authorization epoch
+(`users.auth_epoch`) and re-checked on every verify, the same mechanism
+admin and client sessions use - see
+[Authorization epoch](SECURITY.md#authorization-epoch). Disabling the
+account or any change that bumps the epoch drops the portal session on its
+very next request, same as it would an admin session.
+
+---
+
+## 11. Route publish state
+
+The hosts list shows two independent status lines per route: **health**
+(the DNS/SSL pipeline: `pending DNS`, `DNS ok`, `pending SSL`, `active`,
+`failed`, `disabled`) and **publish state** - the outcome of the last time
+this route was actually compiled into a node's Caddy config. The two can
+disagree, and when they do the publish state is the one describing what is
+really being served:
+
+| Publish state | Meaning |
+|---|---|
+| `published` | Emitted to the node normally. |
+| `quarantined` | The stored config no longer passes validation - a custom Caddy JSON chain (see above) or a tenant string using a placeholder outside the [allow-list](#12-tenant-placeholder-allow-list). Served as a terminal `503`. |
+| `rejected` | An auth gate the operator turned on cannot be emitted - most often a portal with no group granted, or an mTLS route whose CA cannot be read. Served as a terminal `503`. |
+| `target rejected` | A backend or extra upstream failed the infrastructure/SSRF screen at emission time; that target is dropped. |
+| `not emitted` | An external upstream host is not allow-listed, or its proxy secret cannot be decrypted. The route produces no Caddy route at all. |
+| `unchecked` | No compile outcome has been recorded yet - a new install, or a route not yet re-published since the upgrade that added this tracking. Not the same as "fine". |
+
+Hover the pill for the stored reason. A route reading `active` health next
+to a `quarantined` or `rejected` publish state is not a bug to chase down -
+both are accurate at once, and the publish state is the one to act on.
+
+---
+
+## 12. Tenant placeholder allow-list
+
+Caddy expands `{...}` placeholders wherever they appear in emitted config,
+including in a handful of fields a tenant controls directly. Because these
+values can land in a response header, a redirect target or a rewrite target
+that Caddy's replacer processes, only one namespace is permitted in them:
+**`http.request.*`** - derived from the request the node is already serving
+for that tenant. Every other namespace (`{env.*}`, `{file.*}`, `{system.*}`,
+`{$...}`) is refused.
+
+The allow-list applies to:
+
+- **Redirect URL** (`routes.redirect_url`)
+- The geo-block redirect URL
+- **Upstream host header** and the upstream TLS SNI override
+- Custom response headers - both the header name and its value
+- Each **location rule**'s redirect URL and rewrite target - the UI's own
+  placeholder example uses this pattern:
+  `https://new.example.com{http.request.uri}`
+
+The rate-limit key is exempt from the allow-list by design (the UI offers
+building a custom one from request data); only the node-state namespaces
+above are refused there.
+
+### Refused at save, or held back at publish
+
+**Redirect URL** is checked when the route is saved (UI and
+`PATCH /api/v1/routes/{id}` alike) and the save is rejected outright if it
+carries a disallowed placeholder. The other allow-listed fields above are
+not blocked at save time - a bad value in one of them is only caught the
+next time the route is published, and a route already holding one is **held
+back**, not published with the value dropped or neutralized. It shows
+publish state `quarantined` on the hosts list (see above); the panel log
+records which field was the cause. Re-save the field with a permitted value
+to clear it.
+
+---
+
+## 13. Suspended services and route state
+
+Suspending a service (**Admin → Services**, or the reseller/API equivalent)
+stops its routes from serving, but it never deletes a route's definition and
+never touches `custom_config`, aliases or any other field - only
+`routes.status` and `routes.disabled_reason`.
+
+- **Suspend** flips every route in a serving status (`active`, `dns_ok`,
+  `pending_ssl`) to `disabled`, and stamps `disabled_reason` with the cause
+  (service suspended, or service terminated).
+- **Resume** re-enables only the routes that reason names. A route an
+  operator disabled by hand before the suspend (`disabled_reason` empty)
+  stays disabled after resume - resume restores what suspend took away, it
+  is not a bulk "turn everything back on".
+- **Terminate** is suspend's terminal form: routes stop serving the same
+  way, but resume can never bring them back. The route rows still survive
+  for inspection or export.
+
+The host edit page and the hosts list read the same `routes.status`/
+`disabled_reason` an operator would set by hand, so a route disabled by a
+suspended service looks like any other disabled route there - the audit log
+and the service's own status page are what say *why*.
