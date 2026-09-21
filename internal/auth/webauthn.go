@@ -36,6 +36,13 @@ func NewWebAuthn(appURL, displayName string) (*WebAuthn, error) {
 		RPID:          u.Hostname(),
 		RPDisplayName: displayName,
 		RPOrigins:     []string{strings.TrimRight(u.Scheme+"://"+u.Host, "/")},
+		// A passkey mints a full session on its own, so it must carry a second
+		// factor: the library enforces UV only when the requirement is
+		// "required", and every Begin* call defaults to this config value.
+		AuthenticatorSelection: protocol.AuthenticatorSelection{
+			ResidentKey:      protocol.ResidentKeyRequirementPreferred,
+			UserVerification: protocol.VerificationRequired,
+		},
 	}
 	w, err := webauthn.New(cfg)
 	if err != nil {

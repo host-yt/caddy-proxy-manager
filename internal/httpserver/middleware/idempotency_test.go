@@ -2,7 +2,9 @@ package middleware
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -35,6 +37,8 @@ func newIdemTestDB(t *testing.T) *sql.DB {
 		path TEXT NOT NULL,
 		body_hash TEXT NOT NULL DEFAULT '',
 		state INTEGER NOT NULL DEFAULT 0,
+		operation_id TEXT NULL,
+		lease_until TIMESTAMP NULL,
 		response_status INTEGER NULL,
 		response_body TEXT NULL,
 		response_headers TEXT NULL,
@@ -154,3 +158,75 @@ func TestIdempotency_RejectsKeyReuseForDifferentRequest(t *testing.T) {
 		t.Errorf("handler ran for the mismatched body: calls = %d", calls)
 	}
 }
+
+// HPG-018: a reservation left pending by a process that died is not "in
+// progress" - the operation may well have been applied. The retry must get a
+// definite, machine-readable answer instead of 409 "already in progress" for
+// the full 24 h TTL, and must not re-run the handler.
+func TestIdempotency_StalePendingIsUnresolved(t *testing.T) {
+	db := newIdemTestDB(t)
+	get := func() *sql.DB { return db }
+	calls := 0
+
+	// A reservation whose lease ran out: exactly what a crash mid-operation
+	// leaves behind.
+	if _, err := db.Exec(`INSERT INTO idempotency_keys
+		(idem_key, user_id, method, path, body_hash, state, operation_id, lease_until, expires_at)
+		VALUES (?, 1, 'POST', '/api/v1/routes', ?, 0, 'op-abc',
+		        datetime('now','-10 minutes'), datetime('now','+1 day'))`,
+		sha256Hex("stale-key"), bodyHashOf(`{"domain":"a.example"}`)); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	rec := idemRequest(t, get, "stale-key", &calls)
+	if calls != 0 {
+		t.Fatalf("handler re-ran an operation of unknown outcome: calls=%d", calls)
+	}
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "idempotent_operation_unresolved") {
+		t.Errorf("retry cannot tell a crashed operation from one in flight: %s", rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "op-abc") {
+		t.Errorf("operation id not handed back for reconciliation: %s", rec.Body.String())
+	}
+}
+
+// HPG-018: the response is the caller's proof the operation happened, so it
+// must not leave the panel before the outcome is recorded. Previously the
+// handler streamed a 201 straight through and the finalizing UPDATE ran on a
+// short context with its result ignored.
+func TestIdempotency_ResponseWithheldUntilRecorded(t *testing.T) {
+	db := newIdemTestDB(t)
+	get := func() *sql.DB { return db }
+
+	// Fault injection: the store disappears between the domain write and the
+	// finalize, which is the whole failure mode.
+	h := Idempotency(get)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if _, err := db.Exec(`ALTER TABLE idempotency_keys RENAME TO idempotency_keys_gone`); err != nil {
+			t.Fatalf("fault injection: %v", err)
+		}
+		w.WriteHeader(http.StatusCreated)
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/routes", strings.NewReader(`{"domain":"a.example"}`))
+	req.Header.Set("Idempotency-Key", "key-unrecorded")
+	req = req.WithContext(context.WithValue(req.Context(), apiCallerKey, &APICaller{UserID: 1, KeyID: 1, Role: "admin"}))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	if rec.Code == http.StatusCreated {
+		t.Fatalf("caller was told the operation succeeded while its record stayed pending")
+	}
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "idempotent_operation_unresolved") {
+		t.Fatalf("status=%d body=%s, want 409 idempotent_operation_unresolved", rec.Code, rec.Body.String())
+	}
+}
+
+func sha256Hex(s string) string {
+	h := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(h[:])
+}
+
+func bodyHashOf(s string) string { return sha256Hex(s) }

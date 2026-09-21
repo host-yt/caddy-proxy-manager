@@ -63,14 +63,13 @@ func (h *PasskeyHandlers) RegisterBegin(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "load user failed", http.StatusInternalServerError)
 		return
 	}
-	// Require user verification + prefer platform authenticators but accept
-	// roaming (USB security keys). Resident key = "preferred" so passkeys
-	// can be used for passwordless login later.
+	// UV is required, not preferred: the credential registered here can later
+	// mint a full session on its own, and only UV makes that a second factor.
 	opts, sessionData, err := h.WA.Lib().BeginRegistration(u,
 		webauthn.WithExclusions(currentDescriptors(u)),
 		webauthn.WithAuthenticatorSelection(protocol.AuthenticatorSelection{
 			ResidentKey:      protocol.ResidentKeyRequirementPreferred,
-			UserVerification: protocol.VerificationPreferred,
+			UserVerification: protocol.VerificationRequired,
 		}),
 	)
 	if err != nil {
@@ -133,6 +132,13 @@ func (h *PasskeyHandlers) RegisterFinish(w http.ResponseWriter, r *http.Request)
 	if err != nil {
 		h.Logger.Warn("webauthn CreateCredential", "err", err)
 		http.Error(w, "credential rejected: "+sanitizeErr(err), http.StatusBadRequest)
+		return
+	}
+	// Refuse to store a credential that cannot do UV: it would be unusable for
+	// passwordless login anyway, and the user finds out now instead of later.
+	if !cred.Flags.UserVerified {
+		h.Metrics.PasskeyOp("register", "no_uv")
+		http.Error(w, "this authenticator did not verify the user (PIN/biometrics required)", http.StatusBadRequest)
 		return
 	}
 	name := strings.TrimSpace(r.URL.Query().Get("name"))
@@ -323,6 +329,20 @@ func (h *PasskeyHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "assertion rejected", http.StatusUnauthorized)
 		return
 	}
+	// A passwordless assertion mints a full session audited as MFA, so the
+	// assertion itself must carry the second factor. Checked here as well as
+	// requested in the options: a session stashed before this became required
+	// would otherwise let the library skip the check.
+	if !cred.Flags.UserVerified {
+		audit.Write(ctx, db, h.Logger, r, audit.Entry{
+			UserID: &resolvedUser.ID, Action: "login.fail", Entity: "auth", EntityID: resolvedUser.Email,
+			Meta: map[string]any{"reason": "passkey_no_user_verification", "via": "passkey"},
+		})
+		h.Metrics.PasskeyOp("login", "no_uv")
+		h.Metrics.LoginEvent("fail", "passkey", "passkey")
+		http.Error(w, "passkey did not verify the user; sign in with your password and re-register this passkey", http.StatusUnauthorized)
+		return
+	}
 	// AUTH-05: a non-advancing counter (or the library's clone warning) means a
 	// cloned authenticator - two copies of the private key in use. Reject the
 	// assertion and audit high-severity instead of silently bumping. A 0/0
@@ -373,7 +393,8 @@ func (h *PasskeyHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 	_, _ = db.ExecContext(ctx, `UPDATE users SET last_login_at = NOW() WHERE id = ?`, resolvedUser.ID)
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: &resolvedUser.ID, Action: "login.success", Entity: "auth", EntityID: resolvedUser.Email,
-		Meta: map[string]any{"role": role, "via": "passkey", "mfa": "passkey"},
+		// uv records what the assertion actually proved, not the credential type.
+		Meta: map[string]any{"role": role, "via": "passkey", "mfa": "passkey", "uv": true},
 	})
 	h.Metrics.PasskeyOp("login", "success")
 	h.Metrics.LoginEvent("success", "passkey", "passkey")

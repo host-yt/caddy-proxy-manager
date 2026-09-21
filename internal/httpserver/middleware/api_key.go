@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -73,6 +74,14 @@ func APIKeyAuth(db func() *sql.DB) func(http.Handler) http.Handler {
 			defer cancel()
 			clientIP := security.ClientIP(r)
 			uid, keyID, role, scopes, err := auth.VerifyAPIKey(authCtx, d, token, clientIP)
+			if errors.Is(err, auth.ErrAPIKeyThrottled) {
+				// Not a credential verdict: the Argon2 compat path is over
+				// budget. Say so, so a legitimate legacy key retries instead
+				// of being read as revoked.
+				w.Header().Set("Retry-After", "60")
+				writeJSONErr(w, http.StatusTooManyRequests, "api key verification throttled; retry")
+				return
+			}
 			if err != nil {
 				// Audit failed attempts for hpg_-prefixed tokens only; garbage
 				// or absent headers are too noisy to be actionable.
