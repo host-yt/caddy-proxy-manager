@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -2660,6 +2661,10 @@ type hostEditData struct {
 	VerifyToken    string
 
 	CFViews []customfields.View
+
+	// FieldErrors keys a validation message by POST field name ("cf_"+key for
+	// custom fields), set only when re-rendering the form after a 422.
+	FieldErrors map[string]string
 }
 
 // aliasHostState is one alias plus whether its DNS-TXT ownership proof landed.
@@ -3103,6 +3108,11 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
+	// Needed up front: a validation failure anywhere below re-renders the edit
+	// form, which needs this route's owning client to reload its reference data.
+	var ownerClientID int64
+	_ = h.DB().QueryRowContext(r.Context(),
+		`SELECT s.client_id FROM routes r JOIN services s ON s.id = r.service_id WHERE r.id = ?`, id).Scan(&ownerClientID)
 	_ = r.ParseForm()
 	domain := strings.TrimSpace(strings.ToLower(r.FormValue("domain")))
 	pathPrefix := strings.TrimSpace(r.FormValue("path_prefix"))
@@ -3499,11 +3509,11 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// inline <style> block on the Caddy error page, so reject non-http(s) URLs
 	// and unsafe CSS colours instead of only length-capping.
 	if errLogoURL != "" && !isHTTPURL(errLogoURL) {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "error logo URL must be http(s)://")
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "error_logo_url", "error logo URL must be http(s)://")
 		return
 	}
 	if errBgColor != "" && !isSafeCSSColor(errBgColor) {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "error background must be #RGB / #RRGGBB / #RRGGBBAA or rgb()/rgba()")
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "error_bg_color", "error background must be #RGB / #RRGGBB / #RRGGBBAA or rgb()/rgba()")
 		return
 	}
 	// HPG-001: Caddy expands placeholders in a static_response body and in the
@@ -3529,18 +3539,18 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	cacheVary := sanitizeHeaderList(r.FormValue("cache_vary"))
 	accessAllow, err1 := sanitizeCIDRList(r.FormValue("access_allow"))
 	if err1 != nil {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "allow list: "+sanitizeErr(err1))
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "access_allow", "allow list: "+sanitizeErr(err1))
 		return
 	}
 	accessDeny, err2 := sanitizeCIDRList(r.FormValue("access_deny"))
 	if err2 != nil {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "deny list: "+sanitizeErr(err2))
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "access_deny", "deny list: "+sanitizeErr(err2))
 		return
 	}
 	accessBlockAll := r.FormValue("access_block_all") == "1"
 	maintenanceAllow, errMA := sanitizeCIDRList(r.FormValue("maintenance_allow"))
 	if errMA != nil {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "maintenance allow: "+sanitizeErr(errMA))
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "maintenance_allow", "maintenance allow: "+sanitizeErr(errMA))
 		return
 	}
 	ssoPaths := sanitizePathList(r.FormValue("sso_paths"))
@@ -3567,7 +3577,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	aliases, errAli := sanitizeAliases(r.FormValue("aliases"), domain)
 	if errAli != nil {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "aliases: "+sanitizeErr(errAli))
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "aliases", "aliases: "+sanitizeErr(errAli))
 		return
 	}
 	// Reject aliases that shadow another route's domain or alias (cross-tenant hijack).
@@ -3580,7 +3590,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if clash != "" {
-			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "alias "+clash+" is already used by another route")
+			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "aliases", "alias "+clash+" is already used by another route")
 			return
 		}
 	}
@@ -3646,14 +3656,14 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if domain == "" {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "domain required")
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "domain", "domain required")
 		return
 	}
 	// Same shape check Create enforces: an unvalidated edit let a verified route
 	// be re-pointed at any hostname (domain takeover). ValidHostMatcher also
 	// keeps out forms the shadow-ordering predicate cannot model.
 	if !routes.ValidDomain(domain) || !caddyapi.ValidHostMatcher(domain) {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "invalid domain")
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "domain", "invalid domain")
 		return
 	}
 	if pathPrefix != "" {
@@ -3661,7 +3671,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			pathPrefix = "/" + pathPrefix
 		}
 		if strings.Contains(pathPrefix, "..") {
-			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "invalid path prefix")
+			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "path_prefix", "invalid path prefix")
 			return
 		}
 	}
@@ -3689,17 +3699,17 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		} else if clash {
 			mcancel()
-			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "domain "+domain+" is already used by another route")
+			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "domain", "domain "+domain+" is already used by another route")
 			return
 		}
 	}
 	mcancel()
 	if kind == "proxy" && !external && (port <= 0 || port > 65535) {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "port invalid for proxy route")
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "port", "port invalid for proxy route")
 		return
 	}
 	if kind == "proxy" && !external && backendIP != "" && !isValidUpstreamHost(backendIP) {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "backend must be a valid IP or hostname")
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "backend_ip", "backend must be a valid IP or hostname")
 		return
 	}
 	// Tunnel + hostname: keep the name and resolve it through the tunnel.
@@ -4040,7 +4050,20 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	cfDefs, _ := customfields.LoadDefs(ctx, h.DB(), "host")
 	cfJSON, cfErr := customfields.EncodeFromForm(cfDefs, r.Form)
 	if cfErr != nil {
-		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", cfErr.Error())
+		// EncodeFromForm doesn't say which def failed; defs are validated in the
+		// same order, so replay just enough to find the offending key.
+		cfField := ""
+		for _, def := range cfDefs {
+			if _, err := customfields.EncodeFromForm([]customfields.Def{def}, r.Form); err != nil {
+				cfField = "cf_" + def.Key
+				break
+			}
+		}
+		if cfField == "" {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", cfErr.Error())
+			return
+		}
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, cfField, cfErr.Error())
 		return
 	}
 	var cfVal sql.NullString
@@ -4089,7 +4112,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "domain collision check failed")
 			return
 		} else if clash {
-			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "domain "+domain+" is already used by another route")
+			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "domain", "domain "+domain+" is already used by another route")
 			return
 		}
 	}
@@ -4100,7 +4123,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if clash != "" {
-			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "alias "+clash+" is already used by another route")
+			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "aliases", "alias "+clash+" is already used by another route")
 			return
 		}
 	}
@@ -4458,6 +4481,288 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		dest += "#tab=" + tab
 	}
 	redirectWithFlash(w, r, dest, "Host updated", "")
+}
+
+// submittedHostEditData rebuilds the edit form's simple/text fields straight
+// from the POST body (r.ParseForm already ran), so a validation failure shows
+// back what the operator typed instead of the last-saved DB row. Secrets
+// (lb_cookie_secret, basic auth password) are deliberately never mirrored.
+func submittedHostEditData(r *http.Request, rt *routes.Service) hostEditData {
+	f := r.FormValue
+	kind := strings.TrimSpace(f("kind"))
+	if kind != "redirect" {
+		kind = "proxy"
+	}
+	upstreamScheme := strings.TrimSpace(f("upstream_scheme"))
+	if upstreamScheme != "https" {
+		upstreamScheme = "http"
+	}
+	lbPolicy := f("lb_policy")
+	switch lbPolicy {
+	case "", "round_robin", "least_conn", "ip_hash", "uri_hash", "header", "cookie",
+		"random", "random_choose", "client_ip_hash", "query", "first", "weighted_round_robin":
+	default:
+		lbPolicy = ""
+	}
+	outboundIPMode := f("outbound_ip_mode")
+	switch outboundIPMode {
+	case "fixed", "random":
+	default:
+		outboundIPMode = "default"
+	}
+	dnsAddressFamily := f("dns_address_family")
+	switch dnsAddressFamily {
+	case "ipv4", "ipv6":
+	default:
+		dnsAddressFamily = "any"
+	}
+	geoMode := strings.ToLower(strings.TrimSpace(f("geo_mode")))
+	if geoMode != "allow" && geoMode != "deny" {
+		geoMode = "off"
+	}
+	var groupID sql.NullInt64
+	if gid, _ := strconv.ParseInt(f("group_id"), 10, 64); gid > 0 {
+		groupID = sql.NullInt64{Int64: gid, Valid: true}
+	}
+	d := hostEditData{
+		Domain:                  strings.TrimSpace(strings.ToLower(f("domain"))),
+		Aliases:                 f("aliases"),
+		PathPrefix:              strings.TrimSpace(f("path_prefix")),
+		BackendIP:               strings.TrimSpace(f("backend_ip")),
+		Port:                    atoiDefault(f("port"), 0),
+		UpstreamScheme:          upstreamScheme,
+		UpstreamSkipTLSVerify:   f("upstream_skip_tls_verify") == "1",
+		Kind:                    kind,
+		RedirectURL:             strings.TrimSpace(f("redirect_url")),
+		RedirectCode:            atoiDefault(f("redirect_code"), 0),
+		SSL:                     f("ssl") == "1",
+		ForceHTTPS:              f("force_https") == "1",
+		WebSocket:               f("websocket") == "1",
+		HTTP2:                   f("http2") == "1",
+		HTTP3:                   f("http3") == "1",
+		CacheEnabled:            f("cache_enabled") == "1",
+		CachePublic:             f("cache_public") == "1",
+		CacheTTLSecs:            clampInt(atoiDefault(f("cache_ttl_secs"), 60), 1, 86400),
+		CustomHeaders:           f("custom_headers"),
+		Tag:                     strings.TrimSpace(f("tag")),
+		MaintenanceMode:         f("maintenance_mode") == "1",
+		MaintenanceMessage:      strings.TrimSpace(f("maintenance_message")),
+		ErrorOverride:           f("error_override") == "1",
+		ErrorHTML:               f("error_html"),
+		ErrorLogoURL:            strings.TrimSpace(f("error_logo_url")),
+		ErrorBrand:              strings.TrimSpace(f("error_brand")),
+		ErrorBgColor:            strings.TrimSpace(f("error_bg_color")),
+		CacheVary:               f("cache_vary"),
+		AccessAllow:             f("access_allow"),
+		AccessDeny:              f("access_deny"),
+		AccessBlockAll:          f("access_block_all") == "1",
+		MaintenanceAllow:        f("maintenance_allow"),
+		CustomConfig:            f("custom_config"),
+		CompressDisabled:        f("compress_disabled") == "1",
+		LBPolicy:                lbPolicy,
+		LBHeaderField:           strings.TrimSpace(f("lb_header_field")),
+		LBCookieName:            strings.TrimSpace(f("lb_cookie_name")),
+		LBTryDurationMs:         clampInt(atoiDefault(f("lb_try_duration_ms"), 5000), 100, 300000),
+		LBTryIntervalMs:         clampInt(atoiDefault(f("lb_try_interval_ms"), 250), 0, 60000),
+		DialTimeoutMs:           clampInt(atoiDefault(f("dial_timeout_ms"), 0), 0, 300000),
+		ResponseHeaderTimeoutMs: clampInt(atoiDefault(f("response_header_timeout_ms"), 0), 0, 300000),
+		HealthURI:               strings.TrimSpace(f("health_uri")),
+		HealthInterval:          clampInt(atoiDefault(f("health_interval"), 10), 1, 300),
+		HealthTimeout:           clampInt(atoiDefault(f("health_timeout"), 5), 1, 60),
+		HealthStatus:            atoiDefault(f("health_expect_status"), 0),
+		HealthFails:             clampInt(atoiDefault(f("health_fails"), 3), 1, 10),
+		HealthPassive:           f("health_passive") == "1",
+		HealthFailDur:           clampInt(atoiDefault(f("health_fail_dur"), 30), 1, 600),
+		HealthMaxFails:          clampInt(atoiDefault(f("health_max_fails"), 3), 1, 10),
+		RateLimitEnabled:        f("rate_enabled") == "1",
+		RateLimitWindow:         strings.TrimSpace(f("rate_window")),
+		RateLimitMaxEvents:      atoiDefault(f("rate_max_events"), 100),
+		RateLimitKey:            strings.TrimSpace(f("rate_key")),
+		WAFEnabled:              f("waf_enabled") == "1",
+		WAFBlocking:             f("waf_blocking") == "1",
+		WAFDirectives:           f("waf_directives"),
+		GeoMode:                 geoMode,
+		GeoCountries:            geoip.NormalizeCountries(f("geo_countries")),
+		GeoResponseCode:         atoiDefault(f("geo_response_code"), 403),
+		GeoFailClosed:           f("geo_fail_closed") == "1",
+		GeoAllowCIDRs:           f("geo_allow_cidrs"),
+		GeoContinents:           geoip.NormalizeCountries(f("geo_continents")),
+		GeoBlockCIDRs:           f("geo_block_cidrs"),
+		GeoIPAvailable:          geoip.Global().Available(),
+		WildcardEnabled:         f("wildcard_enabled") == "1",
+		WildcardZone:            strings.ToLower(strings.TrimSpace(f("wildcard_zone"))),
+		DNSSteeringEnabled:      f("dns_steering_enabled") == "1",
+		DNSSteeringProvider:     int64Default(f("dns_provider_id")),
+		DNSSteeringTTL:          atoiDefault(f("dns_steering_ttl"), 60),
+		ViaWGPeerID:             int64Default(f("via_wg_peer_id")),
+		ResolveNodeSide:         f("backend_resolve_node_side") == "1",
+		BasicAuthUser:           strings.TrimSpace(f("basic_auth_user")),
+		SSOProviderURL:          strings.TrimSpace(f("sso_provider_url")),
+		SSOCopyHeaders:          strings.TrimSpace(f("sso_copy_headers")),
+		SSOTrustedProxies:       strings.TrimSpace(f("sso_trusted_proxies")),
+		SSOPaths:                f("sso_paths"),
+		SSOHosts:                f("sso_hosts"),
+		SSOViaWGPeerID:          int64Default(f("sso_via_wg_peer_id")),
+		SSOStrictMode:           f("sso_strict_mode") == "1",
+		PortalProtect:           f("portal_protect") == "1",
+		PortalPublicPaths:       f("portal_public_paths"),
+		External:                f("upstream_external") == "1",
+		ExternalHost:            strings.ToLower(strings.TrimSpace(f("external_host"))),
+		UpstreamHostHeader:      strings.TrimSpace(f("upstream_host_header")),
+		OutboundIPMode:          outboundIPMode,
+		OutboundIP:              strings.TrimSpace(f("outbound_ip")),
+		DNSResolverIP:           strings.TrimSpace(f("dns_resolver_ip")),
+		DNSResolverViaWGID:      int64Default(f("dns_resolver_via_wg_peer_id")),
+		DNSAddressFamily:        dnsAddressFamily,
+		RequireClientCert:       f("require_client_cert") == "1",
+		MTLSCAID:                int64Default(f("mtls_ca_id")),
+		TLSPQOnly:               f("tls_pq_only") == "1",
+		GroupID:                 groupID,
+	}
+	if rt != nil {
+		d.WeightedLBAvail = rt.WeightedLBAvailable
+		d.RateLimitModuleAvailable = rt.RateLimitModuleAvailable
+		d.WAFModuleAvailable = rt.WAFModuleAvailable
+		d.GeoModuleAvailable = rt.GeoModuleAvailable
+		d.ExternalAllowlist = rt.ExternalAllowlistAll()
+	}
+	return d
+}
+
+// renderHostEditValidationError re-renders the edit form after a validation
+// failure: submitted text/toggle fields come from the POST body (never the
+// DB), while list/reference data (groups, tunnels, CA options, ...) is
+// re-fetched fresh since the form never round-trips it. Returns 422 so a
+// browser refresh does not replay the POST.
+func (h *AdminHandlers) renderHostEditValidationError(w http.ResponseWriter, r *http.Request, sess *auth.Session, id, clientID int64, field, msg string) {
+	d := submittedHostEditData(r, h.Routes)
+	d.baseAdminData = h.base(r, "Edit host")
+	d.RouteID = id
+	d.FieldErrors = map[string]string{field: msg}
+
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	db := h.DB()
+	if db != nil {
+		d.Groups = loadHostGroups(ctx, db)
+		d.MTLSCAs = loadMTLSCAOptions(ctx, db)
+		d.ClientTunnels = loadClientTunnels(ctx, db, clientID)
+		d.PortalGroups = h.portalGroupsForRoute(ctx, sess, id, clientID)
+		if tenantScoped, provOK := h.selfProvisionScope(ctx, sess); provOK && !tenantScoped {
+			d.CustomConfigEditable = true
+		}
+		if zr, zerr := db.QueryContext(ctx, "SELECT name FROM dns_providers ORDER BY name ASC"); zerr == nil {
+			for zr.Next() {
+				var z string
+				if zr.Scan(&z) == nil {
+					d.WildcardZones = append(d.WildcardZones, z)
+				}
+			}
+			zr.Close()
+		}
+		if pr, prerr := db.QueryContext(ctx, "SELECT id, name FROM dns_providers ORDER BY name ASC"); prerr == nil {
+			for pr.Next() {
+				var o dnsProviderOption
+				if pr.Scan(&o.ID, &o.Label) == nil {
+					d.DNSProviders = append(d.DNSProviders, o)
+				}
+			}
+			pr.Close()
+		}
+		if urows, uerr := db.QueryContext(ctx,
+			`SELECT host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1)
+			   FROM route_upstreams WHERE route_id = ? ORDER BY sort_order ASC, id ASC`, id); uerr == nil {
+			for urows.Next() {
+				var ur upstreamRow
+				if urows.Scan(&ur.Host, &ur.Port, &ur.Weight, &ur.MaxRequests, &ur.Enabled) == nil {
+					d.Upstreams = append(d.Upstreams, ur)
+				}
+			}
+			urows.Close()
+		}
+		if lrows, lerr := db.QueryContext(ctx,
+			`SELECT path_glob, action, upstream_scheme, COALESCE(upstream_host,''), COALESCE(upstream_port,0),
+			        COALESCE(redirect_url,''), COALESCE(redirect_code,308), COALESCE(rewrite_uri,'')
+			   FROM route_location_rules WHERE route_id = ? ORDER BY sort_order ASC, id ASC`, id); lerr == nil {
+			for lrows.Next() {
+				var lr locationRuleRow
+				if lrows.Scan(&lr.Path, &lr.Action, &lr.UpstreamScheme, &lr.UpstreamHost, &lr.UpstreamPort,
+					&lr.RedirectURL, &lr.RedirectCode, &lr.RewriteURI) == nil {
+					d.LocationRules = append(d.LocationRules, lr)
+				}
+			}
+			lrows.Close()
+		}
+		if pr, prerr := db.QueryContext(ctx, `
+			SELECT pr.id, pr.path_pattern, ro.name
+			  FROM mtls_path_rules pr
+			  JOIN mtls_roles ro ON ro.id = pr.required_role_id
+			 WHERE pr.route_id = ?
+			 ORDER BY pr.id ASC`, id); prerr == nil {
+			for pr.Next() {
+				var rule mtlsPathRuleRow
+				if pr.Scan(&rule.ID, &rule.PathPattern, &rule.RequiredRole) == nil {
+					d.MTLSPathRules = append(d.MTLSPathRules, rule)
+				}
+			}
+			pr.Close()
+		}
+		if burows, buerr := db.QueryContext(ctx,
+			`SELECT username FROM route_basic_auth_users WHERE route_id = ? ORDER BY username ASC`, id); buerr == nil {
+			for burows.Next() {
+				var u basicAuthUserRow
+				if burows.Scan(&u.Username) == nil {
+					d.BasicAuthUsers = append(d.BasicAuthUsers, u)
+				}
+			}
+			burows.Close()
+		}
+		var nodeOutboundIPsJSON sql.NullString
+		var planAllowEgress bool
+		_ = db.QueryRowContext(ctx,
+			`SELECT n.outbound_ips, COALESCE(p.allow_egress_ip,0)
+			   FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id
+			   JOIN services s ON s.id = r.service_id JOIN plans p ON p.id = s.plan_id
+			  WHERE r.id = ?`, id).Scan(&nodeOutboundIPsJSON, &planAllowEgress)
+		d.PlanAllowEgressIP = planAllowEgress
+		if nodeOutboundIPsJSON.Valid && nodeOutboundIPsJSON.String != "" {
+			var ips []string
+			if json.Unmarshal([]byte(nodeOutboundIPsJSON.String), &ips) == nil {
+				d.NodeOutboundIPs = ips
+			}
+		}
+		var aliasesDB, aliasesVerified string
+		_ = db.QueryRowContext(ctx,
+			"SELECT COALESCE(aliases,''), COALESCE(aliases_verified,'') FROM routes WHERE id = ?", id).Scan(&aliasesDB, &aliasesVerified)
+		_ = db.QueryRowContext(ctx, "SELECT COALESCE(verify_token,'') FROM routes WHERE id = ?", id).Scan(&d.VerifyToken)
+		provenAliases := splitHostCSV(aliasesVerified)
+		for _, a := range splitHostCSV(aliasesDB) {
+			st := aliasHostState{Host: a, Proven: contains(provenAliases, a)}
+			d.AliasStates = append(d.AliasStates, st)
+			if !st.Proven {
+				d.PendingAliases++
+			}
+		}
+		// CFViews: defs are reference data (DB), values reflect what was just
+		// submitted so a bad custom field does not blank the good ones.
+		if cfDefs, cfErr := customfields.LoadDefs(ctx, db, "host"); cfErr == nil && len(cfDefs) > 0 {
+			vals := make(map[string]string, len(cfDefs))
+			for _, def := range cfDefs {
+				vals[def.Key] = strings.TrimSpace(r.FormValue("cf_" + def.Key))
+			}
+			d.CFViews = customfields.Merge(cfDefs, vals)
+		}
+	}
+
+	var buf bytes.Buffer
+	if err := h.Templates.Render(&buf, "hosts_edit", fillBreadcrumbs("hosts_edit", d)); err != nil {
+		h.Logger.Error("admin render", "page", "hosts_edit", "err", err)
+		http.Error(w, "render failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusUnprocessableEntity)
+	_, _ = w.Write(buf.Bytes())
 }
 
 // HostsRegenerateSecret rotates the inbound bearer for an external-upstream
@@ -5024,6 +5329,12 @@ func atoiDefault(s string, def int) int {
 		return n
 	}
 	return def
+}
+
+// int64Default parses s as int64, defaulting to 0 on error (form IDs: 0 = unset).
+func int64Default(s string) int64 {
+	n, _ := strconv.ParseInt(strings.TrimSpace(s), 10, 64)
+	return n
 }
 
 // firstErr returns the first non-nil error.
