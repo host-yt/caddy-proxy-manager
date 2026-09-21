@@ -31,6 +31,22 @@ type Client struct {
 	// node-agent's admin proxy, which authenticates the panel before touching
 	// Caddy - see NewAuthed.
 	auth string
+	// blocked, when set, makes every call fail without touching the network.
+	// A control-plane client that cannot authenticate must not fall back to
+	// talking to the node anyway - see NewBlocked.
+	blocked error
+}
+
+// NewBlocked returns a client that refuses every call with reason. Used when
+// the panel cannot establish authenticated transport to a node: the push fails
+// closed instead of silently degrading to an unauthenticated connection.
+func NewBlocked(adminURL string, reason error) *Client {
+	c := New(adminURL)
+	if reason == nil {
+		reason = errors.New("caddy admin transport unavailable")
+	}
+	c.blocked = reason
+	return c
 }
 
 func New(adminURL string) *Client {
@@ -210,6 +226,9 @@ const maxAdminResponse = 32 << 20 // 32 MiB
 
 // GetRaw fetches the JSON value at a config path.
 func (c *Client) GetRaw(ctx context.Context, path string) ([]byte, error) {
+	if c.blocked != nil {
+		return nil, c.blocked
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.base+path, nil)
 	if err != nil {
 		return nil, err
@@ -227,6 +246,9 @@ func (c *Client) GetRaw(ctx context.Context, path string) ([]byte, error) {
 }
 
 func (c *Client) do(ctx context.Context, method, path string, body io.Reader, ct string) error {
+	if c.blocked != nil {
+		return c.blocked
+	}
 	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
 	if err != nil {
 		return err

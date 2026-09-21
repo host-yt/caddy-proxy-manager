@@ -9,6 +9,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"sort"
@@ -20,6 +21,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
@@ -345,50 +347,80 @@ func (s *Service) Resync(ctx context.Context, nodeID int64) error {
 
 // NodeClient returns the admin-API client for a node.
 //
-// A node whose agent fronts the Caddy admin API has a key in
-// caddy_nodes.admin_proxy_key_enc: the panel presents it as a bearer token and
-// the agent refuses anything else, so reaching the port is no longer
-// authorization. A node without one is reached directly, exactly as before -
-// which is the whole fleet until an operator migrates a node.
+// Authenticated transport is the default posture (SEC-002). A node whose agent
+// fronts the Caddy admin API has a key in caddy_nodes.admin_proxy_key_enc and
+// the panel presents it as a bearer token. A node without one is reached
+// directly ONLY where there is no network to authenticate over (loopback, unix
+// socket, the manager's own compose bridge) or where an operator has opted that
+// single node into the legacy path. Anything else - including a key that will
+// not decrypt - gets a client that refuses to talk, so the push fails instead
+// of silently dropping to an unauthenticated control plane.
 func (s *Service) NodeClient(ctx context.Context, nodeID int64, apiURL string) *caddyapi.Client {
-	key := s.adminProxyKey(ctx, nodeID)
-	if key == "" {
+	key, allowPlain, err := s.nodeAdminAuth(ctx, nodeID)
+	switch {
+	case err != nil:
+		return caddyapi.NewBlocked(apiURL, err)
+	case key != "":
+		return caddyapi.NewAuthed(apiURL, key)
+	case !security.UnauthenticatedNodeAdminURL(apiURL):
 		return caddyapi.New(apiURL)
+	case allowPlain:
+		if s.Logger != nil {
+			s.Logger.Warn("node reached over an unauthenticated Caddy admin API (per-node legacy allowance)",
+				"node_id", nodeID, "api_url", apiURL)
+		}
+		return caddyapi.New(apiURL)
+	default:
+		return caddyapi.NewBlocked(apiURL, fmt.Errorf(
+			"node %d has no admin-proxy key and %s is not an authenticated admin endpoint: "+
+				"run the node-agent admin proxy and repoint the node at it (docs/MULTI_NODE.md), "+
+				"or set caddy_nodes.allow_unauthenticated_admin=1 for this node to keep the legacy path",
+			nodeID, apiURL))
 	}
-	return caddyapi.NewAuthed(apiURL, key)
 }
 
-// adminProxyKey reads and decrypts a node's admin-proxy key. Any failure means
-// "no key": the caller then talks to the node the direct way, which either
-// works (node not migrated) or fails loudly on the agent's 401 rather than
-// silently pushing through an unauthenticated path.
-func (s *Service) adminProxyKey(ctx context.Context, nodeID int64) string {
+// nodeAdminAuth reads a node's admin-proxy key and its per-node legacy
+// allowance. A decrypt failure is returned as an error, never as "no key":
+// degrading to an unauthenticated client on a crypto error is the exact defect
+// SEC-002 names. Anything else unknown reports no key and no allowance, which
+// NodeClient resolves fail-closed for a remote endpoint.
+func (s *Service) nodeAdminAuth(ctx context.Context, nodeID int64) (key string, allowPlain bool, err error) {
 	if s.DB == nil || nodeID <= 0 {
-		return ""
-	}
-	decrypt := s.DecryptNodeSecret
-	if decrypt == nil {
-		return ""
+		return "", false, nil
 	}
 	c, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	var enc sql.NullString
-	if err := s.DB.QueryRowContext(c,
-		"SELECT admin_proxy_key_enc FROM caddy_nodes WHERE id = ?", nodeID).Scan(&enc); err != nil {
-		return ""
+	var allow bool
+	if qerr := s.DB.QueryRowContext(c,
+		"SELECT admin_proxy_key_enc, COALESCE(allow_unauthenticated_admin,0) FROM caddy_nodes WHERE id = ?",
+		nodeID).Scan(&enc, &allow); qerr != nil {
+		if s.Logger != nil && !errors.Is(qerr, sql.ErrNoRows) {
+			s.Logger.Warn("node admin transport lookup failed; treating the node as unauthenticated",
+				"node_id", nodeID, "err", qerr)
+		}
+		return "", false, nil
 	}
 	if !enc.Valid || enc.String == "" {
-		return ""
+		return "", allow, nil
 	}
-	key, err := decrypt(enc.String)
-	if err != nil {
-		if s.Logger != nil {
-			s.Logger.Warn("node admin-proxy key could not be decrypted; falling back to a direct connection",
-				"node_id", nodeID, "err", err)
+	if s.DecryptNodeSecret == nil {
+		return "", false, fmt.Errorf("node %d has an admin-proxy key but no decryptor is wired", nodeID)
+	}
+	k, derr := s.DecryptNodeSecret(enc.String)
+	if derr != nil {
+		return "", false, fmt.Errorf("node %d admin-proxy key could not be decrypted "+
+			"(wrong APP_SECRET or a corrupted row): %w", nodeID, derr)
+	}
+	if allow {
+		// The node is authenticated now; the legacy allowance only invites a
+		// silent downgrade if the key ever stops decrypting.
+		if _, uerr := s.DB.ExecContext(c,
+			"UPDATE caddy_nodes SET allow_unauthenticated_admin = 0 WHERE id = ?", nodeID); uerr != nil && s.Logger != nil {
+			s.Logger.Warn("could not clear the legacy admin allowance", "node_id", nodeID, "err", uerr)
 		}
-		return ""
 	}
-	return key
+	return k, false, nil
 }
 
 // nodePush is the built, ready-to-Load config for one node plus the data
@@ -398,6 +430,14 @@ type nodePush struct {
 	built    []caddyapi.Route
 	routeIDs []int64
 	apiURL   string
+	// settings is kept so the node config can be re-rendered from a modified
+	// route set without a second DB pass (see isolateWAFFailure).
+	settings caddyapi.NodeSettings
+}
+
+// render re-renders this node's config from a modified route set.
+func (np *nodePush) render(built []caddyapi.Route) map[string]any {
+	return caddyapi.BuildNodeConfig(built, np.settings)
 }
 
 // buildNodePush renders the full Caddy config for a node from DB. Read-only;
@@ -407,6 +447,8 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 	if err != nil {
 		return nil, err
 	}
+	// Directives a node already refused stay parked until they are edited.
+	s.applyWAFQuarantine(ctx, built, routeIDs)
 	var (
 		apiURL              string
 		transport           sql.NullString
@@ -502,7 +544,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 
 	mtlsFailOpen := s.loadMTLSFailOpen(ctx)
 	trustCFIP := s.loadTrustCloudflareIP(ctx)
-	cfg := caddyapi.BuildNodeConfig(built, caddyapi.NodeSettings{
+	settings := caddyapi.NodeSettings{
 		ACMEEmail:                s.ACMEEmail,
 		ACMEStaging:              s.ACMEStaging,
 		ACMECaURL:                s.ACMECaURL,
@@ -530,8 +572,10 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		ProxyProtocolAllow:       proxyProtoAllow,
 		ProxyProtocolTimeoutMs:   proxyProtoTimeoutMs,
 		ManualCerts:              s.buildManualCertsForNode(ctx, nodeID),
-	})
-	return &nodePush{cfg: cfg, built: built, routeIDs: routeIDs, apiURL: apiURL}, nil
+	}
+	np := &nodePush{built: built, routeIDs: routeIDs, apiURL: apiURL, settings: settings}
+	np.cfg = np.render(built)
+	return np, nil
 }
 
 // loadNodeConfig POSTs the full config (/load) and records the per-route drift
@@ -539,11 +583,17 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush) error {
 	client := s.NodeClient(ctx, nodeID, np.apiURL)
 	if err := client.Load(ctx, np.cfg); err != nil {
-		s.Logger.Error("caddy push failed", "node_id", nodeID, "err", err)
-		if s.Metrics != nil {
-			s.Metrics.CaddyPushFail()
+		// One tenant's custom SecLang must not hold a whole node's config
+		// hostage: park it and publish the rest (SEC-006).
+		recovered := s.isolateWAFFailure(ctx, nodeID, client, np, err)
+		if recovered == nil {
+			s.Logger.Error("caddy push failed", "node_id", nodeID, "err", err)
+			if s.Metrics != nil {
+				s.Metrics.CaddyPushFail()
+			}
+			return err
 		}
-		return err
+		np = recovered
 	}
 	if s.Metrics != nil {
 		s.Metrics.CaddyPushOK()

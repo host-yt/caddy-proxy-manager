@@ -80,7 +80,94 @@ func wafLineOK(line string) error {
 			return fmt.Errorf("WAF directive %q is not a Sec* directive", name)
 		}
 	}
+	if !knownWAFDirectives[name] {
+		return fmt.Errorf("WAF directive %q is not one Coraza understands", name)
+	}
+	if strings.TrimSpace(line[len(name):]) == "" {
+		return fmt.Errorf("WAF directive %q has no argument", name)
+	}
+	return wafArgsOK(name, strings.Fields(line)[1:])
+}
+
+// wafArgsOK rejects arguments that cannot possibly be valid. Deliberately not a
+// SecLang parser: only the shapes that are cheap and certain are screened here,
+// the node-side quarantine catches the rest.
+func wafArgsOK(name string, args []string) error {
+	switch name {
+	case "SecRuleRemoveById", "SecRuleUpdateActionById", "SecRuleUpdateTargetById":
+		// An id argument is always numeric (RemoveById also takes lo-hi ranges);
+		// "SecRuleRemoveById abc" passed the old screen and killed the /load.
+		ids := args
+		if name != "SecRuleRemoveById" {
+			ids = args[:1]
+		}
+		for _, id := range ids {
+			lo, hi, isRange := strings.Cut(id, "-")
+			if !wafNumericID(lo) || (isRange && !wafNumericID(hi)) {
+				return fmt.Errorf("%s takes numeric rule ids, got %q", name, id)
+			}
+		}
+	case "SecRuleEngine", "SecAuditEngine":
+		if !wafOneOf(args, "on", "off", "detectiononly", "relevantonly") {
+			return fmt.Errorf("%s takes On, Off or DetectionOnly, got %q", name, strings.Join(args, " "))
+		}
+	case "SecRequestBodyAccess", "SecResponseBodyAccess", "SecContentInjection",
+		"SecStreamInBodyInspection", "SecStreamOutBodyInspection", "SecUploadKeepFiles",
+		"SecXmlExternalEntity", "SecRuleInheritance", "SecInterceptOnError":
+		if !wafOneOf(args, "on", "off") {
+			return fmt.Errorf("%s takes On or Off, got %q", name, strings.Join(args, " "))
+		}
+	case "SecRequestBodyLimit", "SecRequestBodyNoFilesLimit", "SecRequestBodyInMemoryLimit",
+		"SecResponseBodyLimit", "SecUploadFileLimit", "SecArgumentsLimit":
+		if len(args) != 1 || !wafNumericID(args[0]) {
+			return fmt.Errorf("%s takes one positive number, got %q", name, strings.Join(args, " "))
+		}
+	}
 	return nil
+}
+
+// wafOneOf reports whether args is exactly one of the accepted keywords.
+func wafOneOf(args []string, accepted ...string) bool {
+	if len(args) != 1 {
+		return false
+	}
+	for _, a := range accepted {
+		if strings.EqualFold(args[0], a) {
+			return true
+		}
+	}
+	return false
+}
+
+// knownWAFDirectives is the SecLang surface Coraza v3 implements. An unknown
+// Sec* name is a guaranteed parse error, so it never reaches a node's /load.
+// SecRemoteRules and SecRuleScript are left out on purpose: both pull code the
+// panel never saw into a shared node's rule set.
+var knownWAFDirectives = map[string]bool{
+	"SecAction": true, "SecArgumentSeparator": true, "SecArgumentsLimit": true,
+	"SecAuditEngine": true, "SecAuditLog": true, "SecAuditLogDir": true,
+	"SecAuditLogDirMode": true, "SecAuditLogFileMode": true, "SecAuditLogFormat": true,
+	"SecAuditLogParts": true, "SecAuditLogRelevantStatus": true, "SecAuditLogType": true,
+	"SecCollectionTimeout": true, "SecComponentSignature": true, "SecConnEngine": true,
+	"SecContentInjection": true, "SecDataDir": true, "SecDebugLog": true,
+	"SecDebugLogLevel": true, "SecDefaultAction": true, "SecGeoLookupDB": true,
+	"SecHashEngine": true, "SecHashKey": true, "SecHashMethodPm": true,
+	"SecHashMethodRx": true, "SecHashParam": true, "SecHttpBlKey": true,
+	"SecInterceptOnError": true, "SecMarker": true, "SecPcreMatchLimit": true,
+	"SecPcreMatchLimitRecursion": true, "SecRequestBodyAccess": true,
+	"SecRequestBodyInMemoryLimit": true, "SecRequestBodyLimit": true,
+	"SecRequestBodyLimitAction": true, "SecRequestBodyNoFilesLimit": true,
+	"SecResponseBodyAccess": true, "SecResponseBodyLimit": true,
+	"SecResponseBodyLimitAction": true, "SecResponseBodyMimeType": true,
+	"SecResponseBodyMimeTypesClear": true, "SecRule": true, "SecRuleEngine": true,
+	"SecRuleInheritance": true, "SecRulePerfTime": true, "SecRuleRemoveById": true,
+	"SecRuleRemoveByMsg": true, "SecRuleRemoveByTag": true, "SecRuleUpdateActionById": true,
+	"SecRuleUpdateTargetById": true, "SecRuleUpdateTargetByMsg": true,
+	"SecRuleUpdateTargetByTag": true, "SecSensorId": true, "SecServerSignature": true,
+	"SecStatusEngine": true, "SecStreamInBodyInspection": true,
+	"SecStreamOutBodyInspection": true, "SecTmpDir": true, "SecUnicodeMapFile": true,
+	"SecUploadDir": true, "SecUploadFileLimit": true, "SecUploadFileMode": true,
+	"SecUploadKeepFiles": true, "SecWebAppId": true, "SecXmlExternalEntity": true,
 }
 
 // wafRemoveByIDOnly is the structured subset a scoped admin may write.
