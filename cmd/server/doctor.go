@@ -7,7 +7,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"text/tabwriter"
@@ -349,6 +351,36 @@ func summarize(checks []check) int {
 	}
 	fmt.Printf("\n%d passed, %d warned, %d failed\n", pass, warn, fail)
 	if fail > 0 {
+		return 1
+	}
+	return 0
+}
+
+// runHealthcheck probes the panel's own /readyz over loopback and returns a
+// process exit code. This is the container HEALTHCHECK: the runtime image is
+// distroless, so no shell, curl or wget exists to do it from Compose.
+func runHealthcheck() int {
+	bind := os.Getenv("APP_BIND")
+	if bind == "" {
+		bind = "0.0.0.0:8080"
+	}
+	_, port, err := net.SplitHostPort(bind)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "healthcheck: APP_BIND %q is not host:port\n", bind)
+		return 1
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, "http://127.0.0.1:"+port+"/readyz", nil)
+	resp, err := (&http.Client{}).Do(req)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "healthcheck:", err)
+		return 1
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(os.Stderr, "healthcheck: /readyz returned %d\n", resp.StatusCode)
 		return 1
 	}
 	return 0

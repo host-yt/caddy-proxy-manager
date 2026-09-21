@@ -75,6 +75,15 @@ services:
       GEOIP_AVAILABLE: ${GEOIP_AVAILABLE:-1}
       RATE_LIMIT_AVAILABLE: ${RATE_LIMIT_AVAILABLE:-1}
       WEIGHTED_LB_AVAILABLE: ${WEIGHTED_LB_AVAILABLE:-1}
+    # Reports readiness; it does not restart anything on its own (Compose has
+    # no autoheal). start_period is generous: a first boot runs every migration
+    # before /readyz turns green, and a restart during that would loop forever.
+    healthcheck:
+      test: ["CMD", "/app/server", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
     depends_on:
       mariadb:
         condition: service_healthy
@@ -153,6 +162,16 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"        # HTTP/3
+    # Probes the local admin API - it answers as soon as the config is loaded
+    # and carries no secrets. Deliberately not the :80/:443 listeners: those
+    # legitimately 503 before any route is pushed, and an ACME order in flight
+    # must never look like a wedged process.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       geoip-init:
         condition: service_completed_successfully

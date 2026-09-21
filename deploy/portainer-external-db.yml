@@ -26,6 +26,12 @@ services:
     image: ghcr.io/host-yt/caddy-proxy-manager:1.5.1
     pull_policy: if_not_present
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "/app/server", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
     environment:
       APP_ENV: ${APP_ENV:-production}
       APP_URL: ${APP_URL}
@@ -85,6 +91,12 @@ services:
     image: ghcr.io/host-yt/caddy-proxy-manager-edge:1.5.1
     pull_policy: if_not_present
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     cap_add:
       - NET_BIND_SERVICE
     extra_hosts:
