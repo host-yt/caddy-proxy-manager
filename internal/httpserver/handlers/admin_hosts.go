@@ -4346,21 +4346,30 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// (groups owned by the route's client, plus globals for super_admin), so a
 	// scoped admin cannot grant another tenant's group via a forged form post.
 	if h.Portal != nil {
-		if _, perr := h.DB().ExecContext(ctx,
-			`UPDATE routes SET portal_protect = ? WHERE id = ?`, portalProtect, id); perr != nil {
-			h.Logger.Warn("portal_protect update", "id", id, "err", perr)
-		}
 		var portalClientID int64
-		_ = h.DB().QueryRowContext(ctx, `SELECT client_id FROM services WHERE id = ?`, serviceID).Scan(&portalClientID)
-		includeGlobal := sess != nil && sess.Role == "super_admin"
-		visible := map[int64]bool{}
-		if grps, gerr := h.Portal.GroupsForGrant(ctx, portalClientID, includeGlobal); gerr == nil {
-			for _, g := range grps {
-				visible[g.ID] = true
-			}
+		if cerr := h.DB().QueryRowContext(ctx,
+			`SELECT client_id FROM services WHERE id = ?`, serviceID).Scan(&portalClientID); cerr != nil {
+			redirectWithFlash(w, r, editPath, "", "portal: owner lookup failed")
+			return
 		}
-		if gerr := h.Portal.SetRouteGrants(ctx, id, portalGroupIDs, visible, false); gerr != nil {
-			h.Logger.Warn("portal grants update", "id", id, "err", gerr)
+		includeGlobal := sess != nil && sess.Role == "super_admin"
+		// A failed read must not leave `visible` empty: that silently drops every
+		// grant and turns a protected route into one nobody can reach.
+		grps, gerr := h.Portal.GroupsForGrant(ctx, portalClientID, includeGlobal)
+		if gerr != nil {
+			redirectWithFlash(w, r, editPath, "", "portal: group lookup failed, protection left unchanged")
+			return
+		}
+		visible := map[int64]bool{}
+		for _, g := range grps {
+			visible[g.ID] = true
+		}
+		// Toggle and grants in one transaction (WP2): a half-applied portal write
+		// is either an open protected route or a locked-out one.
+		if perr := h.Portal.SetRouteProtection(ctx, id, portalProtect, portalGroupIDs, visible, false); perr != nil {
+			h.Logger.Warn("portal protection update", "id", id, "err", perr)
+			redirectWithFlash(w, r, editPath, "", "portal: saving protection failed")
+			return
 		}
 		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 			UserID: actorUserID(sess), Action: "portal.route.grants", Entity: "route", EntityID: itoa64(id),
