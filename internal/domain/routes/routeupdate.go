@@ -111,7 +111,6 @@ func (s *Service) checkRouteState(ctx context.Context, serviceID, routeID int64,
 // ScreenTenantString rejects a tenant-supplied string Caddy would expand as a
 // placeholder reading the node's environment or filesystem. It is the write-time
 // half of the screening the emission path already does; fail closed.
-//
 func ScreenTenantString(v string) error {
 	if err := caddyapi.ScreenTenantTemplate(v); err != nil {
 		return fmt.Errorf("%w: %v", ErrUnsafePlaceholder, err)

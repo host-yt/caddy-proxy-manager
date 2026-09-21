@@ -22,7 +22,6 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
-
 // ---- list contract -----------------------------------------------------
 //
 // A read that fails must never look like a short list: a Scan or iteration
