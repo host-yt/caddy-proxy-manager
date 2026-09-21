@@ -67,6 +67,26 @@ The admin UI accepts a comma-separated list. Blank value with `allow` or `deny` 
 is treated as "no countries" which effectively blocks or allows everything - validate
 the list before saving.
 
+## Remote nodes
+
+A remote node does not get the mmdb from the panel's volume - the node-agent
+syncs it (`/api/node/geoip/meta` + `/api/node/geoip/mmdb`, sha256-checked) and
+writes `/data/geoip/GeoLite2-Country.mmdb`. Three things have to line up, and
+all three ship in `deploy/remote-node/` + `deploy/node-agent/`:
+
+1. **Shared volume.** The agent writes and Caddy reads the same directory:
+   `/opt/hostyt-node/geoip:/data/geoip` on the agent, the same path `:ro` on
+   the caddy service. Without it the agent warns
+   `geoip: target directory missing` and skips the sync rather than writing
+   into its own container where Caddy will never see it.
+2. **A Caddy build with the module.** Stock `caddy:2.11.4` has no
+   `maxmind_geolocation` matcher and rejects the whole config; the remote-node
+   profile therefore defaults to
+   `ghcr.io/host-yt/caddy-proxy-manager-edge`.
+3. **The capability flag.** Tick **GeoIP** under Module capabilities on the
+   node's edit page (or set the fleet-wide `GEOIP_AVAILABLE=1`) only once the
+   first two are true - see the never-flip-early note below.
+
 ## Per-node capability
 
 Admin → Caddy Nodes shows a `GeoIP` badge on nodes where the module was detected.
@@ -88,5 +108,6 @@ Admin → Settings → GeoIP shows:
 - GeoIP accuracy depends on MaxMind's data; VPN/proxy users may appear in the wrong
   country.
 - The DB must be present on the container filesystem at `/data/geoip/`; bind-mount or
-  volume required in production deployments.
+  volume required in production deployments. On a remote node that volume has to be
+  shared between the node-agent (writer) and Caddy (reader).
 - MaxMind GeoLite2 is free but requires a license key; GeoIP2 (paid) is not tested.
