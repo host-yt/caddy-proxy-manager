@@ -98,18 +98,67 @@ func TestNodePeersPullGatesPresharedKey(t *testing.T) {
 		t.Fatalf("supported agent body = %s, want preshared_key", body)
 	}
 
-	_, oldToken := insertPSKNode(t, db, 0)
-	if body := pullBody(t, h, oldToken); strings.Contains(body, "preshared_key") {
-		t.Fatalf("old agent body = %s, want no preshared_key", body)
-	}
-
 	// A stored key that no longer decodes drops the whole peer: serving it
 	// PSK-less would just fail the handshake with no signal.
 	if _, err := db.Exec("UPDATE customer_wg_peer SET psk_enc='garbage' WHERE node_id=?", okNode); err != nil {
 		t.Fatalf("corrupt psk: %v", err)
 	}
-	if body := pullBody(t, h, okToken); body != `{"peers":[]}` {
+	if body := pullBody(t, h, okToken); body != `{"psk_managed":true,"peers":[]}` {
 		t.Fatalf("peer with unusable PSK body = %s, want no peers", body)
+	}
+}
+
+// An agent upgraded after a rollback pulls with the capability header while
+// the stored flag is still 0. The flag must be raised before the peer lookup
+// reads it, or the agent gets a keyless peer set and wipes every live key.
+func TestNodePeersPullRestoresCapabilityOnUpgrade(t *testing.T) {
+	db := openTestDBHandlers(t)
+	defer db.Close()
+	h := pskTestHandler(db)
+	nodeID, token := insertPSKNode(t, db, 0) // rolled back earlier, never reported since
+
+	body := pullBody(t, h, token)
+	if !strings.Contains(body, `"preshared_key":"`+testPSKValue+`"`) {
+		t.Fatalf("upgraded agent body = %s, want the peer's preshared_key back", body)
+	}
+	if !strings.Contains(body, `"psk_managed":true`) {
+		t.Fatalf("body = %s, want psk_managed so the agent knows omissions are intentional", body)
+	}
+	var agentPSK int
+	if err := db.QueryRow("SELECT agent_psk FROM caddy_nodes WHERE id = ?", nodeID).Scan(&agentPSK); err != nil {
+		t.Fatal(err)
+	}
+	if agentPSK != 1 {
+		t.Error("capability declared on the pull was not persisted")
+	}
+}
+
+// A peer set served without a recorded capability is the bug itself, so a
+// failed capability write must produce no peers at all.
+func TestNodePeersPullFailsClosedWhenCapabilityWriteFails(t *testing.T) {
+	db := openTestDBHandlers(t)
+	defer db.Close()
+	h := pskTestHandler(db)
+	nodeID, token := insertPSKNode(t, db, 0)
+
+	// Hold the node row so the capability UPDATE cannot land: the handler's
+	// 3s context expires on it while the reads around it still work.
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var pin int64
+	if err := tx.QueryRow("SELECT id FROM caddy_nodes WHERE id = ? FOR UPDATE", nodeID).Scan(&pin); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := pullRec(h, token, true)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500 - no peer set without a recorded capability", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "peers") {
+		t.Errorf("served a peer set anyway: %s", rec.Body.String())
 	}
 }
 

@@ -328,11 +328,23 @@ func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Reques
 	// given as a whole: handing it PSK-bearing peers it cannot express would
 	// silently drop every one of those tunnels on the next syncconf. Its
 	// current config still works, so refusing is what keeps it working.
-	if r.Header.Get("X-HPG-Agent-PSK") != "1" {
+	capable := r.Header.Get("X-HPG-Agent-PSK") == "1"
+	// Record what THIS request declared before the peer lookup reads it back:
+	// PeersForNode gates PSK delivery on the stored flag, and nothing else on
+	// the pull path ever raises it. An agent upgraded after a rollback would
+	// otherwise be served a keyless peer set and read that as "the panel
+	// dropped every key". Fail closed - a peer set built on a capability we
+	// failed to record is exactly how that goes wrong.
+	if err := h.setPSKCapability(ctx, db, r, nodeID, capable); err != nil {
+		h.Logger.Error("could not record the node-agent preshared-key capability",
+			"node_id", nodeID, "err", err)
+		http.Error(w, "capability write failed", http.StatusInternalServerError)
+		return
+	}
+	if !capable {
 		var withPSK int
 		_ = db.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM customer_wg_peer WHERE node_id = ? AND psk_enc IS NOT NULL`, nodeID).Scan(&withPSK)
-		h.setPSKCapability(ctx, db, r, nodeID, false)
 		if withPSK > 0 {
 			h.Logger.Error("node-agent does not support preshared keys but this node has peers that use them; refusing to serve a peer set that would drop them",
 				"node_id", nodeID, "psk_peers", withPSK)
@@ -346,9 +358,16 @@ func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Reques
 		http.Error(w, "lookup failed", http.StatusInternalServerError)
 		return
 	}
-	// JSON: { "peers": [ { "pubkey": "...", "allowed_ip": "100.96.5.42/32", "status": "active" } ] }
+	// JSON: { "psk_managed": true, "peers": [ { "pubkey": "...", "allowed_ip": "100.96.5.42/32", "status": "active" } ] }
 	var b strings.Builder
-	b.WriteString(`{"peers":[`)
+	b.WriteString(`{`)
+	if capable {
+		// States that this peer set is the authoritative preshared-key view,
+		// so the agent may treat a missing preshared_key as "no key" and clear
+		// the live one. Without it removal stays something we never said.
+		b.WriteString(`"psk_managed":true,`)
+	}
+	b.WriteString(`"peers":[`)
 	for i, p := range peers {
 		if i > 0 {
 			b.WriteString(",")
@@ -619,7 +638,9 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 	// agent that does not declare it does not have it. A node rolled back to
 	// a pre-PSK agent silently ignores the preshared_key field, so leaving the
 	// flag at 1 would kill every PSK peer on it with no signal anywhere.
-	h.setPSKCapability(ctx, db, r, nodeID, body.Node != nil && body.Node.PSKSupported)
+	// Best-effort here: this report serves no peer set, and the pull re-asserts
+	// the same capability before it reads the flag back.
+	_ = h.setPSKCapability(ctx, db, r, nodeID, body.Node != nil && body.Node.PSKSupported)
 
 	// Batch-load each peer's id + previous raw counters so we can compute
 	// reset-safe deltas (wg counters zero on rekey/restart) without an N+1
@@ -721,21 +742,23 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 // customer re-downloads it, so the operator has to learn about it here.
 // Refusing the downgrade would not help - an agent that ignores preshared_key
 // breaks those peers either way, just without a trace.
-func (h *WGBootstrapHandler) setPSKCapability(ctx context.Context, db *sql.DB, r *http.Request, nodeID int64, supported bool) {
+// Returns an error only when the stored flag may not match what the agent
+// declared, so callers that are about to act on it can refuse.
+func (h *WGBootstrapHandler) setPSKCapability(ctx context.Context, db *sql.DB, r *http.Request, nodeID int64, supported bool) error {
 	var was bool
 	if err := db.QueryRowContext(ctx,
 		`SELECT agent_psk FROM caddy_nodes WHERE id = ?`, nodeID).Scan(&was); err != nil {
-		return
+		return err
 	}
 	if was == supported {
-		return
+		return nil
 	}
 	if _, err := db.ExecContext(ctx,
 		`UPDATE caddy_nodes SET agent_psk = ? WHERE id = ?`, supported, nodeID); err != nil {
-		return
+		return err
 	}
 	if supported {
-		return
+		return nil
 	}
 	var affected int
 	_ = db.QueryRowContext(ctx,
@@ -752,6 +775,7 @@ func (h *WGBootstrapHandler) setPSKCapability(ctx context.Context, db *sql.DB, r
 		EntityID:  strconv.FormatInt(nodeID, 10),
 		Meta:      map[string]any{"psk_peers": affected},
 	})
+	return nil
 }
 
 // publicBaseURL returns the panel's external base URL. When appURL is

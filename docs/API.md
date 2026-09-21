@@ -1074,6 +1074,7 @@ Called by the agent every ~30 seconds.
 
 ```json
 {
+  "psk_managed": true,
   "peers": [
     {
       "pubkey": "abc123...==",
@@ -1085,6 +1086,13 @@ Called by the agent every ~30 seconds.
 ```
 
 `status` values: `active`, `pending`, `revoked`.
+
+Agents send `X-HPG-Agent-PSK: 1` to declare that they apply `preshared_key`;
+the panel records that capability before building the answer (`500` if it
+cannot) and echoes `psk_managed: true`, which tells the agent this is the
+complete key set and a peer listed without one has really lost it. Omitted
+for agents that do not declare the header - see
+[POST_QUANTUM.md](POST_QUANTUM.md#the-pull-negotiates-capability-409-conflict).
 
 **Errors**
 

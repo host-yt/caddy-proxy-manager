@@ -924,6 +924,11 @@ type peerEntry struct {
 
 type peerListReply struct {
 	Peers []peerEntry `json:"peers"`
+	// PSKManaged says the panel knows this agent applies preshared keys and
+	// is therefore stating the full key set. Absent (older panel, or one that
+	// could not record the capability) means an omitted preshared_key carries
+	// no intent at all, so nothing may be cleared from it.
+	PSKManaged bool `json:"psk_managed"`
 }
 
 // reconcile fetches the desired peer set from the panel and applies it
@@ -1027,7 +1032,15 @@ func buildSyncconf(log *slog.Logger, c config, reply peerListReply) (string, int
 // whose PSK the panel dropped (a key rotation onto a node whose agent no
 // longer reports PSK support) would keep the stale key on the interface and
 // fail every handshake, with the config claiming otherwise.
+//
+// Only a panel that says psk_managed is stating the full key set. Omission
+// has other causes - an older panel, or one that could not record this
+// agent's capability and so served the peers keyless - and inferring removal
+// from those wipes every live key on the node at once.
 func clearDroppedPSKs(ctx context.Context, log *slog.Logger, c config, reply peerListReply) {
+	if !reply.PSKManaged {
+		return
+	}
 	want := make(map[string]bool, len(reply.Peers))
 	for _, p := range reply.Peers {
 		if p.PresharedKey != "" {

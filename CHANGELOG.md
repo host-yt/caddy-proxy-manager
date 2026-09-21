@@ -185,6 +185,16 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
   `wg set wg0 peer <panel-public-key> preshared-key /dev/null`. Found by a new
   end-to-end harness (`make e2e-psk`) that drives real kernel WireGuard and now
   asserts the live interface, not the config file.
+- **Upgrading a node-agent could clear the preshared key of every customer
+  tunnel on that node.** The peer pull negotiates preshared-key support on the
+  request header, but only ever wrote the stored capability *downwards*: a node
+  rolled back and then upgraded again pulled with `X-HPG-Agent-PSK: 1` while
+  `caddy_nodes.agent_psk` was still 0, so it was served a keyless peer set and
+  read that as "the panel dropped every key". The pull now records the
+  capability the request declares before it looks the peers up, and refuses
+  with `500` if that write fails; and removal is no longer inferred from an
+  omitted field at all - the answer carries `psk_managed` when the panel is
+  really stating the whole key set, and the agent clears nothing without it.
 - **The WireGuard sidecar was told to `wg syncconf` on every unrelated admin
   action.** The rendered `wg0.conf` carried a generated-at timestamp in its
   header, so every render produced a different file and the sidecar, which

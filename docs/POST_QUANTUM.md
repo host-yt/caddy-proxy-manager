@@ -345,10 +345,25 @@ down. The agent logs the 409 body and changes nothing.
   degrades rather than fails](#rotation-degrades-rather-than-fails)), after
   which the pull succeeds again with a PSK-less peer set.
 
-One asymmetry worth knowing during an upgrade: the header only corrects the
-stored flag **downwards**. An upgraded agent gets `agent_psk` back to 1 from its
-next `POST /api/node/wg/stats` report (~30 s), so PSKs start flowing one report
-cycle after the upgrade, not on its first pull.
+The header corrects the stored flag in **both** directions, and it is written
+before the peer lookup reads it back: an agent upgraded after a rollback gets
+its PSKs on its very first pull, not one stats cycle later. If that write
+fails the pull answers `500` and serves nothing - a peer set built on a
+capability the panel could not record is what wiped live keys before.
+
+### `psk_managed`: removal is stated, never inferred
+
+A `200` answered to a PSK-capable agent carries `"psk_managed": true` next to
+`peers`. It means "this is the whole key set", which is what lets the agent
+clear a live `PresharedKey` that the peer list no longer carries - `wg
+syncconf` cannot remove one, only overwrite it, so a dropped PSK otherwise
+lingers on the interface and fails every handshake.
+
+Without that flag an absent `preshared_key` carries no intent and the agent
+touches nothing. Both directions stay safe: an older panel never sends it, so
+a current agent keeps the keys it has (a genuinely dropped PSK then lingers
+until the interface restarts, as it did before the flag existed); an older
+agent ignores the unknown field.
 
 ### When a node loses PSK support
 
