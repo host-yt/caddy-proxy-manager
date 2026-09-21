@@ -576,7 +576,7 @@
         </div>
       </label>
       <p id="sso-permissive-warn" class="t-caption rounded-lg border border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:border-amber-600 dark:text-amber-200 px-3 py-2" {{if .SSOStrictMode}}hidden{{end}}>
-        <strong>Permissive mode does not authenticate this route.</strong> Covered: GET and HEAD page loads. <strong>Not covered:</strong> POST, PUT, PATCH and DELETE, and every XHR/fetch request - those reach the backend with no auth check at all. Choose it only when the backend authenticates everything except the initial page load. The choice is written to the audit log.
+        <strong>Permissive mode does not authenticate this route.</strong> Covered: GET and HEAD requests outside the static asset paths. <strong>Not covered:</strong> POST, PUT, PATCH and DELETE, and static assets - those reach the backend with no auth check at all. Choose it only when the backend authenticates everything except the initial page load. The choice is written to the audit log.
       </p>
       <div>
         <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Copy headers (one per line)</label>
