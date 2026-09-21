@@ -257,8 +257,10 @@ own streams and cannot clear a quarantine without fixing the destination.
 
 1. **Stop the panel.** The tool rewrites rows the panel reads on boot; running
    it against a live instance is unsupported.
-2. **Back up** the database and `data/install_state.json`. A half-applied
-   rotation is unrecoverable without them.
+2. **Back up** the database and `data/install_state.json` anyway. An
+   interrupted run leaves a `.rotate-journal` beside the state file and
+   re-running the same command resumes from it, but a backup is what covers
+   the cases the journal cannot.
 3. Run `hpg-rotate-secret --state ./data/install_state.json --old-secret
    <current> --new-secret <new>` (add `--apply`; without it the run prints a
    dry-run summary and changes nothing).

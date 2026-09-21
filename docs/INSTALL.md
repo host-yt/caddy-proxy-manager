@@ -69,7 +69,7 @@ the file permissions on your secrets:
 
 ```bash
 docker run --rm -v "$PWD/.env:/app/.env:ro" \
-  ghcr.io/host-yt/caddy-proxy-manager:1.5.1 doctor
+  ghcr.io/host-yt/caddy-proxy-manager:1.7.1 doctor
 ```
 
 ### 2.3 Start the stack
@@ -173,7 +173,7 @@ SQLite is intended for homelab and single-node installs. It requires no credenti
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `REDIS_ADDR` | `redis:6379` | no | Redis address |
-| `REDIS_PASSWORD` | - | no | Redis password (leave blank if not set on the Redis container) |
+| `REDIS_PASSWORD` | - | yes | Redis password. Compose refuses to start without it; generate one with `openssl rand -base64 24` |
 | `REDIS_DB` | `0` | no | Redis database index |
 
 ### Caddy

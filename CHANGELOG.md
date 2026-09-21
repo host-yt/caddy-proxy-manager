@@ -172,9 +172,11 @@ Read these before upgrading a multi-tenant install.
 - **Idempotency keys left pending are marked unresolved,** not deleted. A retry
   gets 409 with the operation id; reconcile against the audit log before
   clearing one.
-- **API lists**: a failed read is now 500 rather than a short 200, and an
-  unpaginated request over 5000 rows is refused with 413 pointing at `?limit=`
-  and `?cursor=`. Complete lists under that size behave as before.
+- **API lists**: a failed read is now 500 rather than a short 200. Opt-in
+  keyset pagination (`?limit=`, `?cursor=`) was added to `/api/v1/services` and
+  `/api/v1/routes` only; on those two an unpaginated result above 5000 rows is
+  refused with 413 instead of being truncated. Every other list endpoint keeps
+  its shape and got the error handling alone.
 - **Reconcile now reverts manual edits** inside the config sections the panel
   manages. Certificates, logging and the admin listener stay unmanaged.
 - **Backups that were silently partial now fail.** A backup reporting an

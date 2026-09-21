@@ -75,7 +75,9 @@ jobs:
             echo "::error::caddy image pins disagree: $(echo $caddy_pins)"; fail=1; fi
           # OPS-002: every own-image pin across deploy/ must name one version,
           # or an alternative profile silently deploys an older panel.
-          hpg_pins=$(grep -rhoE 'ghcr\.io/host-yt/[a-z-]+:[0-9]+\.[0-9]+\.[0-9]+' deploy/ \
+          # docs/ is in scope too: an install guide pinning an older panel
+          # sends operators to a stale image (OPS-002 drifted exactly there).
+          hpg_pins=$(grep -rhoE 'ghcr\.io/host-yt/[a-z-]+:[0-9]+\.[0-9]+\.[0-9]+' deploy/ docs/ \
             | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)
           if [ "$(printf '%s' "$hpg_pins" | grep -c .)" -ne 1 ]; then
             echo "::error::hpg image pins in deploy/ disagree: $(echo $hpg_pins) (run: make pin-version V=x.y.z)"; fail=1; fi
