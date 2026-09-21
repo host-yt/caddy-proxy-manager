@@ -132,10 +132,14 @@ func TenantTemplateQuarantine(r Route) string {
 			}
 		}
 	}
-	// The rate-limit key is a placeholder BY DESIGN (the UI offers custom ones),
-	// so only the node-state providers are refused here.
-	if err := ScreenReplacerValue(r.RateLimitKey); err != nil {
+	if err := ScreenTenantRateKey(r.RateLimitKey); err != nil {
 		return "rate_key: " + err.Error()
 	}
 	return ""
 }
+
+// ScreenTenantRateKey is the rate-limit key policy for BOTH write and emission.
+// The key is a placeholder by design (the host editor offers
+// {http.request.header.X-API-Key}), so the allow-list would break a documented
+// feature; only the node-state providers are refused.
+func ScreenTenantRateKey(s string) error { return ScreenReplacerValue(s) }
