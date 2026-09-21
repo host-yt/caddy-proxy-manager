@@ -34,6 +34,16 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 			return 0, ErrInvalidDomain
 		}
 	}
+	// Both are emitted into the Caddy config, so an unsafe placeholder here
+	// quarantines the route at the next push. Every caller comes through
+	// Create - including the NPM import, which reads them out of an uploaded
+	// file - so refuse the value at the write, never strip it silently.
+	if err := firstErrOf(
+		ScreenTenantString(in.RedirectURL),
+		ScreenTenantString(strings.TrimSpace(in.UpstreamHostHeader)),
+	); err != nil {
+		return 0, err
+	}
 
 	// Verify service ownership + read port range + node_group + plan.
 	var (
