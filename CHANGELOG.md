@@ -386,7 +386,6 @@ plane, and the release process that could publish an untested image.
 - README gains a maturity table (stable / beta / experimental per area,
   including the single-writer caveat on the config push) and no longer states a
   migration count that had drifted.
-=======
 ## [1.4.7] - 2026-08-07
 
 Three bugs reported against 1.4.6, all in the Caddy configuration the panel generates.
