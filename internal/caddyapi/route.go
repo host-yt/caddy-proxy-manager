@@ -300,9 +300,8 @@ type Route struct {
 	// panel's own verifier (a self-hosted alternative to external SSO). The
 	// verify subrequest + login UI are dialed at PortalDial (the panel, same
 	// host:port the self-bootstrap route uses). PortalTLS selects https on
-	// that dial. Empty PortalDial disables the gate even when PortalProtect
-	// is set (fail closed: no reachable verifier => skip emission, route is
-	// NOT silently left open - see BuildRoute).
+	// that dial. Empty PortalDial cannot serve the route at all: BuildRoute
+	// denies it rather than falling through to the naked upstream.
 	PortalProtect bool
 	PortalDial    string // panel host:port reachable from the node
 	PortalTLS     bool   // dial the panel over https
@@ -440,7 +439,9 @@ func BuildRoute(r Route) map[string]any {
 
 	// Fail closed: an auth gate the operator enabled could not be emitted, so
 	// the domain resolves to a 503 error page instead of the naked upstream.
-	if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig {
+	// PortalProtect without a dial target is the same condition even if the
+	// caller forgot to flag it - the gate cannot be built, so nothing serves.
+	if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig || (r.PortalProtect && r.PortalDial == "") {
 		return map[string]any{
 			"@id":    "route_" + r.ID,
 			"match":  []any{match},
@@ -1387,7 +1388,7 @@ func routeAudienceRestricted(r Route) bool {
 // broken", and no-store so nothing caches the denial.
 func misconfigDenyHandler(r Route) map[string]any {
 	reason := "client certificate enforcement is unavailable"
-	if r.PortalDenyOnMisconfig {
+	if r.PortalDenyOnMisconfig || r.PortalProtect {
 		reason = "access portal verifier is unavailable"
 		if r.PortalNoGrants {
 			reason = "access portal protection is on but nobody has been granted access"
