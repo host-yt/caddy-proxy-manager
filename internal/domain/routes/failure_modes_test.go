@@ -8,32 +8,46 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 )
 
-// driftNode is a fake Caddy that serves a configurable route set on the drift
-// probe path and records every /load it is given.
+// driftNode is a fake Caddy that serves a configurable node config on the
+// managedConfigPaths drift-probe paths and records every /load it is given.
 type driftNode struct {
-	mu       sync.Mutex
-	served   []map[string]any // what GET /config/.../routes returns
-	loads    [][]string
-	probes   int
-	loadFail bool
-	srv      *httptest.Server
+	mu        sync.Mutex
+	servedCfg map[string]any // full config the node currently reports as loaded
+	loads     [][]string
+	probes    int
+	loadFail  bool
+	srv       *httptest.Server
 }
 
 func newDriftNode(t *testing.T) *driftNode {
 	t.Helper()
-	n := &driftNode{served: []map[string]any{}}
+	// Empty srv0, nothing else mounted - a Caddy that restarted with no
+	// autosaved config at all.
+	n := &driftNode{servedCfg: map[string]any{
+		"apps": map[string]any{
+			"http": map[string]any{
+				"servers": map[string]any{"srv0": map[string]any{"routes": []any{}}},
+			},
+		},
+	}}
 	n.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
-		case r.URL.Path == "/config/apps/http/servers/srv0/routes" && r.Method == http.MethodGet:
+		case strings.HasPrefix(r.URL.Path, "/config/") && r.Method == http.MethodGet:
 			n.mu.Lock()
 			n.probes++
-			body, _ := json.Marshal(n.served)
+			v, ok := lookupConfigPath(n.servedCfg, strings.TrimPrefix(r.URL.Path, "/config/"))
 			n.mu.Unlock()
 			w.Header().Set("Content-Type", "application/json")
+			if !ok {
+				_, _ = w.Write([]byte("null"))
+				return
+			}
+			body, _ := json.Marshal(v)
 			_, _ = w.Write(body)
 		case r.URL.Path == "/load":
 			body, _ := io.ReadAll(r.Body)
@@ -90,7 +104,7 @@ func TestReconcileDrift_RepushesANodeThatCameBackEmpty(t *testing.T) {
 		t.Fatalf("buildNodePush: %v", err)
 	}
 	node.mu.Lock()
-	node.served = servedRoutesFromConfig(t, np.cfg)
+	node.servedCfg = np.cfg // node now reports back exactly what was pushed
 	before := len(node.loads)
 	node.mu.Unlock()
 
@@ -98,29 +112,6 @@ func TestReconcileDrift_RepushesANodeThatCameBackEmpty(t *testing.T) {
 	if got := node.loadCount(); got != before {
 		t.Errorf("drift sweep re-pushed a node that already matched (%d -> %d loads)", before, got)
 	}
-}
-
-// servedRoutesFromConfig pulls srv0's route array out of a built config, which
-// is what a healthy node would return from the drift probe.
-func servedRoutesFromConfig(t *testing.T, cfg map[string]any) []map[string]any {
-	t.Helper()
-	raw, err := json.Marshal(cfg)
-	if err != nil {
-		t.Fatalf("marshal cfg: %v", err)
-	}
-	var parsed struct {
-		Apps struct {
-			HTTP struct {
-				Servers map[string]struct {
-					Routes []map[string]any `json:"routes"`
-				} `json:"servers"`
-			} `json:"http"`
-		} `json:"apps"`
-	}
-	if err := json.Unmarshal(raw, &parsed); err != nil {
-		t.Fatalf("unmarshal cfg: %v", err)
-	}
-	return parsed.Apps.HTTP.Servers["srv0"].Routes
 }
 
 // TestCreate_NoHealthyNodeIsRefusedCleanly covers "node offline during
