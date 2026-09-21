@@ -927,19 +927,12 @@ func BuildRoute(r Route) map[string]any {
 			sniHost = sniHost[:i]
 		}
 
-		// Extract port from dial so SSO-via-tunnel can rebuild dial
-		// against peer IP without losing the URL's port.
-		ssoPort := ""
-		if i := strings.LastIndex(dial, ":"); i >= 0 {
-			ssoPort = dial[i+1:]
-		}
-		// SSO via tunnel: if a tunnel peer is bound, dial peer_ip:port
-		// directly. Hostname from the URL is ignored (no DNS needed) -
-		// peer host must expose the IdP port on its host network.
+		// One definition of the SSO dial target, shared with the emission-time
+		// screener so the two can never disagree about what is dialed.
 		dialHost := dial
-		if r.SSOResolver != "" && ssoPort != "" {
+		if h, p, ok := SSODialTarget(r); ok {
 			// JoinHostPort brackets IPv6 literals; bare concat breaks them.
-			dialHost = net.JoinHostPort(r.SSOResolver, ssoPort)
+			dialHost = net.JoinHostPort(h, itoa(p))
 		}
 		mkRP := func(extra map[string]any) map[string]any {
 			rp := map[string]any{
@@ -1541,6 +1534,30 @@ func dialFromURL(raw string) string {
 		}
 	}
 	return s
+}
+
+// SSODialTarget returns the host and port the SSO subroutes dial (forward-auth
+// subrequest and the unauthenticated outpost passthrough alike). ok is false
+// when the stored URL yields no dialable host:port - callers must refuse to
+// emit such a route rather than dial something they never screened.
+func SSODialTarget(r Route) (host string, port int, ok bool) {
+	if strings.TrimSpace(r.SSOProviderURL) == "" {
+		return "", 0, false
+	}
+	h, p, err := net.SplitHostPort(dialFromURL(r.SSOProviderURL))
+	if err != nil || strings.TrimSpace(h) == "" {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(p)
+	if err != nil || n <= 0 || n > 65535 {
+		return "", 0, false
+	}
+	// SSO via tunnel: the bound peer replaces the URL host (no DNS needed),
+	// the port still comes from the URL.
+	if r.SSOResolver != "" {
+		h = r.SSOResolver
+	}
+	return h, n, true
 }
 
 // isHTTPSProvider returns true when the SSO URL starts with https://.
