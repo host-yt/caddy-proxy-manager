@@ -276,10 +276,10 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "backend_ip invalid")
 		return
 	}
-	// Screen the backend for SSRF-sensitive ranges (loopback/link-local/
-	// metadata) - twin of CADDY-02 on the web path (API-02).
-	if security.IsDangerousProxyBackend(backendIP) {
-		apiErr(w, http.StatusBadRequest, "backend_ip not allowed (loopback/link-local/metadata)")
+	// Screen the backend through the same fail-closed screener as the web path:
+	// loopback/link-local/metadata plus managed node and control-plane addresses.
+	if err := screenBackendHost(r.Context(), h.DB(), in.BackendIP, 0); err != nil {
+		apiErr(w, http.StatusBadRequest, "backend_ip not allowed: "+sanitizeErr(err))
 		return
 	}
 	if in.AllowedPortStart < 1 || in.AllowedPortEnd > 65535 || in.AllowedPortStart > in.AllowedPortEnd {

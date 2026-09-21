@@ -82,6 +82,20 @@ func rejectNestedHandlers(v any, depth int) error {
 	return nil
 }
 
+// ScreenReplacerValue refuses a tenant-supplied string that would make Caddy's
+// replacer read the node's environment or filesystem. Exported because upstream
+// header values and rewrite targets reach the same replacer as custom handlers
+// and must share one rejector.
+func ScreenReplacerValue(s string) error {
+	low := strings.ToLower(s)
+	for _, tok := range unsafePlaceholderTokens {
+		if strings.Contains(low, tok) {
+			return fmt.Errorf("placeholder %q is not permitted", tok+"...}")
+		}
+	}
+	return nil
+}
+
 // rejectUnsafePlaceholders walks every string (keys included) below a handler
 // property and refuses env/file/system placeholders wherever they hide.
 func rejectUnsafePlaceholders(v any, depth int) error {
@@ -90,11 +104,8 @@ func rejectUnsafePlaceholders(v any, depth int) error {
 	}
 	switch t := v.(type) {
 	case string:
-		low := strings.ToLower(t)
-		for _, tok := range unsafePlaceholderTokens {
-			if strings.Contains(low, tok) {
-				return fmt.Errorf("placeholder %q is not permitted", tok+"...}")
-			}
+		if err := ScreenReplacerValue(t); err != nil {
+			return err
 		}
 	case map[string]any:
 		for k, vv := range t {

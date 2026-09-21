@@ -29,7 +29,6 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/mail"
-	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
@@ -442,16 +441,15 @@ func (h *ClientHandlers) ServiceEdit(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = r.ParseForm()
 	backendIP := strings.TrimSpace(r.FormValue("backend_ip"))
-	ip := net.ParseIP(backendIP)
-	if ip == nil {
+	if net.ParseIP(backendIP) == nil {
 		redirectWithFlash(w, r, "/app/services", "", "backend IP invalid")
 		return
 	}
 	// Even on self-service npm plans, never let a client point the node at
-	// loopback or link-local/cloud-metadata - that would proxy to node-local
-	// services or leak the node's cloud credentials.
-	if security.IsDangerousProxyBackend(ip) {
-		redirectWithFlash(w, r, "/app/services", "", "backend IP not allowed (loopback / link-local / metadata)")
+	// loopback, link-local/cloud-metadata or the control plane - that would
+	// proxy to node-local services or leak the node's cloud credentials.
+	if err := screenBackendHost(ctx, db, backendIP, 0); err != nil {
+		redirectWithFlash(w, r, "/app/services", "", "backend IP not allowed: "+sanitizeErr(err))
 		return
 	}
 	// Hard rule #2: the allowed port range is the security boundary, NOT

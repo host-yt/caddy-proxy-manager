@@ -679,7 +679,9 @@ func BuildRoute(r Route) map[string]any {
 		sb.WriteString("Include @owasp_crs/*.conf\n")
 		// Custom directives must come AFTER the CRS include: SecRuleRemoveById
 		// only matches rules already parsed, so emitting them earlier is a no-op.
-		if extra := strings.TrimSpace(r.WAFDirectives); extra != "" {
+		// Structural screen at emission: a stored line Coraza cannot parse
+		// would fail /load for every tenant sharing this node.
+		if extra, _ := SanitizeWAFDirectives(r.WAFDirectives); extra != "" {
 			sb.WriteString(extra)
 			sb.WriteString("\n")
 		}

@@ -766,13 +766,14 @@ type streamCurrent struct {
 	dest             streamDestination
 }
 
-// loadInfraOrFail builds the deny set, turning a lookup failure into a
-// user-facing error: screening must fail closed, never be skipped.
+// loadInfraOrFail builds the deny set for stream and HTTP target screening,
+// turning a lookup failure into a user-facing error: screening must fail
+// closed, never be skipped.
 func loadInfraOrFail(ctx context.Context, db *sql.DB, logger *slog.Logger) (*streamguard.InfraTargets, error) {
 	infra, err := streamguard.LoadInfraTargets(ctx, db)
 	if err != nil {
 		if logger != nil {
-			logger.Warn("stream screen: infra deny list unavailable", "err", err)
+			logger.Warn("target screen: infra deny list unavailable", "err", err)
 		}
 		return nil, errors.New("destination screening unavailable, try again")
 	}
