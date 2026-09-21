@@ -2941,89 +2941,24 @@ func (h *AdminHandlers) ServicesDelete(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/services", "Service deleted", "")
 }
 
-// ServicesSuspend sets a service to 'suspended' and disables all active routes in a transaction.
+// ServicesSuspend suspends a service through the domain lifecycle: routes stop
+// serving, their rows survive, and the reason is recorded so resume can tell a
+// suspend apart from an operator's manual disable.
 func (h *AdminHandlers) ServicesSuspend(w http.ResponseWriter, r *http.Request) {
-	db := h.DB()
-	if db == nil {
-		http.Error(w, "no db", http.StatusServiceUnavailable)
-		return
-	}
-	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	if id == 0 {
-		redirectWithFlash(w, r, "/admin/services", "", "invalid service id")
-		return
-	}
-	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
-	defer cancel()
-
-	if !h.scopeCheckService(ctx, middleware.SessionFromContext(r.Context()), id) {
-		redirectWithFlash(w, r, "/admin/services", "", "forbidden")
-		return
-	}
-
-	// Collect distinct caddy_node_ids for affected active routes before disabling.
-	rows, err := db.QueryContext(ctx,
-		"SELECT DISTINCT caddy_node_id FROM routes WHERE service_id = ? AND status = 'active' AND caddy_node_id IS NOT NULL", id)
-	if err != nil {
-		redirectWithFlash(w, r, "/admin/services", "", "query failed: "+sanitizeErr(err))
-		return
-	}
-	var nodeIDs []int64
-	for rows.Next() {
-		var nid int64
-		if rows.Scan(&nid) == nil {
-			nodeIDs = append(nodeIDs, nid)
-		}
-	}
-	rows.Close()
-
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		redirectWithFlash(w, r, "/admin/services", "", "tx begin failed")
-		return
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	res, err := tx.ExecContext(ctx,
-		"UPDATE services SET status = 'suspended' WHERE id = ? AND status = 'active'", id)
-	if err != nil {
-		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		redirectWithFlash(w, r, "/admin/services", "", "service not found or already suspended")
-		return
-	}
-
-	if _, err := tx.ExecContext(ctx,
-		"UPDATE routes SET status = 'disabled' WHERE service_id = ? AND status IN ('active','dns_ok','pending_ssl')", id); err != nil {
-		redirectWithFlash(w, r, "/admin/services", "", "route disable failed: "+sanitizeErr(err))
-		return
-	}
-
-	if err := tx.Commit(); err != nil {
-		redirectWithFlash(w, r, "/admin/services", "", "commit failed")
-		return
-	}
-
-	// Push config to each affected node after commit.
-	if h.Routes != nil {
-		for _, nid := range nodeIDs {
-			h.Routes.SchedulePush(nid)
-		}
-	}
-
-	audit.Write(ctx, db, h.Logger, r, audit.Entry{
-		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
-		Action: "admin.service.suspend", Entity: "service", EntityID: fmt.Sprintf("%d", id),
-	})
-	redirectWithFlash(w, r, "/admin/services", "Service suspended", "")
+	h.serviceLifecycleAction(w, r, "suspend")
 }
 
-// ServicesResume reactivates a suspended service and re-enables its disabled routes.
+// ServicesResume reactivates a suspended service and re-enables only the routes
+// the suspend disabled.
 func (h *AdminHandlers) ServicesResume(w http.ResponseWriter, r *http.Request) {
+	h.serviceLifecycleAction(w, r, "resume")
+}
+
+// serviceLifecycleAction is the panel form half of the shared contract; the
+// bulk action and the REST API call the very same domain methods.
+func (h *AdminHandlers) serviceLifecycleAction(w http.ResponseWriter, r *http.Request, action string) {
 	db := h.DB()
-	if db == nil {
+	if db == nil || h.Routes == nil {
 		http.Error(w, "no db", http.StatusServiceUnavailable)
 		return
 	}
@@ -3039,53 +2974,32 @@ func (h *AdminHandlers) ServicesResume(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/services", "", "forbidden")
 		return
 	}
-
-	// Collect distinct node IDs before updating so we know which nodes to push.
-	rows, err := db.QueryContext(ctx,
-		"SELECT DISTINCT caddy_node_id FROM routes WHERE service_id = ? AND caddy_node_id IS NOT NULL", id)
-	if err != nil {
-		redirectWithFlash(w, r, "/admin/services", "", "query failed: "+sanitizeErr(err))
+	if err := h.serviceLifecycle(ctx, id, action); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", sanitizeErr(err))
 		return
 	}
-	var nodeIDs []int64
-	for rows.Next() {
-		var nid int64
-		if rows.Scan(&nid) == nil {
-			nodeIDs = append(nodeIDs, nid)
-		}
-	}
-	rows.Close()
-
-	res, err := db.ExecContext(ctx,
-		"UPDATE services SET status = 'active' WHERE id = ? AND status = 'suspended'", id)
-	if err != nil {
-		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
-		return
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		redirectWithFlash(w, r, "/admin/services", "", "service not found or not suspended")
-		return
-	}
-
-	// Re-enable all disabled routes for this service (intentional: restore all).
-	if _, err := db.ExecContext(ctx,
-		"UPDATE routes SET status = 'active' WHERE service_id = ? AND status = 'disabled'", id); err != nil {
-		redirectWithFlash(w, r, "/admin/services", "", "route enable failed: "+sanitizeErr(err))
-		return
-	}
-
-	// Push config to each affected node.
-	if h.Routes != nil {
-		for _, nid := range nodeIDs {
-			h.Routes.SchedulePush(nid)
-		}
-	}
-
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
-		Action: "admin.service.resume", Entity: "service", EntityID: fmt.Sprintf("%d", id),
+		Action: "admin.service." + action, Entity: "service", EntityID: fmt.Sprintf("%d", id),
 	})
+	if action == "suspend" {
+		redirectWithFlash(w, r, "/admin/services", "Service suspended", "")
+		return
+	}
 	redirectWithFlash(w, r, "/admin/services", "Service resumed", "")
+}
+
+// serviceLifecycle maps a panel action onto the domain contract.
+func (h *AdminHandlers) serviceLifecycle(ctx context.Context, id int64, action string) error {
+	switch action {
+	case "suspend":
+		return h.Routes.SuspendService(ctx, id)
+	case "resume":
+		return h.Routes.ResumeService(ctx, id)
+	case "terminate":
+		return h.Routes.TerminateService(ctx, id)
+	}
+	return fmt.Errorf("unknown action %q", action)
 }
 
 // ServicesBulk applies suspend/resume/delete to a list of service IDs.
@@ -3124,10 +3038,14 @@ func (h *AdminHandlers) ServicesBulk(w http.ResponseWriter, r *http.Request) {
 		}
 		var execErr error
 		switch action {
-		case "suspend":
-			_, execErr = db.ExecContext(ctx, "UPDATE services SET status=? WHERE id=?", "suspended", svcID)
-		case "resume":
-			_, execErr = db.ExecContext(ctx, "UPDATE services SET status=? WHERE id=? AND status=?", "active", svcID, "suspended")
+		case "suspend", "resume":
+			// Identical to the single-service action: same transaction, same
+			// route handling, same node pushes.
+			if h.Routes == nil {
+				redirectWithFlash(w, r, "/admin/services", "", "route service not ready")
+				return
+			}
+			execErr = h.serviceLifecycle(ctx, svcID, action)
 		case "delete":
 			_, execErr = db.ExecContext(ctx, "DELETE FROM services WHERE id=?", svcID)
 		default:

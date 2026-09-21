@@ -114,21 +114,23 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		default:
 			return 0, fmt.Errorf("redirect_code must be 301/302/307/308")
 		}
-	} else if !in.External && (in.UpstreamPort < portStart || in.UpstreamPort > portEnd) {
-		return 0, ErrPortOutOfRange
 	}
-	// Reject a backend port already claimed by another route in this service's pool.
-	if in.Kind != "redirect" && !in.External {
-		var portUsed int
-		if err := s.DB.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM routes WHERE service_id = ? AND upstream_port = ?",
-			in.ServiceID, in.UpstreamPort,
-		).Scan(&portUsed); err == nil && portUsed > 0 {
-			return 0, ErrPortInUse
-		}
+	// Plan flags constrain customer choice. External routes always need their
+	// own cert (the node domain), so the plan SSL flag can't disable them.
+	if !planSSL && !in.External {
+		in.SSL = false
 	}
-	if pathPrefix != "" && !planPath {
-		return 0, fmt.Errorf("plan does not permit path routing")
+	if !planWS {
+		in.WebSocket = false
+	}
+	// Same allocation rules the update paths enforce, from one implementation:
+	// port range, port collision, path routing and the plan feature flags.
+	if err := s.checkRouteState(ctx, in.ServiceID, 0, RouteState{
+		Kind: in.Kind, External: in.External, UpstreamPort: in.UpstreamPort,
+		PathPrefix: pathPrefix, SSL: in.SSL, WebSocket: in.WebSocket,
+		RedirectURL: in.RedirectURL,
+	}, routePlan{portStart: portStart, portEnd: portEnd, ssl: planSSL, ws: planWS, path: planPath}); err != nil {
+		return 0, err
 	}
 	// Plan limit: max_domains counted across this service.
 	if planMaxDom > 0 {
@@ -153,15 +155,6 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		if qerr != nil {
 			s.Logger.Warn("reseller quota check skipped", "client", ownerClient, "err", qerr)
 		}
-	}
-
-	// Plan flags constrain customer choice. External routes always need their
-	// own cert (the node domain), so the plan SSL flag can't disable them.
-	if !planSSL && !in.External {
-		in.SSL = false
-	}
-	if !planWS {
-		in.WebSocket = false
 	}
 
 	// Wildcard DNS-01: plan-gated for customers (admin clientID==0 bypasses,
@@ -801,6 +794,17 @@ func (s *Service) advanceRoute(ctx context.Context, routeID int64) {
 		routeID,
 	).Scan(&nodeID, &domain, &nodeHostname, &nodeIP, &verified); err != nil {
 		s.Logger.Error("advance: route lookup", "id", routeID, "err", err)
+		return
+	}
+
+	// Service gate: a suspended/terminated service must not have its routes
+	// walked back into a serving status by Reconcile or a late create. Fails
+	// closed - a lookup error holds the route rather than advancing it.
+	if serving, serr := s.serviceServing(ctx, routeID); serr != nil || !serving {
+		_, _ = s.DB.ExecContext(ctx,
+			`UPDATE routes SET status='disabled', disabled_reason=?, updated_at=NOW()
+			  WHERE id=? AND status <> 'disabled'`, DisabledByServiceSuspend, routeID)
+		s.Logger.Info("route: owning service not active, holding disabled", "id", routeID, "err", serr)
 		return
 	}
 
