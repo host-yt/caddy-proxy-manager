@@ -1,7 +1,8 @@
 // Package config loads runtime configuration from environment variables.
 //
-// Source of truth: env. .env file is loaded only in development (when present)
-// to avoid surprises in production where secrets come from the orchestrator.
+// Source of truth: the process environment. This package never reads a .env
+// file - in production Compose interpolates it, and `make run` sources it into
+// the shell first.
 package config
 
 import (

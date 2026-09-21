@@ -76,7 +76,8 @@ mechanism.
 
 ### `internal/config/`
 Loads the full runtime config from environment variables into a typed
-`Config` struct. No file parsing in production; `.env` is dev-only.
+`Config` struct. It never parses a file: Compose interpolates `.env`, and
+`make run` sources it into the shell before starting the binary.
 Validates required fields (e.g. `APP_SECRET` ≥ 32 chars after install,
 `APP_URL`, DB credentials). Exposes module-availability gates
 (`CACHE_HANDLER_AVAILABLE`, `LAYER4_AVAILABLE`, `WAF_MODULE_AVAILABLE`,
@@ -254,6 +255,17 @@ handler, plus leader-elected tickers (`internal/leader`, `internal/jobs`) for
 the periodic sweeps: health probe, drift resync, alias re-check, backups.
 A Redis-backed queue is a candidate for the work that today survives only as
 long as the process does; it is not implemented.
+
+**What that costs, honestly.** A crash between the DB commit and the push
+loses only the immediate attempt - the row is already durable, and a later
+sweep re-pushes it. The recovery window is bounded by those sweeps, not by a
+queue: boot push runs 10s after the leader starts, `reconcile` every 60s picks
+up routes left in a stuck state, and `drift` re-pushes a node whose live
+config no longer matches the DB every 5 minutes. So a route change survives a
+crash but can take up to ~5 minutes to reach a node, and ordering between two
+changes to different nodes is not guaranteed. Email sends and webhook
+deliveries are the work that can be lost outright; webhooks retry on a 30s
+dispatcher, mail does not.
 
 ### `internal/i18n/`
 Cookie-based language selection; templates carry translated strings.

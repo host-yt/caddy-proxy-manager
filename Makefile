@@ -84,8 +84,8 @@ build: gen build-css ## Build server binary (CSS first so it embeds).
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags="-s -w" -o $(BIN) ./cmd/server
 
 .PHONY: run
-run: build-css ## Run locally (loads .env).
-	$(GO) run ./cmd/server
+run: build-css ## Run locally (sources .env into the environment when present).
+	@set -a; [ -f .env ] && . ./.env; set +a; $(GO) run ./cmd/server
 
 .PHONY: pin-version
 pin-version: ## Rewrite every deploy/ image pin + README status to V=x.y.z (single version source).

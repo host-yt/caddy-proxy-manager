@@ -222,7 +222,31 @@ own streams and cannot clear a quarantine without fixing the destination.
 | API key hashes | `api_keys` table | Argon2id hash |
 | User passwords | `users` table | Argon2id hash |
 
-`APP_SECRET` must be ≥ 32 characters. The `cmd/rotate-secret` tool re-encrypts all blobs under a new key without downtime.
+`APP_SECRET` must be ≥ 32 characters.
+
+### Rotating `APP_SECRET`
+
+`cmd/rotate-secret` re-encrypts every at-rest blob under a new key. It is
+**not** a zero-downtime operation, and it invalidates API keys:
+
+1. **Stop the panel.** The tool rewrites rows the panel reads on boot; running
+   it against a live instance is unsupported.
+2. **Back up** the database and `data/install_state.json`. A half-applied
+   rotation is unrecoverable without them.
+3. Run `hpg-rotate-secret --state ./data/install_state.json --old-secret
+   <current> --new-secret <new>` (add `--apply`; without it the run prints a
+   dry-run summary and changes nothing).
+4. Set the new `APP_SECRET` in `.env` (or the orchestrator's secret store) and
+   start the panel.
+5. **Re-issue every API key.** `api_keys.key_hmac` is keyed off `APP_SECRET`
+   and cannot be re-derived from a hash, so rotation nulls it out. Existing
+   integration tokens stop working: create replacements in
+   **Admin → API keys** and distribute them before the next automated run.
+
+Node admin-proxy keys, WireGuard keys and TOTP secrets are re-encrypted in
+place and need no operator action. A restored backup paired with a *different*
+`APP_SECRET` is the failure mode to avoid - `server doctor` reports the node
+keys it can no longer decrypt.
 
 ---
 
