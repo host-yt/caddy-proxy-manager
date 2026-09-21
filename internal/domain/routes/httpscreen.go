@@ -27,13 +27,13 @@ type httpDrop struct {
 // emission time, so a row stored before its target became control-plane
 // infrastructure (or stored through a path that predates the screener) is not
 // re-emitted. A deny set that cannot be loaded fails the whole push closed.
-func (s *Service) screenHTTPTargets(ctx context.Context, built []caddyapi.Route, ids []int64) ([]caddyapi.Route, []int64, error) {
+func (s *Service) screenHTTPTargets(ctx context.Context, built []caddyapi.Route, ids []int64) ([]caddyapi.Route, []int64, []httpDrop, error) {
 	if len(built) == 0 {
-		return built, ids, nil
+		return built, ids, nil, nil
 	}
 	infra, err := streamguard.LoadInfraTargets(ctx, s.DB)
 	if err != nil {
-		return nil, nil, fmt.Errorf("http target screening unavailable: %w", err)
+		return nil, nil, nil, fmt.Errorf("http target screening unavailable: %w", err)
 	}
 	outRoutes, outIDs, drops := screenHTTPSet(infra, built, ids, s.pinner(ctx, infra))
 	for _, d := range drops {
@@ -53,7 +53,7 @@ func (s *Service) screenHTTPTargets(ctx context.Context, built []caddyapi.Route,
 			Meta:      map[string]any{"reason": d.cause.Error(), "backend": d.route.UpstreamIP},
 		})
 	}
-	return outRoutes, outIDs, nil
+	return outRoutes, outIDs, drops, nil
 }
 
 // screenMode says how one dial target of a route is handled.

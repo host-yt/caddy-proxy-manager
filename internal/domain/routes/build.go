@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -239,10 +240,12 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		        COALESCE(r.sso_paths,''), COALESCE(r.sso_hosts,''),
 		        COALESCE(r.sso_strict_mode,0),
 		        COALESCE(sso_peer.assigned_ip, ''),
-	        -- Built-in portal: gate only when the flag is on AND >=1 grant exists,
-	        -- otherwise the route would be gated with nobody allowed (effective
-	        -- lockout). The verifier still re-checks membership per request.
-	        (COALESCE(r.portal_protect,0)=1 AND EXISTS(SELECT 1 FROM route_access_grants rag WHERE rag.route_id=r.id)),
+	        -- Built-in portal. Protection INTENT and the grant set are separate
+	        -- facts: removing the last grant must deny, not republish the route
+	        -- to the public (HPG-003). The verifier re-checks membership anyway.
+	        COALESCE(r.portal_protect,0),
+	        EXISTS(SELECT 1 FROM route_access_grants rag WHERE rag.route_id=r.id),
+	        COALESCE(r.portal_public_paths,''),
 	        COALESCE(r.upstream_external, 0), COALESCE(r.upstream_host_header, ''), COALESCE(r.proxy_secret_enc, ''),
 	        COALESCE(r.compress_disabled, 0),
 	        COALESCE(r.lb_policy,''),
@@ -318,6 +321,11 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 
 	var built []caddyapi.Route
 	var ids []int64
+	// Audit rows are COLLECTED here and written after the iterator is closed:
+	// the SQLite pool holds a single connection, so writing from inside the
+	// loop waits on a connection this very loop owns (HPG-009).
+	var pendingAudit []audit.Entry
+	notes := map[int64]compileNote{}
 	for rows.Next() {
 		var (
 			id                             int64
@@ -354,7 +362,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var ssoPathsRaw, ssoHostsRaw string
 		var ssoStrictMode bool
 		var ssoResolverIP string
-		var portalProtect bool
+		var portalProtect, portalHasGrants bool
+		var portalPublicPathsRaw string
 		var upstreamExternal bool
 		var upstreamHostHeader, proxySecretEnc string
 		var compressDisabled bool
@@ -396,7 +405,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&ssoPathsRaw, &ssoHostsRaw,
 			&ssoStrictMode,
 			&ssoResolverIP,
-			&portalProtect,
+			&portalProtect, &portalHasGrants, &portalPublicPathsRaw,
 			&upstreamExternal, &upstreamHostHeader, &proxySecretEnc,
 			&compressDisabled,
 			&lbPolicy,
@@ -493,14 +502,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var headers map[string]string
 		if headersJSON != "" {
 			_ = json.Unmarshal([]byte(headersJSON), &headers)
-			// Re-screen stored values: rows written before the header screener
-			// existed can still carry an {env./file./system.} placeholder.
-			for k, v := range headers {
-				if err := caddyapi.ScreenReplacerValue(k + ": " + v); err != nil {
-					delete(headers, k)
-					s.Logger.Warn("unsafe custom header dropped from config", "route_id", id, "header", k, "err", err)
-				}
-			}
+			// Stored values are NOT dropped here: an unsafe placeholder
+			// quarantines the whole route at emission time (HPG-001), so a
+			// tenant cannot silently lose a gate and keep serving.
 		}
 		// Hostname-via-tunnel-DNS feature is disabled at build time.
 		// External route: the upstream FQDN (ip) is intentionally a hostname,
@@ -512,16 +516,19 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		if external {
 			if !s.externalHostAllowed(ip) {
 				s.Logger.Warn("external route host not allowlisted, skipping", "route_id", id, "host", ip)
+				notes[id] = compileNote{compileNotEmitted, "external upstream host is not allow-listed"}
 				continue
 			}
 			if proxySecretEnc != "" {
 				if s.DecryptSecret == nil {
 					s.Logger.Error("external route secret undecryptable (no key), skipping", "route_id", id)
+					notes[id] = compileNote{compileNotEmitted, "external upstream secret cannot be decrypted"}
 					continue
 				}
 				sec, derr := s.DecryptSecret(proxySecretEnc)
 				if derr != nil {
 					s.Logger.Error("external route secret decrypt failed, skipping", "route_id", id, "err", derr)
+					notes[id] = compileNote{compileNotEmitted, "external upstream secret cannot be decrypted"}
 					continue
 				}
 				proxySecret = sec
@@ -609,11 +616,13 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			// panel (same internal host:port as the self-bootstrap route). Plain
 			// HTTP over the internal network; the panel sets the protected-host
 			// cookie itself. Skipped entirely when PanelInternalHost is unset.
-			PortalProtect: portalProtect && portalReady,
+			PortalProtect: portalProtect && portalReady && portalHasGrants,
 			PortalDial:    s.portalDial(),
-			// Portal is an explicit per-route opt-in: no verifier means deny,
-			// never silently serve the protected backend to the public.
-			PortalDenyOnMisconfig: portalProtect && !portalReady,
+			// Portal is an explicit per-route opt-in: no verifier and no grantee
+			// both mean deny, never silently serve the backend to the public.
+			PortalDenyOnMisconfig: portalProtect && (!portalReady || !portalHasGrants),
+			PortalNoGrants:        portalProtect && portalReady && !portalHasGrants,
+			PortalPublicPaths:     splitCIDRs(portalPublicPathsRaw),
 
 			// External HTTPS upstream: SNI + Host both use the stored header
 			// (falls back to the FQDN in the builder); ProxySecret gates inbound.
@@ -692,7 +701,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		if reason := caddyapi.CustomHandlerQuarantine(built[len(built)-1]); reason != "" {
 			s.Logger.Error("route quarantined: custom handler chain rejected",
 				"route_id", id, "domain", domain, "reason", reason)
-			audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
+			notes[id] = compileNote{compileQuarantined, "custom handler chain rejected: " + reason}
+			pendingAudit = append(pendingAudit, audit.Entry{
 				ActorType: audit.ActorSystem,
 				Action:    "route.custom_handlers.quarantined",
 				Entity:    "route",
@@ -703,7 +713,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		// Audit when require_client_cert=1 but enforcement is skipped (no active
 		// CA, SSL off, unparsable PEM, or mtls_ca_id NULL).
 		if requireClientCert && !mtlsEnforceable {
-			audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
+			pendingAudit = append(pendingAudit, audit.Entry{
 				ActorType: audit.ActorSystem,
 				Action:    "route.mtls.pushed_without_tls",
 				Entity:    "route",
@@ -713,20 +723,55 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		}
 		ids = append(ids, id)
 	}
+	// Iteration errors are as fatal as the query error: a half-read route set
+	// would publish a node config missing whatever the driver stopped on.
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("route scan: %w", err)
+	}
+	// Release the connection BEFORE any write below (HPG-009).
+	rows.Close()
+	for _, e := range pendingAudit {
+		audit.Write(ctx, s.DB, s.Logger, nil, e)
+	}
+
 	// Attach additional backends (route_upstreams) in one batched query to
-	// avoid N+1; zero-row routes keep their single-dial primary. Best-effort:
-	// a query error leaves routes single-dial rather than failing the build.
-	s.attachRouteUpstreams(ctx, built, ids)
-	s.attachLocationRules(ctx, built, ids)
-	s.attachBasicAuthUsers(ctx, built, ids)
-	s.attachMTLSPathRules(ctx, built, ids)
+	// avoid N+1; zero-row routes keep their single-dial primary.
+	// None of these are best-effort: a policy that cannot be READ is not the
+	// same as a policy that does not exist, and publishing the difference
+	// would replace a live config with a weaker one (HPG-005).
+	if err := firstErrOf(
+		s.attachRouteUpstreams(ctx, built, ids),
+		s.attachLocationRules(ctx, built, ids),
+		s.attachBasicAuthUsers(ctx, built, ids),
+		s.attachMTLSPathRules(ctx, built, ids),
+	); err != nil {
+		return nil, nil, err
+	}
 	s.attachRBACTokens(built, ids, nodeID)
 	// Fail-closed re-screen of every dial target; must run after the upstream
 	// and location-rule attachments, which add targets of their own.
-	built, ids, err = s.screenHTTPTargets(ctx, built, ids)
+	var drops []httpDrop
+	built, ids, drops, err = s.screenHTTPTargets(ctx, built, ids)
 	if err != nil {
 		return nil, nil, err
 	}
+	for _, d := range drops {
+		if rid, cerr := strconv.ParseInt(d.route.ID, 10, 64); cerr == nil {
+			notes[rid] = compileNote{compileTargetRejected, d.part + ": " + d.cause.Error()}
+		}
+	}
+	// A tenant string Caddy would expand quarantines the route in BuildRoute;
+	// record the cause so the host list can say why it serves a 503.
+	for i, r := range built {
+		if reason := caddyapi.TenantTemplateQuarantine(r); reason != "" {
+			s.Logger.Error("route quarantined: unsafe placeholder in stored config",
+				"route_id", ids[i], "reason", reason)
+			notes[ids[i]] = compileNote{compileQuarantined, "unsafe placeholder: " + reason}
+		} else if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig {
+			notes[ids[i]] = compileNote{compileDenied, denyReason(r)}
+		}
+	}
+	s.recordCompileNotes(ctx, ids, notes)
 	// Emission order, not DB id order: a catch-all ahead of a narrower sibling
 	// on the same host would shadow it. ids must follow the same permutation -
 	// buildOneRoute pairs ids[i] with built[i].
@@ -745,9 +790,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 // attachBasicAuthUsers loads route_basic_auth_users in one IN(...) query and
 // maps them onto the built routes. Routes with users get BasicAuthUsers set;
 // routes without rows keep the legacy single-user BasicAuthUser/BasicAuthBcrypt.
-func (s *Service) attachBasicAuthUsers(ctx context.Context, built []caddyapi.Route, ids []int64) {
+func (s *Service) attachBasicAuthUsers(ctx context.Context, built []caddyapi.Route, ids []int64) error {
 	if len(ids) == 0 {
-		return
+		return nil
 	}
 	idx := make(map[int64]int, len(ids))
 	ph := make([]string, len(ids))
@@ -763,29 +808,29 @@ func (s *Service) attachBasicAuthUsers(ctx context.Context, built []caddyapi.Rou
 		  WHERE route_id IN (`+strings.Join(ph, ",")+`)
 		  ORDER BY route_id, username ASC`, args...)
 	if err != nil {
-		if s.Logger != nil {
-			s.Logger.Warn("route_basic_auth_users load failed; using single-user fallback", "err", err)
-		}
-		return
+		// Basic Auth users are a REQUIRED policy: an unreadable set would
+		// publish the route with only its legacy single user, or none.
+		return fmt.Errorf("route_basic_auth_users load failed: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var rid int64
 		var u caddyapi.BasicAuthUser
 		if err := rows.Scan(&rid, &u.Username, &u.Hash); err != nil {
-			continue
+			return fmt.Errorf("route_basic_auth_users scan: %w", err)
 		}
 		if i, ok := idx[rid]; ok {
 			built[i].BasicAuthUsers = append(built[i].BasicAuthUsers, u)
 		}
 	}
+	return rows.Err()
 }
 
 // attachMTLSPathRules loads mtls_path_rules for the given route IDs in one
 // batch query and sets MTLSPathRules on each matching route.
-func (s *Service) attachMTLSPathRules(ctx context.Context, built []caddyapi.Route, ids []int64) {
+func (s *Service) attachMTLSPathRules(ctx context.Context, built []caddyapi.Route, ids []int64) error {
 	if len(ids) == 0 {
-		return
+		return nil
 	}
 	idx := make(map[int64]int, len(ids))
 	ph := make([]string, len(ids))
@@ -802,17 +847,16 @@ func (s *Service) attachMTLSPathRules(ctx context.Context, built []caddyapi.Rout
 		  WHERE pr.route_id IN (`+strings.Join(ph, ",")+`)
 		  ORDER BY pr.route_id, pr.id ASC`, args...)
 	if err != nil {
-		if s.Logger != nil {
-			s.Logger.Warn("mtls_path_rules load failed", "err", err)
-		}
-		return
+		// Per-path role rules are the only thing standing between a valid
+		// client cert and a path it has no role for.
+		return fmt.Errorf("mtls_path_rules load failed: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var rid int64
 		var role, pattern string
 		if err := rows.Scan(&rid, &role, &pattern); err != nil {
-			continue
+			return fmt.Errorf("mtls_path_rules scan: %w", err)
 		}
 		if i, ok := idx[rid]; ok {
 			built[i].MTLSPathRules = append(built[i].MTLSPathRules, caddyapi.MTLSPathRule{
@@ -821,6 +865,7 @@ func (s *Service) attachMTLSPathRules(ctx context.Context, built []caddyapi.Rout
 			})
 		}
 	}
+	return rows.Err()
 }
 
 // attachRBACTokens stamps the per-(node, route) mTLS RBAC check token onto
@@ -857,9 +902,9 @@ func panelBaseURL(askURL string) string {
 // attachRouteUpstreams fills caddyapi.Route.Upstreams for the built routes via
 // a single IN(...) query over route_upstreams, ordered positionally so
 // weighted_round_robin weights stay aligned with the emitted dial order.
-func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Route, ids []int64) {
+func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Route, ids []int64) error {
 	if len(ids) == 0 {
-		return
+		return nil
 	}
 	idx := make(map[int64]int, len(ids))
 	ph := make([]string, len(ids))
@@ -875,10 +920,7 @@ func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Rou
 		  WHERE route_id IN (`+strings.Join(ph, ",")+`)
 		  ORDER BY route_id, sort_order ASC, id ASC`, args...)
 	if err != nil {
-		if s.Logger != nil {
-			s.Logger.Warn("route_upstreams load failed; routes stay single-dial", "err", err)
-		}
-		return
+		return fmt.Errorf("route_upstreams load failed: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -887,7 +929,7 @@ func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Rou
 		var port, weight, maxReq int
 		var enabled bool
 		if err := rows.Scan(&rid, &host, &port, &weight, &maxReq, &enabled); err != nil {
-			continue
+			return fmt.Errorf("route_upstreams scan: %w", err)
 		}
 		// Soft-disabled upstreams are excluded from the emitted pool.
 		if !enabled {
@@ -902,11 +944,12 @@ func (s *Service) attachRouteUpstreams(ctx context.Context, built []caddyapi.Rou
 			})
 		}
 	}
+	return rows.Err()
 }
 
-func (s *Service) attachLocationRules(ctx context.Context, built []caddyapi.Route, ids []int64) {
+func (s *Service) attachLocationRules(ctx context.Context, built []caddyapi.Route, ids []int64) error {
 	if len(ids) == 0 {
-		return
+		return nil
 	}
 	idx := make(map[int64]int, len(ids))
 	ph := make([]string, len(ids))
@@ -923,10 +966,9 @@ func (s *Service) attachLocationRules(ctx context.Context, built []caddyapi.Rout
 		  WHERE route_id IN (`+strings.Join(ph, ",")+`)
 		  ORDER BY route_id, sort_order ASC, id ASC`, args...)
 	if err != nil {
-		if s.Logger != nil {
-			s.Logger.Warn("route_location_rules load failed; path rules skipped", "err", err)
-		}
-		return
+		// A location rule can be a `block` action, so a skipped set widens
+		// what the route serves.
+		return fmt.Errorf("route_location_rules load failed: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -934,20 +976,15 @@ func (s *Service) attachLocationRules(ctx context.Context, built []caddyapi.Rout
 		var rule caddyapi.LocationRule
 		if err := rows.Scan(&rid, &rule.Path, &rule.Action, &rule.UpstreamHost, &rule.UpstreamPort,
 			&rule.UpstreamScheme, &rule.RedirectURL, &rule.RedirectCode, &rule.RewriteURI); err != nil {
-			continue
+			return fmt.Errorf("route_location_rules scan: %w", err)
 		}
-		// Rewrite target and redirect Location go through Caddy's replacer;
-		// re-screen stored rows the way the write path now does.
-		if err := firstErrOf(caddyapi.ScreenReplacerValue(rule.RewriteURI), caddyapi.ScreenReplacerValue(rule.RedirectURL)); err != nil {
-			if s.Logger != nil {
-				s.Logger.Warn("unsafe location rule dropped from config", "route_id", rid, "path", rule.Path, "err", err)
-			}
-			continue
-		}
+		// Unsafe rewrite/redirect targets are NOT dropped here: they quarantine
+		// the whole route at emission time (HPG-001).
 		if i, ok := idx[rid]; ok {
 			built[i].LocationRules = append(built[i].LocationRules, rule)
 		}
 	}
+	return rows.Err()
 }
 
 // buildWildcardPolicies returns one WildcardPolicy per DISTINCT zone among
@@ -969,6 +1006,7 @@ func (s *Service) buildWildcardPolicies(ctx context.Context, nodeID int64) []cad
 		    AND r.status IN ('dns_ok','active','pending_ssl')
 		  ORDER BY dp.name ASC`, nodeID)
 	if err != nil {
+		s.Logger.Error("wildcard: policy query failed, no DNS-01 policy emitted", "node_id", nodeID, "err", err)
 		return nil
 	}
 	defer rows.Close()
@@ -994,6 +1032,11 @@ func (s *Service) buildWildcardPolicies(ctx context.Context, nodeID int64) []cad
 			continue
 		}
 		out = append(out, caddyapi.WildcardPolicy{Zone: zone, Provider: provider, Fields: fields})
+	}
+	if err := rows.Err(); err != nil {
+		// A half-read policy set would drop a zone's credential silently.
+		s.Logger.Error("wildcard: policy iteration failed, no DNS-01 policy emitted", "err", err)
+		return nil
 	}
 	return out
 }
@@ -1042,6 +1085,9 @@ func (s *Service) buildManualCertsForNode(ctx context.Context, nodeID int64) []c
 		}
 		out = append(out, caddyapi.ManualCertPEM{CertPEM: bundle, KeyPEM: key})
 	}
+	if err := rows.Err(); err != nil {
+		s.Logger.Error("manual certs: iteration failed", "node_id", nodeID, "err", err)
+	}
 	return out
 }
 
@@ -1055,4 +1101,113 @@ func (s *Service) routeIsWildcard(ctx context.Context, routeID int64) bool {
 		return false
 	}
 	return enabled
+}
+
+// Compile outcome recorded per route so an operator sees why a host that reads
+// "active" in the panel is serving a 503 or nothing at all (HPG-022).
+const (
+	compileOK             = "ok"
+	compileQuarantined    = "quarantined"
+	compileDenied         = "denied"
+	compileTargetRejected = "target_rejected"
+	compileNotEmitted     = "not_emitted"
+)
+
+// compileNote is one route's last compile outcome.
+type compileNote struct {
+	status string
+	reason string
+}
+
+// CompileResult is the persisted last-compile outcome of one route.
+type CompileResult struct {
+	Status string
+	Reason string
+	At     time.Time
+}
+
+// denyReason names the gate that could not be emitted, for the compile note.
+func denyReason(r caddyapi.Route) string {
+	switch {
+	case r.PortalNoGrants:
+		return "access portal protection is on but no group or user is granted access"
+	case r.PortalDenyOnMisconfig:
+		return "access portal verifier is not configured"
+	default:
+		return "client certificate enforcement could not be emitted"
+	}
+}
+
+// recordCompileNotes persists the outcome of this build: the problem routes by
+// name, every other emitted route back to "ok". Writes are guarded on a real
+// change so a reconcile loop does not rewrite every row on every pass.
+// Best-effort by design - a failed bookkeeping write must not fail a push.
+func (s *Service) recordCompileNotes(ctx context.Context, ids []int64, notes map[int64]compileNote) {
+	if s.DB == nil {
+		return
+	}
+	now := time.Now().UTC()
+	for id, n := range notes {
+		if _, err := s.DB.ExecContext(ctx,
+			`UPDATE routes SET last_compile_status=?, last_compile_reason=?, last_compile_at=?
+			  WHERE id=? AND (last_compile_status<>? OR COALESCE(last_compile_reason,'')<>?)`,
+			n.status, n.reason, now, id, n.status, n.reason); err != nil && s.Logger != nil {
+			s.Logger.Warn("compile status not recorded", "route_id", id, "err", err)
+		}
+	}
+	var ok []any
+	ph := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if _, bad := notes[id]; bad {
+			continue
+		}
+		ok = append(ok, id)
+		ph = append(ph, "?")
+	}
+	if len(ok) == 0 {
+		return
+	}
+	args := append([]any{compileOK, "", now}, ok...)
+	if _, err := s.DB.ExecContext(ctx,
+		`UPDATE routes SET last_compile_status=?, last_compile_reason=?, last_compile_at=?
+		  WHERE id IN (`+strings.Join(ph, ",")+`) AND last_compile_status<>'`+compileOK+`'`,
+		args...); err != nil && s.Logger != nil {
+		s.Logger.Warn("compile status not cleared", "err", err)
+	}
+}
+
+// CompileResults returns the last recorded compile outcome for the given
+// routes. Routes with no row (or never compiled since the upgrade) are absent:
+// "unknown" must not be rendered as "checked and fine".
+func (s *Service) CompileResults(ctx context.Context, ids []int64) (map[int64]CompileResult, error) {
+	out := map[int64]CompileResult{}
+	if s.DB == nil || len(ids) == 0 {
+		return out, nil
+	}
+	ph := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		ph[i] = "?"
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT id, COALESCE(last_compile_status,''), COALESCE(last_compile_reason,''), last_compile_at
+		   FROM routes WHERE id IN (`+strings.Join(ph, ",")+`)`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		var st, reason string
+		var at sql.NullTime
+		if err := rows.Scan(&id, &st, &reason, &at); err != nil {
+			return nil, err
+		}
+		if st == "" {
+			continue
+		}
+		out[id] = CompileResult{Status: st, Reason: reason, At: at.Time}
+	}
+	return out, rows.Err()
 }

@@ -452,20 +452,30 @@ func TestBuildRoutePortalForwardAuth(t *testing.T) {
 		`"/hpg-portal/*"`,
 		`/hpg-portal/verify`,
 		`"dial":"app:8080"`,
-		`"X-Forwarded-Uri":["{http.request.orig_uri}"]`,
-		`"Host":["{http.request.host}"]`,
+		// The panel derives the authorization subject from these, and only
+		// from `set`: a `default`/`add` spelling makes the portal deny all.
+		`"set":{"Host":["{http.request.host}"],"X-Forwarded-Host":["{http.request.host}"],"X-Forwarded-Method":["{http.request.method}"],"X-Forwarded-Proto":["{http.request.scheme}"],"X-Forwarded-Uri":["{http.request.orig_uri}"],"X-Real-IP":["{http.request.client_ip}"]}`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("portal emission missing %q\nfull: %s", want, s)
 		}
 	}
-	// All methods verified. The static-asset bypass is GET/HEAD-scoped and a
-	// second matcher set catches every unsafe method unconditionally.
+	// HPG-003: no implicit exceptions. The gate carries no matcher at all, so
+	// every request - including a GET for /assets/secret.js - is verified.
+	if strings.Contains(s, `"*.js"`) || strings.Contains(s, `"/assets/*"`) {
+		t.Errorf("portal must not exempt asset paths by default\nfull: %s", s)
+	}
+
+	// Opt-in only: an operator-declared public path is GET/HEAD-scoped and a
+	// second matcher set still catches every unsafe method unconditionally.
+	byp := on
+	byp.PortalPublicPaths = []string{"/assets/*"}
+	s = mustJSON(byp)
 	if !strings.Contains(s, `{"method":["GET","HEAD"]`) {
-		t.Errorf("portal static bypass must be GET/HEAD-scoped\nfull: %s", s)
+		t.Errorf("opted-in portal bypass must be GET/HEAD-scoped\nfull: %s", s)
 	}
 	if !strings.Contains(s, `{"not":[{"method":["GET","HEAD"]}]}`) {
-		t.Errorf("portal must gate all non-GET/HEAD methods with no path bypass\nfull: %s", s)
+		t.Errorf("portal must gate all non-GET/HEAD methods\nfull: %s", s)
 	}
 }
 
