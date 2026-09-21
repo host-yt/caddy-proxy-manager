@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"database/sql/driver"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -11,6 +13,7 @@ import (
 	"net/url"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,10 +38,15 @@ func mtlsTLSEditDB(t *testing.T) *sql.DB {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	db, err := store.Open(ctx, "sqlite3", filepath.Join(t.TempDir(), "hpg.db"), 10*time.Second)
+	// Opened through the hook driver (a transparent pass-through unless a test
+	// installs a hook) so statement-level interleavings can be made exact.
+	// Same pool shape store.Open gives SQLite: one connection.
+	db, err := sql.Open(registerMTLSHookDriver(t), filepath.Join(t.TempDir(), "hpg.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	t.Cleanup(func() { _ = db.Close() })
 	if err := store.RunMigrations(ctx, db, proxygateway.MigrationsFS, "migrations"); err != nil {
 		t.Fatalf("migrations: %v", err)
@@ -213,19 +221,7 @@ func TestAPIRouteUpdate_RejectsSSLOffWhileMTLSOn(t *testing.T) {
 	if _, err := db.Exec("UPDATE routes SET require_client_cert = 1, mtls_ca_id = 1 WHERE id = 7"); err != nil {
 		t.Fatal(err)
 	}
-	h := &APIHandlers{DB: func() *sql.DB { return db }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
-
-	patch := func(body string) *httptest.ResponseRecorder {
-		t.Helper()
-		req := httptest.NewRequest(http.MethodPatch, "/api/v1/routes/7", strings.NewReader(body))
-		rctx := chi.NewRouteContext()
-		rctx.URLParams.Add("id", "7")
-		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
-		ctx = middleware.ContextWithAPICaller(ctx, &middleware.APICaller{UserID: 1, Role: "super_admin"})
-		rec := httptest.NewRecorder()
-		h.RouteUpdate(rec, req.WithContext(ctx))
-		return rec
-	}
+	patch := func(body string) *httptest.ResponseRecorder { return patchRoute7(t, db, body) }
 
 	if rec := patch(`{"ssl_enabled":false}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body %s", rec.Code, rec.Body.String())
@@ -242,4 +238,204 @@ func TestAPIRouteUpdate_RejectsSSLOffWhileMTLSOn(t *testing.T) {
 	if rec := patch(`{"websocket":true}`); rec.Code != http.StatusOK {
 		t.Errorf("unrelated patch rejected: %d %s", rec.Code, rec.Body.String())
 	}
+}
+
+// patchRoute7 drives PATCH /api/v1/routes/7 as a super_admin API caller.
+func patchRoute7(t *testing.T, db *sql.DB, body string) *httptest.ResponseRecorder {
+	t.Helper()
+	h := &APIHandlers{DB: func() *sql.DB { return db }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/routes/7", strings.NewReader(body))
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "7")
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = middleware.ContextWithAPICaller(ctx, &middleware.APICaller{UserID: 1, Role: "super_admin"})
+	rec := httptest.NewRecorder()
+	h.RouteUpdate(rec, req.WithContext(ctx))
+	return rec
+}
+
+// The race the guard has to survive: mTLS is switched on after this request
+// has already decided that clearing SSL is safe, and before its UPDATE runs.
+// The hook fires on the UPDATE itself, so the interleaving is exact rather
+// than timing-dependent. A check that lives outside the write loses here.
+func TestAPIRouteUpdate_MTLSEnabledBetweenCheckAndWrite(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	var once sync.Once
+	setMTLSSQLHook(t, func(exec func(string) error, query string) error {
+		if strings.HasPrefix(query, "UPDATE routes SET") {
+			once.Do(func() {
+				if err := exec("UPDATE routes SET require_client_cert = 1, mtls_ca_id = 1 WHERE id = 7"); err != nil {
+					t.Errorf("interleaved enable failed: %v", err)
+				}
+			})
+		}
+		return nil
+	})
+
+	if rec := patchRoute7(t, db, `{"ssl_enabled":false}`); rec.Code != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400; body %s", rec.Code, rec.Body.String())
+	}
+	var ssl, flag int
+	if err := db.QueryRow("SELECT ssl_enabled, require_client_cert FROM routes WHERE id = 7").Scan(&ssl, &flag); err != nil {
+		t.Fatal(err)
+	}
+	if ssl != 1 || flag != 1 {
+		t.Errorf("want ssl=1 require_client_cert=1, got ssl=%d flag=%d", ssl, flag)
+	}
+}
+
+// A prerequisite read that fails must reject the request. The old guard
+// treated a read error as "not enforced" and cleared SSL anyway.
+func TestAPIRouteUpdate_RejectsWhenMTLSReadFails(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	if _, err := db.Exec("UPDATE routes SET require_client_cert = 1, mtls_ca_id = 1 WHERE id = 7"); err != nil {
+		t.Fatal(err)
+	}
+	setMTLSSQLHook(t, func(_ func(string) error, query string) error {
+		if strings.Contains(query, "SELECT COALESCE(require_client_cert") {
+			return errors.New("injected read failure")
+		}
+		return nil
+	})
+
+	if rec := patchRoute7(t, db, `{"ssl_enabled":false}`); rec.Code != http.StatusInternalServerError {
+		t.Errorf("status = %d, want 500; body %s", rec.Code, rec.Body.String())
+	}
+	var ssl int
+	if err := db.QueryRow("SELECT ssl_enabled FROM routes WHERE id = 7").Scan(&ssl); err != nil {
+		t.Fatal(err)
+	}
+	if ssl != 1 {
+		t.Error("ssl_enabled was cleared even though the mTLS read failed")
+	}
+}
+
+// ---- statement-level hook driver ---------------------------------------
+//
+// A thin pass-through wrapper around the SQLite driver that can run something
+// (or fail) right before a chosen statement executes. It is the only way to
+// pin a read/write interleaving down deterministically; the alternative is a
+// goroutine race that passes for the wrong reason.
+
+// mtlsSQLHook runs before each statement. exec runs raw SQL on the same
+// connection, bypassing the hook.
+type mtlsSQLHook func(exec func(string) error, query string) error
+
+var (
+	mtlsHookMu   sync.Mutex
+	mtlsHookFn   mtlsSQLHook
+	mtlsHookOnce sync.Once
+)
+
+func setMTLSSQLHook(t *testing.T, fn mtlsSQLHook) {
+	t.Helper()
+	mtlsHookMu.Lock()
+	mtlsHookFn = fn
+	mtlsHookMu.Unlock()
+	t.Cleanup(func() {
+		mtlsHookMu.Lock()
+		mtlsHookFn = nil
+		mtlsHookMu.Unlock()
+	})
+}
+
+const mtlsHookDriverName = "sqlite-mtls-hook"
+
+// registerMTLSHookDriver registers the wrapper over whatever driver store uses
+// for SQLite and returns its name.
+func registerMTLSHookDriver(t *testing.T) string {
+	t.Helper()
+	mtlsHookOnce.Do(func() {
+		probe, err := sql.Open("sqlite", ":memory:")
+		if err != nil {
+			t.Fatalf("probe sqlite driver: %v", err)
+		}
+		inner := probe.Driver()
+		_ = probe.Close()
+		sql.Register(mtlsHookDriverName, mtlsHookDriver{inner: inner})
+	})
+	return mtlsHookDriverName
+}
+
+type mtlsHookDriver struct{ inner driver.Driver }
+
+func (d mtlsHookDriver) Open(dsn string) (driver.Conn, error) {
+	c, err := d.inner.Open(dsn)
+	if err != nil {
+		return nil, err
+	}
+	return &mtlsHookConn{Conn: c}, nil
+}
+
+// mtlsHookConn deliberately exposes only driver.Conn, so database/sql takes
+// the Prepare path and every statement passes through the hook.
+type mtlsHookConn struct{ driver.Conn }
+
+func (c *mtlsHookConn) raw(query string) error {
+	st, err := c.Conn.Prepare(query)
+	if err != nil {
+		return err
+	}
+	defer st.Close()
+	if ec, ok := st.(driver.StmtExecContext); ok {
+		_, err = ec.ExecContext(context.Background(), nil)
+		return err
+	}
+	_, err = st.Exec(nil)
+	return err
+}
+
+func (c *mtlsHookConn) Prepare(query string) (driver.Stmt, error) {
+	st, err := c.Conn.Prepare(query)
+	if err != nil {
+		return nil, err
+	}
+	return &mtlsHookStmt{Stmt: st, conn: c, query: query}, nil
+}
+
+type mtlsHookStmt struct {
+	driver.Stmt
+	conn  *mtlsHookConn
+	query string
+}
+
+func (s *mtlsHookStmt) fire() error {
+	mtlsHookMu.Lock()
+	fn := mtlsHookFn
+	mtlsHookMu.Unlock()
+	if fn == nil {
+		return nil
+	}
+	return fn(s.conn.raw, s.query)
+}
+
+func (s *mtlsHookStmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
+	if err := s.fire(); err != nil {
+		return nil, err
+	}
+	ec, ok := s.Stmt.(driver.StmtExecContext)
+	if !ok {
+		return nil, errors.New("wrapped stmt has no ExecContext")
+	}
+	return ec.ExecContext(ctx, args)
+}
+
+func (s *mtlsHookStmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
+	if err := s.fire(); err != nil {
+		return nil, err
+	}
+	qc, ok := s.Stmt.(driver.StmtQueryContext)
+	if !ok {
+		return nil, errors.New("wrapped stmt has no QueryContext")
+	}
+	return qc.QueryContext(ctx, args)
+}
+
+// Keep the driver's own argument conversion; ErrSkip falls back to the
+// database/sql default when it has none.
+func (s *mtlsHookStmt) CheckNamedValue(nv *driver.NamedValue) error {
+	if c, ok := s.Stmt.(driver.NamedValueChecker); ok {
+		return c.CheckNamedValue(nv)
+	}
+	return driver.ErrSkip
 }

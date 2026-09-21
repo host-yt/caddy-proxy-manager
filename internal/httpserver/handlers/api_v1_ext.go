@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -303,23 +304,36 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	// mTLS rides on the route's TLS connection policy: dropping SSL on an
 	// enforced host leaves it either wide open or permanently 503, while the
-	// panel still reports it as requiring client certificates.
+	// panel still reports it as requiring client certificates. The guard is
+	// part of the UPDATE's own WHERE, not a read before it: a separate SELECT
+	// can be overtaken by a concurrent "enable mTLS" and, if it fails, tells
+	// us nothing at all.
+	where := "id=?"
 	if in.SSLEnabled != nil && !*in.SSLEnabled {
-		var enforced int
-		if err := h.DB().QueryRowContext(ctx,
-			"SELECT COALESCE(require_client_cert, 0) FROM routes WHERE id = ?", id).Scan(&enforced); err == nil && enforced != 0 {
-			apiErr(w, http.StatusBadRequest, "cannot disable ssl_enabled while require_client_cert is set")
-			return
-		}
+		where += " AND COALESCE(require_client_cert, 0) = 0"
 	}
 	res, err := h.DB().ExecContext(ctx,
-		"UPDATE routes SET "+strings.Join(parts, ", ")+" WHERE id=?", args...)
+		"UPDATE routes SET "+strings.Join(parts, ", ")+" WHERE "+where, args...)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "update failed")
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		apiErr(w, http.StatusNotFound, "not found")
+		// Nothing was written: either the route is gone or the mTLS guard held
+		// it back. This read only picks the status code, and a read that fails
+		// still rejects.
+		var enforced int
+		switch err := h.DB().QueryRowContext(ctx,
+			"SELECT COALESCE(require_client_cert, 0) FROM routes WHERE id = ?", id).Scan(&enforced); {
+		case errors.Is(err, sql.ErrNoRows):
+			apiErr(w, http.StatusNotFound, "not found")
+		case err != nil:
+			apiErr(w, http.StatusInternalServerError, "update failed")
+		case enforced != 0 && in.SSLEnabled != nil && !*in.SSLEnabled:
+			apiErr(w, http.StatusBadRequest, "cannot disable ssl_enabled while require_client_cert is set")
+		default:
+			apiErr(w, http.StatusNotFound, "not found")
+		}
 		return
 	}
 	uid := apiCallerID(r)

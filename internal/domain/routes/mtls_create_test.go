@@ -236,3 +236,30 @@ func TestCreate_ClearsAnchorWhenEnforcementOff(t *testing.T) {
 		t.Errorf("want flag=0 ca=NULL, got flag=%d ca=%v", flag, gotCA)
 	}
 }
+
+// TestCreate_RejectsWhenCALookupFails: the CA lookup is a prerequisite read.
+// If it fails, the create must reject - treating a failed read as "nothing to
+// worry about" is exactly how the sibling API path let enforcement and TLS
+// drift apart.
+func TestCreate_RejectsWhenCALookupFails(t *testing.T) {
+	db := newPushTestDB(t)
+	seedCapacityFixture(t, db, 10)
+	if _, err := db.Exec("DROP TABLE mtls_cas"); err != nil {
+		t.Fatalf("drop mtls_cas: %v", err)
+	}
+
+	_, err := newMTLSCreateSvc(t, db).Create(context.Background(), 0, CreateInput{
+		ServiceID: 1, UpstreamPort: 10005, Domain: "readfail.example",
+		SSL: true, RequireClientCert: true, MTLSCAID: 1,
+	})
+	if !errors.Is(err, ErrMTLSCAUnusable) {
+		t.Fatalf("err = %v, want ErrMTLSCAUnusable", err)
+	}
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM routes WHERE domain = 'readfail.example'").Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Errorf("%d route(s) created despite the failed lookup", n)
+	}
+}
