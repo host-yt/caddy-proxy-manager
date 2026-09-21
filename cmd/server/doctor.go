@@ -71,6 +71,7 @@ func runDoctor() int {
 	checks = append(checks, doctorPorts(rawCfg)...)
 	checks = append(checks, doctorNodes(ctx, db, rawCfg)...)
 	checks = append(checks, doctorSSORoutes(ctx, db)...)
+	checks = append(checks, doctorStoredRoutesInventory(ctx, db)...)
 	checks = append(checks, doctorWireGuardHost()...)
 
 	printChecks(checks)
