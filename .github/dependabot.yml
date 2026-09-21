@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # Rolls the @sha256 pins in Dockerfile forward when a base image updates
+  # (HPG-031: pin without an update path just freezes today's CVEs).
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker
+    directory: /deploy/caddy
+    schedule:
+      interval: weekly
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

@@ -21,6 +21,21 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    # Backs the fail-closed DB integration tests (internal/domain/routes) with
+    # a real MariaDB instead of letting them silently t.Skip (HPG-030). One
+    # service on the existing job, not a second full test run, to keep the
+    # extra CI-minutes cost to the service container's own startup time.
+    services:
+      mariadb:
+        image: mariadb:11.4
+        env:
+          MARIADB_ROOT_PASSWORD: hpg_ci
+          MARIADB_DATABASE: hpg_ci
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="healthcheck.sh --connect --innodb_initialized"
+          --health-interval=5s --health-timeout=5s --health-retries=10
     steps:
       - uses: actions/checkout@v5
 
@@ -105,7 +120,38 @@ jobs:
       - name: Build
         run: go build ./...
 
+      # goose CLI version must track Makefile's GOOSE_VERSION. Called directly
+      # (not via `make migrate-up`) because that target's DSN has no
+      # multiStatements=true and every multi-statement migration 1064s on it.
+      - name: Migrate test DB
+        run: |
+          go install github.com/pressly/goose/v3/cmd/goose@v3.22.1
+          "$(go env GOPATH)/bin/goose" -dir migrations mysql "root:hpg_ci@tcp(127.0.0.1:3306)/hpg_ci?parseTime=true&multiStatements=true" up
+
+      # TEST_DB_REQUIRE_MYSQL turns a missing/unreachable DSN into a hard
+      # failure for the fail-closed DB tests instead of a silent t.Skip
+      # (HPG-030) - this job always provisions the DB above, so a skip here
+      # means something is actually broken.
       - name: Test
+        env:
+          TEST_DB_DSN: "root:hpg_ci@tcp(127.0.0.1:3306)/hpg_ci?parseTime=true"
+          TEST_DB_REQUIRE_MYSQL: "1"
+        run: go test -race -count=1 ./...
+
+  terraform-provider:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: terraform-provider-hpg/go.sum
+      - name: Vet
+        working-directory: terraform-provider-hpg
+        run: go vet ./...
+      - name: Test
+        working-directory: terraform-provider-hpg
         run: go test -race -count=1 ./...
 
   # golangci-lint disabled until upstream ships a build linked against

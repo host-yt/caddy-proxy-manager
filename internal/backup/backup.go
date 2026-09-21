@@ -390,50 +390,106 @@ func (s *Service) runOnce(ctx context.Context, dest Destination, jobID int64, en
 	return artifactKey, size, sum, nil
 }
 
+// backupComponent records what writeArchive did with one archive member, so
+// the manifest can distinguish a component that legitimately doesn't apply
+// to this install from one that failed (HPG-013).
+type backupComponent struct {
+	Name     string `json:"name"`
+	Required bool   `json:"required"`
+	Status   string `json:"status"` // ok | skipped
+	Detail   string `json:"detail,omitempty"`
+}
+
 // writeArchive emits a tar.gz with: dump.sql, install_state.json (if
-// present), wg/<files> (if present). The caller is responsible for any
-// outer encryption.
-func (s *Service) writeArchive(ctx context.Context, w io.Writer) error {
+// configured), wg/<files> (if the directory exists). The caller is
+// responsible for any outer encryption.
+//
+// Every component here is either required (its failure aborts the whole
+// backup, since a partial archive that looks like a success is worse than a
+// job marked failed) or optional-and-skippable only when it is genuinely
+// absent - never when it exists but can't be read (HPG-013).
+func (s *Service) writeArchive(ctx context.Context, w io.Writer) (err error) {
 	gz := gzip.NewWriter(w)
-	defer gz.Close()
 	tw := tar.NewWriter(gz)
-	defer tw.Close()
-
-	// 1) DB dump.
-	dumpBuf := newCountingBuffer()
-	if err := DumpDatabase(ctx, s.DB(), dumpBuf); err != nil {
-		return fmt.Errorf("dump: %w", err)
-	}
-	hdr := &tar.Header{
-		Name:    "dump.sql",
-		Mode:    0o600,
-		Size:    int64(dumpBuf.Len()),
-		ModTime: time.Now().UTC(),
-	}
-	if err := tw.WriteHeader(hdr); err != nil {
-		return err
-	}
-	if _, err := dumpBuf.WriteTo(tw); err != nil {
-		return err
-	}
-
-	// 2) install_state.json (if exists).
-	if s.StateFilePath != "" {
-		if data, err := os.ReadFile(s.StateFilePath); err == nil {
-			h := &tar.Header{Name: "install_state.json", Mode: 0o600, Size: int64(len(data)), ModTime: time.Now().UTC()}
-			if err := tw.WriteHeader(h); err != nil {
-				return err
-			}
-			if _, err := tw.Write(data); err != nil {
-				return err
-			}
+	defer func() {
+		// Explicit ordered close with error propagation: a bare `defer
+		// tw.Close()` / `defer gz.Close()` discards their result, and a
+		// gzip flush error can occur after the last successfully checked
+		// Write - silently truncating the archive a job still reports as
+		// succeeded (HPG-013).
+		if cerr := tw.Close(); err == nil {
+			err = cerr
 		}
+		if cerr := gz.Close(); err == nil {
+			err = cerr
+		}
+	}()
+
+	var components []backupComponent
+
+	// 1) DB dump - required. Dumped to a temp file rather than buffered in
+	// RAM (HPG-014): an in-memory dump grows with the DB and can OOM the
+	// shared panel process; a temp file lets the OS page it instead.
+	dumpFile, derr := os.CreateTemp("", "hpg-dump-*.sql")
+	if derr != nil {
+		return fmt.Errorf("dump tempfile: %w", derr)
+	}
+	dumpPath := dumpFile.Name()
+	defer os.Remove(dumpPath) // cleanup even on early return; orphans from a killed process are swept by the scheduler
+
+	if derr := DumpDatabase(ctx, s.DB(), dumpFile); derr != nil {
+		_ = dumpFile.Close()
+		return fmt.Errorf("dump: %w", derr)
+	}
+	dumpSt, derr := dumpFile.Stat()
+	if derr != nil {
+		_ = dumpFile.Close()
+		return fmt.Errorf("dump stat: %w", derr)
+	}
+	dumpSize := dumpSt.Size()
+	if _, derr := dumpFile.Seek(0, io.SeekStart); derr != nil {
+		_ = dumpFile.Close()
+		return fmt.Errorf("dump seek: %w", derr)
+	}
+	dumpHdr := &tar.Header{Name: "dump.sql", Mode: 0o600, Size: dumpSize, ModTime: time.Now().UTC()}
+	if err := tw.WriteHeader(dumpHdr); err != nil {
+		_ = dumpFile.Close()
+		return err
+	}
+	if _, err := io.Copy(tw, dumpFile); err != nil {
+		_ = dumpFile.Close()
+		return err
+	}
+	_ = dumpFile.Close()
+	components = append(components, backupComponent{Name: "dump.sql", Required: true, Status: "ok"})
+
+	// 2) install_state.json - required whenever it is configured. Without
+	// it a restore has no decryption key for anything else in the archive,
+	// so a read failure here must fail the whole job, not skip silently.
+	if s.StateFilePath != "" {
+		data, rerr := os.ReadFile(s.StateFilePath)
+		if rerr != nil {
+			return fmt.Errorf("read install_state.json: %w", rerr)
+		}
+		h := &tar.Header{Name: "install_state.json", Mode: 0o600, Size: int64(len(data)), ModTime: time.Now().UTC()}
+		if err := tw.WriteHeader(h); err != nil {
+			return err
+		}
+		if _, err := tw.Write(data); err != nil {
+			return err
+		}
+		components = append(components, backupComponent{Name: "install_state.json", Required: true, Status: "ok"})
 	}
 
-	// 3) wg_config directory (if exists).
+	// 3) wg_config directory - optional as a whole (an install may not use
+	// WireGuard, so an absent directory is a legitimate skip). Once the
+	// directory exists, every file in it is required: a read failure there
+	// is real data loss, not an intentionally-missing component, and must
+	// not be swallowed by a silent `continue` (HPG-013).
 	if s.WGConfigDir != "" {
-		entries, err := os.ReadDir(s.WGConfigDir)
-		if err == nil {
+		entries, derr := os.ReadDir(s.WGConfigDir)
+		switch {
+		case derr == nil:
 			for _, e := range entries {
 				if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 					continue
@@ -441,7 +497,7 @@ func (s *Service) writeArchive(ctx context.Context, w io.Writer) error {
 				p := filepath.Join(s.WGConfigDir, e.Name())
 				data, rerr := os.ReadFile(p)
 				if rerr != nil {
-					continue
+					return fmt.Errorf("read wg config %s: %w", e.Name(), rerr)
 				}
 				h := &tar.Header{Name: "wg/" + e.Name(), Mode: 0o600, Size: int64(len(data)), ModTime: time.Now().UTC()}
 				if err := tw.WriteHeader(h); err != nil {
@@ -451,24 +507,29 @@ func (s *Service) writeArchive(ctx context.Context, w io.Writer) error {
 					return err
 				}
 			}
+			components = append(components, backupComponent{Name: "wg/*", Required: false, Status: "ok"})
+		case os.IsNotExist(derr):
+			components = append(components, backupComponent{Name: "wg/*", Required: false, Status: "skipped", Detail: "directory absent"})
+		default:
+			return fmt.Errorf("read wg config dir: %w", derr)
 		}
 	}
 
-	// 4) manifest (small JSON with versions / counts).
+	// 4) manifest: versions / counts + the component ledger above, so an
+	// operator (or the restore drill) can tell "succeeded, wg/* skipped
+	// because unused" from "succeeded, but something silently didn't make it in".
 	manifest, _ := json.Marshal(map[string]any{
 		"created_at":    time.Now().UTC().Format(time.RFC3339),
 		"hpg_version":   "1",
-		"contents":      []string{"dump.sql", "install_state.json", "wg/*"},
-		"db_dump_bytes": dumpBuf.Len(),
+		"components":    components,
+		"db_dump_bytes": dumpSize,
 	})
 	h := &tar.Header{Name: "manifest.json", Mode: 0o600, Size: int64(len(manifest)), ModTime: time.Now().UTC()}
 	if err := tw.WriteHeader(h); err != nil {
 		return err
 	}
-	if _, err := tw.Write(manifest); err != nil {
-		return err
-	}
-	return nil
+	_, err = tw.Write(manifest)
+	return err
 }
 
 // encodeConfig encrypts a config map to a base64 blob in the settings

@@ -25,10 +25,12 @@ func openDB(t *testing.T) func() *sql.DB {
 		`CREATE TABLE reseller_plans (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE)`,
 		`INSERT INTO reseller_plans (name) VALUES ('Unlimited')`,
 		`CREATE TABLE clients (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
+		`CREATE TABLE plans (id INTEGER PRIMARY KEY, reseller_id INTEGER)`,
 		`CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, email TEXT UNIQUE, password_hash TEXT,
 			password_set INTEGER, role TEXT, full_name TEXT, is_active INTEGER, reseller_id INTEGER,
 			is_restricted INTEGER DEFAULT 0)`,
 		`INSERT INTO clients (id, reseller_id) VALUES (100, NULL), (101, NULL)`,
+		`INSERT INTO plans (id, reseller_id) VALUES (200, NULL)`,
 		`INSERT INTO users (id, reseller_id) VALUES (1, NULL)`,
 	}
 	for _, s := range stmts {
@@ -136,22 +138,41 @@ func TestAssignClientAndAdmin(t *testing.T) {
 	}
 }
 
+// HPG-016: this test schema deliberately has no FK (it mirrors what SQLite
+// installs actually get - the MySQL->SQLite migration transform drops ADD
+// CONSTRAINT entirely, see sqlite_transform.go). Before the fix, Delete
+// relied on the FK's ON DELETE SET NULL to clear reseller_id on clients,
+// plans and users; on this schema (and on every real SQLite install) that
+// never happened and left them pointing at a deleted reseller. Delete must
+// now clear these explicitly, so the same assertions hold on both engines.
 func TestDeleteResetsOwnership(t *testing.T) {
 	dbf := openDB(t)
 	s := New(dbf)
 	ctx := context.Background()
 	id, _ := s.Create(ctx, Reseller{Name: "Acme", Slug: "acme"})
 	_ = s.AssignClient(ctx, 100, &id)
+	if _, err := dbf().Exec(`UPDATE plans SET reseller_id=? WHERE id=200`, id); err != nil {
+		t.Fatalf("seed plan ownership: %v", err)
+	}
 	if err := s.Delete(ctx, id); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if _, err := s.Get(ctx, id); err != ErrNotFound {
 		t.Fatalf("expected ErrNotFound, got %v", err)
 	}
-	// SQLite test schema has no FK cascade; just prove the reseller is gone and
-	// AssignClient to a missing reseller still writes (FK enforcement is MySQL's job).
-	if _, err := s.Get(ctx, id); err != ErrNotFound {
-		t.Fatalf("reseller should be gone: %v", err)
+
+	var clientReseller, planReseller sql.NullInt64
+	if err := dbf().QueryRow(`SELECT reseller_id FROM clients WHERE id=100`).Scan(&clientReseller); err != nil {
+		t.Fatalf("read client: %v", err)
+	}
+	if clientReseller.Valid {
+		t.Errorf("clients.reseller_id left dangling at %d after reseller delete", clientReseller.Int64)
+	}
+	if err := dbf().QueryRow(`SELECT reseller_id FROM plans WHERE id=200`).Scan(&planReseller); err != nil {
+		t.Fatalf("read plan: %v", err)
+	}
+	if planReseller.Valid {
+		t.Errorf("plans.reseller_id left dangling at %d after reseller delete", planReseller.Int64)
 	}
 }
 
@@ -212,10 +233,16 @@ func TestDeleteConfinesBoundUsers(t *testing.T) {
 	}
 	var role string
 	var restricted int
-	if err := dbf().QueryRow(`SELECT role, is_restricted FROM users WHERE id=50`).Scan(&role, &restricted); err != nil {
+	var resellerID sql.NullInt64
+	if err := dbf().QueryRow(`SELECT role, is_restricted, reseller_id FROM users WHERE id=50`).
+		Scan(&role, &restricted, &resellerID); err != nil {
 		t.Fatalf("read user: %v", err)
 	}
 	if restricted != 1 {
 		t.Errorf("orphaned reseller admin must be restricted, got role=%q restricted=%d", role, restricted)
+	}
+	// HPG-016: cleared explicitly by Delete, not by a FK this schema doesn't have.
+	if resellerID.Valid {
+		t.Errorf("users.reseller_id left dangling at %d after reseller delete", resellerID.Int64)
 	}
 }
