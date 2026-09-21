@@ -751,6 +751,18 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		h.renderHostsNewErr(w, r, form, "resolving the backend on the node requires super_admin")
 		return
 	}
+	// Same placeholder policy the edit path and emission apply. Stopgap: the
+	// other routes.Create callers (import, billing API, client panel) need the
+	// screen inside routes.Create itself.
+	for _, f := range []struct{ name, val string }{
+		{"redirect URL", form.RedirectURL},
+		{"upstream host header", form.UpstreamHostHeader},
+	} {
+		if err := caddyapi.ScreenTenantTemplate(f.val); err != nil {
+			h.renderHostsNewErr(w, r, form, f.name+": "+sanitizeErr(err))
+			return
+		}
+	}
 	form.MTLSCAID, _ = strconv.ParseInt(r.FormValue("mtls_ca_id"), 10, 64)
 	if !form.RequireClientCert {
 		form.MTLSCAID = 0 // no enforcement, no anchor - mirrors the edit path
@@ -1159,6 +1171,21 @@ func isHTMXRequest(r *http.Request) bool {
 	return r.Header.Get("HX-Request") == "true"
 }
 
+// revalidateStoredWAF refuses to re-activate a route whose stored SecLang the
+// actor could not write today: a disable/enable cycle must not be a way to put
+// legacy arbitrary directives back into the node's shared Coraza config.
+func (h *AdminHandlers) revalidateStoredWAF(ctx context.Context, sess *auth.Session, id int64) error {
+	var directives string
+	if err := h.DB().QueryRowContext(ctx,
+		"SELECT COALESCE(waf_directives,'') FROM routes WHERE id = ?", id).Scan(&directives); err != nil {
+		return errors.New("WAF directives could not be read")
+	}
+	if strings.TrimSpace(directives) == "" {
+		return nil
+	}
+	return caddyapi.ValidateWAFDirectives(directives, isSuperAdmin(sess))
+}
+
 // HostsToggle flips a route between active and disabled. Disabled
 // routes are excluded from buildRoutesForNode, so the next push (kicked
 // off here) removes them from Caddy without deleting the DB row.
@@ -1191,6 +1218,10 @@ func (h *AdminHandlers) HostsToggle(w http.ResponseWriter, r *http.Request) {
 		// Re-enabling: reset to pending_dns so the reconciler verifies
 		// DNS still resolves before pushing back to Caddy.
 		next = "pending_dns"
+		if err := h.revalidateStoredWAF(ctx, sess, id); err != nil {
+			redirectWithFlash(w, r, "/admin/hosts", "", "WAF: "+sanitizeErr(err))
+			return
+		}
 	}
 	if _, err := h.DB().ExecContext(ctx,
 		"UPDATE routes SET status = ?, updated_at = NOW() WHERE id = ?", next, id); err != nil {
@@ -1211,6 +1242,18 @@ func (h *AdminHandlers) HostsToggle(w http.ResponseWriter, r *http.Request) {
 }
 
 func chiURLParamHosts(r *http.Request, key string) string { return chi.URLParam(r, key) }
+
+// cloneSkipColumns are the route columns a clone never copies: auto-generated
+// values, per-route hostnames/ownership proof, and the two node-operator
+// fields (custom_config, waf_directives) whose write is super_admin-gated - a
+// clone must not be a way around that gate.
+var cloneSkipColumns = map[string]bool{
+	"id": true, "created_at": true, "updated_at": true,
+	"last_error": true, "last_push_at": true, "proxy_secret_hash": true,
+	"custom_config": true, "waf_directives": true,
+	"aliases": true, "aliases_verified": true,
+	"domain_verified": true, "verify_token": true,
+}
 
 // HostsClone copies an existing route row into a new inactive clone.
 // Uses information_schema to build a dynamic INSERT so future column additions don't require handler changes.
@@ -1255,14 +1298,7 @@ func (h *AdminHandlers) HostsClone(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Columns excluded from the copy (auto-generated or intentionally reset).
-	// custom_config is dropped so a legacy chain cannot be replicated past the
-	// platform-admin gate; hostnames and their ownership proof are per-route.
-	skip := map[string]bool{
-		"id": true, "created_at": true, "updated_at": true,
-		"last_error": true, "last_push_at": true, "proxy_secret_hash": true,
-		"custom_config": true, "aliases": true, "aliases_verified": true,
-		"domain_verified": true, "verify_token": true,
-	}
+	skip := cloneSkipColumns
 	// Columns where the cloned value differs from the source.
 	override := map[string]string{
 		"domain":           `CONCAT('clone-of-', domain)`,
@@ -2123,6 +2159,11 @@ func (h *AdminHandlers) HostsBulk(w http.ResponseWriter, r *http.Request) {
 			}
 			touchedNodes[nodeID] = struct{}{}
 		case "enable":
+			if werr := h.revalidateStoredWAF(ctx, sess, id); werr != nil {
+				h.Logger.Warn("admin host bulk: enable rejected", "route_id", id, "err", werr)
+				fail++
+				continue
+			}
 			if _, derr := h.DB().ExecContext(ctx,
 				"UPDATE routes SET status='pending_dns', last_error=NULL, updated_at=NOW() WHERE id=?", id); derr != nil {
 				fail++
@@ -3248,6 +3289,12 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	if rateKey == "" {
 		rateKey = "{http.request.remote.host}"
 	}
+	// Stored even when the limiter is off, so screen it with the same policy
+	// emission uses instead of letting it quarantine the host at the next push.
+	if err := caddyapi.ScreenTenantRateKey(rateKey); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "rate limit key: "+sanitizeErr(err))
+		return
+	}
 	if rateEnabled {
 		if _, derr := time.ParseDuration(rateWindow); derr != nil {
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "rate limit: invalid window (e.g. 1m, 30s)")
@@ -3267,10 +3314,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if wafDirectives != "" {
-		// One node compiles every tenant's directives into one Coraza config,
-		// so a boundary-scoped admin gets the structured subset only.
-		wafScoped, wafOK := h.selfProvisionScope(r.Context(), sess)
-		if err := caddyapi.ValidateWAFDirectives(wafDirectives, wafOK && !wafScoped); err != nil {
+		if err := h.checkWAFDirectives(r.Context(), sess, id, wafDirectives); err != nil {
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit#tab=waf", "", "WAF: "+sanitizeErr(err))
 			return
 		}
@@ -3526,6 +3570,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		{"custom error HTML", errHTML, false},
 		{"maintenance message", maintenanceMsg, false},
 		{"redirect URL", redirectURL, true},
+		// Emitted as both the upstream Host header and the upstream SNI.
+		{"upstream host header", extHostHeader, true},
 	} {
 		screen := routes.ScreenTenantText
 		if f.strict {
@@ -4983,7 +5029,7 @@ func sanitizeLocationRules(form url.Values) ([]locationRuleRow, error) {
 			if !(strings.HasPrefix(rule.RedirectURL, "http://") || strings.HasPrefix(rule.RedirectURL, "https://") || strings.HasPrefix(rule.RedirectURL, "/")) {
 				return nil, fmt.Errorf("%s redirect destination must be http(s):// or /relative", path)
 			}
-			if err := caddyapi.ScreenReplacerValue(rule.RedirectURL); err != nil {
+			if err := caddyapi.ScreenTenantTemplate(rule.RedirectURL); err != nil {
 				return nil, fmt.Errorf("%s redirect destination: %w", path, err)
 			}
 			rule.RedirectCode = atoiDefault(fieldAt(codes, i), 308)
@@ -5000,8 +5046,8 @@ func sanitizeLocationRules(form url.Values) ([]locationRuleRow, error) {
 			if len(rule.RewriteURI) > 1024 {
 				return nil, fmt.Errorf("%s rewrite URI too long", path)
 			}
-			// Same replacer as custom handlers: no env/file/system reads.
-			if err := caddyapi.ScreenReplacerValue(rule.RewriteURI); err != nil {
+			// Same allow-list emission applies, so a save cannot quarantine later.
+			if err := caddyapi.ScreenTenantTemplate(rule.RewriteURI); err != nil {
 				return nil, fmt.Errorf("%s rewrite URI: %w", path, err)
 			}
 		}
@@ -5502,6 +5548,32 @@ func (h *AdminHandlers) resolveCustomConfig(ctx context.Context, sess *auth.Sess
 	return submitted, nil
 }
 
+// checkWAFDirectives is the write-time gate for custom SecLang. One node
+// compiles every tenant's directives into a single Coraza config, so arbitrary
+// directives are node-operator power: super_admin only. Resubmitting the
+// stored value unchanged is allowed so a legacy row cannot lock a lesser admin
+// out of every other field; the enable path re-checks it before re-publishing.
+func (h *AdminHandlers) checkWAFDirectives(ctx context.Context, sess *auth.Session, routeID int64, raw string) error {
+	if err := caddyapi.ValidateWAFDirectives(raw, true); err != nil {
+		return err // structural: not storable by anyone
+	}
+	if isSuperAdmin(sess) {
+		return nil
+	}
+	if err := caddyapi.ValidateWAFDirectives(raw, false); err == nil {
+		return nil
+	}
+	var stored sql.NullString
+	if qerr := h.DB().QueryRowContext(ctx,
+		"SELECT waf_directives FROM routes WHERE id = ?", routeID).Scan(&stored); qerr != nil {
+		return errors.New("lookup failed")
+	}
+	if strings.TrimSpace(stored.String) == strings.TrimSpace(raw) {
+		return nil
+	}
+	return caddyapi.ValidateWAFDirectives(raw, false)
+}
+
 // sanitizeCustomConfig is the write-side entry point for the shared Caddy
 // handler allow-list; caddyapi re-runs it at emission time.
 func sanitizeCustomConfig(raw string) (string, error) {
@@ -5512,15 +5584,15 @@ func sanitizeCustomConfig(raw string) (string, error) {
 // into a compact JSON object the routes.custom_headers column stores.
 // Empty lines and lines without ":" are skipped silently. Returns "" if
 // no valid lines so we keep a NULL column instead of an empty {}.
-// Values are screened first: Caddy's replacer expands them on the node, so an
-// {env./file./system.} placeholder here is node-secret exfiltration.
+// Values are screened with the SAME allow-list the emission path applies, so a
+// header that would quarantine the host at push cannot be saved silently.
 func parseHeaderLines(raw string) (string, error) {
 	out := parseHeaderMap(raw)
 	if len(out) == 0 {
 		return "", nil
 	}
 	for k, v := range out {
-		if err := caddyapi.ScreenReplacerValue(k + ": " + v); err != nil {
+		if err := caddyapi.ScreenTenantTemplate(k + ": " + v); err != nil {
 			return "", fmt.Errorf("custom header %q: %w", k, err)
 		}
 	}

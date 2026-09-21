@@ -722,6 +722,12 @@ func writeRotationLog(ctx context.Context, db *sql.DB, peerID int64, source stri
 
 // ---- helpers ------------------------------------------------------
 
+// isSuperAdmin is the platform-operator gate. "Scoped to all clients" is not
+// the same privilege: it still answers for tenants, not for the node itself.
+func isSuperAdmin(sess *auth.Session) bool {
+	return sess != nil && sess.Role == "super_admin"
+}
+
 func (h *AdminHandlers) adminClientScope(ctx context.Context, sess *auth.Session) (map[int64]bool, bool, bool) {
 	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
 		return nil, true, true
