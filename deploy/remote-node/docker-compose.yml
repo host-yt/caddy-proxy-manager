@@ -30,6 +30,16 @@ services:
     # absent there. Override with IMAGE_CADDY=caddy:2.11.4 for a plain node.
     image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.7.1}
     restart: unless-stopped
+    # Real request against the admin API either way - a leftover socket file
+    # with no process behind it must not report healthy (HPG-OPS-006). These
+    # are the nodes carrying customer traffic, so this is the only container
+    # liveness signal they have.
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:2019/config/ || curl -fsS --max-time 5 -o /dev/null --unix-socket /opt/hostyt-node/admin/caddy-admin.sock http://localhost/config/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     # SEC-002: :2019 is Caddy's admin API and it authenticates NOTHING, so it
     # is published on host loopback only. The host-networked hpg-node-agent
     # reaches it there and fronts it with an authenticated proxy on the

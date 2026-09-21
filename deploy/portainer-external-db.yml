@@ -106,10 +106,10 @@ services:
     image: ghcr.io/host-yt/caddy-proxy-manager-edge:1.7.1
     pull_policy: if_not_present
     restart: unless-stopped
-    # Falls back to the socket file when the admin endpoint has no TCP port:
-    # busybox wget cannot speak to a unix socket.
+    # Real request against the admin API either way - a leftover socket file
+    # with no process behind it must not report healthy (HPG-OPS-006).
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || [ -S /sockets/caddy-admin.sock ]"]
+      test: ["CMD-SHELL", "curl -fsS --max-time 5 -o /dev/null http://127.0.0.1:2019/config/ || curl -fsS --max-time 5 -o /dev/null --unix-socket /sockets/caddy-admin.sock http://localhost/config/"]
       interval: 30s
       timeout: 10s
       retries: 3
