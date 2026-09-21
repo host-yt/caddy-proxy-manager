@@ -2,13 +2,17 @@
 # =========================================================================
 # Hostyt Proxy Gateway - app image (multi-stage, distroless final)
 # =========================================================================
+# Base images are pinned by digest (@sha256:...), not just tag, so the exact
+# bytes CI scans are the ones that ship. Dependabot (.github/dependabot.yml)
+# opens PRs to roll the digest forward; a manual bump can be verified with
+# `docker buildx imagetools inspect <image>:<tag> --format '{{json .Manifest}}'`.
 
 # ---- Stage 0: tailwind build -------------------------------------------
 # Standalone tailwindcss binary scans every template and emits one
 # minified stylesheet shipped under /static/css/tailwind.css. Lets us
 # drop the CDN runtime script (Tailwind's own console nag + extra RTT)
 # without dragging Node into the build.
-FROM alpine:3.20 AS tailwind
+FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc AS tailwind
 ARG TW_VERSION=v3.4.17
 ARG TARGETARCH
 # Pinned sha256 of the v3.4.17 release binaries - verified via `shasum -a 256`
@@ -39,7 +43,7 @@ RUN tailwindcss \
       --minify
 
 # ---- Stage 1: codegen + build ------------------------------------------
-FROM golang:1.26-alpine AS build
+FROM golang:1.26-alpine@sha256:51a7c389a5ddaf82f527191a1e9bff9928655130a44e4975dd1d7e0acf59f1ae AS build
 WORKDIR /src
 
 RUN apk add --no-cache git ca-certificates tzdata
@@ -90,7 +94,7 @@ RUN mkdir -p /out/data /out/wg \
  && chown -R 65532:65532 /out/data /out/wg
 
 # ---- Stage 2: runtime --------------------------------------------------
-FROM gcr.io/distroless/static-debian12:nonroot
+FROM gcr.io/distroless/static-debian12:nonroot@sha256:afa5c872c891853ca7fcf1f12c3edb23f7eeef36189728842dd51042ff57f7ab
 WORKDIR /app
 
 COPY --from=build /out/server /app/server

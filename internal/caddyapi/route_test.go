@@ -435,11 +435,18 @@ func TestBuildRoutePortalForwardAuth(t *testing.T) {
 		t.Errorf("portal must not emit when disabled\nfull: %s", s)
 	}
 
-	// Fail-closed: PortalProtect set but no dial => no gate emission.
+	// Fail-closed: PortalProtect set but no dial => deny, never a silent
+	// plain proxy. Absence of the verify URI alone doesn't prove this: a
+	// route whose gate was dropped entirely (bug) also has no verify URI
+	// while still reaching the backend. Assert the actual outcome instead.
 	noDial := base
 	noDial.PortalProtect = true
-	if s := mustJSON(noDial); strings.Contains(s, "/hpg-portal/verify") {
+	s := mustJSON(noDial)
+	if strings.Contains(s, "/hpg-portal/verify") {
 		t.Errorf("portal must not emit without a dial target\nfull: %s", s)
+	}
+	if strings.Contains(s, "reverse_proxy") || strings.Contains(s, base.UpstreamIP) {
+		t.Errorf("no dial target must deny, not silently reach the backend\nfull: %s", s)
 	}
 
 	// ON: passthrough subroute + forward_auth to /hpg-portal/verify, with the
@@ -447,7 +454,7 @@ func TestBuildRoutePortalForwardAuth(t *testing.T) {
 	on := base
 	on.PortalProtect = true
 	on.PortalDial = "app:8080"
-	s := mustJSON(on)
+	s = mustJSON(on)
 	for _, want := range []string{
 		`"/hpg-portal/*"`,
 		`/hpg-portal/verify`,

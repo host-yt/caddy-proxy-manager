@@ -3,9 +3,13 @@ package routes
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 )
 
 // insertFailClosedRoute creates a service + one route and returns its id.
@@ -41,7 +45,9 @@ func insertFailClosedRoute(t *testing.T, db *sql.DB, ctx context.Context, nodeID
 	return routeID
 }
 
-func findBuilt(t *testing.T, svc *Service, ctx context.Context, nodeID, routeID int64) (denyMTLS, denyPortal, requireCert, portalProtect bool) {
+// findBuilt returns the compiled caddyapi.Route for routeID, straight from
+// the same buildRoutesForNode() path the panel uses to push config to Caddy.
+func findBuilt(t *testing.T, svc *Service, ctx context.Context, nodeID, routeID int64) caddyapi.Route {
 	t.Helper()
 	built, ids, err := svc.buildRoutesForNode(ctx, nodeID)
 	if err != nil {
@@ -49,12 +55,27 @@ func findBuilt(t *testing.T, svc *Service, ctx context.Context, nodeID, routeID 
 	}
 	for i, id := range ids {
 		if id == routeID {
-			return built[i].MTLSDenyOnMisconfig, built[i].PortalDenyOnMisconfig,
-				built[i].RequireClientCert, built[i].PortalProtect
+			return built[i]
 		}
 	}
 	t.Fatalf("route %d not built", routeID)
-	return
+	return caddyapi.Route{}
+}
+
+// assertBackendUnreachable closes the loop from the domain-level deny flag to
+// the actual Caddy JSON: a deny flag that BuildRoute stops honouring (e.g. a
+// later change makes the early-return conditional on something else) must
+// fail this, not just the boolean check above.
+func assertBackendUnreachable(t *testing.T, r caddyapi.Route) {
+	t.Helper()
+	b, err := json.Marshal(caddyapi.BuildRoute(r))
+	if err != nil {
+		t.Fatalf("marshal built route: %v", err)
+	}
+	s := string(b)
+	if strings.Contains(s, "reverse_proxy") || (r.UpstreamIP != "" && strings.Contains(s, r.UpstreamIP)) {
+		t.Errorf("deny flag set but compiled route still reaches the backend\nfull: %s", s)
+	}
 }
 
 // TestBuildRoutesMTLSFailClosed proves require_client_cert=1 with no usable CA
@@ -79,17 +100,18 @@ func TestBuildRoutesMTLSFailClosed(t *testing.T) {
 
 	svc := &Service{DB: db}
 	setFailOpen("0")
-	deny, _, req, _ := findBuilt(t, svc, ctx, nodeID, routeID)
-	if !deny {
+	r := findBuilt(t, svc, ctx, nodeID, routeID)
+	if !r.MTLSDenyOnMisconfig {
 		t.Error("fail_open=0: unenforceable mTLS route must be denied, not served open")
 	}
-	if req {
+	if r.RequireClientCert {
 		t.Error("RequireClientCert must be false when no policy can be emitted")
 	}
+	assertBackendUnreachable(t, r)
 
 	setFailOpen("1")
-	deny, _, _, _ = findBuilt(t, svc, ctx, nodeID, routeID)
-	if deny {
+	r = findBuilt(t, svc, ctx, nodeID, routeID)
+	if r.MTLSDenyOnMisconfig {
 		t.Error("fail_open=1: permissive behaviour must be preserved (no deny route)")
 	}
 }
@@ -117,18 +139,19 @@ func TestBuildRoutesPortalFailClosed(t *testing.T) {
 
 	// No PanelInternalHost/Port -> verifier unavailable.
 	svc := &Service{DB: db}
-	_, denyPortal, _, protect := findBuilt(t, svc, ctx, nodeID, routeID)
-	if !denyPortal {
+	r := findBuilt(t, svc, ctx, nodeID, routeID)
+	if !r.PortalDenyOnMisconfig {
 		t.Error("portal-protected route with no verifier must be denied, not served open")
 	}
-	if protect {
+	if r.PortalProtect {
 		t.Error("PortalProtect must be false when no dial exists")
 	}
+	assertBackendUnreachable(t, r)
 
 	// Verifier configured -> normal gated route, no deny.
 	svc = &Service{DB: db, PanelInternalHost: "app", PanelInternalPort: 8080}
-	_, denyPortal, _, protect = findBuilt(t, svc, ctx, nodeID, routeID)
-	if denyPortal || !protect {
-		t.Errorf("with a verifier: want protect=true deny=false, got protect=%v deny=%v", protect, denyPortal)
+	r = findBuilt(t, svc, ctx, nodeID, routeID)
+	if r.PortalDenyOnMisconfig || !r.PortalProtect {
+		t.Errorf("with a verifier: want protect=true deny=false, got protect=%v deny=%v", r.PortalProtect, r.PortalDenyOnMisconfig)
 	}
 }
