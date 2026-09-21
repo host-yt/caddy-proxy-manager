@@ -73,11 +73,56 @@ cp -p "$CONF" "$backup"
 chmod 600 "$backup"
 log "Backed up $CONF to $backup"
 
+# conf_has_psk: does the manager's [Peer] block in $1 carry a PresharedKey?
+conf_has_psk() {
+  awk -v pub="$peer_pub" '
+    function emit() { if (p == pub && has) found = 1; p = ""; has = 0 }
+    /^[[:space:]]*\[/                        { emit() }
+    /^[[:space:]]*PublicKey[[:space:]]*=/    { v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); gsub(/[[:space:]]+$/, "", v); p = v }
+    /^[[:space:]]*PresharedKey[[:space:]]*=/ { has = 1 }
+    END { emit(); exit !found }
+  ' "$1"
+}
+
+# psk_live: does the LIVE interface still hold a preshared key for the
+# manager peer? The file is not evidence - only the kernel state is.
+psk_live() {
+  wg show "$IFACE" preshared-keys 2>/dev/null \
+    | awk -v p="$peer_pub" '$1 == p && $2 != "(none)" { found = 1 } END { exit !found }'
+}
+
+manual_fix() {
+  warn "This node is NOT back on its previous key. Run, as root:"
+  warn "    wg set $IFACE peer $peer_pub preshared-key /dev/null"
+  warn "or, if that fails: wg-quick down $IFACE && wg-quick up $IFACE"
+  warn "then check: wg show $IFACE preshared-keys"
+}
+
+# Restore the backup AND the live interface. `wg syncconf` can set or change
+# a PresharedKey but cannot REMOVE one: a config without the line means
+# "leave the current key alone". On a first-time enable the backup has no
+# key, so syncconf alone leaves the staged key live, the node keeps
+# handshaking for REJECT_AFTER_TIME and then drops off the mesh with nothing
+# to explain it. Clear it explicitly in that case.
 rollback() {
   trap - ERR INT TERM
   warn "Rolling back $CONF"
-  cp -p "$backup" "$CONF"
-  wg syncconf "$IFACE" <(wg-quick strip "$IFACE") || warn "rollback syncconf failed - run: wg-quick down $IFACE && wg-quick up $IFACE"
+  local ok=1
+  cp -p "$backup" "$CONF" || ok=0
+  wg syncconf "$IFACE" <(wg-quick strip "$IFACE") || { warn "rollback syncconf failed"; ok=0; }
+  if [[ "$ok" -eq 1 ]] && ! conf_has_psk "$CONF" && psk_live; then
+    warn "Clearing the staged preshared key from the live interface"
+    wg set "$IFACE" peer "$peer_pub" preshared-key /dev/null || true
+    if psk_live; then
+      # Older wg builds refuse an empty key file; a full restart re-reads
+      # the restored config from scratch, which has the same effect.
+      warn "this wg build could not clear the key directly - restarting $IFACE"
+      { wg-quick down "$IFACE" && wg-quick up "$IFACE"; } || ok=0
+      if psk_live; then ok=0; fi
+    fi
+  fi
+  [[ "$ok" -eq 1 ]] || { manual_fix; return 1; }
+  return 0
 }
 
 tmp=$(mktemp "${CONF}.new.XXXXXX")
@@ -127,7 +172,7 @@ fi
 
 log "Applying the new config to interface $IFACE"
 if ! wg syncconf "$IFACE" <(wg-quick strip "$IFACE"); then
-  rollback
+  rollback || true
   die "wg syncconf failed"
 fi
 
@@ -154,8 +199,10 @@ for attempt in 1 2 3 4 5; do
 done
 
 if [[ "$denied" -eq 1 ]]; then
-  rollback
-  die "panel rejected the confirm (HTTP ${code}) - the old key is back in place, re-run with a fresh token"
+  if rollback; then
+    die "panel rejected the confirm (HTTP ${code}) - this node is back on its previous key, re-run with a fresh token"
+  fi
+  die "panel rejected the confirm (HTTP ${code}) AND the rollback could not finish - run the recovery command printed above before anything else"
 fi
 trap - ERR INT TERM
 if [[ "$ok" -ne 1 ]]; then
@@ -185,6 +232,8 @@ if [[ "$ok" -eq 1 ]]; then
 else
   warn "No fresh handshake within 130 s. Check 'wg show $IFACE' and the panel's node detail page."
   warn "To back out on this node: cp $backup $CONF && wg syncconf $IFACE <(wg-quick strip $IFACE)"
+  warn "and, if $backup has no PresharedKey line, also: wg set $IFACE peer $peer_pub preshared-key /dev/null"
+  warn "(syncconf can set a preshared key but never removes one)"
 fi
 
 log "Done. 'wg show $IFACE' should now report 'preshared key: (hidden)'."

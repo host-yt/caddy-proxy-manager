@@ -166,6 +166,25 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
   runs one routinely. The panel's own sidecar was never affected: it has
   always rendered `ListenPort`.
 
+- **Removing a mesh preshared key never took effect - both ends kept using it
+  and the mesh split at the next restart.** `wg syncconf` cannot remove a
+  `PresharedKey`: a peer block without the line means "leave the current key
+  alone", not "clear it". Every path that removes a key relied on it, so all
+  three were silent no-ops. **Clear PSK** rewrote the panel's `wg0.conf` and
+  reported success while the key stayed live on the interface; the node-side
+  command it printed (and the one in the docs) did nothing either; and a
+  rejected confirm during a *first-time* Enable PSK told the operator "the old
+  key is back in place" while the node kept the staged key, dropped off the
+  mesh ~180 s later and left nothing on either side to explain it. The sidecar
+  now clears the key of any peer the rendered config no longer gives one,
+  `node-psk.sh` clears the staged key when it rolls back to a config that has
+  none (falling back to an interface restart, and failing loudly with the exact
+  recovery command rather than claiming a rollback it could not perform), the
+  node-agent does the same for customer peers whose key the panel dropped, and
+  the panel's flash message and the docs now print
+  `wg set wg0 peer <panel-public-key> preshared-key /dev/null`. Found by a new
+  end-to-end harness (`make e2e-psk`) that drives real kernel WireGuard and now
+  asserts the live interface, not the config file.
 - **The WireGuard sidecar was told to `wg syncconf` on every unrelated admin
   action.** The rendered `wg0.conf` carried a generated-at timestamp in its
   header, so every render produced a different file and the sidecar, which

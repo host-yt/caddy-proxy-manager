@@ -973,6 +973,7 @@ func reconcile(ctx context.Context, log *slog.Logger, c config, dry bool) {
 		log.Warn("wg syncconf", "err", err)
 		return
 	}
+	clearDroppedPSKs(pctx, log, c, reply)
 	log.Info("reconciled", "peers", active)
 
 	// Best-effort handshake report (form-encoded so the panel handler
@@ -1019,6 +1020,38 @@ func buildSyncconf(log *slog.Logger, c config, reply peerListReply) (string, int
 		active++
 	}
 	return b.String(), active
+}
+
+// clearDroppedPSKs removes the preshared keys `wg syncconf` cannot. An absent
+// PresharedKey line means "keep the current key", not "clear it", so a peer
+// whose PSK the panel dropped (a key rotation onto a node whose agent no
+// longer reports PSK support) would keep the stale key on the interface and
+// fail every handshake, with the config claiming otherwise.
+func clearDroppedPSKs(ctx context.Context, log *slog.Logger, c config, reply peerListReply) {
+	want := make(map[string]bool, len(reply.Peers))
+	for _, p := range reply.Peers {
+		if p.PresharedKey != "" {
+			want[p.Pubkey] = true
+		}
+	}
+	out, err := run(ctx, false, "wg", "show", c.Interface, "dump")
+	if err != nil {
+		return
+	}
+	for i, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		// First line is the interface itself; peers follow with
+		// 0 pubkey, 1 psk ("(none)" when unset), 2 endpoint, ...
+		fields := strings.Fields(line)
+		if i == 0 || len(fields) < 7 || fields[1] == "(none)" || want[fields[0]] {
+			continue
+		}
+		if _, err := run(ctx, false, "wg", "set", c.Interface, "peer", fields[0], "preshared-key", "/dev/null"); err != nil {
+			log.Warn("could not clear a dropped preshared key - peer stays broken until the interface restarts",
+				"pubkey", fields[0], "err", err)
+			continue
+		}
+		log.Info("cleared the preshared key the panel dropped for this peer", "pubkey", fields[0])
+	}
 }
 
 // peerStat is one peer's WireGuard counters as parsed from `wg show <iface> dump`.

@@ -188,7 +188,17 @@ func (h *AdminHandlers) NodesPSKClear(w http.ResponseWriter, r *http.Request) {
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.psk.clear", Entity: "node", EntityID: strconv.FormatInt(id, 10),
 	})
+	// `wg syncconf` can set or change a PresharedKey but never removes one
+	// (an absent line means "keep the current key"), so the node needs both
+	// the file edit - for the next `wg-quick up` - and an explicit
+	// `wg set ... preshared-key /dev/null` against the live interface.
+	peer := "<the panel's WireGuard public key, from Settings -> WireGuard>"
+	if h.WG != nil {
+		if cp, cerr := h.WG.Get(ctx); cerr == nil && cp.PublicKey != "" {
+			peer = cp.PublicKey
+		}
+	}
 	redirectWithFlash(w, r, dest,
-		"Mesh PSK cleared on the panel. The node still has it - run: sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf && wg syncconf wg0 <(wg-quick strip wg0)",
+		fmt.Sprintf("Mesh PSK cleared on the panel. The node still has it - run: sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf && wg set wg0 peer %s preshared-key /dev/null", peer),
 		"")
 }

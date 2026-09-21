@@ -4,7 +4,7 @@
 # The PSK feature (docs/POST_QUANTUM.md, "Mesh preshared keys") had only
 # ever been unit-tested. This boots the real panel image plus its real WG
 # sidecar plus two Debian "nodes" that run the real scripts/node-join.sh
-# and scripts/node-psk.sh, and drives all five documented paths:
+# and scripts/node-psk.sh, and drives every documented path:
 #
 #   1 join-with-psk   - a node joining today gets a PSK on both sides and
 #                       the panel reaches its Caddy admin over the mesh
@@ -18,12 +18,13 @@
 #                       with no PSK, alongside a PSK'd node
 #   5 clear psk       - panel-side Clear PSK + the node-side command the
 #                       flash message prints
+#   6 first-enable    - a denied confirm on a node that had NO key before:
+#     rollback        the rollback must leave the live interface without a
+#                     key, not just the file
 #
-# Scenarios 3 and 5 assert the CURRENT, BROKEN behaviour where the product
-# is wrong (see BUG-2/BUG-3 below and the FAIL_ON_KNOWN_BUGS switch): `wg
-# syncconf` cannot remove a PresharedKey, so both the rollback and the
-# clear are no-ops on the live interface. Flip FAIL_ON_KNOWN_BUGS=1 to make
-# this script fail until that is fixed.
+# Every assertion is fatal. In particular, a `wg show` that still carries a
+# key which was supposed to be removed fails the run: `wg syncconf` cannot
+# remove a PresharedKey, so the file is never evidence - only the interface.
 #
 # BUG-1 (the panel image never creates /app/wg, so the wg_config volume is
 # root-owned and the nonroot app cannot write wg0.conf) is worked around by
@@ -45,20 +46,12 @@ ADMIN_PASSWORD="PskAdminPass1234"
 DB_ROOT_PW="pskrootpw"
 DB_NAME="hpg_psk"
 KEEP="${KEEP:-0}"
-FAIL_ON_KNOWN_BUGS="${FAIL_ON_KNOWN_BUGS:-0}"
 
 COOKIE_JAR="$(mktemp)"
 SUMMARY=()
 
 log()  { printf '==> %s\n' "$1"; }
 pass() { SUMMARY+=("PASS: $1"); log "PASS: $1"; }
-# A known-bug expectation: recorded, and only fatal with FAIL_ON_KNOWN_BUGS=1.
-bug()  {
-	SUMMARY+=("KNOWN-BUG: $1")
-	printf 'KNOWN-BUG: %s\n' "$1" >&2
-	[[ "$FAIL_ON_KNOWN_BUGS" == "1" ]] && fail "known bug still present: $1"
-	return 0
-}
 fail() {
 	SUMMARY+=("FAIL: $1")
 	printf 'FAIL: %s\n' "$1" >&2
@@ -91,12 +84,26 @@ sqlq() { cc exec -T mariadb mariadb -uroot -p"$DB_ROOT_PW" -N -B "$DB_NAME" -e "
 in_panel_ns() { cc exec -T wg-panel sh -c "$1"; }
 mesh_get()    { in_panel_ns "wget -q -O - -T 5 http://$1:2019/config/"; }
 mesh_up()     { in_panel_ns "wget -q -O /dev/null -T 5 http://$1:2019/config/" >/dev/null 2>&1; }
+# Live preshared-key state of one end, keys masked: "<peer-pubkey> (hidden)"
+# or "<peer-pubkey> (none)". This is the evidence for every PSK assertion -
+# the .conf file is not proof, only the interface is.
+wg_psk_state() { cc exec -T "$1" wg show wg0 preshared-keys | tr -d '\r' | awk '{print $1, ($2 == "(none)" ? "(none)" : "(hidden)")}'; }
+evidence()     { log "wg show $1 preshared-keys ($2): $(wg_psk_state "$1" | tr '\n' ';')"; }
 
 install_step() {
-	local code
-	code=$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-		-H "X-Install-Token: $INSTALL_TOKEN" --data "$2" "$PANEL/install/$1")
-	[[ "$code" == "303" ]] || fail "install/$1 did not redirect (http $code)"
+	local code attempt
+	# The db step runs the whole migration chain inside one request context;
+	# on a cold, slow machine that can blow the handler deadline and come
+	# back as a re-rendered form (200). goose resumes where it stopped, so
+	# retry rather than fail the run on a first-boot timing artefact.
+	for attempt in 1 2 3 4 5; do
+		code=$(curl -sS -o /dev/null -w '%{http_code}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+			-H "X-Install-Token: $INSTALL_TOKEN" --data "$2" "$PANEL/install/$1")
+		[[ "$code" == "303" ]] && return 0
+		log "install/$1 returned $code, retry $attempt"
+		sleep 5
+	done
+	fail "install/$1 did not redirect (http $code)"
 }
 # admin_post PATH FORMDATA -> stdout is the response body
 admin_post() {
@@ -310,26 +317,38 @@ pass "mixed mesh: one peer with a PSK, one without, both live"
 log "SCENARIO 5: Clear PSK"
 PANEL_PUB=$(cc exec -T wg-panel wg show wg0 public-key | tr -d '\r\n')
 NODE_A_PUB=$(cc exec -T node-a wg show wg0 public-key | tr -d '\r\n')
-admin_post "admin/nodes/$NODE_A/psk/clear" "" >/dev/null
+evidence wg-panel "before clear"
+evidence node-a "before clear"
+# Keep the redirect target: the flash message (and the node-side command it
+# prints) lives in its query string.
+CLEAR_LOC=$(curl -sS -o /dev/null -w '%{redirect_url}' -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
+	--data "csrf_token=$CSRF" "$PANEL/admin/nodes/$NODE_A/psk/clear")
 [[ "$(sqlq "SELECT wg_psk_enc IS NULL AND wg_psk_pending_enc IS NULL AND wg_psk_token_hash IS NULL FROM caddy_nodes WHERE id=$NODE_A;")" == 1 ]] \
 	|| fail "Clear PSK left state behind in the database"
 pass "Clear PSK dropped the active key, the pending key and the token"
 poll_until "panel re-rendered wg0.conf without node-a's PresharedKey" 40 \
 	bash -c "! $CCS exec -T wg-panel sed -n '/Node #$NODE_A /,/^\$/p' /config/wg0.conf | grep -q PresharedKey"
-sleep 15   # give the sidecar's 10 s watch loop its syncconf
-if cc exec -T wg-panel wg show wg0 preshared-keys | grep -q "^$NODE_A_PUB.*(none)"; then
-	pass "panel's LIVE interface dropped the preshared key"
-else
-	bug "BUG-3: Clear PSK rewrote wg0.conf but the panel's LIVE interface still has the key - 'wg syncconf' cannot REMOVE a PresharedKey"
+# The sidecar's watch loop is 10 s; give it a few ticks. The FILE is not
+# evidence - only `wg show` is, because syncconf cannot remove a key.
+poll_until "panel's LIVE interface dropped the preshared key" 60 \
+	bash -c "$CCS exec -T wg-panel wg show wg0 preshared-keys | grep -q '^$NODE_A_PUB.*(none)'"
+evidence wg-panel "after clear"
+# The node-side command the flash message prints, verbatim - and the flash
+# must be printing a command that works.
+FLASH=$(printf '%s' "$CLEAR_LOC" | sed -e 's/+/ /g' -e 's/%2F/\//g')
+printf '%s' "$FLASH" | grep -q "preshared-key /dev/null" \
+	|| fail "the Clear PSK flash does not print a command that can remove the key: $FLASH"
+if printf '%s' "$FLASH" | grep -q 'wg syncconf'; then
+	fail "the Clear PSK flash still recommends wg syncconf, which cannot remove a key"
 fi
-# The exact command the flash message tells the operator to run.
-cc exec -T node-a bash -c "sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf && wg syncconf wg0 <(wg-quick strip wg0)"
-if cc exec -T node-a wg show wg0 preshared-keys | grep -q "^$PANEL_PUB.*(none)"; then
-	pass "the documented node-side command cleared the key on the node"
-else
-	bug "BUG-3: the documented node-side clear command is a no-op on the live interface too; 'wg set wg0 peer <panel-pub> preshared-key /dev/null' is what actually works"
-	cc exec -T node-a wg set wg0 peer "$PANEL_PUB" preshared-key /dev/null
-fi
+pass "the Clear PSK flash prints 'wg set ... preshared-key /dev/null'"
+evidence node-a "before the node-side clear command"
+cc exec -T node-a bash -c \
+	"sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf && wg set wg0 peer $PANEL_PUB preshared-key /dev/null"
+evidence node-a "after the node-side clear command"
+cc exec -T node-a wg show wg0 preshared-keys | grep -q "^$PANEL_PUB.*(none)" \
+	|| fail "the documented node-side clear command left the key on the live interface"
+pass "the documented node-side command cleared the key on the node"
 poll_until "mesh to node-a is consistent and up after the clear" 90 mesh_up 10.66.0.2
 
 # ---- 6. the rollback that matters: first-time enable ----------------------
@@ -346,28 +365,39 @@ if cc exec -T node-b bash -c \
 	"curl -fsSL http://panel:8080/install/node-psk.sh | bash -s -- --panel http://127.0.0.1:9999 --token $TOKEN"; then
 	fail "node-psk.sh reported success against a 403 confirm"
 fi
+evidence node-b "after the rolled-back first-time enable"
 if cc exec -T node-b grep -q '^PresharedKey' /etc/wireguard/wg0.conf; then
 	fail "rollback left a PresharedKey line in node-b's wg0.conf"
 fi
 pass "rollback restored node-b's wg0.conf to a file with no PresharedKey"
-if cc exec -T node-b wg show wg0 preshared-keys | grep -q "^$PANEL_PUB.*(none)"; then
-	pass "node-b's live interface has no preshared key after the rollback"
-else
-	bug "BUG-2: after a rolled-back first-time enable the node's LIVE interface still carries the staged key while the panel has none - the script reports 'the old key is back in place' and the node silently drops off the mesh ~180 s later"
-	# REJECT_AFTER_TIME is 180 s: prove the mesh really dies before healing.
-	log "waiting up to 240 s for the split to take the node offline"
-	dead=0
-	for _ in $(seq 1 24); do
-		sleep 10
-		mesh_up 10.66.0.3 || { dead=1; break; }
-	done
-	if [[ "$dead" == 1 ]]; then
-		bug "BUG-2 confirmed: node-b became unreachable over the mesh after the 'successful' rollback"
-	else
-		log "node-b stayed reachable for 240 s - the split did not materialise this run"
+cc exec -T node-b wg show wg0 preshared-keys | grep -q "^$PANEL_PUB.*(none)" \
+	|| fail "rollback left the staged key LIVE on node-b while the panel has none - the mesh will split at the next handshake"
+pass "node-b's live interface has no preshared key after the rollback"
+# The split this hides is delayed: WireGuard keeps the session until
+# REJECT_AFTER_TIME (180 s). Watch past that before believing the rollback.
+# A single missed probe is a blip (the node re-punches on the next packet);
+# three in a row, or a node still down at the end, is the split.
+log "watching node-b across the 180 s REJECT_AFTER_TIME window"
+misses=0
+streak=0
+for _ in $(seq 1 20); do
+	sleep 10
+	if mesh_up 10.66.0.3; then
+		streak=0
+		continue
 	fi
-	cc exec -T node-b wg set wg0 peer "$PANEL_PUB" preshared-key /dev/null
-	poll_until "node-b recovers once the key is removed with 'wg set ... preshared-key /dev/null'" 90 mesh_up 10.66.0.3
-fi
+	misses=$((misses + 1))
+	streak=$((streak + 1))
+	log "node-b probe failed (${misses} total, ${streak} in a row)"
+	if [[ "$streak" -eq 1 ]]; then
+		evidence node-b "at the first failed probe"
+		evidence wg-panel "at the first failed probe"
+	fi
+	if [[ "$streak" -ge 3 ]]; then
+		fail "node-b dropped off the mesh after a 'successful' rollback"
+	fi
+done
+poll_until "node-b is still on the mesh 200 s after the rollback" 60 mesh_up 10.66.0.3
+log "node-b probe misses during the window: $misses"
 
 summary

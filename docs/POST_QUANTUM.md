@@ -223,12 +223,17 @@ Two things keep the loop cheap:
 
 **Clear PSK** drops `wg_psk_enc`, the pending key and the token on the *panel
 side only*. The node still has its `PresharedKey` line, so the mesh stays down
-until you remove it there too:
+until you remove it there too (`<panel-public-key>` is the panel's WireGuard
+public key, which the flash message fills in for you):
 
 ```bash
 sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
-wg syncconf wg0 <(wg-quick strip wg0)
+wg set wg0 peer <panel-public-key> preshared-key /dev/null
 ```
+
+Both halves are needed: the `sed` is what survives the next `wg-quick up`, the
+`wg set` is what changes the running interface. **`wg syncconf` cannot remove
+a preshared key** - see below.
 
 The flash message on the node page repeats that command verbatim - but **only
 when the panel's own config really changed**. If `wg0.conf` cannot be written,
@@ -240,6 +245,33 @@ log if it keeps failing.
 
 If that restore also fails, the database and the panel's config disagree about
 this node - logged at ERROR and audited as `node.psk.clear.failed`.
+
+### `wg syncconf` cannot remove a preshared key
+
+A peer block with no `PresharedKey` line means *"leave the current key
+alone"*, not *"clear it"* - for `wg syncconf` and `wg setconf` alike. The only
+thing that removes one from a running interface is:
+
+```bash
+wg set <iface> peer <peer-public-key> preshared-key /dev/null
+```
+
+So every place that has to *remove* a key issues that explicitly after writing
+the file:
+
+- the WireGuard sidecar (`deploy/wireguard/entrypoint.sh`) compares the peers
+  that carry a `PresharedKey` in the freshly rendered config against the live
+  interface and clears the difference after each `wg syncconf` - that is what
+  makes **Clear PSK** take effect on the panel's own side;
+- `node-psk.sh` clears the staged key when it rolls back to a backup with no
+  `PresharedKey` line (a *first-time* enable), falls back to
+  `wg-quick down && wg-quick up`, and failing both prints the exact recovery
+  command and exits non-zero instead of reporting a rollback it did not do;
+- `node-agent` clears the key of any peer the panel stopped sending one for
+  (a rotation onto a node that no longer reports PSK support).
+
+Before this, all three silently kept the old key live: the file said one thing,
+the kernel another, and the mesh split at the next restart.
 
 ### Endpoints and audit trail
 

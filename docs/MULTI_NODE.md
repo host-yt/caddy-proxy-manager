@@ -917,8 +917,12 @@ The node list shows a green `PSK` pill once the key is active, and
 
   ```bash
   sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
-  wg syncconf wg0 <(wg-quick strip wg0)
+  wg set wg0 peer $(wg show wg0 peers) preshared-key /dev/null
   ```
+
+  `wg syncconf` cannot remove a preshared key - an absent line means "keep
+  the current one" - so the `wg set` is what actually clears the running
+  interface, and the `sed` is what keeps it gone after a restart.
 
   This requires shell access to the node - if the panel is only reachable
   *through* the mesh on your install, that is the only way back.
