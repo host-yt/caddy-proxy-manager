@@ -1,5 +1,8 @@
 # Remote Caddy node - runs on a VPS connected to the control plane over
-# WireGuard. Admin API is bound to the WG interface only.
+# WireGuard. Caddy's admin API is published on host loopback only; the
+# hpg-node-agent sidecar (deploy/node-agent/docker-compose.example.yml) fronts
+# it with an authenticated proxy on the WireGuard IP. Deploy BOTH - the panel
+# refuses to register or approve a node whose api_url is a raw remote :2019.
 #
 # Do NOT run this on the same host as deploy/docker-compose.yml - that
 # stack's bundled `caddy` service already owns 80/443/443udp there and
@@ -11,21 +14,28 @@
 #      See docs/MULTI_NODE.md.
 #   2. Public ports 80/443/443udp open. UDP 51820 open for WG.
 #   3. /opt/hostyt-node/ contains this file + Caddyfile.bootstrap.
+#   4. mkdir -p /opt/hostyt-node/{caddy-logs,geoip,agent-state} - shared with
+#      the agent, which writes the GeoIP mmdb and reads the access log.
+#   5. The hpg-node-agent stack is up with HPG_ADMIN_PROXY_LISTEN/_KEY set.
 #
 # Then:
 #   cd /opt/hostyt-node && docker compose up -d
 
 services:
   caddy:
-    # Stock Caddy used only as fallback for nodes that don't run the
-    # custom cache-handler build. For cache_enabled routes the node MUST
-    # run ghcr.io/host-yt/caddy-proxy-manager-edge (deploy/caddy/Dockerfile).
-    image: ${IMAGE_CADDY:-caddy:2.11.4}
+    # The custom edge image is the default (OPS-005): stock caddy:2.11.4 has
+    # no cache-handler, coraza, caddy-l4, rate_limit or maxmind-geolocation,
+    # so cache_enabled / WAF / streams / GeoIP routes are rejected or silently
+    # absent there. Override with IMAGE_CADDY=caddy:2.11.4 for a plain node.
+    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.5.1}
     restart: unless-stopped
-    # IMPORTANT: bind :2019 to the WireGuard IP only. Public ports
-    # (80/443/443-udp) are bound on 0.0.0.0 as usual.
+    # SEC-002: :2019 is Caddy's admin API and it authenticates NOTHING, so it
+    # is published on host loopback only. The host-networked hpg-node-agent
+    # reaches it there and fronts it with an authenticated proxy on the
+    # WireGuard IP (:2021) - that is what the panel's api_url must point at.
+    # Never republish this on a WireGuard or public address.
     ports:
-      - "10.66.0.2:2019:2019"     # ← change to this node's wg IP
+      - "127.0.0.1:2019:2019"
       - "80:80"
       - "443:443"
       - "443:443/udp"
@@ -43,6 +53,9 @@ services:
       # Access logs: shared with hpg-node-agent, which tails + forwards them to
       # the panel. Host bind path so the host-networked agent can read it too.
       - /opt/hostyt-node/caddy-logs:/var/log/caddy
+      # GeoIP mmdb the node-agent syncs from the panel; Caddy's maxmind
+      # matcher reads it. Read-only here: only the agent writes (OPS-005).
+      - /opt/hostyt-node/geoip:/data/geoip:ro
     environment:
       ASK_ENDPOINT_URL: ${ASK_ENDPOINT_URL:-http://10.66.0.1:8080/internal/ask}
       ACME_EMAIL:       ${ACME_EMAIL:-ops@example.com}

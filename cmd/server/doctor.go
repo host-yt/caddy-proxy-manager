@@ -18,6 +18,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/config"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
@@ -249,6 +250,16 @@ func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check
 				admErr.Error() + " - verify the node's Caddy container is up and reachable at " + n.apiURL})
 		} else {
 			checks = append(checks, check{label + ": admin API", statusPass, n.apiURL + " reachable"})
+		}
+
+		// SEC-002: Caddy's admin API authenticates nothing. A node addressed at
+		// a remote :2019 is owned by whatever can route to it.
+		if security.UnauthenticatedNodeAdminURL(n.apiURL) {
+			checks = append(checks, check{label + ": admin API auth", statusWarn,
+				n.apiURL + " is Caddy's unauthenticated admin API - front it with the node-agent " +
+					"admin proxy and repoint api_url at http://<wg-ip>:2021 (docs/MULTI_NODE.md)"})
+		} else if n.adminProxyKeyEnc.Valid && n.adminProxyKeyEnc.String != "" {
+			checks = append(checks, check{label + ": admin API auth", statusPass, "agent admin proxy, bearer key issued"})
 		}
 
 		if !n.modulesProbedAt.Valid {

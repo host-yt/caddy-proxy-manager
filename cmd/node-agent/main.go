@@ -1556,6 +1556,14 @@ func syncGeoIP(ctx context.Context, log *slog.Logger, c config) {
 		log.Debug("geoip: panel has no DB yet")
 		return
 	}
+	// The DB is only useful if Caddy can read it, so the directory must be a
+	// volume shared with the caddy container. Creating it inside the agent's
+	// own filesystem would "succeed" forever while GeoIP never works (OPS-005).
+	if st, err := os.Stat(filepath.Dir(geoipDBPath)); err != nil || !st.IsDir() {
+		log.Warn("geoip: target directory missing - mount a volume shared with the caddy container",
+			"path", filepath.Dir(geoipDBPath))
+		return
+	}
 	localSHA, _ := fileSHA256(geoipDBPath)
 	if localSHA == remoteSHA {
 		return // already current

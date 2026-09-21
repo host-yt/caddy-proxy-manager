@@ -842,6 +842,12 @@ func (h *AdminHandlers) NodesCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/nodes", "", "api_url must start with http:// or https://")
 		return
 	}
+	// SEC-002: a remote node must be reached through the agent's authenticated
+	// admin proxy, never Caddy's own unauthenticated :2019.
+	if err := security.RejectUnauthenticatedNodeAdminURL(apiURL); err != nil {
+		redirectWithFlash(w, r, "/admin/nodes", "", err.Error())
+		return
+	}
 	if publicIP != "" && net.ParseIP(publicIP) == nil {
 		redirectWithFlash(w, r, "/admin/nodes", "", "public_ip is not a valid IP")
 		return
@@ -1509,6 +1515,13 @@ func (h *AdminHandlers) NodesApprove(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	// SEC-002: the auto-join script registers http://<wg-ip>:2019 - Caddy's
+	// unauthenticated admin API - and the node-agent that fronts it is only
+	// installed after approval (tunnel-enable mints its key). Approval is
+	// therefore the first place an operator can be told, but blocking it would
+	// break the documented onboarding order, so this warns instead.
+	var joinURL string
+	_ = db.QueryRowContext(ctx, "SELECT api_url FROM caddy_nodes WHERE id = ?", id).Scan(&joinURL)
 	if _, err := db.ExecContext(ctx,
 		"UPDATE caddy_nodes SET is_enabled = 1, approved_at = NOW(), approved_by = ? WHERE id = ? AND approved_at IS NULL",
 		approvedBy, id); err != nil {
@@ -1523,7 +1536,12 @@ func (h *AdminHandlers) NodesApprove(w http.ResponseWriter, r *http.Request) {
 		UserID: actorUserID(sess),
 		Action: "node.approve", Entity: "node", EntityID: fmt.Sprintf("%d", id),
 	})
-	redirectWithFlash(w, r, "/admin/nodes", "Node approved", "")
+	msg := "Node approved"
+	if security.UnauthenticatedNodeAdminURL(joinURL) {
+		msg += ". This node is reached over Caddy's unauthenticated admin API - " +
+			"enable the tunnel, run the node-agent admin proxy, then repoint its API URL at :2021 (docs/MULTI_NODE.md)"
+	}
+	redirectWithFlash(w, r, "/admin/nodes", msg, "")
 }
 
 // NodesResync rebuilds the node's full Caddy config from DB and POSTs /load.

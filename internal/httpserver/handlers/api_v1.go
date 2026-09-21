@@ -780,6 +780,11 @@ func (h *APIHandlers) NodeCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "api_url host not allowed (loopback/link-local/metadata)")
 		return
 	}
+	// SEC-002: remote nodes go through the agent's authenticated admin proxy.
+	if err := security.RejectUnauthenticatedNodeAdminURL(in.APIURL); err != nil {
+		apiErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	var pubIP sql.NullString

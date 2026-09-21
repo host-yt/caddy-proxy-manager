@@ -385,10 +385,12 @@ The security model is therefore **network reachability only**:
 - On the manager stack, `:2019` is reachable inside the compose network
   (`CADDY_ADMIN_URL: http://caddy:2019`) and the compose file deliberately never
   publishes the port to the host.
-- On a remote node it is published on the node's WireGuard address -
-  `deploy/remote-node/docker-compose.yml` binds `"<wg_ip>:2019:2019"` (the
-  shipped example is `10.66.0.2:2019:2019`). It is reachable from anything on
-  the control-plane mesh.
+- On a remote node it is published on **host loopback only**
+  (`deploy/remote-node/docker-compose.yml` binds `"127.0.0.1:2019:2019"`), and
+  the node-agent fronts it with an authenticated proxy on the node's WireGuard
+  address (`:2021`). Nodes deployed before 1.5.2 published `"<wg_ip>:2019:2019"`
+  and are reachable from anything on the control-plane mesh until migrated -
+  `server doctor` flags each one.
 
 Two of the critical findings closed in 1.4.4/1.4.5 were paths into that API from
 tenant-controlled configuration, not from the network:
@@ -423,11 +425,20 @@ panel ──(bearer key, over the WG mesh)──▶ node-agent ──(127.0.0.1)
 - It refuses to start bound to `0.0.0.0`, and refuses a key shorter than 32
   characters, rather than serving something that only looks authenticated.
 
-Turning it on is per node and opt-in (`HPG_ADMIN_PROXY_LISTEN` +
-`HPG_ADMIN_PROXY_KEY` on the agent, then point the node's API URL at the agent
-and re-bind Caddy's admin to `127.0.0.1`) - see
-[MULTI_NODE.md](MULTI_NODE.md#12-authenticating-the-nodes-admin-api). A node
-without the key is reached directly, exactly as before.
+It is required for remote nodes: the panel refuses to register a node whose
+API URL is a raw remote `:2019`, in `/admin/nodes` and in `POST /api/v1/nodes`.
+Set it up with `HPG_ADMIN_PROXY_LISTEN` + `HPG_ADMIN_PROXY_KEY` on the agent,
+then point the node's API URL at the agent and publish Caddy's admin port on
+host loopback - see
+[MULTI_NODE.md](MULTI_NODE.md#12-authenticating-the-nodes-admin-api) for the
+order, which matters.
+
+Existing fleets are not cut off: nothing changes for nodes already registered,
+the auto-join script still onboards a node on the direct path (its agent, and
+therefore its key, only exists after tunnel-enable), and
+`HPG_ALLOW_UNAUTHENTICATED_NODE_ADMIN=1` on the panel re-opens registration for
+a fleet mid-migration. `server doctor` prints an `admin API auth` row per node
+so the remaining ones are visible.
 
 **Still outstanding.** Until a node is migrated, treat reachability of
 `<wg_ip>:2019` as equivalent to root on that node and keep the control-plane
