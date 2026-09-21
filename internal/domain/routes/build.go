@@ -540,13 +540,17 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 				proxySecret = sec
 			}
 		}
-		// Hostname backend over tunnel needs a DNS resolver (dynamic
-		// upstreams resolve it via the peer). Without one, fall back to
-		// peer IP so the route doesn't 502 on an unresolvable name.
-		// External routes exempt - their upstream is a public FQDN.
-		if !external && tunnelResolverIP != "" && ip != "" && !looksLikeIP(ip) &&
-			dnsResolverIP == "" && dnsResolverPeerIP == "" {
-			ip = tunnelResolverIP
+		// A tunnel backend name is dialed at the peer address the panel
+		// screened, never at whatever the tenant's own DNS answers
+		// (HPG-SEC-001a); node-side resolution is the super_admin waiver.
+		if dialIP := tunnelBackendDial(external, resolveNodeSide, ip, tunnelResolverIP); dialIP != ip {
+			// Only the tenant's explicit resolver choice is worth a line; the
+			// peer the panel auto-bound is only honoured under the waiver.
+			if dnsResolverIP != "" {
+				s.Logger.Warn("tunnel backend name dialed at the peer address; node-side DNS resolution needs the super_admin waiver",
+					"route_id", id, "domain", domain, "backend", ip)
+			}
+			ip, dnsResolverIP, dnsResolverPeerIP = dialIP, "", ""
 		}
 		backendResolver := ""
 		// lb_cookie_secret is stored encrypted at rest (SECRET-02); decrypt for
@@ -578,10 +582,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			Hosts:      hosts,
 			PathPrefix: path,
 			UpstreamIP: ip,
-			// Tunnel-bound backends are resolved on the node whatever the
-			// stored flag says: the panel's view of the name is not the
-			// node's view through the tunnel.
-			ResolveNodeSide:       resolveNodeSide || viaPeerID.Valid,
+			// Node-side resolution is the operator's explicit waiver, not
+			// something a tunnel grants: a tunnel name is dialed at the peer.
+			ResolveNodeSide:       resolveNodeSide,
 			UpstreamPort:          port,
 			BackendResolver:       backendResolver,
 			UpstreamScheme:        scheme,

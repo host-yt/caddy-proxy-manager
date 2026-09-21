@@ -7,9 +7,11 @@ import (
 	"time"
 )
 
-// TestBuildRoutesDNSResolverIsNodeScoped proves each fan-out node resolves
-// container names via ITS OWN peer-group member, not the primary's peer IP
-// (that peer has no interface on the secondary node -> 502 on failover).
+// TestBuildRoutesDNSResolverIsNodeScoped proves each fan-out node dials ITS OWN
+// peer-group member, not the primary's peer IP (that peer has no interface on
+// the secondary node -> 502 on failover). HPG-SEC-001a: without the super_admin
+// waiver the backend NAME is never handed to the node with the tenant's own
+// resolver - it collapses to the peer address the panel screened.
 // Requires TEST_DB_DSN pointing at a fully-migrated instance.
 func TestBuildRoutesDNSResolverIsNodeScoped(t *testing.T) {
 	db := openTestDB(t)
@@ -88,10 +90,10 @@ func TestBuildRoutesDNSResolverIsNodeScoped(t *testing.T) {
 		return "", ""
 	}
 
-	if got, up := resolverFor(primaryID); got != "100.96.0.7" || up != "app" {
-		t.Errorf("primary node: resolver=%q upstream=%q, want 100.96.0.7 / app", got, up)
+	if got, up := resolverFor(primaryID); got != "" || up != "100.96.0.7" {
+		t.Errorf("primary node: resolver=%q upstream=%q, want no resolver / 100.96.0.7", got, up)
 	}
-	if got, up := resolverFor(peerNodeID); got != "100.96.1.7" || up != "app" {
-		t.Errorf("fan-out node: resolver=%q upstream=%q, want 100.96.1.7 / app (node-scoped peer)", got, up)
+	if got, up := resolverFor(peerNodeID); got != "" || up != "100.96.1.7" {
+		t.Errorf("fan-out node: resolver=%q upstream=%q, want no resolver / 100.96.1.7 (node-scoped peer)", got, up)
 	}
 }

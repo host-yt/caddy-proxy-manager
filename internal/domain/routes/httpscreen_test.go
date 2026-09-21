@@ -67,6 +67,8 @@ func fakePin(host string, _ int) (string, error) {
 		return "198.51.100.20", nil
 	case "pool-b.tenant.example":
 		return "198.51.100.21", nil
+	case "sso.tenant.example":
+		return "198.51.100.30", nil
 	case "rebound.tenant.example":
 		return "", errors.New("host rebound.tenant.example resolves to a blocked address")
 	case "gone.tenant.example":
@@ -165,15 +167,13 @@ func TestScreenHTTPSetDropsRebindOnEveryUpstreamKind(t *testing.T) {
 	}
 }
 
-// Pinning is skipped exactly where the emitted config needs the name, and the
-// deny set still runs on every one of those.
+// Pinning is skipped exactly where an operator accepted node-side resolution,
+// and the deny set still runs on every one of those.
 func TestScreenHTTPSetKeepsNamesTheNodeResolves(t *testing.T) {
 	infra := screenTestInfra(t)
 	built := []caddyapi.Route{
 		{ID: "1", UpstreamIP: "app.tenant.example", UpstreamPort: 443, ResolveNodeSide: true},
 		{ID: "2", UpstreamIP: "app.tenant.example", UpstreamPort: 443, External: true},
-		{ID: "3", UpstreamIP: "app.tenant.example", UpstreamPort: 443, BackendResolver: "10.0.0.53"},
-		{ID: "4", UpstreamIP: "app.tenant.example", UpstreamPort: 443, DNSResolverIP: "10.0.0.53"},
 		// https pool over two different origins: one transport carries one
 		// server_name, so these keep their names.
 		{ID: "5", UpstreamIP: "app.tenant.example", UpstreamPort: 443, UpstreamScheme: "https",
@@ -182,17 +182,17 @@ func TestScreenHTTPSetKeepsNamesTheNodeResolves(t *testing.T) {
 				{Host: "pool-b.tenant.example", Port: 8443},
 			}},
 	}
-	out, _, drops := screenHTTPSet(infra, built, []int64{1, 2, 3, 4, 5}, fakePin)
-	if len(drops) != 0 || len(out) != 5 {
+	out, _, drops := screenHTTPSet(infra, built, []int64{1, 2, 5}, fakePin)
+	if len(drops) != 0 || len(out) != 3 {
 		t.Fatalf("nothing should drop: %d out, %d drops", len(out), len(drops))
 	}
-	for _, r := range out[:4] {
+	for _, r := range out[:2] {
 		if r.UpstreamIP != "app.tenant.example" || r.PinnedSNI != "" {
 			t.Errorf("route %s must keep its name: dial=%q sni=%q", r.ID, r.UpstreamIP, r.PinnedSNI)
 		}
 	}
-	if out[4].Upstreams[0].Host != "pool-a.tenant.example" || out[4].PinnedSNI != "" {
-		t.Errorf("mixed-name https pool must keep its names: %+v", out[4])
+	if out[2].Upstreams[0].Host != "pool-a.tenant.example" || out[2].PinnedSNI != "" {
+		t.Errorf("mixed-name https pool must keep its names: %+v", out[2])
 	}
 	// The deny set is not waived by any of it.
 	named := screenTestInfra(t)
@@ -262,5 +262,98 @@ func TestScreenHTTPSetIgnoresUnusedPrimaryWhenPoolPresent(t *testing.T) {
 	}
 	if len(drops) != 1 || drops[0].part != "upstream" {
 		t.Errorf("want exactly the poisoned upstream dropped, got %+v", drops)
+	}
+}
+
+// HPG-SEC-001a: a custom DNS resolver (or an auto-bound tunnel peer) is not a
+// waiver. The panel still picks and screens the address, and the resolver that
+// no longer decides anything is dropped from the emitted config.
+func TestScreenHTTPSetPinsResolverBackedNames(t *testing.T) {
+	infra := screenTestInfra(t)
+	built := []caddyapi.Route{
+		{ID: "1", UpstreamIP: "app.tenant.example", UpstreamPort: 443, BackendResolver: "10.0.0.53"},
+		{ID: "2", UpstreamIP: "app.tenant.example", UpstreamPort: 443, DNSResolverIP: "10.0.0.53"},
+		{ID: "3", UpstreamIP: "app.tenant.example", UpstreamPort: 443, DNSResolverViaWGPeerIP: "10.77.0.2"},
+		// The tenant's own resolver answering with infra must not get through.
+		{ID: "4", UpstreamIP: "rebound.tenant.example", UpstreamPort: 443, DNSResolverViaWGPeerIP: "10.77.0.2"},
+	}
+	out, _, drops := screenHTTPSet(infra, built, []int64{1, 2, 3, 4}, fakePin)
+	if len(out) != 3 || len(drops) != 1 || drops[0].part != "primary backend" {
+		t.Fatalf("want 3 kept and the poisoned name dropped: %d out, %+v", len(out), drops)
+	}
+	for _, r := range out {
+		if r.UpstreamIP != "198.51.100.10" || r.PinnedSNI != "app.tenant.example" {
+			t.Errorf("route %s not pinned by the panel: dial=%q sni=%q", r.ID, r.UpstreamIP, r.PinnedSNI)
+		}
+		if r.BackendResolver != "" || r.DNSResolverIP != "" || r.DNSResolverViaWGPeerIP != "" {
+			t.Errorf("route %s still carries a node-side resolver: %+v", r.ID, r)
+		}
+	}
+}
+
+// HPG-SEC-001a: a bound tunnel peer dials the peer address the panel screened;
+// only the super_admin waiver hands a name to the node.
+func TestTunnelBackendDialPinsNameToPeer(t *testing.T) {
+	const peer = "10.77.0.2"
+	cases := []struct {
+		name                      string
+		external, resolveNodeSide bool
+		backend, peerIP, want     string
+	}{
+		{"name collapses to peer", false, false, "app.tenant.example", peer, peer},
+		{"waiver keeps the name", false, true, "app.tenant.example", peer, "app.tenant.example"},
+		{"external keeps its fqdn", true, false, "origin.example.com", peer, "origin.example.com"},
+		{"literal untouched", false, false, "10.77.0.9", peer, "10.77.0.9"},
+		{"no tunnel, no collapse", false, false, "app.tenant.example", "", "app.tenant.example"},
+	}
+	for _, c := range cases {
+		if got := tunnelBackendDial(c.external, c.resolveNodeSide, c.backend, c.peerIP); got != c.want {
+			t.Errorf("%s: got %q want %q", c.name, got, c.want)
+		}
+	}
+}
+
+// HPG-SEC-001b: the SSO provider is a tenant-controlled dial target - it feeds
+// the UNAUTHENTICATED outpost passthrough - so it is screened and pinned like
+// any other, and a route whose provider fails the screen is held back.
+func TestScreenHTTPSetScreensSSOProvider(t *testing.T) {
+	infra := screenTestInfra(t)
+	built := []caddyapi.Route{
+		{ID: "1", UpstreamIP: "10.0.0.5", UpstreamPort: 8080, SSOProviderURL: "https://sso.tenant.example"},
+		{ID: "2", UpstreamIP: "10.0.0.5", UpstreamPort: 8080, SSOProviderURL: "http://203.0.113.7:9000"},
+		{ID: "3", UpstreamIP: "10.0.0.5", UpstreamPort: 8080, SSOProviderURL: "http://10.0.0.5:2019"},
+		{ID: "4", UpstreamIP: "10.0.0.5", UpstreamPort: 8080, SSOProviderURL: "http://10.66.0.9:9000"},
+		// Tunnel-bound provider: the peer address is screened as a literal.
+		{ID: "5", UpstreamIP: "10.0.0.5", UpstreamPort: 8080,
+			SSOProviderURL: "https://sso.tenant.example", SSOResolver: "10.66.0.9"},
+		// A redirect route emits the SSO subroutes too - no free pass.
+		{ID: "6", Kind: "redirect", RedirectURL: "https://elsewhere.example",
+			SSOProviderURL: "http://203.0.113.7:9000"},
+	}
+	out, _, drops := screenHTTPSet(infra, built, []int64{1, 2, 3, 4, 5, 6}, fakePin)
+	if len(out) != 1 || len(drops) != 5 {
+		t.Fatalf("only the clean provider may be emitted: %d out, %d drops", len(out), len(drops))
+	}
+	for _, d := range drops {
+		if d.part != "sso provider" {
+			t.Errorf("wrong drop part %q", d.part)
+		}
+	}
+	if out[0].SSOResolver != "198.51.100.30" {
+		t.Fatalf("provider name not pinned: %q", out[0].SSOResolver)
+	}
+	// The pin must survive emission, with the provider name kept as SNI.
+	raw, err := json.Marshal(caddyapi.BuildRoute(out[0]))
+	if err != nil {
+		t.Fatalf("marshal route: %v", err)
+	}
+	js := string(raw)
+	for _, want := range []string{`"dial":"198.51.100.30:443"`, `"server_name":"sso.tenant.example"`} {
+		if !strings.Contains(js, want) {
+			t.Errorf("emitted SSO config missing %s: %s", want, js)
+		}
+	}
+	if strings.Contains(js, "sso.tenant.example:443") {
+		t.Errorf("unpinned provider name still dialed: %s", js)
 	}
 }

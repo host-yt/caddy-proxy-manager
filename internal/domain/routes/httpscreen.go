@@ -143,11 +143,17 @@ func screenHTTPSet(infra *streamguard.InfraTargets, built []caddyapi.Route, ids 
 	outIDs := make([]int64, 0, len(ids))
 	var drops []httpDrop
 	for i, r := range built {
+		screen := screenerFor(infra, r, pin)
+		// A redirect route still emits the SSO subroutes, so the provider is
+		// screened before any shortcut.
+		if err := screenSSO(&r, screen); err != nil {
+			drops = append(drops, httpDrop{r, "sso provider", err})
+			continue
+		}
 		if r.Kind == "redirect" {
 			outRoutes, outIDs = append(outRoutes, r), append(outIDs, idAt(ids, i))
 			continue
 		}
-		screen := screenerFor(infra, r, pin)
 		// A pool overrides the single dial, so with one present the primary
 		// is deny-set screened only: nothing dials it, and a name nobody
 		// dials must not be able to drop the route.
@@ -162,6 +168,11 @@ func screenHTTPSet(infra *streamguard.InfraTargets, built []caddyapi.Route, ids 
 			continue
 		}
 		r.UpstreamIP, r.PinnedSNI = addr, sni
+		// The panel picked the address, so a stored resolver decides nothing:
+		// drop it rather than emit a dynamic upstream that is ignored.
+		if !nodeResolves(r) && net.ParseIP(r.UpstreamIP) != nil {
+			r.BackendResolver, r.DNSResolverIP, r.DNSResolverViaWGPeerIP = "", "", ""
+		}
 		ups := r.Upstreams[:0:0]
 		poolSNI, poolMode := "", modePin
 		if !poolPinnable(r) {
@@ -203,13 +214,10 @@ func screenHTTPSet(infra *streamguard.InfraTargets, built []caddyapi.Route, ids 
 
 // screenerFor returns the screen+pin policy for one route. Pinning is what
 // keeps a screened destination from moving under a later DNS answer, so it is
-// skipped only where the emitted config would stop working: backends resolved
-// on the node, external origins (operator-allowlisted, often multi-address
-// CDNs) and routes that delegate resolution to a node-side DNS server.
+// skipped only where an operator accepted that nothing screens the answer:
+// the super_admin node-side waiver and allow-listed external origins.
 func screenerFor(infra *streamguard.InfraTargets, r caddyapi.Route, pin pinFunc) func(host string, port int, mode screenMode) (string, string, error) {
-	nodeResolved := r.ResolveNodeSide || r.External ||
-		r.BackendResolver != "" ||
-		((r.DNSResolverIP != "" || r.DNSResolverViaWGPeerIP != "") && net.ParseIP(r.UpstreamIP) == nil)
+	nodeResolved := nodeResolves(r)
 	return func(host string, port int, mode screenMode) (string, string, error) {
 		host = strings.TrimSpace(host)
 		if host == "" {
@@ -229,6 +237,45 @@ func screenerFor(infra *streamguard.InfraTargets, r caddyapi.Route, pin pinFunc)
 		}
 		return addr, host, nil
 	}
+}
+
+// screenSSO screens the route's SSO provider dial target and pins it. The
+// provider feeds the UNAUTHENTICATED /outpost.goauthentik.io/* passthrough as
+// well as the forward-auth subrequest, so it is a tenant-controlled dial
+// target like any other (HPG-SEC-001b); the emitted config dials the screened
+// address while SNI and the Host header keep the provider name.
+func screenSSO(r *caddyapi.Route, screen func(string, int, screenMode) (string, string, error)) error {
+	host, port, ok := caddyapi.SSODialTarget(*r)
+	if !ok {
+		if strings.TrimSpace(r.SSOProviderURL) == "" {
+			return nil
+		}
+		return errors.New("provider URL has no dialable host:port")
+	}
+	addr, sni, err := screen(host, port, modePin)
+	if err != nil {
+		return err
+	}
+	if sni != "" {
+		r.SSOResolver = addr
+	}
+	return nil
+}
+
+// nodeResolves reports whether the NODE, not the panel, picks the address
+// behind this route's names. Nothing screens what DNS answers then, so it is
+// an operator decision (super_admin waiver / allow-listed external origin) -
+// a tunnel, a bound peer or a custom resolver must never grant it by itself.
+func nodeResolves(r caddyapi.Route) bool { return r.ResolveNodeSide || r.External }
+
+// tunnelBackendDial returns the address a tunnel-bound route dials for its
+// backend: a name collapses to the peer address the panel already screened,
+// unless the operator waived panel-side resolution (HPG-SEC-001a).
+func tunnelBackendDial(external, resolveNodeSide bool, backend, peerIP string) string {
+	if external || resolveNodeSide || peerIP == "" || backend == "" || looksLikeIP(backend) {
+		return backend
+	}
+	return peerIP
 }
 
 // poolPinnable reports whether the members of a multi-backend pool may be
