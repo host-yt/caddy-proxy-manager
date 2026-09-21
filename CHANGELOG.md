@@ -23,67 +23,52 @@ is deliberately left as published.
 
 ## [1.6.0] - 2026-09-21
 
-Closes all 14 findings of the 2026-09-21 external system review
-(`_docs/SYSTEM_REVIEW.md`): 1 critical, 3 high, 3 medium, 6 low and 1
-architectural note.
+Remediation release from an external security review of the whole system.
+Fourteen findings closed: one critical, three high, three medium, six low and
+one architectural note. Details of the critical and high findings are withheld
+until operators have had time to upgrade; if you run a multi-tenant
+deployment, treat this as a priority upgrade.
 
 ### Security
 
-- **A tenant could reach the control plane through their own route.** The main
-  backend was screened, but additional upstreams and path-proxy location rules
-  got only host/port syntax validation - and all three end up as `dial` in the
-  generated Caddy config. A reseller or scope-restricted admin could point one
-  at `127.0.0.1:2019`, or at a managed node's own address, and drive requests
-  to the node's unauthenticated Caddy Admin API through their own public
-  domain: read the whole node configuration, or replace it. One central
-  fail-closed screener now covers all three paths at save time and again at
-  build time, denying port 2019, every node/panel address, the control mesh
-  and the tunnel gateway. Customer private ranges (RFC1918, CGNAT) remain
-  allowed - they are a legitimate origin.
+- **Critical: a tenant could cross into the control plane.** Reseller and
+  scope-restricted accounts could influence where a node sends proxied
+  traffic in a way that reached infrastructure they should never touch.
+  Impact on an affected node is disclosure or replacement of its
+  configuration. All tenant-supplied proxy targets are now screened
+  fail-closed, at save time and again when the node configuration is built.
+  Customer private ranges (RFC1918, CGNAT) remain valid origins.
 
-- **Remote nodes published an unauthenticated Caddy Admin API on the mesh.**
-  The remote-node profile mapped `10.66.0.2:2019`, so any peer or host with a
-  route to that address could read or replace the node's configuration. The
-  authenticated agent admin proxy is now required for remote nodes, the port
-  maps to loopback, and registering a node with an unauthenticated admin URL
-  is refused. Approving an already-registered node warns instead of blocking,
-  so the documented onboarding order still works.
+- **High: remote nodes exposed an administrative interface on the mesh.** The
+  authenticated agent admin proxy is now required for remote nodes and the
+  port is bound to loopback. Registering a node without authentication is
+  refused. See the upgrade notes - this one needs a rolling migration.
 
-- **External SSO let every mutating request through.** In the default
-  permissive mode the forward-auth matcher covered only GET and HEAD, so
-  POST/PUT/PATCH/DELETE reached the origin with no check at all - and the
-  matcher keyed on `Sec-Fetch-Dest`, a header the client sets, so even a GET
-  could opt out of authentication. The header is no longer trusted, and new
-  routes are created strict. Existing routes keep their current mode.
+- **High: external SSO did not cover every request.** Protection depended in
+  part on a value the client itself supplies, and did not apply uniformly
+  across request methods. New routes are created in strict mode; existing
+  routes keep their current setting and should be moved to strict.
 
-- **Tenant-supplied header values expanded Caddy placeholders.** `{env.…}`,
-  `{file.…}` and `{system.…}` in a custom header, rewrite URI or redirect
-  target were expanded by Caddy and sent to an origin the tenant controls. The
-  screen the privileged custom-handler path already used now covers these too,
-  on save and again over stored rows at build.
+- **High: tenant-supplied values could be expanded by the proxy** before being
+  sent to an origin the tenant controls. All such values are now screened on
+  save and again at build.
 
-- **A client could choose its own source IP.** The generated panel route
-  passed an inbound `True-Client-IP` / `X-Real-IP` straight through, and the
-  middleware preferred those over the parsed `X-Forwarded-For` chain once
-  Caddy was a trusted peer - so an internet client could rotate past per-IP
-  rate limits, poison the audit log, and potentially match an IP allowlist.
-  The panel route now strips both and stamps the address Caddy actually saw.
-  The middleware prefers the verified right-hand XFF entry and honours those
-  headers only for names an operator opts into with `APP_TRUST_REALIP_HEADERS`.
+- **Medium: a client could influence the source address** the panel recorded
+  and rate-limited on. The panel route now stamps the address the proxy
+  actually saw; the middleware prefers the verified forwarded chain and trusts
+  other headers only where an operator opts in with
+  `APP_TRUST_REALIP_HEADERS`.
 
-- **One tenant's WAF directive could block every other tenant's changes.**
-  `waf_directives` was only length-capped and concatenated into the shared
-  node config, so a single broken directive made every later `/load` fail for
-  the whole node. Scoped admins are now limited to `SecRuleRemoveById` with
-  numeric ids; arbitrary SecLang stays with unrestricted platform admins, and
-  unparseable lines are dropped at emission so a legacy row cannot brick a
-  node.
+- **Medium: one tenant's web-application-firewall rule could block
+  configuration changes for every other tenant on the same node.** Scoped
+  admins are now limited to removing rules by numeric id; unparseable entries
+  are dropped when the configuration is built.
 
-- **`GET /hpg-portal/logout` was a logout CSRF.** Logout is now POST with a
-  token bound to the portal session; the GET renders a confirmation.
+- **Low: the portal logout could be triggered cross-site.** Logout is now a
+  POST with a token bound to the portal session.
 
-- Secret files are created `0600`. `install_state.json` kept the mode it had
-  when restored or synced, which was commonly `0644`.
+- Secret files are created `0600`. `install_state.json` kept whatever mode it
+  had when restored or synced, commonly `0644`.
 
 ### Added
 
@@ -98,10 +83,9 @@ architectural note.
 
 ### Fixed
 
-- **The remote-node bootstrap could not start.** It set `admin <wg-ip>:2019`
-  inside a bridge container, where that address does not exist, so the Caddy
-  config failed to bind. Not in the review - found while fixing the admin API
-  exposure.
+- **The remote-node bootstrap could not start.** It bound the admin endpoint
+  to an address that does not exist inside a bridge container, so the Caddy
+  configuration failed to load and the node never came up.
 - **The lite and Portainer profiles still deployed 1.3.2.** A fresh install
   from either got code six months old, with none of the 1.4 or 1.5 fixes.
 - The remote GeoIP profile could not work: the agent wrote the database into
@@ -126,40 +110,57 @@ architectural note.
 - `docs/ARCHITECTURE.md` now states the real recovery window for deferred work
   after a crash (up to about five minutes) instead of implying durability.
 
+### Upgrade notes - read before deploying
+
+1. A route whose backend points at a managed node's own address, the panel, or
+   the control mesh is now refused when the node configuration is pushed, with
+   a `route.blocked_target` audit entry. Most plausible on single-box installs.
+   The audit row is the diagnostic; the UI does not surface it.
+2. Additional upstreams and path-rule upstreams must now resolve panel-side
+   unless the route is tunnel-bound.
+3. Editing a route whose header, rewrite or redirect contains a proxy
+   placeholder expression blocks the save until the value is removed. At build
+   such values are dropped, so the route keeps serving without that header.
+4. Scoped admins can no longer save free-form firewall rules; stored values
+   keep working until edited.
+5. Closing the node admin interface is a four-step rolling migration: enable
+   the tunnel and copy the proxy key, start the agent with it, repoint the
+   node URL to the proxy port and confirm with `server doctor`, and only then
+   move the Caddy mapping to loopback. Nothing breaks if you do nothing;
+   `HPG_ALLOW_UNAUTHENTICATED_NODE_ADMIN=1` keeps registration open during the
+   migration.
+6. Operators running large `active_active` groups should check their ACME
+   rate-limit headroom against nodes x hosts - certificates have always been
+   issued per node, the documentation just said otherwise.
+
 ## [1.5.1] - 2026-09-21
 
-Three mTLS defects found while bringing the documentation in line with 1.5.0.
-All three predate 1.5.0.
+Three mTLS defects, all older than 1.5.0, found while bringing the
+documentation in line with 1.5.0. Mechanism details are withheld until
+operators have had time to upgrade. If you use client-certificate
+authentication, upgrade before anything else.
 
 ### Security
 
-- **Fail-open accepted any client certificate without verifying it.** The
-  builder emitted Caddy's `request` mode, which asks for a certificate and
-  performs no validation at all, where the documentation and the settings help
-  text both described `verify_if_given`. The subject of that unverified
-  certificate is forwarded onward as `X-Mtls-Subject`, so with fail-open turned
-  on a client could present a self-signed certificate and be seen downstream as
-  whatever identity it named. Fail-open now uses `verify_if_given`: a client
-  with no certificate is still let through, one that presents a certificate
-  must still chain to the configured CA. Fail-open is a super_admin
-  break-glass setting and is off by default.
+- **Client-certificate "fail open" did not verify a presented certificate.**
+  The setting was meant to let a client with no certificate through while
+  still validating one that is presented; it validated nothing. Because the
+  certificate subject is passed onward, an affected route could treat a
+  client as an identity it had not proven. Fail-open now requires a presented
+  certificate to chain to the configured CA. The setting is super_admin
+  break-glass and off by default.
 
-- **A client could supply its own `X-Mtls-Subject`.** The header was set only
-  on routes carrying path rules and was never removed from the inbound
-  request, so on every other route it passed through to the upstream exactly as
-  a genuine one would. Every route now deletes it before any other handler
-  runs.
+- **A client could supply the header that carries the certificate subject.**
+  It is now removed from every inbound request before anything else runs.
 
 ### Fixed
 
-- **Path-based mTLS RBAC denied every request, including legitimate ones.**
-  Certificates are issued with the operator-typed string as the common name and
-  that bare string is stored, but Caddy sends the rendered distinguished name
-  (`CN=device-42`), and the check compared the two directly - so the lookup
-  never matched and every rule-covered path returned 403. The check now matches
-  either form, which also covers subjects already stored. The existing test
-  missed this because its fixture seeded a subject the issuing path cannot
-  produce.
+- **Path-based mTLS role checks denied every request, including legitimate
+  ones.** The stored subject and the value the proxy sends were compared in
+  two different formats, so the lookup never matched and every rule-covered
+  path returned 403. Both forms now match, so subjects already stored keep
+  working. The existing test passed only because its fixture used a value the
+  issuing path cannot produce.
 
 ## [1.5.0] - 2026-09-21
 
