@@ -70,10 +70,49 @@ func runDoctor() int {
 	checks = append(checks, doctorRedis(ctx, rawCfg)...)
 	checks = append(checks, doctorPorts(rawCfg)...)
 	checks = append(checks, doctorNodes(ctx, db, rawCfg)...)
+	checks = append(checks, doctorSSORoutes(ctx, db)...)
 	checks = append(checks, doctorWireGuardHost()...)
 
 	printChecks(checks)
 	return summarize(checks)
+}
+
+// doctorSSORoutes names every SSO route that gates page loads only. Run
+// before the upgrade it is the list of routes the backfill will switch to
+// strict; run after it, the list of deliberate opt-outs left to review.
+func doctorSSORoutes(ctx context.Context, db *sql.DB) []check {
+	if db == nil {
+		return nil
+	}
+	qCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := db.QueryContext(qCtx,
+		`SELECT id, domain FROM routes
+		  WHERE COALESCE(sso_provider_url,'') <> '' AND COALESCE(sso_strict_mode,0) = 0
+		  ORDER BY id`)
+	if err != nil {
+		return nil // pre-install, or a schema older than the SSO columns
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var id int64
+		var domain string
+		if err := rows.Scan(&id, &domain); err == nil {
+			names = append(names, fmt.Sprintf("#%d %s", id, domain))
+		}
+	}
+	if len(names) == 0 {
+		return []check{{"routes: SSO strict mode", statusPass,
+			"no SSO route runs in permissive (document-only) mode"}}
+	}
+	shown := names
+	if len(shown) > 10 {
+		shown = append(shown[:10:10], fmt.Sprintf("and %d more", len(names)-10))
+	}
+	return []check{{"routes: SSO strict mode", statusWarn, fmt.Sprintf(
+		"%d SSO route(s) gate GET/HEAD only: %s - upgrading moves them to strict, so requests with other methods will need authentication. Review these applications first; strict can be turned off per route afterwards",
+		len(names), strings.Join(shown, ", "))}}
 }
 
 func doctorConfigCheck(err error) check {
@@ -258,6 +297,7 @@ func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check
 				admErr.Error() + " - verify the node's Caddy container is up and reachable at " + n.apiURL})
 		} else {
 			checks = append(checks, check{label + ": admin API", statusPass, n.apiURL + " reachable"})
+			checks = append(checks, doctorNodeAdminBind(ctx, doctorNodeClient(n.apiURL, n.adminProxyKeyEnc, rawCfg), label))
 		}
 
 		// SEC-002: Caddy's admin API authenticates nothing. A node addressed at
@@ -294,6 +334,33 @@ func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check
 		}
 	}
 	return checks
+}
+
+// doctorNodeAdminBind reports where the node's Caddy admin endpoint is bound,
+// read back from the node itself rather than from what the panel intended to
+// push. Run it before removing a node's published admin port: it is the proof
+// that the node is on the socket and the panel still reaches it.
+func doctorNodeAdminBind(ctx context.Context, c *caddyapi.Client, label string) check {
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	raw, err := c.GetRaw(probeCtx, "/config/admin/listen")
+	if err != nil {
+		// Caddy answers 400 for a path its config does not contain, which is
+		// what a node running an admin-less config looks like. Reachability
+		// was already proven by the check above, so this is not a failure.
+		return check{label + ": admin endpoint", statusPass, "Caddy default bind (not set in the node's config)"}
+	}
+	listen := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	switch {
+	case listen == "" || listen == "null":
+		return check{label + ": admin endpoint", statusPass, "Caddy default bind"}
+	case strings.HasPrefix(strings.ToLower(listen), "unix/"):
+		return check{label + ": admin endpoint", statusPass,
+			"filesystem socket " + listen + " - no TCP port; the published :2019 port can be removed"}
+	default:
+		return check{label + ": admin endpoint", statusPass,
+			"TCP " + listen + " - see docs/MULTI_NODE.md to move it onto a socket"}
+	}
 }
 
 // discardLogger silences go-redis's internal dial-retry logging (implements

@@ -83,6 +83,14 @@
           <input id="hpg-port" name="port" value="{{.Form.Port}}" type="number" min="1" max="65535" placeholder="8080"
                  class="r-input w-full">
         </div>
+        <label class="r-toggle col-span-6">
+          <input type="checkbox" name="backend_resolve_node_side" value="1" {{if .Form.ResolveNodeSide}}checked{{end}}>
+          <span></span>
+          <div class="ml-2">
+            <span class="t-caption font-medium cursor-pointer">Backend is resolved on the node</span>
+            <p class="t-caption text-muted mt-0.5">Tick only for names nothing but the node can look up (container names, tunnel peers). The panel then cannot verify where this backend points, so the node dials whatever the name gives it. A name the panel cannot resolve is refused unless this is ticked. The panel otherwise resolves the name itself and the node dials the address the panel screened.</p>
+          </div>
+        </label>
       </div>
 
       <div id="hpg-redirect-fields" class="grid grid-cols-4 gap-3 hidden">

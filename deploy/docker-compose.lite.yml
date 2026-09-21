@@ -22,7 +22,7 @@
 
 services:
   app:
-    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:1.6.0}
+    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:1.7.0}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     healthcheck:
@@ -50,7 +50,16 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
+      # Caddy's admin endpoint has no authentication, so the strongest setting
+      # is the one with no TCP port at all: set both of these to the socket
+      # form and the endpoint exists only as a file on the shared volume.
+      #   CADDY_ADMIN_URL=unix:///sockets/caddy-admin.sock
+      #   HPG_CADDY_ADMIN_LISTEN=unix//sockets/caddy-admin.sock|0666
+      # Roll it out one node at a time and read the order first:
+      # docs/MULTI_NODE.md#moving-a-node-off-the-tcp-admin-port.
       CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://caddy:2019}
+      HPG_CADDY_ADMIN_LISTEN: ${HPG_CADDY_ADMIN_LISTEN:-}
+      HPG_CADDY_ADMIN_LISTEN_NODES: ${HPG_CADDY_ADMIN_LISTEN_NODES:-}
       APP_INTERNAL_URL: ${APP_INTERNAL_URL:-http://app:8080}
       ACCESS_LOG_URL: ${ACCESS_LOG_URL:-http://app:8080/internal/access-log}
       # LITE: every optional module OFF - stock Caddy rejects their config on
@@ -73,6 +82,8 @@ services:
     volumes:
       - app_data:/app/data
       - wg_config:/app/wg
+      # Caddy's admin socket when CADDY_ADMIN_URL is the unix:// form.
+      - caddy_admin:/sockets
     networks:
       - internal
 
@@ -121,8 +132,10 @@ services:
     image: caddy:2.11.4
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
+    # Falls back to the socket file when the admin endpoint has no TCP port:
+    # busybox wget cannot speak to a unix socket.
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || [ -S /sockets/caddy-admin.sock ]"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -137,11 +150,17 @@ services:
       - caddy_data:/data
       - caddy_config:/config
       - caddy_logs:/var/log/caddy
+      # Admin socket when HPG_CADDY_ADMIN_LISTEN is the unix form. No init
+      # container here, so the socket carries the permissions instead of the
+      # directory: keep this volume mounted into app and caddy only.
+      - caddy_admin:/sockets
       # Required on stock Caddy (no baked Caddyfile): admin API + ask endpoint.
       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
     environment:
       ASK_ENDPOINT_URL: http://app:8080/internal/ask
       ACME_EMAIL: ${CADDY_ACME_EMAIL}
+      # Bootstrap bind only: after the first push the panel owns this value.
+      HPG_CADDY_ADMIN_LISTEN: ${HPG_CADDY_ADMIN_LISTEN:-0.0.0.0:2019}
     networks:
       - internal
     extra_hosts:
@@ -151,7 +170,7 @@ services:
   # access-log dashboard + analytics rollups) and runs the customer tunnel.
   # No WAF audit log in lite (WAF is off); the access log is enough.
   hpg-node-agent:
-    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.6.0}
+    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.7.0}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     network_mode: host
@@ -183,7 +202,7 @@ services:
       - node
 
   wireguard:
-    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:1.6.0}
+    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:1.7.0}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     cap_add:
@@ -205,6 +224,7 @@ volumes:
   caddy_data:
   caddy_config:
   caddy_logs:
+  caddy_admin:
   node_agent_state:
   wg_config:
 

@@ -362,8 +362,8 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		   wildcard_enabled, wildcard_zone, group_id, custom_fields,
 		   via_wg_peer_id, dns_resolver_via_wg_peer_id,
 		   require_client_cert, mtls_ca_id,
-		   domain_verified, verify_token, sso_strict_mode)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?, 1)`,
+		   domain_verified, verify_token, sso_strict_mode, backend_resolve_node_side)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?, 1, ?)`,
 		in.ServiceID, nodeID, domain, pathPrefix, in.UpstreamPort, scheme,
 		in.SSL, in.WebSocket, in.ForceHTTPS,
 		kind, redirURL, redirCode, tagVal,
@@ -371,7 +371,7 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		wildFlag, wildZone, in.GroupID, in.CustomFields,
 		viaPeer, dnsResolverPeer,
 		in.RequireClientCert, mtlsCAID,
-		verified, verifyToken)
+		verified, verifyToken, in.BackendResolveNodeSide)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			return 0, ErrDomainTaken

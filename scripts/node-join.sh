@@ -151,7 +151,7 @@ systemctl enable --now wg-quick@wg0 || {
 }
 
 # 4. Write Caddy compose + Caddyfile -------------------------------------
-mkdir -p "$INSTALL_DIR"
+mkdir -p "$INSTALL_DIR/admin"
 
 log "Writing $INSTALL_DIR/docker-compose.yml"
 cat > "$INSTALL_DIR/docker-compose.yml" <<EOF
@@ -171,9 +171,15 @@ services:
       - ./Caddyfile.bootstrap:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
       - caddy_config:/config
+      # Shared with the node-agent: where Caddy puts its admin socket once
+      # HPG_CADDY_ADMIN_LISTEN below is switched to the socket form.
+      - ${INSTALL_DIR}/admin:${INSTALL_DIR}/admin
     environment:
       ASK_ENDPOINT_URL: "${ask_url}"
       ACME_EMAIL:       "${acme_email}"
+      # Bootstrap bind. Socket form (no TCP port at all):
+      #   unix/${INSTALL_DIR}/admin/caddy-admin.sock|0660
+      HPG_CADDY_ADMIN_LISTEN: "0.0.0.0:2019"
 volumes:
   caddy_data:
   caddy_config:
@@ -185,7 +191,7 @@ log "Writing $INSTALL_DIR/Caddyfile.bootstrap"
 # decided by the port mapping above, not by this line.
 cat > "$INSTALL_DIR/Caddyfile.bootstrap" <<EOF
 {
-	admin 0.0.0.0:2019
+	admin {\$HPG_CADDY_ADMIN_LISTEN:0.0.0.0:2019}
 	email ${acme_email}
 	on_demand_tls {
 		ask ${ask_url}
@@ -225,3 +231,5 @@ echo "  1. panel → node → Enable tunnel, copy HPG_ADMIN_PROXY_KEY"
 echo "  2. run hpg-node-agent here with HPG_ADMIN_PROXY_LISTEN=${wg_addr%%/*}:2021"
 echo "  3. panel → node → API URL = http://${wg_addr%%/*}:2021"
 echo "  4. change the mapping above to \"127.0.0.1:2019:2019\" and restart Caddy"
+echo "  5. optional, strongest: move the admin endpoint onto a socket so it has"
+echo "     no TCP port at all - docs/MULTI_NODE.md#moving-a-node-off-the-tcp-admin-port"

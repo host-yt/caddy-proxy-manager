@@ -12,7 +12,7 @@
 version: "3.9"
 services:
   hpg-node-agent:
-    image: ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.6.0
+    image: ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.7.0
     restart: unless-stopped
     network_mode: host                                # needed for wg-tun0 + nftables + UDP listen
     cap_add:
@@ -68,6 +68,16 @@ services:
       HPG_ADMIN_PROXY_LISTEN: "10.66.0.2:2021"        # this node's WG IP; never 0.0.0.0
       HPG_ADMIN_PROXY_KEY: "${HPG_ADMIN_PROXY_KEY}"   # from the panel flash, one-shot
       HPG_CADDY_ADMIN_URL: "http://127.0.0.1:2019"    # Caddy's admin, published on host loopback
+      #
+      # --- OPTIONAL: take Caddy's admin endpoint off TCP -----------------
+      # With the endpoint bound to a socket instead of a port, it has no
+      # address at all - nothing on the host, the mesh or inside Caddy can
+      # name it. Set this to the socket Caddy creates in the shared mount
+      # (uncomment the volume below too); the agent prefers it whenever it is
+      # live and falls back to HPG_CADDY_ADMIN_URL otherwise, so the two ends
+      # can be switched in either order.
+      # Rollout order: docs/MULTI_NODE.md#moving-a-node-off-the-tcp-admin-port
+      # HPG_CADDY_ADMIN_SOCKET: "/opt/hostyt-node/admin/caddy-admin.sock"
     volumes:
       # Shared with caddy: agent reads the rolling access log Caddy writes.
       - /opt/hostyt-node/caddy-logs:/var/log/caddy:ro
@@ -76,6 +86,9 @@ services:
       - /opt/hostyt-node/geoip:/data/geoip
       # Writable state: keeps forward offsets across restarts.
       - /opt/hostyt-node/agent-state:/var/lib/hpg-node-agent
+      # Shared with caddy: Caddy's admin socket, when HPG_CADDY_ADMIN_SOCKET
+      # is set above. Same path on both sides so the agent can dial it.
+      # - /opt/hostyt-node/admin:/opt/hostyt-node/admin
     # Healthcheck: agent prints reconcile JSON every poll; if no log
     # for 90s, container is wedged. Pair with restart policy above.
     healthcheck:

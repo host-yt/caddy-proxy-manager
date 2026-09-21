@@ -17,9 +17,13 @@ services:
   # to the app UID before either starts so a fresh install just works.
   geoip-init:
     image: busybox:1.36
-    command: ["sh", "-c", "mkdir -p /data/geoip && chown -R 65532:65532 /data/geoip"]
+    # Also prepares the Caddy admin-socket dir: Caddy (root) creates the
+    # socket in it, the app (65532) connects, and 0750 keeps any other
+    # container that gets the volume mounted from even traversing it.
+    command: ["sh", "-c", "mkdir -p /data/geoip && chown -R 65532:65532 /data/geoip && mkdir -p /sockets && chown 65532:65532 /sockets && chmod 750 /sockets"]
     volumes:
       - geoip_data:/data/geoip
+      - caddy_admin:/sockets
     restart: "no"
     # Must be explicit: without it compose spawns an implicit `default` network
     # whose auto-IPAM grabs 172.18.0.0/16 - the subnet `internal` pins below -
@@ -28,7 +32,7 @@ services:
       - internal
 
   app:
-    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:1.6.0}
+    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:1.7.0}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     # App runs as distroless nonroot; block any setuid privilege escalation.
@@ -54,7 +58,16 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-true}
       CADDY_ACME_EMAIL: ${CADDY_ACME_EMAIL}
+      # Caddy's admin endpoint has no authentication, so the strongest setting
+      # is the one with no TCP port at all: set both of these to the socket
+      # form and the endpoint exists only as a file on the shared volume.
+      #   CADDY_ADMIN_URL=unix:///sockets/caddy-admin.sock
+      #   HPG_CADDY_ADMIN_LISTEN=unix//sockets/caddy-admin.sock|0666
+      # Roll it out one node at a time and read the order first:
+      # docs/MULTI_NODE.md#moving-a-node-off-the-tcp-admin-port.
       CADDY_ADMIN_URL: ${CADDY_ADMIN_URL:-http://caddy:2019}
+      HPG_CADDY_ADMIN_LISTEN: ${HPG_CADDY_ADMIN_LISTEN:-}
+      HPG_CADDY_ADMIN_LISTEN_NODES: ${HPG_CADDY_ADMIN_LISTEN_NODES:-}
       APP_INTERNAL_URL: ${APP_INTERNAL_URL:-http://app:8080}
       ACCESS_LOG_URL: ${ACCESS_LOG_URL:-http://app:8080/internal/access-log}
       # Default OFF: stock caddy rejects the cache config and the WHOLE node
@@ -98,6 +111,9 @@ services:
       - "${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8080}:8080"
     volumes:
       - app_data:/app/data
+      # Caddy's admin socket when CADDY_ADMIN_URL is the unix:// form. Empty
+      # and unused otherwise.
+      - caddy_admin:/sockets
       - wg_config:/app/wg
       # Shared with caddy: app downloads the MaxMind mmdb here, caddy reads it.
       - geoip_data:/data/geoip
@@ -150,7 +166,7 @@ services:
     # can flip CACHE_HANDLER_AVAILABLE=1 and per-route cache_enabled does
     # real origin caching. CI pushes deploy/caddy/Dockerfile to ghcr; local
     # dev falls back to `build:` when the image isn't pullable.
-    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.6.0}
+    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.7.0}
     build:
       context: ./caddy
       dockerfile: Dockerfile
@@ -166,8 +182,10 @@ services:
     # and carries no secrets. Deliberately not the :80/:443 listeners: those
     # legitimately 503 before any route is pushed, and an ACME order in flight
     # must never look like a wedged process.
+    # Falls back to the socket file when the admin endpoint has no TCP port:
+    # busybox wget cannot speak to a unix socket.
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:2019/config/ || [ -S /sockets/caddy-admin.sock ]"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -183,12 +201,19 @@ services:
       - caddy_logs:/var/log/caddy
       # GeoIP mmdb the app downloads; caddy's maxmind_geolocation matcher reads it.
       - geoip_data:/data/geoip
+      # Where Caddy puts its admin socket when HPG_CADDY_ADMIN_LISTEN is the
+      # unix form; shared with app only.
+      - caddy_admin:/sockets
       # Caddyfile is baked into the image (deploy/caddy/Dockerfile).
       # Uncomment + supply your own to override:
       # - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
     environment:
       ASK_ENDPOINT_URL: http://app:8080/internal/ask
       ACME_EMAIL: ${CADDY_ACME_EMAIL}
+      # Bootstrap bind only: after the first push the panel owns this value.
+      # Keep it identical to the panel's HPG_CADDY_ADMIN_LISTEN, else a Caddy
+      # restart puts the admin endpoint back on TCP until the next push.
+      HPG_CADDY_ADMIN_LISTEN: ${HPG_CADDY_ADMIN_LISTEN:-0.0.0.0:2019}
     networks:
       - internal
     extra_hosts:
@@ -202,7 +227,7 @@ services:
   # file is written but nobody ships it - dashboard stays empty.
   # Needs a one-shot node token + WG key from the panel tunnel-enable flash.
   hpg-node-agent:
-    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.6.0}
+    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.7.0}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     network_mode: host
@@ -249,7 +274,7 @@ services:
   # the kernel module path may not exist; this service is intended for
   # the Linux VPS where the manager actually runs in production.
   wireguard:
-    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:1.6.0}
+    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:1.7.0}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     cap_add:
@@ -273,6 +298,7 @@ volumes:
   caddy_data:
   caddy_config:
   caddy_logs:
+  caddy_admin:
   node_agent_state:
   wg_config:
   geoip_data:

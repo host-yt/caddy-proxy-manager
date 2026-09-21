@@ -40,6 +40,13 @@ type adminProxyConfig struct {
 	Listen   string // HPG_ADMIN_PROXY_LISTEN, e.g. "10.66.0.2:2021"
 	Key      string // HPG_ADMIN_PROXY_KEY, issued by the panel at join
 	AdminURL string // HPG_CADDY_ADMIN_URL, e.g. "http://127.0.0.1:2019"
+	// AdminSocket is Caddy's admin endpoint as a filesystem socket
+	// (HPG_CADDY_ADMIN_SOCKET, e.g. "/opt/hostyt-node/admin/caddy-admin.sock",
+	// shared with the Caddy container through a bind mount). Optional: when
+	// set it is used whenever something is actually listening on it, and
+	// AdminURL stays the fallback. Both directions of the switch are a config
+	// push, so the agent must follow Caddy rather than be cut over with it.
+	AdminSocket string
 }
 
 // enabled reports whether the operator configured the proxy.
@@ -64,8 +71,39 @@ func (c adminProxyConfig) validate() error {
 	if err != nil || u.Scheme != "http" || u.Host == "" {
 		return errors.New("HPG_CADDY_ADMIN_URL must be an http:// URL")
 	}
+	if c.AdminSocket != "" && !strings.HasPrefix(c.AdminSocket, "/") {
+		return errors.New("HPG_CADDY_ADMIN_SOCKET must be an absolute path")
+	}
 	return nil
 }
+
+// socketLive reports whether something accepts connections on path. Caddy
+// leaves the socket file behind when a config push moves the admin endpoint
+// back to TCP, so the file existing is not evidence of a listener.
+func socketLive(path string) bool {
+	conn, err := net.DialTimeout("unix", path, time.Second)
+	if err != nil {
+		return false
+	}
+	_ = conn.Close()
+	return true
+}
+
+// unixHTTPClient dials one filesystem socket for every request. The host in
+// the URL is a placeholder: it is never resolved.
+func unixHTTPClient(path string, timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", path)
+			},
+		},
+	}
+}
+
+// socketBase is the placeholder origin used for socket-dialed admin requests.
+const socketBase = "http://caddy-admin.invalid"
 
 // adminProxyAllowed reports whether a method+path pair is one the panel
 // legitimately uses. Everything the control plane does goes through these:
@@ -103,6 +141,7 @@ func adminProxyAllowed(method, path string) bool {
 // node-local Caddy admin API.
 func adminProxyHandler(cfg adminProxyConfig, log *slog.Logger) http.Handler {
 	client := &http.Client{Timeout: 30 * time.Second}
+	sockClient := unixHTTPClient(cfg.AdminSocket, 30*time.Second)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		token := strings.TrimSpace(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer "))
 		// Constant-time: the key is a bearer secret, so a comparison whose
@@ -119,7 +158,14 @@ func adminProxyHandler(cfg adminProxyConfig, log *slog.Logger) http.Handler {
 		}
 
 		r.Body = http.MaxBytesReader(w, r.Body, maxAdminBody)
-		target := strings.TrimSuffix(cfg.AdminURL, "/") + r.URL.Path
+		// Follow Caddy: the socket wins while it is live, TCP is the fallback,
+		// so neither end of the migration depends on the other being restarted
+		// first.
+		base, up := strings.TrimSuffix(cfg.AdminURL, "/"), client
+		if cfg.AdminSocket != "" && socketLive(cfg.AdminSocket) {
+			base, up = socketBase, sockClient
+		}
+		target := base + r.URL.Path
 		if r.URL.RawQuery != "" {
 			target += "?" + r.URL.RawQuery
 		}
@@ -133,7 +179,7 @@ func adminProxyHandler(cfg adminProxyConfig, log *slog.Logger) http.Handler {
 		if ct := r.Header.Get("Content-Type"); ct != "" {
 			req.Header.Set("Content-Type", ct)
 		}
-		resp, err := client.Do(req)
+		resp, err := up.Do(req)
 		if err != nil {
 			log.Warn("admin proxy upstream failed", "method", r.Method, "path", r.URL.Path, "err", err)
 			http.Error(w, "caddy unreachable", http.StatusBadGateway)
@@ -170,8 +216,8 @@ func startAdminProxy(ctx context.Context, log *slog.Logger, cfg adminProxyConfig
 	if err != nil {
 		return nil, err
 	}
-	log.Info("admin proxy listening; Caddy admin API should now bind 127.0.0.1 only",
-		"listen", cfg.Listen, "upstream", cfg.AdminURL)
+	log.Info("admin proxy listening; Caddy admin API should now bind 127.0.0.1 or a socket only",
+		"listen", cfg.Listen, "upstream", cfg.AdminURL, "upstream_socket", cfg.AdminSocket)
 	go func() {
 		if err := srv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error("admin proxy stopped", "err", err)

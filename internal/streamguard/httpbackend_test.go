@@ -91,3 +91,35 @@ func TestEnvInfraDeniesControlPlaneServices(t *testing.T) {
 		t.Error("a bare DB IP must not deny the whole host")
 	}
 }
+
+// The address the screen approved is the address the caller must dial:
+// handing the name onward lets a later answer point somewhere else.
+func TestPinHTTPBackend(t *testing.T) {
+	infra := testInfra(t)
+	lookupAddrs = func(_ context.Context, host string) ([]netip.Addr, error) {
+		switch host {
+		case "multi.example.com": // unsorted on purpose: the pin must be stable
+			return []netip.Addr{netip.MustParseAddr("198.51.100.9"), netip.MustParseAddr("198.51.100.10")}, nil
+		case "sneaky.example.com":
+			return []netip.Addr{netip.MustParseAddr("10.66.0.4")}, nil
+		}
+		return nil, errors.New("nxdomain")
+	}
+	t.Cleanup(func() {
+		lookupAddrs = func(ctx context.Context, host string) ([]netip.Addr, error) { return nil, errors.New("disabled") }
+	})
+
+	got, err := infra.PinHTTPBackend(context.Background(), "multi.example.com", 443)
+	if err != nil || got != "198.51.100.10" {
+		t.Fatalf("PinHTTPBackend = %q, %v; want the lowest screened address", got, err)
+	}
+	if got, err := infra.PinHTTPBackend(context.Background(), "10.0.0.5", 8080); err != nil || got != "10.0.0.5" {
+		t.Fatalf("literal must pass through unchanged: %q %v", got, err)
+	}
+	if _, err := infra.PinHTTPBackend(context.Background(), "sneaky.example.com", 8080); err == nil {
+		t.Fatal("a name resolving into the control plane must not yield a pin")
+	}
+	if _, err := infra.PinHTTPBackend(context.Background(), "only-on-the-node", 8080); !errors.Is(err, ErrUnresolved) {
+		t.Fatalf("unresolvable name: got %v, want ErrUnresolved", err)
+	}
+}

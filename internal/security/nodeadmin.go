@@ -33,6 +33,15 @@ func UnauthenticatedNodeAdminURL(apiURL string) bool {
 	return ip != nil && !ip.IsLoopback()
 }
 
+// ValidNodeAPIURL reports whether apiURL is a shape the panel can dial. The
+// socket form addresses Caddy's admin endpoint through a shared volume, which
+// is the only form that has no address at all for a proxy upstream to name.
+func ValidNodeAPIURL(apiURL string) bool {
+	s := strings.TrimSpace(apiURL)
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://") ||
+		(strings.HasPrefix(s, "unix://") && len(s) > len("unix:///"))
+}
+
 // RejectUnauthenticatedNodeAdminURL refuses to register a node against a raw
 // remote Caddy admin API. Remote nodes must be reached through the node-agent
 // admin proxy, which authenticates the panel with a per-node key.

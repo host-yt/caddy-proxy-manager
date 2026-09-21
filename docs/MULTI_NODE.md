@@ -921,6 +921,128 @@ Order matters: the panel must be able to reach the node at every step.
 - A node that has not been migrated keeps working exactly as before - the key is
   simply unused. There is no fleet-wide flag day.
 
+### Moving a node off the TCP admin port
+
+Authenticating the admin API narrows *who* may call it. This step removes the
+port: Caddy's admin endpoint becomes a filesystem socket, so there is no
+address for anything to connect to - not from the host, not from the mesh, and
+not from inside Caddy's own process, where a proxy handler would otherwise be
+able to dial its own loopback.
+
+Supported since Caddy 2.8 and verified against the pinned 2.11.4:
+
+```
+admin unix//sockets/caddy-admin.sock|0666
+```
+
+The `|0666` suffix is the socket's file mode. The panel (or the node-agent)
+reaches the socket over a volume shared with the Caddy container.
+
+**Opt in per node.** The panel pushes `HPG_CADDY_ADMIN_LISTEN` to every node
+unless `HPG_CADDY_ADMIN_LISTEN_NODES` names the node IDs it applies to:
+
+```dotenv
+HPG_CADDY_ADMIN_LISTEN=unix//sockets/caddy-admin.sock|0666
+HPG_CADDY_ADMIN_LISTEN_NODES=3          # empty = every node
+```
+
+#### Remote node (node-agent in front)
+
+The panel's API URL for the node does not change: it keeps talking to the agent
+over the mesh, and only the agent's own hop to Caddy moves onto the socket.
+
+1. **Share a directory.** `mkdir -p /opt/hostyt-node/admin` and mount it into
+   both containers at the same path - the `caddy` service in
+   `deploy/remote-node/docker-compose.yml` already has the line, the agent has
+   it commented out. Restart both. Nothing has changed yet.
+2. **Point the agent at the socket.** Set
+   `HPG_CADDY_ADMIN_SOCKET=/opt/hostyt-node/admin/caddy-admin.sock` and restart
+   the agent. It keeps using `HPG_CADDY_ADMIN_URL` until something is actually
+   listening on that socket, so this step is safe in either order.
+3. **Push the socket bind.** On the panel, set `HPG_CADDY_ADMIN_LISTEN` and add
+   the node's ID to `HPG_CADDY_ADMIN_LISTEN_NODES`, restart the panel, then
+   **Resync** that node. The bind changes with that push; Caddy closes the TCP
+   listener and the agent follows it onto the socket.
+4. **Verify before removing anything.** Both of these must pass:
+   - `hpg-node-agent doctor` on the node - the `caddy: admin socket` row must
+     say *live*. A warn here means the agent is still on TCP.
+   - `docker compose exec app /app/server doctor` on the panel - the node's
+     `admin endpoint` row must read *filesystem socket*, and its `admin API`
+     row must still be green. That row is read back from the node, so it is
+     proof the whole path works.
+5. **Remove the port.** Delete the `"127.0.0.1:2019:2019"` line from the node's
+   compose and set the same socket value in the `caddy` service's
+   `HPG_CADDY_ADMIN_LISTEN` (that is the bootstrap bind a restart falls back
+   to). `docker compose up -d caddy`, then re-run both doctors.
+
+Use `|0660` on a remote node: the agent container runs as root, like Caddy.
+
+#### Central / colocated stack
+
+Here the panel itself is the client, so its API URL for the node does change.
+
+1. `docker compose up -d` once on the current release - `deploy/docker-compose.yml`
+   already declares the `caddy_admin` volume, mounts it into `app` and `caddy`,
+   and has the init container create the directory as the app's UID. Nothing
+   changes yet.
+2. In `.env`:
+   ```dotenv
+   HPG_CADDY_ADMIN_LISTEN=unix//sockets/caddy-admin.sock|0666
+   HPG_CADDY_ADMIN_LISTEN_NODES=1        # the ID of the bundled node
+   ```
+   `docker compose up -d app caddy`, then **Resync** node 1.
+3. Repoint the panel: `/admin/nodes` → the node → **Admin API URL** →
+   `unix:///sockets/caddy-admin.sock` → save. The panel dials the socket from
+   the next push on.
+
+   Between steps 2 and 3 the panel cannot reach the node: the bind has moved
+   and the stored URL has not. Caddy keeps serving its current routes
+   throughout - only config pushes are blocked - and step 3 is a database edit
+   that does not need the node. Do the two together.
+4. Verify with `docker compose exec app /app/server doctor`: `admin endpoint`
+   must read *filesystem socket* and `admin API` must be green.
+5. Set `CADDY_ADMIN_URL=unix:///sockets/caddy-admin.sock` in `.env`. It is what
+   the install wizard prefills as the node's Admin API URL, so a fresh install
+   of this stack starts on the socket instead of migrating to it later.
+
+`0666` on the socket is deliberate: the panel runs as UID 65532 and Caddy as
+root, so a mode that depends on a shared owner cannot work. The directory
+around it is `0750` and owned by the panel's UID, and the volume is mounted
+into those two services only.
+
+#### Rollback
+
+The two ends are independent, and neither depends on the other being restarted
+first, so rolling back is the reverse of step 3 alone:
+
+- Remove the node's ID from `HPG_CADDY_ADMIN_LISTEN_NODES` (or clear
+  `HPG_CADDY_ADMIN_LISTEN`), restart the panel, **Resync** the node. Caddy
+  reopens the TCP listener, and the agent falls back to it on the next request
+  - the socket file is left behind on disk, which is why the agent tests the
+  socket rather than trusting the file.
+- Central stack: set the node's Admin API URL back to `http://caddy:2019` in
+  `/admin/nodes` first, or the panel has no way to reach the node to push the
+  revert. If you have already removed a remote node's published port, put the
+  line back and `docker compose up -d caddy`.
+- Last resort on a node you cannot reach at all: restore the port mapping and
+  restart Caddy. It comes up on the bootstrap Caddyfile's bind
+  (`HPG_CADDY_ADMIN_LISTEN` in the node's compose, default `0.0.0.0:2019`) with
+  no routes, and the next push from the panel restores them.
+
+#### What this does and does not fix
+
+- It removes the admin endpoint from the network and from every address-shaped
+  reference. A tenant backend of `127.0.0.1:2019` now reaches nothing.
+- Caddy can also dial a socket upstream (`unix//...`), so a socket path is
+  still a *spelling* the config format can express. The panel never builds one:
+  every tenant target is emitted through `net.JoinHostPort`, and
+  `caddyapi.ScreenDialTarget` rejects any upstream that is not a plain
+  host:port.
+- Anything with root on the node, or the ability to write into the shared
+  directory, still reaches the endpoint. This is a blast-radius change, not a
+  privilege boundary against the host.
+
+
 
 ---
 

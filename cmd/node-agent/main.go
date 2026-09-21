@@ -372,6 +372,10 @@ func main() {
 		Listen:   os.Getenv("HPG_ADMIN_PROXY_LISTEN"),
 		Key:      os.Getenv("HPG_ADMIN_PROXY_KEY"),
 		AdminURL: envOr("HPG_CADDY_ADMIN_URL", "http://127.0.0.1:2019"),
+		// Optional: Caddy's admin endpoint as a filesystem socket. Preferred
+		// over AdminURL whenever it is live, so the node can be moved off TCP
+		// without a restart on either side.
+		AdminSocket: strings.TrimSpace(os.Getenv("HPG_CADDY_ADMIN_SOCKET")),
 	}); err != nil {
 		log.Error("admin proxy config", "err", err)
 		os.Exit(2)

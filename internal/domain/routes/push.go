@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -529,7 +530,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		AccessLogURL:             s.AccessLogURL,
 		MTLSFailOpen:             mtlsFailOpen,
 		PQCurveAvailable:         pqAvailable,
-		AdminListen:              s.CaddyAdminListen,
+		AdminListen:              s.adminListenFor(nodeID),
 		TrustCloudflareIP:        trustCFIP,
 		CloudflareRanges:         cloudflare.EdgeCIDRs(),
 		ProxyProtocolIn:          proxyProtoIn,
@@ -841,4 +842,20 @@ func ensureStableHash(rs []caddyapi.Route) string {
 	copy(dup, rs)
 	sort.Slice(dup, func(i, j int) bool { return dup[i].ID < dup[j].ID })
 	return hashRoutes(dup)
+}
+
+// adminListenFor returns the Caddy Admin API bind to push to one node. The
+// bind is fleet-wide unless the operator named the nodes it applies to, which
+// is how a socket endpoint is rolled out one node at a time.
+func (s *Service) adminListenFor(nodeID int64) string {
+	if s.CaddyAdminListen == "" || strings.TrimSpace(s.CaddyAdminListenNodes) == "" {
+		return s.CaddyAdminListen
+	}
+	want := strconv.FormatInt(nodeID, 10)
+	for _, f := range strings.Split(s.CaddyAdminListenNodes, ",") {
+		if strings.TrimSpace(f) == want {
+			return s.CaddyAdminListen
+		}
+	}
+	return ""
 }

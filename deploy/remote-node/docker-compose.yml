@@ -14,8 +14,9 @@
 #      See docs/MULTI_NODE.md.
 #   2. Public ports 80/443/443udp open. UDP 51820 open for WG.
 #   3. /opt/hostyt-node/ contains this file + Caddyfile.bootstrap.
-#   4. mkdir -p /opt/hostyt-node/{caddy-logs,geoip,agent-state} - shared with
-#      the agent, which writes the GeoIP mmdb and reads the access log.
+#   4. mkdir -p /opt/hostyt-node/{caddy-logs,geoip,agent-state,admin} - shared
+#      with the agent, which writes the GeoIP mmdb, reads the access log and
+#      (optionally) reaches Caddy's admin endpoint over a socket in admin/.
 #   5. The hpg-node-agent stack is up with HPG_ADMIN_PROXY_LISTEN/_KEY set.
 #
 # Then:
@@ -27,13 +28,18 @@ services:
     # no cache-handler, coraza, caddy-l4, rate_limit or maxmind-geolocation,
     # so cache_enabled / WAF / streams / GeoIP routes are rejected or silently
     # absent there. Override with IMAGE_CADDY=caddy:2.11.4 for a plain node.
-    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.6.0}
+    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.7.0}
     restart: unless-stopped
     # SEC-002: :2019 is Caddy's admin API and it authenticates NOTHING, so it
     # is published on host loopback only. The host-networked hpg-node-agent
     # reaches it there and fronts it with an authenticated proxy on the
     # WireGuard IP (:2021) - that is what the panel's api_url must point at.
     # Never republish this on a WireGuard or public address.
+    #
+    # Stronger: set HPG_CADDY_ADMIN_LISTEN below to the socket form, point the
+    # agent at it (HPG_CADDY_ADMIN_SOCKET), verify with `hpg-node-agent doctor`
+    # and then DELETE the 2019 line - the endpoint then has no TCP port at all.
+    # Order matters, see docs/MULTI_NODE.md#moving-a-node-off-the-tcp-admin-port.
     ports:
       - "127.0.0.1:2019:2019"
       - "80:80"
@@ -56,9 +62,17 @@ services:
       # GeoIP mmdb the node-agent syncs from the panel; Caddy's maxmind
       # matcher reads it. Read-only here: only the agent writes (OPS-005).
       - /opt/hostyt-node/geoip:/data/geoip:ro
+      # Admin socket, shared with the agent. Same path on both sides. Unused
+      # until HPG_CADDY_ADMIN_LISTEN is set to the socket form.
+      - /opt/hostyt-node/admin:/opt/hostyt-node/admin
     environment:
       ASK_ENDPOINT_URL: ${ASK_ENDPOINT_URL:-http://10.66.0.1:8080/internal/ask}
       ACME_EMAIL:       ${ACME_EMAIL:-ops@example.com}
+      # Bootstrap bind for Caddy's admin endpoint. Default keeps the TCP port.
+      # Socket form: "unix//opt/hostyt-node/admin/caddy-admin.sock|0660".
+      # Must match what the panel pushes (HPG_CADDY_ADMIN_LISTEN there), else a
+      # Caddy restart puts the endpoint back on TCP until the next push.
+      HPG_CADDY_ADMIN_LISTEN: ${HPG_CADDY_ADMIN_LISTEN:-0.0.0.0:2019}
 
 volumes:
   caddy_data:

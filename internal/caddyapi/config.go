@@ -32,9 +32,14 @@ type NodeSettings struct {
 
 	// AdminListen sets the node Caddy Admin API bind address. Default (empty)
 	// = "0.0.0.0:2019" (docker-bridge-scoped; compose never publishes 2019).
-	// Deployments where the panel shares the node's network namespace can set
-	// "127.0.0.1:2019" to lock the Admin API to loopback (CADDY-03). Driven by
-	// panel env HPG_CADDY_ADMIN_LISTEN.
+	//
+	// Accepts a filesystem socket - "unix//sockets/caddy-admin.sock|0666",
+	// verified against caddy 2.11.4 - which takes the admin API off TCP
+	// entirely: it then has no address a proxy upstream can name. The panel
+	// reaches it over a shared volume (CADDY_ADMIN_URL=unix:///...), a remote
+	// node through its agent. A shared-namespace deployment can instead set
+	// "127.0.0.1:2019" to bind loopback. Driven by panel env
+	// HPG_CADDY_ADMIN_LISTEN, per node via HPG_CADDY_ADMIN_LISTEN_NODES.
 	AdminListen string
 
 	// CacheModuleAvailable gates emission of the Souin cache-handler
@@ -493,21 +498,17 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 
 	root := map[string]any{
 		"admin": map[string]any{
-			// 0.0.0.0:2019 inside the container = docker bridge only,
-			// not host net. Compose deliberately does NOT publish 2019.
-			// Defense-in-depth: don't `ports: 2019:2019` ever.
+			// Default stays 0.0.0.0:2019: inside the container that is the
+			// docker bridge only, not host net, and compose deliberately does
+			// NOT publish 2019. It cannot default to 127.0.0.1 because the
+			// panel is a separate container and reaches this at
+			// http://caddy:2019 over the bridge.
 			//
-			// NOTE (CADDY-03): can't default this to 127.0.0.1 - the panel
-			// (`app` container) reaches this Admin API at http://caddy:2019
-			// over the docker "internal" bridge network (deploy/docker-compose.yml
-			// CADDY_ADMIN_URL), a separate container/network namespace from
-			// Caddy's own loopback. Binding to 127.0.0.1 here would make the
-			// Admin API unreachable from the panel and break every config push.
-			// Real fix needs either a shared network namespace, a per-deployment
-			// admin bind IP, or auth on the Admin API itself. Now configurable
-			// via HPG_CADDY_ADMIN_LISTEN (AdminListen); default stays 0.0.0.0
-			// (bridge-scoped) with the "never publish 2019" defense. A shared-
-			// namespace deployment can set 127.0.0.1:2019 to bind loopback.
+			// The endpoint has no authentication of its own, so the strongest
+			// available setting is to take it off TCP: set AdminListen to
+			// "unix//sockets/caddy-admin.sock|0666" and point the panel at
+			// CADDY_ADMIN_URL=unix:///sockets/caddy-admin.sock over a shared
+			// volume. See docs/MULTI_NODE.md for the per-node rollout order.
 			"listen": adminListenOr(s.AdminListen),
 		},
 		"apps": apps,

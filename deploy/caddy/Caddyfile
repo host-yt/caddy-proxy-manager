@@ -7,7 +7,13 @@
 {
 	# Admin API listens INSIDE the compose network only.
 	# Never expose :2019 to the public internet.
-	admin 0.0.0.0:2019
+	#
+	# Set HPG_CADDY_ADMIN_LISTEN to "unix//sockets/caddy-admin.sock|0666" to
+	# take the endpoint off TCP entirely; the panel then reaches it over the
+	# shared caddy_admin volume. This is the BOOTSTRAP value only - after the
+	# first push the panel's own HPG_CADDY_ADMIN_LISTEN owns it, so keep the
+	# two identical or a Caddy restart puts the endpoint back on TCP.
+	admin {$HPG_CADDY_ADMIN_LISTEN:0.0.0.0:2019}
 
 	# ACME contact. Fallback when env unset so Caddy starts cleanly on
 	# bootstrap (app pushes the real email later via Admin API).

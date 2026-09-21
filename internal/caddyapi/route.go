@@ -48,6 +48,10 @@ type Route struct {
 	// BackendResolver: when UpstreamIP is a hostname, emit dynamic_upstreams.a
 	// using this resolver IP (e.g. peer tunnel IP that runs dnsmasq).
 	BackendResolver string
+	// ResolveNodeSide: the operator accepted that only the node can resolve
+	// this backend name, so emission neither resolves nor pins it. Policy
+	// input, never emitted into the Caddy config.
+	ResolveNodeSide bool
 	// http (default) or https → BuildRoute adds transport.tls when https.
 	UpstreamScheme string
 	// UpstreamSkipTLSVerify disables upstream cert verification.
@@ -147,6 +151,10 @@ type Route struct {
 	// UpstreamIP (the external FQDN).
 	UpstreamSNI        string
 	UpstreamHostHeader string
+	// PinnedSNI holds the hostname this route's dial address was pinned from,
+	// so an https backend still gets its own name in SNI and certificate
+	// verification after the dial target became a literal address.
+	PinnedSNI string
 	// ProxySecret is the plaintext inbound bearer the node enforces before
 	// proxying an External route (panel decrypts it at build time; never
 	// logged). Empty disables the gate - the allowlist still applies.
@@ -352,9 +360,12 @@ type LocationRule struct {
 	UpstreamHost   string
 	UpstreamPort   int
 	UpstreamScheme string
-	RedirectURL    string
-	RedirectCode   int
-	RewriteURI     string
+	// PinnedSNI: hostname this rule's dial address was pinned from (see
+	// Route.PinnedSNI).
+	PinnedSNI    string
+	RedirectURL  string
+	RedirectCode int
+	RewriteURI   string
 }
 
 // BuildRoute returns a Caddy route object ready to PATCH into
@@ -578,8 +589,15 @@ func BuildRoute(r Route) map[string]any {
 				if sni := firstNonEmpty(r.UpstreamSNI, r.UpstreamHostHeader, r.UpstreamIP); sni != "" {
 					tlsBlock["server_name"] = sni
 				}
-			} else if r.UpstreamSkipTLSVerify {
-				tlsBlock["insecure_skip_verify"] = true
+			} else {
+				if r.UpstreamSkipTLSVerify {
+					tlsBlock["insecure_skip_verify"] = true
+				}
+				// Dial is a pinned address: name the origin explicitly so the
+				// handshake still uses (and verifies) its hostname.
+				if r.PinnedSNI != "" {
+					tlsBlock["server_name"] = r.PinnedSNI
+				}
 			}
 			transport["tls"] = tlsBlock
 		}
@@ -1633,7 +1651,11 @@ func buildLocationRuleRoute(rule LocationRule, defaultPrimary map[string]any) (m
 			"dial_timeout": "10s",
 		}
 		if rule.UpstreamScheme == "https" {
-			transport["tls"] = map[string]any{}
+			tlsBlock := map[string]any{}
+			if rule.PinnedSNI != "" {
+				tlsBlock["server_name"] = rule.PinnedSNI
+			}
+			transport["tls"] = tlsBlock
 		}
 		entry["handle"] = []any{map[string]any{
 			"handler":        "reverse_proxy",

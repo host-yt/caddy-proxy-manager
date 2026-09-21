@@ -21,6 +21,86 @@ This policy applies from 1.5.0 onward. Earlier history does not follow it
 consistently - 1.4.2, 1.4.3 and 1.4.9 shipped features as patch releases - and
 is deliberately left as published.
 
+## [Unreleased]
+
+### Added
+
+- **Caddy admin endpoint can run on a unix socket.** A node's admin endpoint
+  can be bound to a filesystem socket instead of a TCP port
+  (`HPG_CADDY_ADMIN_LISTEN=unix//sockets/caddy-admin.sock|0666`), so it has no
+  network address at all. The panel reaches it over a shared volume, a remote
+  node through its node-agent, which prefers the socket whenever it is live and
+  falls back to `HPG_CADDY_ADMIN_URL` otherwise. Opt-in per node with
+  `HPG_CADDY_ADMIN_LISTEN_NODES`; an upgrade that changes nothing else keeps
+  the current TCP bind. `server doctor` now prints each node's actual admin
+  bind, read back from the node, and `hpg-node-agent doctor` reports which
+  transport it is using - check both before removing a published port. Rollout
+  order and rollback:
+  [MULTI_NODE.md](docs/MULTI_NODE.md#moving-a-node-off-the-tcp-admin-port).
+- **A node's Admin API URL is editable** in `/admin/nodes` → node → edit.
+  Previously it could only be set when the node was registered, so a node could
+  not be repointed at a different admin endpoint without re-adding it.
+
+### Security
+
+- Upstream proxy targets are checked to be plain `host:port`
+  (`caddyapi.ScreenDialTarget`): Caddy also accepts socket and
+  file-descriptor upstream forms, which no address-based screen covers.
+
+## [1.7.0] - 2026-09-21
+
+Follow-up to the 1.6.0 remediation: an independent review of that work found
+three paths it left open, and this closes them, plus the architectural issue
+underneath the whole class - the node's administrative endpoint being
+reachable from the component that serves untrusted traffic. Mechanism details
+are withheld until operators have had time to upgrade.
+
+### Security
+
+- **Backend addresses are now fixed when the configuration is built.**
+  Previously a backend hostname was checked when the route was saved and
+  resolved again later by the node, so the address that was approved and the
+  address actually used could differ. The panel now emits the address it
+  screened and keeps presenting the original hostname for TLS verification.
+- **Every existing SSO route moves to strict mode.** 1.6.0 made strict the
+  default for new routes only; routes created before it kept a mode that did
+  not cover write requests. Permissive remains selectable per route as a
+  deliberate, audited choice.
+- **A backend name the panel cannot resolve is no longer accepted silently.**
+  It has to be either resolvable or explicitly marked as resolved by the node,
+  per route. Existing tunnel-bound routes are marked automatically so nothing
+  goes down on upgrade.
+- **Upstreams that name no address are refused.** Only ordinary host:port
+  targets are emitted.
+
+### Added
+
+- **The node administrative endpoint can run on a unix socket** instead of a
+  TCP port, opt-in per node with `HPG_CADDY_ADMIN_LISTEN_NODES`. It stops
+  being reachable from anything that shares a network with the node, and from
+  most of what could otherwise address it. Both `server doctor` and the node
+  agent report which transport is actually in use, so the old path is only
+  removed once the new one is proven. Rollout and rollback order are in
+  `docs/MULTI_NODE.md`.
+- A node's Admin API URL is now editable after registration - it used to be
+  write-once, which left no way to move an existing node.
+- `server doctor` lists every SSO route still in permissive mode, so the
+  routes this release changes can be seen before upgrading.
+
+### Upgrade notes - read before deploying
+
+1. **Run `server doctor` with the new binary before starting it.** It lists
+   every SSO route the migration will change. Applications behind those routes
+   that relied on unauthenticated write requests will start receiving 401.
+2. **DNS round-robin across a single backend name no longer spreads traffic** -
+   one address is chosen and used. Configure several upstreams instead.
+   A changed backend address is picked up on the next push: immediately on a
+   route change, otherwise within the five-minute drift sweep.
+3. Saving a route whose backend name the panel cannot resolve now fails until
+   either DNS is fixed or the per-route "resolved by the node" switch is set.
+4. The unix socket mode is opt-in. A deployment that upgrades and changes
+   nothing behaves exactly as before.
+
 ## [1.6.0] - 2026-09-21
 
 Remediation release from an external security review of the whole system.
@@ -46,12 +126,30 @@ deployment, treat this as a priority upgrade.
 
 - **High: external SSO did not cover every request.** Protection depended in
   part on a value the client itself supplies, and did not apply uniformly
-  across request methods. New routes are created in strict mode; existing
-  routes keep their current setting and should be moved to strict.
+  across request methods. Strict mode is now the default for new routes and
+  every existing SSO route is moved to it by the upgrade. Permissive
+  (document-only) mode remains available as a per-route opt-out, is labelled
+  with what it does and does not cover, is never re-entered by a save that
+  does not ask for it, and is written to the audit log when chosen.
 
 - **High: tenant-supplied values could be expanded by the proxy** before being
   sent to an origin the tenant controls. All such values are now screened on
   save and again at build.
+
+- **High: a backend hostname could be moved after it was approved.** Backends
+  were screened when the route was saved but handed to the node as names, so
+  the address actually dialed was whatever DNS answered later. The node now
+  dials the address the panel screened, with the origin hostname kept for SNI
+  and certificate verification on https backends. Applies to the primary
+  backend, additional upstreams and path-rule upstreams. Backends resolved on
+  the node, external allowlisted origins and routes using a node-side DNS
+  resolver keep their names and keep being screened against the deny set on
+  every push.
+
+- **Medium: a backend name the panel could not resolve was accepted anyway.**
+  The node was then left to resolve an address nothing had checked. Such a
+  name is now refused unless the route carries an explicit, per-route
+  operator acceptance that only the node can resolve it.
 
 - **Medium: a client could influence the source address** the panel recorded
   and rate-limited on. The panel route now stamps the address the proxy
@@ -72,6 +170,8 @@ deployment, treat this as a priority upgrade.
 
 ### Added
 
+- `server doctor` lists every SSO route that gates page loads only, so the
+  routes the 1.6.0 upgrade switches to strict can be reviewed before it runs.
 - `server healthcheck` subcommand, and Compose healthchecks for the app and
   Caddy - the runtime image is distroless, so there is no shell for a `curl`
   probe. Start periods are sized for a long migration or certificate issuance.
@@ -116,8 +216,12 @@ deployment, treat this as a priority upgrade.
    the control mesh is now refused when the node configuration is pushed, with
    a `route.blocked_target` audit entry. Most plausible on single-box installs.
    The audit row is the diagnostic; the UI does not surface it.
-2. Additional upstreams and path-rule upstreams must now resolve panel-side
-   unless the route is tunnel-bound.
+2. Every proxy backend name - primary backend, additional upstreams and
+   path-rule upstreams - must resolve from the panel when the route is saved.
+   A panel lookup that fails no longer counts as approval. A name only the
+   node can resolve (container name, tunnel peer) needs the new per-route
+   **Backend is resolved on the node** switch on the Target tab; tunnel-bound
+   routes have it set for you by the upgrade, so nothing live goes down.
 3. Editing a route whose header, rewrite or redirect contains a proxy
    placeholder expression blocks the save until the value is removed. At build
    such values are dropped, so the route keeps serving without that header.
@@ -132,6 +236,22 @@ deployment, treat this as a priority upgrade.
 6. Operators running large `active_active` groups should check their ACME
    rate-limit headroom against nodes x hosts - certificates have always been
    issued per node, the documentation just said otherwise.
+7. Every SSO-protected route is switched to strict mode. An application that
+   relied on unauthenticated POST/PUT/PATCH/DELETE or XHR passing through the
+   gateway will start seeing 401. Run `server doctor` against the existing
+   database before upgrading: it lists every route the backfill will change.
+   Permissive mode can be turned back on per route on the SSO tab afterwards.
+8. Backend hostnames are resolved by the panel and pushed to nodes as
+   addresses. A backend with several A records is pinned to one of them, so
+   DNS round-robin across backends no longer spreads traffic - use several
+   upstreams on the route instead. A backend whose address changes is picked
+   up on the next push - immediately on any route change, otherwise within
+   the five-minute drift sweep. If the name stops resolving, the address the
+   panel last screened keeps being served rather than the route going down -
+   that record is held in memory, so a name that is still unresolvable after
+   a panel restart leaves its route out of the pushed configuration until it
+   resolves again. Routes whose backend only the node can resolve are
+   unaffected - see note 2.
 
 ## [1.5.1] - 2026-09-21
 

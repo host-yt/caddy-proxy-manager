@@ -233,7 +233,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		        COALESCE(r.access_allow,''), COALESCE(r.access_deny,''),
 		        COALESCE(r.access_block_all, 0), COALESCE(r.maintenance_allow,''),
 		        COALESCE(r.custom_config,''),
-		        r.via_wg_peer_id, p_use.status,
+		        r.via_wg_peer_id, p_use.status, COALESCE(r.backend_resolve_node_side,0),
 		        COALESCE(r.basic_auth_user,''), COALESCE(r.basic_auth_bcrypt,''),
 		        COALESCE(r.sso_provider_url,''), COALESCE(r.sso_copy_headers,''), COALESCE(r.sso_trusted_proxies,''),
 		        COALESCE(r.sso_paths,''), COALESCE(r.sso_hosts,''),
@@ -347,6 +347,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			customCfg                      string
 		)
 		var viaPeerID sql.NullInt64
+		var resolveNodeSide bool
 		var peerStatus sql.NullString
 		var baUser, baHash string
 		var ssoProviderURL, ssoCopyHeadersRaw, ssoTrustedProxies string
@@ -390,7 +391,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &cachePublic, &headersJSON,
 			&maintMode, &maintMsg, &cacheVary, &accessAllow, &accessDeny,
 			&accessBlockAll, &maintenanceAllow, &customCfg,
-			&viaPeerID, &peerStatus, &baUser, &baHash,
+			&viaPeerID, &peerStatus, &resolveNodeSide, &baUser, &baHash,
 			&ssoProviderURL, &ssoCopyHeadersRaw, &ssoTrustedProxies,
 			&ssoPathsRaw, &ssoHostsRaw,
 			&ssoStrictMode,
@@ -560,10 +561,14 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			wafDirectives = appendWAFDirectives(wafDirectives, wafSuppressionDirectives(wafSups, id))
 		}
 		built = append(built, caddyapi.Route{
-			ID:                    fmt.Sprintf("%d", id),
-			Hosts:                 hosts,
-			PathPrefix:            path,
-			UpstreamIP:            ip,
+			ID:         fmt.Sprintf("%d", id),
+			Hosts:      hosts,
+			PathPrefix: path,
+			UpstreamIP: ip,
+			// Tunnel-bound backends are resolved on the node whatever the
+			// stored flag says: the panel's view of the name is not the
+			// node's view through the tunnel.
+			ResolveNodeSide:       resolveNodeSide || viaPeerID.Valid,
 			UpstreamPort:          port,
 			BackendResolver:       backendResolver,
 			UpstreamScheme:        scheme,

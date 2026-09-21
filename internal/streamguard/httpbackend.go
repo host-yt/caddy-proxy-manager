@@ -25,56 +25,74 @@ var ErrUnresolved = errors.New("host did not resolve")
 // addresses, and the control-plane mesh. port 0 means "not dialed yet"
 // (caller validates it separately) and skips only the port check.
 func (t *InfraTargets) ScreenHTTPBackend(ctx context.Context, host string, port int) error {
+	_, err := t.screenHTTP(ctx, host, port, true)
+	return err
+}
+
+// PinHTTPBackend screens like ScreenHTTPBackend and returns the address to
+// dial: an IP literal unchanged, a hostname replaced by the address it
+// screened to. Dialing the pinned address is what stops a later DNS answer
+// from moving an already-approved destination. Several addresses collapse to
+// the lowest one so repeated pushes stay byte-identical.
+func (t *InfraTargets) PinHTTPBackend(ctx context.Context, host string, port int) (string, error) {
 	return t.screenHTTP(ctx, host, port, true)
 }
 
 // ScreenHTTPTargetLiteral is ScreenHTTPBackend without the DNS step: the deny
 // set, the admin API port and IP literals are still enforced. Used at config
-// emission, which runs on every push over every route - resolving there would
-// cost a lookup per route and turn a DNS blip into dropped live routes.
+// emission for targets that must stay names (resolved on the node) and for
+// re-checking an address that was already resolved and pinned.
 func (t *InfraTargets) ScreenHTTPTargetLiteral(host string, port int) error {
-	return t.screenHTTP(context.Background(), host, port, false)
+	_, err := t.screenHTTP(context.Background(), host, port, false)
+	return err
 }
 
-func (t *InfraTargets) screenHTTP(ctx context.Context, host string, port int, resolve bool) error {
+// screenHTTP returns the screened dial address alongside the verdict: the
+// host itself for a literal or an unresolved screen, the chosen address for a
+// resolved name.
+func (t *InfraTargets) screenHTTP(ctx context.Context, host string, port int, resolve bool) (string, error) {
 	host = strings.TrimSpace(host)
 	if host == "" {
-		return nil
+		return "", nil
 	}
 	if port != 0 {
 		if port < 0 || port > 65535 {
-			return fmt.Errorf("invalid port %d", port)
+			return "", fmt.Errorf("invalid port %d", port)
 		}
 		if _, bad := streamDeniedPorts[port]; bad {
-			return fmt.Errorf("port %d is reserved for the node admin API", port)
+			return "", fmt.Errorf("port %d is reserved for the node admin API", port)
 		}
 	}
 	if t.Blocked(host) {
-		return fmt.Errorf("%s is a managed node or control-plane address", host)
+		return "", fmt.Errorf("%s is a managed node or control-plane address", host)
 	}
 	if ip := net.ParseIP(host); ip != nil {
 		if security.IsDangerousProxyBackend(ip) {
-			return fmt.Errorf("address %s is not allowed", host)
+			return "", fmt.Errorf("address %s is not allowed", host)
 		}
-		return nil
+		return host, nil
 	}
 	if !resolve {
-		return nil
+		return host, nil
 	}
 	addrs, err := lookupAddrs(ctx, host)
 	if err != nil || len(addrs) == 0 {
-		return fmt.Errorf("%w: %s", ErrUnresolved, host)
+		return "", fmt.Errorf("%w: %s", ErrUnresolved, host)
 	}
+	pin := ""
 	for _, a := range addrs {
 		lit := a.Unmap().String()
 		if security.IsDangerousProxyBackend(net.IP(a.Unmap().AsSlice())) {
-			return fmt.Errorf("host %s resolves to a blocked address", host)
+			return "", fmt.Errorf("host %s resolves to a blocked address", host)
 		}
 		if t.Blocked(lit) {
-			return fmt.Errorf("host %s resolves to %s, a managed node or control-plane address", host, lit)
+			return "", fmt.Errorf("host %s resolves to %s, a managed node or control-plane address", host, lit)
+		}
+		if pin == "" || lit < pin {
+			pin = lit
 		}
 	}
-	return nil
+	return pin, nil
 }
 
 // addEnvInfra denies the control-plane services this process itself talks to.

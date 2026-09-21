@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -205,7 +206,14 @@ func (w *Wizard) Index(rw http.ResponseWriter, r *http.Request) {
 		}
 		w.renderR(rw, r, step, w.view(step, f, ""))
 	case installstate.StepCaddy:
-		f := caddyForm{Name: "node-1", APIURL: "http://caddy:2019"}
+		// Prefill from the panel's own configured admin URL: a stack deployed
+		// with the socket form must not register its node on a TCP bind that
+		// will not be there.
+		adminURL := strings.TrimSpace(os.Getenv("CADDY_ADMIN_URL"))
+		if adminURL == "" {
+			adminURL = "http://caddy:2019"
+		}
+		f := caddyForm{Name: "node-1", APIURL: adminURL}
 		if s.CaddyNode != nil {
 			f = caddyForm{
 				Name: s.CaddyNode.Name, APIURL: s.CaddyNode.APIURL,

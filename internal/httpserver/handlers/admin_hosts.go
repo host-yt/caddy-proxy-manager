@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -634,6 +635,10 @@ type hostsNewForm struct {
 	WildcardZone    string
 	GroupID         int64
 	ViaWGPeerID     string
+	// ResolveNodeSide: operator accepts that only the node can resolve this
+	// backend name. Without it an unresolvable name is refused, because a
+	// failed panel lookup says nothing about where the name points.
+	ResolveNodeSide bool
 	// mTLS client-cert enforcement, set at create so a host meant to be
 	// locked is never served open in the window before the first edit.
 	RequireClientCert bool
@@ -710,6 +715,7 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		WildcardEnabled:    r.FormValue("wildcard_enabled") == "1",
 		WildcardZone:       strings.ToLower(strings.TrimSpace(r.FormValue("wildcard_zone"))),
 		ViaWGPeerID:        strings.TrimSpace(r.FormValue("via_wg_peer_id")),
+		ResolveNodeSide:    r.FormValue("backend_resolve_node_side") == "1",
 		RequireClientCert:  r.FormValue("require_client_cert") == "1",
 	}
 	form.MTLSCAID, _ = strconv.ParseInt(r.FormValue("mtls_ca_id"), 10, 64)
@@ -798,18 +804,17 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	// SSRF screen: proxy backends and external upstreams must not target
 	// loopback/link-local/metadata or the control plane. Redirect routes use a
 	// sentinel backend (0.0.0.0) that is never dialed, so skip them.
-	// Tunnel routes with a hostname backend resolve peer-side, so only the
-	// resolution step is waived there - the deny set still applies.
-	tunnelPrivate := viaWGPeerID > 0 && (form.BackendIP == "" || net.ParseIP(form.BackendIP) == nil)
+	// Only an explicit node-side-resolution opt-in waives the resolving step,
+	// and never the deny set.
 	if form.Kind == "proxy" || form.External {
 		infra, ierr := loadInfraOrFail(ctx, db, h.Logger)
 		if ierr != nil {
 			h.renderHostsNewErr(w, r, form, ierr.Error())
 			return
 		}
-		if err := screenBackendWith(ctx, infra, form.BackendIP, port, tunnelPrivate); err != nil {
+		if err := screenBackendWith(ctx, infra, form.BackendIP, port, form.ResolveNodeSide); err != nil {
 			h.Logger.Warn("backend host screen failed", "err", err)
-			h.renderHostsNewErr(w, r, form, "backend host is not reachable or not allowed")
+			h.renderHostsNewErr(w, r, form, unresolvedHint(err, "backend host is not reachable or not allowed"))
 			return
 		}
 	}
@@ -950,6 +955,8 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		GroupID:      groupID,
 		CustomFields: cfJSON,
 		ViaWGPeerID:  viaWGPeerID,
+
+		BackendResolveNodeSide: form.ResolveNodeSide,
 
 		RequireClientCert: form.RequireClientCert,
 		MTLSCAID:          form.MTLSCAID,
@@ -2545,6 +2552,9 @@ type hostEditData struct {
 	// backend host to that peer's tunnel IP at push time.
 	ViaWGPeerID   int64
 	ClientTunnels []tunnelOption
+	// ResolveNodeSide: backend name the panel cannot resolve, accepted by the
+	// operator. Emission then neither resolves nor pins that backend.
+	ResolveNodeSide bool
 
 	// Basic Auth gate (NPM-style). User+password popup before any
 	// upstream request. HasPassword tells the UI whether to default
@@ -2706,7 +2716,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        r.access_allow, r.access_deny,
 		        COALESCE(r.access_block_all, 0), COALESCE(r.maintenance_allow,''),
 		        r.custom_config,
-		        r.via_wg_peer_id, s.client_id,
+		        r.via_wg_peer_id, COALESCE(r.backend_resolve_node_side,0), s.client_id,
 		        n.name, n.public_hostname,
 		        r.basic_auth_user, r.basic_auth_bcrypt,
 		        r.sso_provider_url, r.sso_copy_headers, r.sso_trusted_proxies,
@@ -2754,7 +2764,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&accessAllow, &accessDeny,
 		&accessBlockAll, &maintAllow,
 		&customCfg,
-		&viaPeerID, &clientID,
+		&viaPeerID, &d.ResolveNodeSide, &clientID,
 		&d.NodeName, &d.NodeHost,
 		&baUser, &baHash,
 		&ssoURL, &ssoCopy, &ssoTrusted,
@@ -3481,7 +3491,6 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	ssoPaths := sanitizePathList(r.FormValue("sso_paths"))
 	ssoHosts := sanitizeHostList(r.FormValue("sso_hosts"))
 	ssoViaPeerID, _ := strconv.ParseInt(r.FormValue("sso_via_wg_peer_id"), 10, 64)
-	ssoStrictMode := r.FormValue("sso_strict_mode") == "1"
 	// Built-in portal toggle + selected group IDs.
 	portalProtect := r.FormValue("portal_protect") == "1"
 	var portalGroupIDs []int64
@@ -3659,6 +3668,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	viaPeerID, _ := strconv.ParseInt(r.FormValue("via_wg_peer_id"), 10, 64)
+	resolveNodeSide := r.FormValue("backend_resolve_node_side") == "1"
 	if external {
 		editPath := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
 		// MUTUAL EXCLUSION: an external route must NOT be bound to a WG peer -
@@ -3711,15 +3721,14 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", ierr.Error())
 			return
 		}
-		// A hostname behind a tunnel is resolved node-side; waive only the
-		// resolution step, never the deny set.
-		tunnelPrivate := viaPeerID > 0 && net.ParseIP(screenHost) == nil
-		serr := screenBackendWith(sctx, infra, screenHost, screenPort, tunnelPrivate)
+		// Only the operator's node-side-resolution opt-in waives the
+		// resolving step, and it never waives the deny set.
+		serr := screenBackendWith(sctx, infra, screenHost, screenPort, resolveNodeSide)
 		for _, u := range newUpstreams {
 			if serr != nil {
 				break
 			}
-			serr = screenBackendWith(sctx, infra, u.Host, u.Port, viaPeerID > 0 && net.ParseIP(u.Host) == nil)
+			serr = screenBackendWith(sctx, infra, u.Host, u.Port, resolveNodeSide)
 		}
 		for _, lr := range newLocationRules {
 			if serr != nil {
@@ -3728,7 +3737,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			if lr.Action != "proxy" {
 				continue
 			}
-			serr = screenBackendWith(sctx, infra, lr.UpstreamHost, lr.UpstreamPort, viaPeerID > 0 && net.ParseIP(lr.UpstreamHost) == nil)
+			serr = screenBackendWith(sctx, infra, lr.UpstreamHost, lr.UpstreamPort, resolveNodeSide)
 		}
 		// A tenant-set Host naming infrastructure is how a screened dial gets
 		// re-aimed at a vhost of the control plane; nobody needs it.
@@ -3747,7 +3756,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		scancel()
 		if serr != nil {
 			h.Logger.Warn("host save: backend screen failed", "host", screenHost, "err", serr)
-			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "upstream address blocked or unresolvable: "+sanitizeErr(serr))
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "",
+				unresolvedHint(serr, "upstream address blocked or unresolvable: "+sanitizeErr(serr)))
 			return
 		}
 	}
@@ -3842,15 +3852,19 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	var prevOverride sql.NullString
 	var prevRequireClientCert bool
 	var prevDNSSteeringEnabled bool
+	var prevSSOStrict bool
 	if err := h.DB().QueryRowContext(ctx,
 		`SELECT r.caddy_node_id, r.service_id, s.backend_ip, r.backend_ip_override,
-		        COALESCE(r.require_client_cert, 0), COALESCE(r.dns_steering_enabled, 0)
+		        COALESCE(r.require_client_cert, 0), COALESCE(r.dns_steering_enabled, 0),
+		        COALESCE(r.sso_strict_mode, 0)
 		 FROM routes r JOIN services s ON s.id = r.service_id
 		 WHERE r.id = ?`, id,
-	).Scan(&nodeID, &serviceID, &currentBackendIP, &prevOverride, &prevRequireClientCert, &prevDNSSteeringEnabled); err != nil {
+	).Scan(&nodeID, &serviceID, &currentBackendIP, &prevOverride, &prevRequireClientCert, &prevDNSSteeringEnabled,
+		&prevSSOStrict); err != nil {
 		redirectWithFlash(w, r, "/admin/hosts", "", "route not found")
 		return
 	}
+	ssoStrictMode := ssoStrictFromForm(r.Form, prevSSOStrict)
 
 	// Backend edits are PER-ROUTE via routes.backend_ip_override so editing
 	// one route does NOT cascade to siblings sharing the same service.
@@ -4184,6 +4198,14 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
 		return
 	}
+	// One column, same transaction: cheaper than a third copy of the
+	// 60-column UPDATE above just to carry one flag.
+	if _, rerr := tx.ExecContext(ctx,
+		"UPDATE routes SET backend_resolve_node_side = ? WHERE id = ?", resolveNodeSide, id); rerr != nil {
+		h.Logger.Warn("host update: backend resolution flag", "id", id, "err", rerr)
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
+		return
+	}
 	if resetVerification {
 		if _, rerr := tx.ExecContext(ctx,
 			`UPDATE routes SET domain_verified=0, verify_token=?, status='pending_dns',
@@ -4202,6 +4224,15 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("host update: commit", "id", id, "err", cerr)
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
 		return
+	}
+	// Permissive SSO is a deliberate, named exception: record who chose it,
+	// because the gate then covers only document loads.
+	if prevSSOStrict && !ssoStrictMode && strings.TrimSpace(ssoProviderURL) != "" {
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess), Action: "host.sso_permissive_enabled", Entity: "route",
+			EntityID: itoa64(id),
+			Meta:     map[string]any{"domain": domain},
+		})
 	}
 	// Audit mTLS enforcement toggle when require_client_cert changed.
 	if prevRequireClientCert != requireClientCert {
@@ -4978,6 +5009,27 @@ func screenBackendWith(ctx context.Context, infra *streamguard.InfraTargets, hos
 		return nil
 	}
 	return err
+}
+
+// unresolvedHint turns a panel-side resolution failure into the one action
+// that actually unblocks the operator, instead of a dead end.
+func unresolvedHint(err error, fallback string) string {
+	if errors.Is(err, streamguard.ErrUnresolved) {
+		return "backend hostname does not resolve from the panel - fix DNS, or tick " +
+			"\"backend is resolved on the node\" if only the node can resolve this name"
+	}
+	return fallback
+}
+
+// ssoStrictFromForm resolves the posted SSO gate against the stored one.
+// A save that does not carry the field leaves the gate alone, so permissive
+// mode can only ever be re-entered by an operator choosing it.
+func ssoStrictFromForm(form url.Values, stored bool) bool {
+	vals, ok := form["sso_strict_mode"]
+	if !ok {
+		return stored
+	}
+	return slices.Contains(vals, "1")
 }
 
 func isValidUpstreamHost(h string) bool {
