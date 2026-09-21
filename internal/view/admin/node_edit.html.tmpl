@@ -21,6 +21,16 @@
     <form method="POST" action="/admin/nodes/{{.NodeID}}/edit" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
+        <label class="t-caption font-medium block mb-1">Admin API URL</label>
+        <input type="text" name="api_url" value="{{.APIURL}}"
+          placeholder="http://10.66.0.2:2021"
+          class="r-input w-full font-mono text-xs">
+        <p class="t-caption mt-1">Where the panel reaches this node's Caddy admin API: the node-agent admin proxy
+          (<code>http://&lt;wg-ip&gt;:2021</code>), or <code>unix:///sockets/caddy-admin.sock</code> when Caddy's admin
+          endpoint is a socket shared with the panel through a volume. Leave unchanged if unsure - a wrong value stops
+          all config pushes to this node.</p>
+      </div>
+      <div>
         <label class="t-caption font-medium block mb-1">Outbound IPs</label>
         <textarea name="outbound_ips" rows="6"
           placeholder="203.0.113.1&#10;203.0.113.2&#10;2001:db8::1"

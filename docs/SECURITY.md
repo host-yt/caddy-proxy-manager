@@ -427,6 +427,27 @@ The mitigations are the custom-handler allow-list
 stream infrastructure deny set (above). Both are compensating controls. They
 narrow the paths that reach the admin API; they do not authenticate it.
 
+### Removing the port entirely
+
+Both controls above screen *addresses*. The endpoint itself can be taken off
+TCP instead: Caddy accepts a filesystem socket as its admin endpoint
+(`admin unix//sockets/caddy-admin.sock|0666`, verified against the pinned
+2.11.4), and the panel or the node-agent reaches it over a shared volume. There
+is then no address for anything to name - inside the Caddy process included,
+which is the one place no network boundary can help.
+
+This is opt-in per node (`HPG_CADDY_ADMIN_LISTEN` plus
+`HPG_CADDY_ADMIN_LISTEN_NODES`), verifiable with `server doctor` and the
+agent's own doctor before the published port is removed, and reversible. The
+rollout order is in
+[MULTI_NODE.md](MULTI_NODE.md#moving-a-node-off-the-tcp-admin-port).
+
+Caddy can dial a socket upstream as well as listen on one, so a socket path
+remains something the config format can express. The panel emits every
+tenant-controlled target through `net.JoinHostPort`, which cannot produce that
+shape, and `caddyapi.ScreenDialTarget` rejects any upstream that is not a plain
+host:port.
+
 ### Closing it per node: the agent's admin proxy
 
 A node can now put its node-agent in front of the admin API, so reaching a port

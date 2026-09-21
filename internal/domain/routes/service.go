@@ -99,6 +99,13 @@ type Service struct {
 	// HPG_CADDY_ADMIN_LISTEN.
 	CaddyAdminListen string
 
+	// CaddyAdminListenNodes limits CaddyAdminListen to a comma-separated set
+	// of node IDs. Moving a node's admin endpoint is a one-way push until the
+	// node is reachable again, so a fleet migrates one node at a time. Empty
+	// = apply to every node (the historical behaviour of CaddyAdminListen).
+	// From env HPG_CADDY_ADMIN_LISTEN_NODES.
+	CaddyAdminListenNodes string
+
 	// Quota is optional. When set, route creation is bounded by the owning
 	// reseller's aggregate package (domains, overselling mode). Nil = no limits.
 	Quota *quota.Service

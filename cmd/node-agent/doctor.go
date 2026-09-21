@@ -41,10 +41,14 @@ func runDoctor() int {
 	defer cancel()
 
 	adminURL := envOr("HPG_CADDY_ADMIN_URL", "http://localhost:2019")
-	caddyUp, adminCheck := doctorCaddyAdminLocal(ctx, adminURL)
+	adminSock := strings.TrimSpace(os.Getenv("HPG_CADDY_ADMIN_SOCKET"))
+	caddyUp, adminCheck := doctorCaddyAdminLocal(ctx, adminURL, adminSock)
 
 	var checks []check
 	checks = append(checks, adminCheck)
+	if adminSock != "" {
+		checks = append(checks, doctorCaddyAdminSocket(adminSock))
+	}
 	checks = append(checks, doctorPort("80", caddyUp), doctorPort("443", caddyUp))
 	checks = append(checks, doctorWstunnelBinary())
 	checks = append(checks, doctorPanelReachable(ctx)...)
@@ -56,14 +60,18 @@ func runDoctor() int {
 // doctorCaddyAdminLocal checks the local Caddy admin API. Plain net/http GET
 // (not internal/caddyapi) - importing that package would pull in every
 // DNS-provider module it registers, bloating this otherwise stdlib-only binary.
-func doctorCaddyAdminLocal(ctx context.Context, adminURL string) (bool, check) {
+func doctorCaddyAdminLocal(ctx context.Context, adminURL, adminSock string) (bool, check) {
 	reqCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, strings.TrimRight(adminURL, "/")+"/config/", nil)
+	hc, base := agentHTTP, strings.TrimRight(adminURL, "/")
+	if adminSock != "" && socketLive(adminSock) {
+		hc, base = unixHTTPClient(adminSock, 3*time.Second), socketBase
+	}
+	req, err := http.NewRequestWithContext(reqCtx, http.MethodGet, base+"/config/", nil)
 	if err != nil {
 		return false, check{"caddy: admin API (local)", statusFail, err.Error()}
 	}
-	resp, err := agentHTTP.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return false, check{"caddy: admin API (local)", statusFail,
 			err.Error() + " - verify the local Caddy container is up; override with HPG_CADDY_ADMIN_URL"}
@@ -71,9 +79,23 @@ func doctorCaddyAdminLocal(ctx context.Context, adminURL string) (bool, check) {
 	resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		return false, check{"caddy: admin API (local)", statusFail,
-			fmt.Sprintf("HTTP %d from %s", resp.StatusCode, adminURL)}
+			fmt.Sprintf("HTTP %d from %s", resp.StatusCode, base)}
 	}
-	return true, check{"caddy: admin API (local)", statusPass, adminURL + " reachable"}
+	return true, check{"caddy: admin API (local)", statusPass, base + " reachable"}
+}
+
+// doctorCaddyAdminSocket reports which transport the agent will actually use.
+// Run this BEFORE dropping the published 127.0.0.1:2019 port: a dead socket
+// here means the agent is still falling back to TCP and removing that port
+// would cut the node off from the panel.
+func doctorCaddyAdminSocket(path string) check {
+	if socketLive(path) {
+		return check{"caddy: admin socket", statusPass,
+			path + " live - the agent uses it; the published :2019 port can be removed"}
+	}
+	return check{"caddy: admin socket", statusWarn,
+		path + " not accepting connections - the agent falls back to HPG_CADDY_ADMIN_URL; " +
+			"keep the published :2019 port until the panel has pushed the socket bind to this node"}
 }
 
 // doctorPort reports whether a listen port is free, or - if occupied - whether

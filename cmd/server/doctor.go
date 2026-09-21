@@ -297,6 +297,7 @@ func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check
 				admErr.Error() + " - verify the node's Caddy container is up and reachable at " + n.apiURL})
 		} else {
 			checks = append(checks, check{label + ": admin API", statusPass, n.apiURL + " reachable"})
+			checks = append(checks, doctorNodeAdminBind(ctx, doctorNodeClient(n.apiURL, n.adminProxyKeyEnc, rawCfg), label))
 		}
 
 		// SEC-002: Caddy's admin API authenticates nothing. A node addressed at
@@ -333,6 +334,33 @@ func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check
 		}
 	}
 	return checks
+}
+
+// doctorNodeAdminBind reports where the node's Caddy admin endpoint is bound,
+// read back from the node itself rather than from what the panel intended to
+// push. Run it before removing a node's published admin port: it is the proof
+// that the node is on the socket and the panel still reaches it.
+func doctorNodeAdminBind(ctx context.Context, c *caddyapi.Client, label string) check {
+	probeCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	raw, err := c.GetRaw(probeCtx, "/config/admin/listen")
+	if err != nil {
+		// Caddy answers 400 for a path its config does not contain, which is
+		// what a node running an admin-less config looks like. Reachability
+		// was already proven by the check above, so this is not a failure.
+		return check{label + ": admin endpoint", statusPass, "Caddy default bind (not set in the node's config)"}
+	}
+	listen := strings.Trim(strings.TrimSpace(string(raw)), `"`)
+	switch {
+	case listen == "" || listen == "null":
+		return check{label + ": admin endpoint", statusPass, "Caddy default bind"}
+	case strings.HasPrefix(strings.ToLower(listen), "unix/"):
+		return check{label + ": admin endpoint", statusPass,
+			"filesystem socket " + listen + " - no TCP port; the published :2019 port can be removed"}
+	default:
+		return check{label + ": admin endpoint", statusPass,
+			"TCP " + listen + " - see docs/MULTI_NODE.md to move it onto a socket"}
+	}
 }
 
 // discardLogger silences go-redis's internal dial-retry logging (implements

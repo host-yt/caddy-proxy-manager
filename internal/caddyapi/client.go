@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -33,10 +34,42 @@ type Client struct {
 }
 
 func New(adminURL string) *Client {
-	return &Client{
-		base: adminURL,
-		hc:   &http.Client{Timeout: 10 * time.Second},
+	base, hc := AdminHTTPClient(adminURL, 10*time.Second)
+	return &Client{base: base, hc: hc}
+}
+
+// AdminSocketPath returns the filesystem socket an admin URL addresses, or ""
+// when it addresses a TCP endpoint. Accepted forms: "unix:///run/x.sock" and
+// "unix:/run/x.sock".
+func AdminSocketPath(adminURL string) string {
+	s := strings.TrimSpace(adminURL)
+	l := strings.ToLower(s)
+	for _, p := range []string{"unix://", "unix:"} {
+		if strings.HasPrefix(l, p) {
+			return s[len(p):]
+		}
 	}
+	return ""
+}
+
+// AdminHTTPClient resolves one admin endpoint into the base URL to prefix onto
+// admin paths and the client that reaches it.
+//
+// A socket endpoint has no host and no port, so it cannot be named by any
+// address a proxy upstream could carry; the placeholder host below is never
+// resolved because the transport dials the socket path directly.
+func AdminHTTPClient(adminURL string, timeout time.Duration) (string, *http.Client) {
+	if sock := AdminSocketPath(adminURL); sock != "" {
+		return "http://caddy-admin.invalid", &http.Client{
+			Timeout: timeout,
+			Transport: &http.Transport{
+				DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+					return (&net.Dialer{}).DialContext(ctx, "unix", sock)
+				},
+			},
+		}
+	}
+	return strings.TrimRight(strings.TrimSpace(adminURL), "/"), &http.Client{Timeout: timeout}
 }
 
 // NewAuthed returns a client that authenticates to a node-agent admin proxy

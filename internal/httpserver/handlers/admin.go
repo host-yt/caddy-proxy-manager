@@ -838,8 +838,9 @@ func (h *AdminHandlers) NodesCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/nodes", "", "name must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric")
 		return
 	}
-	if !strings.HasPrefix(apiURL, "http://") && !strings.HasPrefix(apiURL, "https://") {
-		redirectWithFlash(w, r, "/admin/nodes", "", "api_url must start with http:// or https://")
+	if !security.ValidNodeAPIURL(apiURL) {
+		redirectWithFlash(w, r, "/admin/nodes", "",
+			"api_url must start with http://, https:// or unix:// (a Caddy admin socket shared through a volume)")
 		return
 	}
 	// SEC-002: a remote node must be reached through the agent's authenticated
@@ -985,6 +986,22 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 		outboundIPsVal = sql.NullString{String: string(b), Valid: true}
 	}
 
+	// api_url: editable so a node can be repointed at a different admin
+	// endpoint (e.g. a Caddy admin socket) without re-registering it. Empty
+	// keeps the stored value - the form is shared with unrelated settings.
+	apiURL := strings.TrimSpace(r.FormValue("api_url"))
+	if apiURL != "" {
+		if !security.ValidNodeAPIURL(apiURL) {
+			redirectWithFlash(w, r, editPath, "",
+				"api_url must start with http://, https:// or unix:// (a Caddy admin socket shared through a volume)")
+			return
+		}
+		if err := security.RejectUnauthenticatedNodeAdminURL(apiURL); err != nil {
+			redirectWithFlash(w, r, editPath, "", err.Error())
+			return
+		}
+	}
+
 	// Parse capability checkboxes and caddy_version from form.
 	hasWAF := r.FormValue("has_waf") == "1"
 	hasL4 := r.FormValue("has_l4") == "1"
@@ -1011,13 +1028,13 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 	// Set modules_probed_at so these operator-declared flags become authoritative
 	// over the fleet-wide env defaults (see probedOr in routes.Service).
 	if _, err := db.ExecContext(ctx,
-		`UPDATE caddy_nodes SET outbound_ips = ?,
+		`UPDATE caddy_nodes SET outbound_ips = ?, api_url = COALESCE(NULLIF(?, ''), api_url),
 		        has_waf = ?, has_l4 = ?, has_dns_module = ?,
 		        has_rate_limit = ?, has_geoip = ?, caddy_version = ?,
 		        proxy_protocol_in = ?, proxy_protocol_allow = ?, proxy_protocol_timeout_ms = ?,
 		        modules_probed_at = NOW()
 		 WHERE id = ?`,
-		outboundIPsVal, hasWAF, hasL4, hasDNSModule, hasRateLimit, hasGeoIP, caddyVersion,
+		outboundIPsVal, apiURL, hasWAF, hasL4, hasDNSModule, hasRateLimit, hasGeoIP, caddyVersion,
 		proxyProtocolIn, proxyProtocolAllow, proxyProtocolTimeoutMs, id); err != nil {
 		redirectWithFlash(w, r, editPath, "", "update failed: "+sanitizeErr(err))
 		return

@@ -21,6 +21,32 @@ This policy applies from 1.5.0 onward. Earlier history does not follow it
 consistently - 1.4.2, 1.4.3 and 1.4.9 shipped features as patch releases - and
 is deliberately left as published.
 
+## [Unreleased]
+
+### Added
+
+- **Caddy admin endpoint can run on a unix socket.** A node's admin endpoint
+  can be bound to a filesystem socket instead of a TCP port
+  (`HPG_CADDY_ADMIN_LISTEN=unix//sockets/caddy-admin.sock|0666`), so it has no
+  network address at all. The panel reaches it over a shared volume, a remote
+  node through its node-agent, which prefers the socket whenever it is live and
+  falls back to `HPG_CADDY_ADMIN_URL` otherwise. Opt-in per node with
+  `HPG_CADDY_ADMIN_LISTEN_NODES`; an upgrade that changes nothing else keeps
+  the current TCP bind. `server doctor` now prints each node's actual admin
+  bind, read back from the node, and `hpg-node-agent doctor` reports which
+  transport it is using - check both before removing a published port. Rollout
+  order and rollback:
+  [MULTI_NODE.md](docs/MULTI_NODE.md#moving-a-node-off-the-tcp-admin-port).
+- **A node's Admin API URL is editable** in `/admin/nodes` → node → edit.
+  Previously it could only be set when the node was registered, so a node could
+  not be repointed at a different admin endpoint without re-adding it.
+
+### Security
+
+- Upstream proxy targets are checked to be plain `host:port`
+  (`caddyapi.ScreenDialTarget`): Caddy also accepts socket and
+  file-descriptor upstream forms, which no address-based screen covers.
+
 ## [1.6.0] - 2026-09-21
 
 Remediation release from an external security review of the whole system.
