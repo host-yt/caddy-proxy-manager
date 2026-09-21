@@ -33,10 +33,13 @@ Port 2019 (Caddy Admin API) must **not** be exposed - it is internal-only.
 ```bash
 git clone https://github.com/host-yt/caddy-proxy-manager.git hostyt-proxy-gateway
 cd hostyt-proxy-gateway
+umask 077            # so .env is not created world-readable
 cp .env.example .env
+chmod 600 .env
 ```
 
-Open `.env` and set the four required variables:
+Open `.env` and set the required variables. Compose refuses to render without
+them, and it reports only the first one it hits:
 
 ```bash
 # Publicly reachable URL of the panel (must match your DNS A record)
@@ -45,15 +48,31 @@ APP_URL=https://panel.example.com
 # Random 64-character hex secret - generate with:
 APP_SECRET=$(openssl rand -hex 32)
 
-# MariaDB passwords - use strong, unique values
+# MariaDB + Redis passwords - use strong, unique values
 DB_PASSWORD=change_me_strong
 MARIADB_ROOT_PASSWORD=change_me_root_strong
+REDIS_PASSWORD=change_me_redis_strong
+
+# One-shot token that unlocks the install wizard
+INSTALL_TOKEN=$(openssl rand -hex 16)
 
 # Let's Encrypt contact address
 CADDY_ACME_EMAIL=ops@example.com
 ```
 
-### 2.2 Start the stack
+`DB_NAME` and `DB_USER` are also required; `.env.example` already fills them in.
+
+### 2.2 Preflight
+
+Check the whole set at once, with generated values for anything missing, and
+the file permissions on your secrets:
+
+```bash
+docker run --rm -v "$PWD/.env:/app/.env:ro" \
+  ghcr.io/host-yt/caddy-proxy-manager:1.5.1 doctor
+```
+
+### 2.3 Start the stack
 
 ```bash
 docker compose -f deploy/docker-compose.yml --env-file .env up -d
@@ -68,13 +87,13 @@ Watch startup logs:
 docker compose -f deploy/docker-compose.yml logs -f --tail=100
 ```
 
-### 2.3 Open the install wizard
+### 2.4 Open the install wizard
 
 Navigate to `http://<your-server-ip>:8080/install` (or the URL set in `APP_URL`).
 
 The wizard is only reachable while `INSTALLED=0`. It flips itself to `1` on completion.
 
-### 2.4 Full vs Lite stack
+### 2.5 Full vs Lite stack
 
 Two compose files ship. Pick by whether you can run the custom Caddy build.
 

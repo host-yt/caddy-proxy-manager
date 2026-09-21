@@ -5,13 +5,17 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"text/tabwriter"
 	"time"
 
@@ -54,6 +58,8 @@ func runDoctor() int {
 
 	var checks []check
 	checks = append(checks, doctorConfigCheck(cfgErr))
+	checks = append(checks, doctorRequiredEnv()...)
+	checks = append(checks, doctorSecretFiles()...)
 
 	dbChecks, db := doctorDB(ctx, rawCfg)
 	checks = append(checks, dbChecks...)
@@ -384,4 +390,141 @@ func runHealthcheck() int {
 		return 1
 	}
 	return 0
+}
+
+// requiredEnv is every variable deploy/docker-compose.yml marks `:?` plus the
+// two config.Load() refuses to start without. Compose fails on the first one
+// it hits, deep inside interpolation; doctor names them all at once (OPS-004).
+var requiredEnv = []struct {
+	name   string
+	secret bool // generate a value to paste when it is missing
+}{
+	{"APP_URL", false},
+	{"APP_SECRET", true},
+	{"DB_NAME", false},
+	{"DB_USER", false},
+	{"DB_PASSWORD", true},
+	{"REDIS_PASSWORD", true},
+	{"MARIADB_ROOT_PASSWORD", true},
+	{"INSTALL_TOKEN", true},
+}
+
+// envFilePath is the .env doctor reads when it runs from a compose checkout
+// rather than inside the container. HPG_ENV_FILE overrides it.
+func envFilePath() string {
+	if p := os.Getenv("HPG_ENV_FILE"); p != "" {
+		return p
+	}
+	return ".env"
+}
+
+// parseEnvFile reads KEY=VALUE lines. Deliberately dumb - it exists to answer
+// "is this var set and non-empty", never to interpolate.
+func parseEnvFile(path string) (map[string]string, error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		out[strings.TrimSpace(k)] = strings.Trim(strings.TrimSpace(v), `"'`)
+	}
+	return out, nil
+}
+
+// doctorRequiredEnv fails when a required variable is missing or empty, naming
+// every one of them and offering a generated value for the secrets. An empty
+// required var is a failure, not a default: `docker compose up` would abort.
+func doctorRequiredEnv() []check {
+	fileVals, ferr := parseEnvFile(envFilePath())
+	var missing []string
+	var gen []string
+	for _, v := range requiredEnv {
+		val := fileVals[v.name]
+		if val == "" {
+			val = os.Getenv(v.name)
+		}
+		if val != "" {
+			continue
+		}
+		missing = append(missing, v.name)
+		if v.secret {
+			gen = append(gen, v.name+"="+randomSecret())
+		}
+	}
+	src := envFilePath()
+	if ferr != nil {
+		src = "process environment (" + envFilePath() + " not readable)"
+	}
+	if len(missing) == 0 {
+		return []check{{"config: required variables", statusPass, "all set in " + src}}
+	}
+	detail := "missing or empty in " + src + ": " + strings.Join(missing, ", ")
+	if len(gen) > 0 {
+		detail += " | paste: " + strings.Join(gen, "  ")
+	}
+	return []check{{"config: required variables", statusFail, detail}}
+}
+
+// randomSecret returns 32 bytes of hex - the same shape as
+// `openssl rand -hex 32`, which the compose file's error message suggests.
+func randomSecret() string {
+	var b [32]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "<generate with: openssl rand -hex 32>"
+	}
+	return hex.EncodeToString(b[:])
+}
+
+// doctorSecretFiles reports the permissions of the two files that hold panel
+// secrets. Group/other-readable means any other local account can read the
+// credentials (OPS-003).
+func doctorSecretFiles() []check {
+	var checks []check
+	for _, path := range []string{envFilePath(), stateDir + "/install_state.json"} {
+		fi, err := os.Stat(path)
+		if err != nil {
+			continue // not this deployment's layout; nothing to report
+		}
+		mode := fi.Mode().Perm()
+		label := "secrets: " + path
+		if mode&0o077 != 0 {
+			checks = append(checks, check{label, statusWarn,
+				fmt.Sprintf("mode %04o is readable by other local accounts - chmod 600 %s (and umask 077 before creating it)", mode, path)})
+			continue
+		}
+		checks = append(checks, check{label, statusPass, fmt.Sprintf("mode %04o", mode)})
+	}
+	if u, ok := procUmask(); ok && u&0o077 != 0o077 {
+		checks = append(checks, check{"secrets: umask", statusWarn,
+			fmt.Sprintf("umask %04o lets newly created files be group/other-readable - set umask 077 in the shell that runs the installer", u)})
+	}
+	return checks
+}
+
+// procUmask reads the current umask from /proc/self/status (Linux). Returns
+// ok=false elsewhere - reading it via syscall would mean setting it first.
+func procUmask() (int, bool) {
+	b, err := os.ReadFile("/proc/self/status")
+	if err != nil {
+		return 0, false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if v, ok := strings.CutPrefix(line, "Umask:"); ok {
+			n, err := strconv.ParseInt(strings.TrimSpace(v), 8, 32)
+			if err != nil {
+				return 0, false
+			}
+			return int(n), true
+		}
+	}
+	return 0, false
 }
