@@ -79,6 +79,24 @@ jobs:
           provenance: mode=max
           cache-from: type=gha,scope=app-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=app-${{ matrix.platform }}
+      # Scans the EXACT digest this job just pushed - CI's own scan job builds a
+      # separate one-off image, which proves nothing about what release actually
+      # publishes (HPG-031). Same tool/thresholds as ci.yml's scan.
+      - name: Scan image
+        run: |
+          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager@${{ steps.build.outputs.digest }}"
+          docker pull "$img"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ runner.temp }}/trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.74.0 image \
+              --scanners vuln \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --format table \
+              --timeout 10m \
+              "$img"
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
@@ -172,6 +190,22 @@ jobs:
           provenance: mode=max
           cache-from: type=gha,scope=caddy-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=caddy-${{ matrix.platform }}
+      # Scans the EXACT digest this job just pushed (HPG-031) - see app-build.
+      - name: Scan image
+        run: |
+          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-edge@${{ steps.build.outputs.digest }}"
+          docker pull "$img"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ runner.temp }}/trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.74.0 image \
+              --scanners vuln \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --format table \
+              --timeout 10m \
+              "$img"
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
@@ -295,6 +329,22 @@ jobs:
           provenance: mode=max
           cache-from: type=gha,scope=wireguard-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=wireguard-${{ matrix.platform }}
+      # Scans the EXACT digest this job just pushed (HPG-031) - see app-build.
+      - name: Scan image
+        run: |
+          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-wg@${{ steps.build.outputs.digest }}"
+          docker pull "$img"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ runner.temp }}/trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.74.0 image \
+              --scanners vuln \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --format table \
+              --timeout 10m \
+              "$img"
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
@@ -384,6 +434,22 @@ jobs:
           provenance: mode=max
           cache-from: type=gha,scope=node-agent-${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=node-agent-${{ matrix.platform }}
+      # Scans the EXACT digest this job just pushed (HPG-031) - see app-build.
+      - name: Scan image
+        run: |
+          img="${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-node-agent@${{ steps.build.outputs.digest }}"
+          docker pull "$img"
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ runner.temp }}/trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.74.0 image \
+              --scanners vuln \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --format table \
+              --timeout 10m \
+              "$img"
       - name: Export digest
         run: |
           mkdir -p /tmp/digests
