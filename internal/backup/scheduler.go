@@ -2,6 +2,8 @@ package backup
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -70,6 +72,10 @@ func (s *Scheduler) tick(ctx context.Context) {
 	if s.Service == nil {
 		return
 	}
+	// A backup dumps to a named temp file (HPG-014); a killed process skips
+	// its defer cleanup and leaks it. Sweep regardless of whether scheduled
+	// backups are enabled - manual/API-triggered runs can leak the same way.
+	sweepOrphanedTemp(2 * time.Hour)
 	if s.intervalHours(ctx) <= 0 {
 		return
 	}
@@ -131,4 +137,20 @@ func (s *Scheduler) pruneOldJobs(ctx context.Context) {
 	}
 	_, _ = db.ExecContext(ctx,
 		"DELETE FROM backup_jobs WHERE created_at < ("+store.DateSubParam("DAY")+")", days)
+}
+
+// sweepOrphanedTemp removes backup temp files older than maxAge. Normal
+// runs clean up via defer; a process killed mid-backup (OOM, SIGKILL) skips
+// that and leaks the file into the shared temp dir forever otherwise.
+func sweepOrphanedTemp(maxAge time.Duration) {
+	for _, pattern := range []string{"hpg-dump-*.sql", "hpg-backup-*.tgz"} {
+		matches, _ := filepath.Glob(filepath.Join(os.TempDir(), pattern))
+		for _, p := range matches {
+			fi, err := os.Stat(p)
+			if err != nil || time.Since(fi.ModTime()) < maxAge {
+				continue
+			}
+			_ = os.Remove(p)
+		}
+	}
 }

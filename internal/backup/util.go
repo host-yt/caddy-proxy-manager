@@ -5,13 +5,6 @@ import (
 	"io"
 )
 
-// countingBuffer is a bytes.Buffer that also exposes the byte count.
-type countingBuffer struct {
-	*bytes.Buffer
-}
-
-func newCountingBuffer() *countingBuffer { return &countingBuffer{Buffer: &bytes.Buffer{}} }
-
 // seekingReader wraps a byte slice as an io.ReadSeeker (some destinations
 // re-read on retry).
 type seekingReader struct {
