@@ -11,6 +11,12 @@ on:
   # incidents) - dispatch goes through the API instead and is not dropped.
   workflow_dispatch:
 
+# Supersede an in-flight `edge` build when main moves again. Never cancel a
+# tag run: that one publishes the release images.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
 permissions:
   contents: read
   packages: write

@@ -1113,7 +1113,7 @@
         <span></span>
         Fail open - allow traffic even when no client certificate is presented
       </label>
-      <p class="t-caption" style="color:rgb(var(--muted))">When unchecked (default): Caddy uses <code>require_and_verify</code> - the TLS handshake is rejected if no valid client cert is presented. When checked: Caddy uses <code>request</code> - the cert is optional and traffic proceeds regardless.</p>
+      <p class="t-caption" style="color:rgb(var(--muted))">When unchecked (default): Caddy uses <code>require_and_verify</code> - the TLS handshake is rejected if no valid client cert is presented. When checked: Caddy uses <code>verify_if_given</code> - a client without a certificate is allowed through, but one that presents a certificate must still chain to the CA.</p>
       <div class="flex justify-end">
         <button class="r-btn-primary cursor-pointer">Save</button>
       </div>

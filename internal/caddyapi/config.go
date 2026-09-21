@@ -582,14 +582,19 @@ type hostConnPolicy struct {
 // routes on one host with DIFFERENT CAs cannot both be honoured - the first in
 // route order (the SELECT is ORDER BY r.id) wins and the conflict is logged.
 //
-// failOpen=true uses Caddy mode "request" (present cert if available, never
-// block); false uses "require_and_verify". pqAvailable=false drops the
+// failOpen=true uses Caddy mode "verify_if_given": a client without a
+// certificate is let through, but one that presents a certificate must still
+// chain to the configured CA. Mode "request" would accept ANY certificate
+// unverified, and its subject reaches RBAC and the upstream as
+// X-Mtls-Subject - so fail-open would have meant "anyone can claim any
+// identity", not "clients without a certificate are allowed".
+// failOpen=false uses "require_and_verify". pqAvailable=false drops the
 // curves/protocol_min knob entirely: Caddy < 2.10 does not know
 // x25519mlkem768 and rejects the whole /load, freezing every route on the node.
 func buildConnPolicies(routes []Route, failOpen, pqAvailable bool) []any {
 	mode := "require_and_verify"
 	if failOpen {
-		mode = "request"
+		mode = "verify_if_given"
 	}
 	var hosts []string // emission order: first route that opts the host in
 	merged := map[string]hostConnPolicy{}

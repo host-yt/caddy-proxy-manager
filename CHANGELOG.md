@@ -21,6 +21,41 @@ This policy applies from 1.5.0 onward. Earlier history does not follow it
 consistently - 1.4.2, 1.4.3 and 1.4.9 shipped features as patch releases - and
 is deliberately left as published.
 
+## [1.5.1] - 2026-09-21
+
+Three mTLS defects found while bringing the documentation in line with 1.5.0.
+All three predate 1.5.0.
+
+### Security
+
+- **Fail-open accepted any client certificate without verifying it.** The
+  builder emitted Caddy's `request` mode, which asks for a certificate and
+  performs no validation at all, where the documentation and the settings help
+  text both described `verify_if_given`. The subject of that unverified
+  certificate is forwarded onward as `X-Mtls-Subject`, so with fail-open turned
+  on a client could present a self-signed certificate and be seen downstream as
+  whatever identity it named. Fail-open now uses `verify_if_given`: a client
+  with no certificate is still let through, one that presents a certificate
+  must still chain to the configured CA. Fail-open is a super_admin
+  break-glass setting and is off by default.
+
+- **A client could supply its own `X-Mtls-Subject`.** The header was set only
+  on routes carrying path rules and was never removed from the inbound
+  request, so on every other route it passed through to the upstream exactly as
+  a genuine one would. Every route now deletes it before any other handler
+  runs.
+
+### Fixed
+
+- **Path-based mTLS RBAC denied every request, including legitimate ones.**
+  Certificates are issued with the operator-typed string as the common name and
+  that bare string is stored, but Caddy sends the rendered distinguished name
+  (`CN=device-42`), and the check compared the two directly - so the lookup
+  never matched and every rule-covered path returned 403. The check now matches
+  either form, which also covers subjects already stored. The existing test
+  missed this because its fixture seeded a subject the issuing path cannot
+  produce.
+
 ## [1.5.0] - 2026-09-21
 
 Post-quantum readiness (PQ-01). The threat is harvest-now-decrypt-later:

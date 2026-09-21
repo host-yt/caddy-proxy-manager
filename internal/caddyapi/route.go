@@ -618,6 +618,17 @@ func BuildRoute(r Route) map[string]any {
 	}
 
 	handlers := []any{}
+	// Strip any client-supplied X-Mtls-Subject before anything else runs. The
+	// header is how a verified certificate subject reaches RBAC and the
+	// upstream, so a request that sets it itself must not be able to claim an
+	// identity. Unconditional: a route without mTLS never legitimately carries
+	// it, and only the routes that set it afterwards may do so.
+	handlers = append(handlers, map[string]any{
+		"handler": "headers",
+		"request": map[string]any{
+			"delete": []string{"X-Mtls-Subject"},
+		},
+	})
 	// CIDR block list fires before geo check so explicit IP bans always apply.
 	if cidrH := buildCIDRBlock(r); cidrH != nil {
 		handlers = append(handlers, cidrH)

@@ -208,9 +208,15 @@ POSTs to `$MANAGER/api/v1/nodes/join`:
 {
   "token": "hpg_join_...",
   "public_hostname": "fra.proxy.example.com",
-  "public_ip": "203.0.113.10"
+  "public_ip": "203.0.113.10",
+  "supports_psk": true
 }
 ```
+
+`supports_psk: true` declares that the script can apply a `PresharedKey` line
+(Step 3) - the mesh-PSK counterpart to the node-agent's `X-HPG-Agent-PSK`
+header (see [API.md](API.md)). A node joined from an older cached
+`node-join.sh` sends nothing, and the manager just skips the PSK for it.
 
 The manager:
 - Validates and burns the token (atomic SQL transaction, `FOR UPDATE` lock).
@@ -526,6 +532,28 @@ triggers a Caddy resync on the sibling. Each moved route is recorded in the
 audit log as `node.failover.route_moved`. A dry-run preview of what would be
 moved is available at `GET /admin/nodes/{id}/failover-preview` (shown on the
 node detail page).
+
+**Key rotation covers the whole peer group, not one row.** An HA tunnel
+(`active_active` or `failover`) is several `customer_wg_peer` rows sharing one
+`peer_group_id` and one customer keypair - `CreateHA` gives every row the same
+keypair so a single `.conf` can hold one `[Interface] PrivateKey` and one
+`[Peer]` block per node. Rotating the key (**Admin → Tunnels → <peer> →
+Rotate key**, or the scheduled rotation job) now writes the same fresh keypair
+to every live row of the group in one transaction. Before v1.5.0, rotation
+only updated the single row (`WHERE id = ?`): the customer's new `.conf`
+carried a fresh private key, but every sibling node still authorized the old
+public key, so every failover path silently stopped working while the
+primary kept serving traffic.
+
+**The customer must re-download the `.conf` file after any rotation** -
+manual or scheduled - because the private key changes; the old key keeps
+working until the new file is installed. This was already true before
+v1.5.0, but now matters for the whole group at once rather than one node.
+
+**Upgrading to v1.5.0 heals a group that diverged under the old bug.** The
+next rotation of an HA group - manual or the next scheduled one - re-applies
+one keypair to every live member, overwriting whatever stale key a sibling
+was still holding. Revoked peers in the group are left alone.
 
 ---
 
