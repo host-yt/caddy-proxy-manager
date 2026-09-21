@@ -333,3 +333,92 @@ Reported as `manual`, never guessed at:
 
 A forward host that resolves to loopback, link-local or a cloud metadata
 address is refused, in the dry run and the real import alike.
+
+---
+
+## 7. Backend address pinning
+
+The panel resolves and screens a route's backend hostname when it builds the
+Caddy configuration, then emits the resolved address as the dial target. The
+original hostname is kept as `transport.tls.server_name`, so an HTTPS backend
+still verifies the certificate against the name you configured, not the
+address that was dialed.
+
+**DNS round-robin across a single backend name no longer spreads traffic.**
+When the name resolves to more than one address, the panel picks one - the
+lexically lowest - instead of handing every answer to Caddy. This also keeps
+repeated pushes byte-identical, so they don't trigger a drift resync. Add
+several upstreams to the route instead of relying on multiple DNS answers to
+spread load.
+
+**A changed address is picked up on the next push:** immediately when the
+route itself is saved, otherwise within the drift sweep (every 5 minutes).
+
+**What gets pinned.** A backend name is resolved and pinned only when the
+panel is the one dialing it and a single address will do. It is screened
+against the deny set but kept as a name - not resolved or pinned - when:
+
+- the route has the "backend is resolved on the node" switch set (below),
+- the route is bound to a tunnel peer,
+- it's an operator-allowlisted External origin,
+- the route uses a custom backend resolver,
+- it's an HTTPS pool whose upstreams span more than one hostname - one TLS
+  connection carries one SNI, so pinning any of them would break the rest.
+
+**Pins live in panel memory, not the database.** After a panel restart the
+pinned-address cache starts empty. If a route's backend name still cannot be
+resolved by the time the panel next builds its config, that route is dropped
+from the push entirely - not kept on its last known address - and the drop is
+written to the audit log (`route.blocked_target`). The route starts being
+served again once the name resolves, or once the "backend is resolved on the
+node" switch is set on it.
+
+---
+
+## 8. "Backend is resolved on the node" switch
+
+**Admin → Hosts → add/edit → "Backend is resolved on the node"**
+(`routes.backend_resolve_node_side`, migration `00146`, default off).
+
+Saving a proxy backend whose hostname the panel cannot resolve normally fails,
+naming this switch in the error. Tick it for a name only the node can look
+up - a container name on the node's own network, or a tunnel peer name - and
+the save succeeds without the panel needing to resolve it.
+
+A route with the switch set is not resolved or pinned by the panel (see
+above): the hostname is only checked against the deny set and handed to the
+node as-is, and the node dials whatever the name resolves to on its side.
+
+Existing tunnel-bound routes were backfilled to this switch by the same
+migration, so an upgrade does not take them down.
+
+---
+
+## 9. SSO strict mode
+
+**Admin → Hosts → edit → "Single sign-on (forward-auth)" → "Strict mode"**
+(`routes.sso_strict_mode`).
+
+**Strict** gates every request to the route, regardless of method or path: a
+request that the identity provider does not answer with a 2xx gets a `401`
+JSON response from the panel, not the provider's own login redirect.
+
+**Permissive (document-only)** gates GET/HEAD page loads only, and skips
+common static-asset paths and extensions. Every other request - any other
+method, and anything matching those skipped paths - reaches the backend
+without going through the SSO gate at all. An unauthenticated page load gets
+the identity provider's own response (typically a redirect to its login page)
+passed back to the browser, instead of a `401`.
+
+Permissive mode remains available as a per-route, deliberate opt-out. Turning
+it on for a route is written to the audit log
+(`host.sso_permissive_enabled`).
+
+Migration `00147` moves every existing SSO-enabled route that was still on
+permissive to strict. Run `server doctor` with the new binary **before**
+starting it: its `routes: SSO strict mode` check lists every route the
+migration is about to change (the same check, run after the upgrade, instead
+lists routes left permissive on purpose). An application behind an affected
+route that relied on an unauthenticated non-GET/HEAD request, or on a request
+under one of the skipped static paths, starts getting a `401` from the panel
+instead of reaching the backend.
