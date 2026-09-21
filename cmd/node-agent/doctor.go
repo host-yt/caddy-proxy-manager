@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"text/tabwriter"
 	"time"
@@ -51,6 +52,7 @@ func runDoctor() int {
 	}
 	checks = append(checks, doctorPort("80", caddyUp), doctorPort("443", caddyUp))
 	checks = append(checks, doctorWstunnelBinary())
+	checks = append(checks, doctorGeoIP())
 	checks = append(checks, doctorPanelReachable(ctx)...)
 
 	printDoctorChecks(checks)
@@ -133,6 +135,33 @@ func doctorWstunnelBinary() check {
 		return check{"tunnel: wstunnel binary", statusWarn,
 			"transport=auto but wstunnel not found - WSS fallback disabled, UDP-only"}
 	}
+}
+
+// doctorGeoIP checks THIS node's own copy of the GeoIP mmdb (OPS-005). The
+// panel only checks its own filesystem before pushing a maxmind matcher to
+// every node; a node missing this file still gets the matcher and Caddy then
+// rejects the node's whole /load. syncGeoIP logs this same gap, but only as
+// a line in continuous runtime logs - this makes it visible before it bites.
+func doctorGeoIP() check {
+	return doctorGeoIPAt(geoipDBPath)
+}
+
+// doctorGeoIPAt takes the mmdb path as a parameter so tests can point it at a
+// temp dir instead of the real /data/geoip.
+func doctorGeoIPAt(dbPath string) check {
+	dir := filepath.Dir(dbPath)
+	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+		return check{"geoip: country DB", statusFail,
+			dir + " not mounted - share a volume with the caddy container (see deploy/node-agent/docker-compose.example.yml); " +
+				"until then, the panel enabling GeoIP fleet-wide will make Caddy reject this node's entire config push"}
+	}
+	info, err := os.Stat(dbPath)
+	if err != nil || info.IsDir() || info.Size() == 0 {
+		return check{"geoip: country DB", statusWarn,
+			dbPath + " not present yet - the agent syncs it from the panel periodically; " +
+				"if the panel enables GeoIP before this file lands, this node's config push will be rejected"}
+	}
+	return check{"geoip: country DB", statusPass, dbPath + " present"}
 }
 
 // doctorPanelReachable is a soft outbound check: only runs when HPG_PANEL_URL
