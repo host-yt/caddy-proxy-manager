@@ -79,5 +79,13 @@ from a follow-up `GET /clients` if you provision outside Terraform.
   `retry-ssl` API actions are not yet surfaced as provider operations - future work.)
 - Deleting a `hpg_node` with active routes returns `409`; reassign first.
 - Deleting a `hpg_plan`/`hpg_node_pool` in use returns `409`.
+- Updating a `hpg_route` is validated the same way `create` is: a change that
+  would move it outside the service's port range, onto a port another route
+  on the service already uses, or onto a plan feature (path routing, SSL,
+  websocket) the plan doesn't grant is rejected. The rejection surfaces at
+  `apply` as a Terraform error carrying the API's JSON error message, e.g.
+  `hpg api PATCH /routes/123: 400 {"error":"port not in allowed range for this service"}`.
+  There is no plan-time validation, so `terraform plan` cannot catch this in
+  advance - only `apply` calls the API.
 
 See [docs/terraform/main.tf](terraform/main.tf) for a full worked example.

@@ -25,6 +25,18 @@ Authorization: Bearer hpg_live_xxxxxxxxxxxx
 
 Role enforcement is per-endpoint. Keys that belong to a disabled or demoted user are rejected on every request (roles are re-checked live, not cached in the token).
 
+A key in the older (pre-HMAC) format may occasionally get `429` instead of a
+credential verdict, if that verification path is temporarily over capacity:
+
+```
+HTTP 429 Too Many Requests
+Retry-After: 60
+{"error":"api key verification throttled; retry"}
+```
+
+This is not a rejection of the key - wait the given number of seconds and
+retry the same request.
+
 ### Key scope (multi-tenant)
 
 An admin key's reach is derived from the owning user, not the token:
@@ -73,6 +85,60 @@ Unauthenticated endpoints (WireGuard bootstrap, node join) are rate-limited per 
 
 ---
 
+## Pagination
+
+`GET /api/v1/services` and `GET /api/v1/routes` accept opt-in keyset pagination:
+
+- `?limit=` - page size, `1`-`500`. Omit it and the endpoint returns the
+  complete result set (unchanged legacy behavior).
+- `?cursor=` - a row id from the previous page's `next_cursor`. Results are
+  ordered by `id` descending; the cursor is exclusive (rows with `id <`
+  cursor).
+- The response carries `next_cursor` only when more rows exist.
+- `?limit=` outside `1-500`, or a `?cursor=` that isn't a positive row id,
+  returns `400`.
+- Without `?limit=`, a result set over 5000 rows returns `413 Request Entity
+  Too Large`: `{"error":"result set exceeds 5000 rows; page it with ?limit= and ?cursor="}`.
+
+No other list endpoint paginates. Every list/detail endpoint now returns
+`500` instead of a shortened list if a row fails to read - a read failure is
+never silently truncated into a smaller-but-successful response.
+
+---
+
+## Idempotency
+
+Any mutating call (`POST`, `PUT`, `PATCH`, `DELETE`) under `/api/v1` may carry
+an `Idempotency-Key` header (max 128 chars) to make retries safe:
+
+- The response always carries `X-Operation-Id` - a durable handle for that
+  attempt, worth logging even when no key was sent.
+- First use of a key: the call executes normally.
+- A second request with the same key while the first is still running gets
+  `409`: `{"error":"request with this idempotency_key is already in progress"}`.
+- A second request with the same key, method, path and body, sent after the
+  first completed: the original response is replayed verbatim, with
+  `X-Idempotency-Replayed: true` added.
+- The same key reused for a different method, path or body gets `409`:
+  `{"error":"idempotency_key reused for a different request"}`.
+- If the server cannot confirm whether the call actually ran, a retry gets
+  `409`:
+  ```json
+  {
+    "error": "operation with this idempotency_key was executed but its result was not recorded; reconcile before retrying",
+    "code": "idempotent_operation_unresolved",
+    "operation_id": "…"
+  }
+  ```
+  Do not retry blindly here - check whether the operation's effect already
+  happened (e.g. did the route get created?) before repeating the call, using
+  `operation_id` to correlate with support/logs if needed.
+
+Keys are scoped to the caller (one user cannot replay another user's key) and
+expire after 24 hours.
+
+---
+
 ## Roles
 
 | Role | Access |
@@ -106,6 +172,51 @@ Returns API version and liveness status. No authentication required.
 ### Services
 
 A service links a client to a backend IP address and an allowed port range (e.g. `30000-30019`). Routes are then mapped from domains to ports within that range.
+
+---
+
+#### `GET /api/v1/services`
+
+List services.
+
+**Auth:** Bearer token - admin only. A reseller/scoped admin key sees only in-scope services.
+
+**Query parameters:** `limit`, `cursor` - see [Pagination](#pagination).
+
+**Response `200`**
+
+```json
+{
+  "services": [
+    {
+      "id": 42,
+      "client_id": 7,
+      "name": "Acme VPS #1",
+      "backend_ip": "10.0.1.55",
+      "allowed_port_start": 30000,
+      "allowed_port_end": 30019,
+      "plan_id": 3,
+      "status": "active",
+      "external_reference": "fossbilling-service-99",
+      "created_at": "2026-01-15T08:30:00Z"
+    }
+  ],
+  "next_cursor": "17"
+}
+```
+
+`next_cursor` is present only when more rows exist.
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 400 | Invalid `limit` or `cursor` |
+| 401 | Auth required |
+| 403 | Admin role required, or scope unresolved |
+| 413 | Unpaginated result exceeds 5000 rows - retry with `?limit=` |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
 
 ---
 
@@ -216,6 +327,24 @@ All fields are optional; omit to leave unchanged.
 }
 ```
 
+Setting `status` drives the service lifecycle, not a bare column write:
+
+- `suspended` stops every route of the service from being served. Route
+  definitions are not deleted - they flip to route `status: "disabled"`
+  without touching their config, and every node holding one of them is
+  rebuilt to drop it.
+- `active` resumes a suspended service: only the routes that `suspended`
+  disabled are re-enabled. A route an operator individually disabled by hand
+  stays disabled. Resuming a service that is already active is a no-op, not
+  an error.
+- `terminated` is final: routes stop serving the same way `suspended` does,
+  but no further status change is accepted and the service can never be
+  resumed.
+
+`PUT /api/v1/provisioning/service/{id}/suspend` (the FOSSBilling integration)
+suspends through this same lifecycle, so both entry points behave
+identically.
+
 **Response `200`**
 
 ```json
@@ -229,6 +358,8 @@ All fields are optional; omit to leave unchanged.
 | 400 | Invalid `status` value |
 | 401 | Auth required |
 | 403 | Admin role required |
+| 404 | Service not found |
+| 409 | Service is terminated |
 | 429 | Rate limit exceeded |
 | 500 | Database error |
 
@@ -293,7 +424,9 @@ Use the `status` field to track SSL provisioning progress.
 }
 ```
 
-`status` values: `active`, `pending_ssl`, `error`, `inactive`.
+`status` values: `active`, `pending_ssl`, `error`, `inactive`, `disabled`. A
+service-level suspend or terminate flips a route to `disabled` instead of
+deleting it - this endpoint keeps listing it.
 
 **Errors**
 
@@ -303,12 +436,59 @@ Use the `status` field to track SSL provisioning progress.
 | 403 | Not your service |
 | 404 | Service not found |
 | 429 | Rate limit exceeded |
+| 500 | Database error |
 
 ---
 
 ### Routes
 
 A route maps a domain (and optional path prefix) to a port on a service's backend. Caddy configuration is pushed asynchronously. SSL provisioning may take up to a few minutes after DNS propagates.
+
+---
+
+#### `GET /api/v1/routes`
+
+List routes.
+
+**Auth:** Bearer token. Admins see all in-scope routes; clients see only routes on services they own.
+
+**Query parameters:** `service_id` (optional filter), `limit`, `cursor` - see [Pagination](#pagination).
+
+**Response `200`**
+
+```json
+{
+  "routes": [
+    {
+      "id": 201,
+      "service_id": 42,
+      "domain": "app.example.com",
+      "path_prefix": "/api",
+      "upstream_port": 30005,
+      "ssl": true,
+      "websocket": false,
+      "force_https": true,
+      "status": "active",
+      "caddy_node_id": 1,
+      "created_at": "2026-01-15T08:30:00Z"
+    }
+  ],
+  "next_cursor": "150"
+}
+```
+
+`next_cursor` is present only when more rows exist.
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 400 | Invalid `limit` or `cursor` |
+| 401 | Auth required |
+| 403 | Client or admin scope unresolved |
+| 413 | Unpaginated result exceeds 5000 rows - retry with `?limit=` |
+| 429 | Rate limit exceeded |
+| 500 | Database error |
 
 ---
 
@@ -358,6 +538,55 @@ Caddy config is pushed in the background. Poll `GET /api/v1/services/{id}/routes
 | 401 | Auth required |
 | 403 | Service not yours |
 | 409 | Domain already mapped, no node available, or plan domain limit reached |
+| 429 | Rate limit exceeded |
+| 500 | Internal error |
+
+---
+
+#### `PATCH /api/v1/routes/{id}`
+
+Update a route.
+
+**Auth:** Bearer token. Clients may only update routes on services they own.
+
+All fields are optional; omit to leave unchanged.
+
+**Request body**
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `upstream_port` | integer | Must be within the service's allowed port range and not already used by another route on the service |
+| `path_prefix` | string | Max 100 chars; requires the plan's path-routing feature |
+| `ssl_enabled` | boolean | Requires the plan's SSL feature; cannot be turned off while mTLS (`require_client_cert`) is set on the route |
+| `websocket` | boolean | Requires the plan's websocket feature |
+| `force_https` | boolean | |
+
+```json
+{ "upstream_port": 30006 }
+```
+
+The full resulting route state is validated against the service's plan and
+port allocation - the same checks `POST /api/v1/routes` applies, so an update
+can no longer move a route somewhere create would have refused. A request
+that changes nothing on an existing, authorized route succeeds without
+pushing a resync.
+
+**Response `200`**
+
+```json
+{ "id": 201, "updated": true, "resync_required": true }
+```
+
+`resync_required: false` (with `updated: false`) means the patch was a no-op.
+
+**Errors**
+
+| Code | Meaning |
+|------|---------|
+| 400 | Invalid JSON; `upstream_port` out of range or already in use; `path_prefix` too long; the new state isn't permitted by the plan (path routing, SSL, websocket); or `ssl_enabled` turned off while mTLS requires it |
+| 401 | Auth required |
+| 403 | Not your route |
+| 404 | Route not found |
 | 429 | Rate limit exceeded |
 | 500 | Internal error |
 
@@ -473,6 +702,7 @@ List all Caddy nodes, ordered by priority descending.
 | 401 | Auth required |
 | 403 | Admin role required |
 | 429 | Rate limit exceeded |
+| 500 | Database error |
 
 ---
 
