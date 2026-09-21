@@ -370,6 +370,14 @@ type LocationRule struct {
 //	  "terminal": true
 //	}
 func BuildRoute(r Route) map[string]any {
+	// mTLS is a property of the TLS handshake, and srv0 also listens on :80.
+	// Derive the cleartext redirect from the enforcement flag itself, not from
+	// the stored force_https: this is the one place every row (old, imported,
+	// hand-edited) passes through, so no write path can serve an mTLS host's
+	// backend over plain HTTP. Client auth on :443 is the connection policy.
+	if r.RequireClientCert {
+		r.ForceHTTPS = true
+	}
 	match := map[string]any{"host": r.Hosts}
 	if r.PathPrefix != "" {
 		match["path"] = []string{r.PathPrefix + "*"}

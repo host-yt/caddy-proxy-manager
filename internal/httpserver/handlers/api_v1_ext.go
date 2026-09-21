@@ -285,7 +285,11 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		args = append(args, *in.WebSocket)
 	}
 	if in.ForceHTTPS != nil {
-		parts = append(parts, "force_https=?")
+		// An mTLS host is HTTPS-only whatever is asked: the node derives the
+		// redirect from require_client_cert, so the row must read the same.
+		// Derived inside the statement so a concurrent "enable mTLS" cannot
+		// slip between a check and this write.
+		parts = append(parts, "force_https=(? OR COALESCE(require_client_cert,0))")
 		args = append(args, *in.ForceHTTPS)
 	}
 	if in.PathPrefix != nil {

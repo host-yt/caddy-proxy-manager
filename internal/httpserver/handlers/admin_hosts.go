@@ -3677,6 +3677,9 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			"client certificates require SSL - enable SSL for this host or turn mTLS off")
 		return
 	}
+	// mTLS implies HTTPS-only: the node redirects :80 for an enforced host
+	// whatever the box says (BuildRoute derives it), so store what is served.
+	forceHTTPS = forceHTTPS || requireClientCert
 	// SSRF screen: the effective backend (proxy IP/host or external FQDN) must
 	// not resolve to loopback/link-local/metadata. Redirect routes never dial a
 	// backend, so only screen proxy/external saves. Empty backend is a no-op.

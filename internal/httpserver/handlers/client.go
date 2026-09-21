@@ -1075,7 +1075,8 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := db.ExecContext(ctx,
-			`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?, force_https=?,
+			`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?,
+			        force_https=(? OR COALESCE(require_client_cert,0)),
 			        domain_verified=0, verify_token=?, status='pending_dns', ssl_issued_at=NULL,
 			        last_error='domain ownership not verified', updated_at=NOW() WHERE id=?`,
 			newDomain, newPath, newPort, newWS, newFH, verifyToken, id,
@@ -1084,7 +1085,8 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if _, err := db.ExecContext(ctx,
-		`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?, force_https=?, updated_at=NOW() WHERE id=?`,
+		`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?,
+		        force_https=(? OR COALESCE(require_client_cert,0)), updated_at=NOW() WHERE id=?`,
 		newDomain, newPath, newPort, newWS, newFH, id,
 	); err != nil {
 		redirectWithFlash(w, r, editURL, "", "update failed")

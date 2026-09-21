@@ -263,3 +263,83 @@ func TestCreate_RejectsWhenCALookupFails(t *testing.T) {
 		t.Errorf("%d route(s) created despite the failed lookup", n)
 	}
 }
+
+// cleartextRedirectFor reports whether the built node config redirects plain
+// HTTP for the host instead of proxying it: BuildRoute wraps the handlers in
+// a subroute whose protocol=http branch answers 308.
+func cleartextRedirectFor(cfg []byte, host string) bool {
+	return strings.Contains(string(cfg),
+		`{"handle":[{"handler":"static_response","headers":{"Location":["https://{http.request.host}{http.request.uri}"]},"status_code":308}],"match":[{"host":["`+host+`"],"protocol":"http"}]}`)
+}
+
+// TestCreate_MTLSImpliesForceHTTPS: mTLS lives in the TLS handshake and the
+// node also listens on :80, so an enforced host must never be reachable in
+// the clear. The create stores force_https=1 whatever was submitted, and the
+// config built from the row redirects cleartext.
+func TestCreate_MTLSImpliesForceHTTPS(t *testing.T) {
+	db := newPushTestDB(t)
+	nodeID := seedCapacityFixture(t, db, 10)
+	caID := seedMTLSCA(t, db, mtlsTestCAPEM(t), "active")
+
+	svc := newMTLSCreateSvc(t, db)
+	routeID, err := svc.Create(context.Background(), 0, CreateInput{
+		ServiceID: 1, UpstreamPort: 10006, Domain: "clear.example",
+		SSL: true, ForceHTTPS: false, RequireClientCert: true, MTLSCAID: caID,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	var fh int
+	if err := db.QueryRow("SELECT force_https FROM routes WHERE id = ?", routeID).Scan(&fh); err != nil {
+		t.Fatal(err)
+	}
+	if fh != 1 {
+		t.Errorf("force_https = %d, want 1 on an mTLS route", fh)
+	}
+	if _, err := db.Exec("UPDATE routes SET status = 'active' WHERE id = ?", routeID); err != nil {
+		t.Fatal(err)
+	}
+	built, _, err := svc.buildRoutesForNode(context.Background(), nodeID)
+	if err != nil {
+		t.Fatalf("buildRoutesForNode: %v", err)
+	}
+	cfg, _ := json.Marshal(caddyapi.BuildNodeConfig(built, caddyapi.NodeSettings{}))
+	if !cleartextRedirectFor(cfg, "clear.example") {
+		t.Errorf("config proxies the mTLS host in the clear:\n%s", cfg)
+	}
+}
+
+// TestBuild_MTLSRowWithForceHTTPSOffStillRedirects is the proof that the
+// invariant does not depend on any write path: a row that reached the
+// bypassed state by whatever route (older release, restore, hand edit, a
+// writer nobody listed) is still served HTTPS-only, because the redirect is
+// derived when the config is built.
+func TestBuild_MTLSRowWithForceHTTPSOffStillRedirects(t *testing.T) {
+	db := newPushTestDB(t)
+	nodeID := seedCapacityFixture(t, db, 10)
+	caID := seedMTLSCA(t, db, mtlsTestCAPEM(t), "active")
+
+	svc := newMTLSCreateSvc(t, db)
+	routeID, err := svc.Create(context.Background(), 0, CreateInput{
+		ServiceID: 1, UpstreamPort: 10007, Domain: "legacy.example",
+		SSL: true, RequireClientCert: true, MTLSCAID: caID,
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	// The state round 4 found, written behind every guard's back.
+	if _, err := db.Exec("UPDATE routes SET status = 'active', force_https = 0 WHERE id = ?", routeID); err != nil {
+		t.Fatal(err)
+	}
+	built, _, err := svc.buildRoutesForNode(context.Background(), nodeID)
+	if err != nil {
+		t.Fatalf("buildRoutesForNode: %v", err)
+	}
+	cfg, _ := json.Marshal(caddyapi.BuildNodeConfig(built, caddyapi.NodeSettings{}))
+	if !cleartextRedirectFor(cfg, "legacy.example") {
+		t.Errorf("a stored force_https=0 exposed the mTLS backend on :80:\n%s", cfg)
+	}
+	if !strings.Contains(string(cfg), `"client_authentication"`) {
+		t.Error("client-auth policy missing alongside the redirect")
+	}
+}

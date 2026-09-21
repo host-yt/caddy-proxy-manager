@@ -439,3 +439,112 @@ func (s *mtlsHookStmt) CheckNamedValue(nv *driver.NamedValue) error {
 	}
 	return driver.ErrSkip
 }
+
+// forceHTTPSOf reads the seeded route's stored flags.
+func forceHTTPSOf(t *testing.T, db *sql.DB) (forceHTTPS, mtls int) {
+	t.Helper()
+	if err := db.QueryRow("SELECT force_https, require_client_cert FROM routes WHERE id = 7").Scan(&forceHTTPS, &mtls); err != nil {
+		t.Fatal(err)
+	}
+	return forceHTTPS, mtls
+}
+
+// An enforced host is HTTPS-only: the node derives the :80 redirect from the
+// enforcement flag, so the row must read the same however the form was
+// filled - "force_https" unticked with mTLS on is the state round 4 found.
+func TestHostsUpdate_MTLSImpliesForceHTTPS(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	form := baseEditForm()
+	form.Set("ssl", "1")
+	form.Set("require_client_cert", "1")
+	form.Set("mtls_ca_id", "1")
+	// "force_https" omitted = unticked.
+	if loc := postHostEdit(t, db, form); strings.Contains(loc, "err=") {
+		t.Fatalf("save rejected: %q", loc)
+	}
+	if fh, mtls := forceHTTPSOf(t, db); fh != 1 || mtls != 1 {
+		t.Errorf("want force_https=1 require_client_cert=1, got %d/%d", fh, mtls)
+	}
+	// Without mTLS the box is the operator's own choice.
+	if loc := postHostEdit(t, db, baseEditForm()); strings.Contains(loc, "err=") {
+		t.Fatalf("plain save rejected: %q", loc)
+	}
+	if fh, mtls := forceHTTPSOf(t, db); fh != 0 || mtls != 0 {
+		t.Errorf("want force_https=0 require_client_cert=0, got %d/%d", fh, mtls)
+	}
+}
+
+// PATCH /routes/{id} could clear force_https on an enforced host: the earlier
+// predicate only covered ssl_enabled. The value is now derived inside the
+// UPDATE, so the request succeeds and the row stays HTTPS-only.
+func TestAPIRouteUpdate_MTLSImpliesForceHTTPS(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	if _, err := db.Exec("UPDATE routes SET require_client_cert = 1, mtls_ca_id = 1, force_https = 1 WHERE id = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := patchRoute7(t, db, `{"force_https":false}`); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body.String())
+	}
+	if fh, _ := forceHTTPSOf(t, db); fh != 1 {
+		t.Error("force_https was cleared on an mTLS-enforced route")
+	}
+	// Not enforced: the caller's value is stored as given.
+	if _, err := db.Exec("UPDATE routes SET require_client_cert = 0, mtls_ca_id = NULL WHERE id = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := patchRoute7(t, db, `{"force_https":false}`); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body.String())
+	}
+	if fh, _ := forceHTTPSOf(t, db); fh != 0 {
+		t.Error("force_https stuck at 1 on a route that does not require client certs")
+	}
+}
+
+// mTLS switched on after the PATCH was accepted and before its UPDATE ran:
+// the derivation lives in the statement, so the interleaving cannot win.
+func TestAPIRouteUpdate_MTLSEnabledBeforeForceHTTPSWrite(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	var once sync.Once
+	setMTLSSQLHook(t, func(exec func(string) error, query string) error {
+		if strings.HasPrefix(query, "UPDATE routes SET") {
+			once.Do(func() {
+				if err := exec("UPDATE routes SET require_client_cert = 1, mtls_ca_id = 1 WHERE id = 7"); err != nil {
+					t.Errorf("interleaved enable failed: %v", err)
+				}
+			})
+		}
+		return nil
+	})
+	if rec := patchRoute7(t, db, `{"force_https":false}`); rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body.String())
+	}
+	if fh, mtls := forceHTTPSOf(t, db); fh != 1 || mtls != 1 {
+		t.Errorf("want force_https=1 require_client_cert=1, got %d/%d", fh, mtls)
+	}
+}
+
+// The tenant's own edit form writes force_https too and was never on any
+// list: it cannot see require_client_cert, so an admin-locked host could be
+// unticked into the bypassed state from /app. Same in-statement derivation.
+func TestClientRouteEditSave_MTLSImpliesForceHTTPS(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	if _, err := db.Exec("UPDATE routes SET require_client_cert = 1, mtls_ca_id = 1, force_https = 1 WHERE id = 7"); err != nil {
+		t.Fatal(err)
+	}
+	h := &ClientHandlers{DB: func() *sql.DB { return db }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	form := url.Values{"domain": {"locked.example"}, "upstream_port": {"10001"}} // force_https unticked
+	req := httptest.NewRequest(http.MethodPost, "/app/routes/7/edit", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("id", "7")
+	ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+	ctx = middleware.ContextWithSession(ctx, &auth.Session{UserID: 1, Role: "client"})
+	rec := httptest.NewRecorder()
+	h.RouteEditSave(rec, req.WithContext(ctx))
+	if loc := rec.Header().Get("Location"); rec.Code != http.StatusSeeOther || strings.Contains(loc, "err=") {
+		t.Fatalf("edit did not save: %d %q", rec.Code, loc)
+	}
+	if fh, _ := forceHTTPSOf(t, db); fh != 1 {
+		t.Error("tenant edit cleared force_https on an mTLS-enforced route")
+	}
+}

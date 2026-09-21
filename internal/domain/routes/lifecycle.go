@@ -200,6 +200,9 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		if !in.SSL {
 			return 0, ErrMTLSNeedsTLS
 		}
+		// The node redirects :80 for an enforced host regardless (BuildRoute
+		// derives it); store the same so the row reads as what is served.
+		in.ForceHTTPS = true
 		var usable int
 		if err := s.DB.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM mtls_cas WHERE id = ? AND status = 'active' AND COALESCE(cert_pem,'') <> ''`,

@@ -367,6 +367,14 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	// non-empty list fails the handshake outright. Skipped when no route opts in.
 	if pols := buildConnPolicies(routes, s.MTLSFailOpen, s.PQCurveAvailable); len(pols) > 0 {
 		srv0["tls_connection_policies"] = pols
+		// Policies match by SNI, requests by Host. Without this a client can
+		// handshake under a non-mTLS SNI and put the mTLS host in the Host
+		// header (domain fronting). Caddy defaults it on when any policy has
+		// client auth; pinned explicitly so the invariant does not rest on a
+		// default we do not control.
+		if hasClientAuth(pols) {
+			srv0["strict_sni_host"] = true
+		}
 	}
 
 	// listener_wrappers key omitted entirely when disabled - existing nodes
@@ -648,6 +656,17 @@ func buildConnPolicies(routes []Route, failOpen, pqAvailable bool) []any {
 		out = append(out, map[string]any{})
 	}
 	return out
+}
+
+// hasClientAuth reports whether any emitted connection policy requires or
+// requests a client certificate.
+func hasClientAuth(pols []any) bool {
+	for _, p := range pols {
+		if _, ok := p.(map[string]any)["client_authentication"]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 // pqSubjects lists, in route order and deduplicated, every hostname that ends
