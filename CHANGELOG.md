@@ -149,6 +149,23 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
 
 ### Fixed
 
+- **Every `wg syncconf` on a node re-randomised its WireGuard source port and
+  blackholed panel -> node traffic for up to 25 s.** `node-join.sh` wrote no
+  `ListenPort` into the node's `[Interface]`, so the kernel picked a random
+  source port - and a new one on every `syncconf`. The panel's peer blocks
+  carry no `Endpoint` (it learns each node's from the incoming handshake), so
+  after every syncconf it kept sending to the dead port until the node's next
+  `PersistentKeepalive` re-taught it. An e2e run against real kernel WireGuard
+  measured one node walking 54347 -> 51615 -> 38703 -> 46495 across three
+  syncconfs, with the panel unable to reach it in between; node -> panel
+  recovered on its own, which is why this went unnoticed. `node-join.sh` now
+  pins `ListenPort = 51820` (override with `--wg-listen-port`), and
+  `node-psk.sh` adds the line to a config that lacks it, so an
+  already-joined node heals on its first rekey. Predates preshared keys - it
+  affected any syncconf on a node - but the PSK rekey is the first flow that
+  runs one routinely. The panel's own sidecar was never affected: it has
+  always rendered `ListenPort`.
+
 - **The WireGuard sidecar was told to `wg syncconf` on every unrelated admin
   action.** The rendered `wg0.conf` carried a generated-at timestamp in its
   header, so every render produced a different file and the sidecar, which

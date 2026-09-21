@@ -8,6 +8,8 @@
 #
 #   1 join-with-psk   - a node joining today gets a PSK on both sides and
 #                       the panel reaches its Caddy admin over the mesh
+#   1b port stability - the node's wg0 source port survives `wg syncconf`
+#                       (an unpinned port blackholes panel->node)
 #   2 rekey happy     - stage a rotation, run node-psk.sh, both sides
 #                       converge; a 1 Hz mesh prober must see no loss
 #   3 rekey rollback  - confirm denied (4xx) -> script restores its backup,
@@ -183,6 +185,32 @@ poll_until "panel reaches node-a's Caddy admin API over the mesh" 60 mesh_up 10.
 poll_until "panel's own health poller marks node-a healthy" 120 \
 	bash -c "[[ \$($CCS exec -T mariadb mariadb -uroot -p$DB_ROOT_PW -N -B $DB_NAME -e \"SELECT health_status FROM caddy_nodes WHERE id=$NODE_A;\" 2>/dev/null) == healthy ]]"
 
+# ---- 1b. the node's WG source port must not move -------------------------
+# Without `ListenPort` in the node's [Interface] the kernel picks a random
+# source port and a NEW one on every `wg syncconf`. The panel's peer blocks
+# carry no Endpoint - it learns each node's endpoint from the handshake - so
+# after every syncconf it keeps sending to the dead port and panel->node is
+# blackholed until the node's next PersistentKeepalive (<=25 s).
+
+PORT_BEFORE=$(cc exec -T node-a wg show wg0 listen-port | tr -d '\r\n')
+for _ in 1 2 3; do
+	cc exec -T node-a bash -c 'wg syncconf wg0 <(wg-quick strip wg0)'
+done
+PORT_AFTER=$(cc exec -T node-a wg show wg0 listen-port | tr -d '\r\n')
+log "node-a wg0 listen-port: $PORT_BEFORE before 3x syncconf, $PORT_AFTER after"
+[[ "$PORT_BEFORE" == "$PORT_AFTER" ]] \
+	|| fail "node-a's wg0 source port moved $PORT_BEFORE -> $PORT_AFTER across syncconf; the panel's learned endpoint is now stale"
+[[ "$PORT_AFTER" == "51820" ]] \
+	|| fail "node-a's wg0 is not on the pinned mesh port 51820 (got $PORT_AFTER)"
+pass "node-a's wg0 source port is pinned and survives syncconf ($PORT_AFTER)"
+# The blackhole is the observable consequence: with a churning port these
+# probes fail until keepalive, well past the few seconds this loop covers.
+for _ in 1 2 3; do
+	mesh_up 10.66.0.2 || fail "panel lost node-a immediately after a syncconf (stale peer endpoint)"
+	sleep 2
+done
+pass "panel -> node-a stayed reachable right after the syncconfs"
+
 # ---- 2. rekey, happy path --------------------------------------------------
 
 log "SCENARIO 2: staged rotation + the real node-psk.sh"
@@ -311,7 +339,6 @@ poll_until "mesh to node-a is consistent and up after the clear" 90 mesh_up 10.6
 
 log "SCENARIO 6: denied confirm on a FIRST-TIME enable (node-b, no prior key)"
 deny_proxy node-b
-NODE_B_PUB=$(cc exec -T node-b wg show wg0 public-key | tr -d '\r\n')
 admin_post "admin/nodes/$NODE_B/psk/enable" "" >/dev/null
 TOKEN=$(curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$PANEL/admin/nodes/$NODE_B" \
 	| grep -oE '\-\-token [0-9a-f]{64}' | head -1 | awk '{print $2}')

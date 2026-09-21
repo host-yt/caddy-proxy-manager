@@ -254,6 +254,7 @@ Writes `/etc/wireguard/wg0.conf`:
 ```ini
 [Interface]
 Address    = 10.66.0.3/24
+ListenPort = 51820
 PrivateKey = <node private key>
 
 [Peer]
@@ -265,6 +266,15 @@ PersistentKeepalive = 25
 
 `AllowedIPs = 10.66.0.1/32` routes only the manager's WG IP through the
 tunnel; all other traffic (public) goes via the default route.
+
+`ListenPort` is not optional. Without it the kernel picks a random source
+port and picks a *new* one on every `wg syncconf` (the PSK rekey runs one),
+which invalidates the endpoint the manager learned from the last handshake -
+manager -> node packets are then blackholed until the node's next
+`PersistentKeepalive`. 51820 is the mesh port on both ends; the customer
+tunnel lives on a different interface (`wg-tun0`, 51821) and wstunnel uses
+51822/51823, so nothing on a node collides with it. Pass
+`--wg-listen-port` to `node-join.sh` if something else already owns it.
 
 If the manager returned a mesh preshared key (it does whenever the panel has
 mesh preshared keys available), the script validates it and appends a
@@ -352,6 +362,7 @@ mkdir -p /etc/wireguard && chmod 700 /etc/wireguard
 cat > /etc/wireguard/wg0.conf <<EOF
 [Interface]
 Address    = <wireguard.interface_address>
+ListenPort = 51820
 PrivateKey = <wireguard.private_key>
 
 [Peer]

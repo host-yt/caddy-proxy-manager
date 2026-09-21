@@ -159,6 +159,43 @@ What that costs:
 - **Visitor traffic is unaffected.** The node keeps serving whatever config it
   already has; the mesh is a control plane, not a data path.
 
+### The real rekey exposure was the node's source port, not the 120 s window
+
+That 120 s window is what a *mismatch* costs. It is not what a *successful*
+rekey costs, and for a long time this section was the only answer to "does the
+mesh drop during a rekey?" - which was the wrong answer.
+
+`node-join.sh` used to write no `ListenPort` into the node's `[Interface]`
+block. WireGuard then picks a random source port, and picks a **new** one on
+every `wg syncconf` - which is exactly what the rekey runs. An e2e run against
+real kernel WireGuard measured three consecutive syncconfs on one node moving
+the port 59168 -> 54445 -> 41263. The panel's peer blocks carry no `Endpoint`
+(it learns each node's endpoint from the incoming handshake), so after every
+one of those the panel was still sending to the previous port: **panel -> node
+was blackholed until the node's next `PersistentKeepalive` re-taught the
+endpoint**, up to 25 s, 12 s in one measured run. Node -> panel kept working
+throughout, which is why it stayed invisible for so long.
+
+The fix is one line: `node-join.sh` now writes `ListenPort = 51820` (override
+with `--wg-listen-port`; the customer tunnel is a separate interface on 51821
+and wstunnel uses 51822/51823, so nothing on a node collides). The port is now
+stable across any number of syncconfs and the blackhole is gone. The panel side
+never had the problem - `internal/wireguard/configfile.go` has always rendered
+`ListenPort` into its own `[Interface]`.
+
+**Nodes that joined before this release** keep their portless config, and stay
+exposed to the same churn on their next `wg syncconf`. There is no migration
+job for that: `node-psk.sh` adds the missing `ListenPort` line itself when it
+rewrites `wg0.conf`, so the first rekey on such a node heals it in the same
+`syncconf` that installs the key. A node that never rekeys never runs a
+syncconf on `wg0` either, so it is not affected in the first place. To pin it
+by hand anyway:
+
+```bash
+sed -i "0,/^\[Interface\]/s//[Interface]\nListenPort = 51820/" /etc/wireguard/wg0.conf
+wg syncconf wg0 <(wg-quick strip wg0)
+```
+
 ### Multi-replica: the 60 s mesh reconcile
 
 Every replica re-renders `wg0.conf` from the database **every 60 s**, and this

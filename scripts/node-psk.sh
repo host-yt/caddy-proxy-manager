@@ -20,6 +20,8 @@ set -euo pipefail
 PANEL=""
 TOKEN=""
 IFACE="wg0"
+# See scripts/node-join.sh: the mesh interface needs a fixed source port.
+WG_LISTEN_PORT="51820"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -112,6 +114,16 @@ mv "$tmp" "$CONF"
 # From here on wg0.conf holds a key the panel has not committed. A Ctrl-C in
 # this window would otherwise leave it there and break the next `wg-quick up`.
 trap 'rollback; exit 1' ERR INT TERM
+
+# Heal a config written by a node-join.sh from before ListenPort was pinned.
+# Without it the kernel picks a new random source port on every `wg syncconf`,
+# the panel keeps sending to the old one, and panel->node is blackholed until
+# the next PersistentKeepalive. The same syncconf below applies both changes.
+if ! grep -qiE '^[[:space:]]*ListenPort[[:space:]]*=' "$CONF"; then
+  log "No ListenPort in $CONF - pinning it to $WG_LISTEN_PORT (it was re-randomised on every syncconf)"
+  sed -i "0,/^\\[Interface\\]/s//[Interface]\\nListenPort = ${WG_LISTEN_PORT}/" "$CONF"
+  chmod 600 "$CONF"
+fi
 
 log "Applying the new config to interface $IFACE"
 if ! wg syncconf "$IFACE" <(wg-quick strip "$IFACE"); then
