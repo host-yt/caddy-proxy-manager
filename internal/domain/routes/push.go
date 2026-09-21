@@ -311,18 +311,11 @@ func (s *Service) ReconcileDrift(ctx context.Context) {
 			}
 			client := s.NodeClient(ctx, n.id, n.apiURL)
 			probeCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-			actualRaw, err := client.GetRaw(probeCtx, "/config/apps/http/servers/srv0/routes")
+			actual, err := s.actualNodeManifestHash(probeCtx, client)
 			cancel()
 			if err != nil {
 				return
 			}
-			// Canonicalise before hashing: Caddy may reformat the GET response
-			// (map key order, whitespace) so a raw hash flaps even when the
-			// route set is identical, triggering an infinite resync loop.
-			// Unmarshal+re-marshal gives stable byte output on both sides.
-			// Drop infra routes (panel_self, hpg_wstunnel_*) the expected hash
-			// never carries - else a panel/WSS node drifts every cycle forever.
-			actual := canonHashBytes(filterVirtualRoutes(actualRaw))
 			if actual == expected {
 				return
 			}
@@ -556,12 +549,50 @@ func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush
 		s.Metrics.CaddyPushOK()
 	}
 	pushHash := hashRoutes(np.built)
-	for _, id := range np.routeIDs {
-		_, _ = s.DB.ExecContext(ctx,
-			"UPDATE routes SET last_pushed_at = NOW(), last_pushed_hash = ? WHERE id = ?",
-			pushHash, id)
+	if err := s.markRoutesPushed(ctx, np.routeIDs, pushHash); err != nil {
+		// The /load already succeeded - the config IS live. This bookkeeping
+		// failure only means last_pushed_at/hash may now lag reality, so log
+		// it rather than fail an otherwise-successful push (HPG-021).
+		s.Logger.Warn("push metadata update failed; last_pushed_at/hash may lag the live config",
+			"node_id", nodeID, "err", err)
 	}
 	s.Logger.Info("caddy push ok", "node_id", nodeID, "routes", len(np.built), "hash", pushHash[:12])
+	return nil
+}
+
+// pushMetaChunkSize bounds how many route IDs land in one UPDATE's IN(...)
+// list, so a 10k-route push issues ~20 statements instead of one per route.
+const pushMetaChunkSize = 500
+
+// markRoutesPushed batch-updates last_pushed_at/last_pushed_hash for every
+// route in the just-applied snapshot (HPG-021). Previously this ran one
+// ExecContext per route with errors discarded (`_, _ =`), so a 10k-route push
+// issued ~10k statements and a failing one went unnoticed.
+//
+// The timestamp/hash mean "this route was included in the snapshot the node
+// was told to load", not "this route was individually verified live" - Load
+// is one atomic all-or-nothing call, so the whole batch either happened or
+// the push already returned an error before this is ever called.
+func (s *Service) markRoutesPushed(ctx context.Context, ids []int64, hash string) error {
+	for len(ids) > 0 {
+		n := pushMetaChunkSize
+		if n > len(ids) {
+			n = len(ids)
+		}
+		chunk := ids[:n]
+		ids = ids[n:]
+		placeholders := strings.Repeat("?,", len(chunk))
+		placeholders = placeholders[:len(placeholders)-1]
+		args := make([]any, 0, len(chunk)+1)
+		args = append(args, hash)
+		for _, id := range chunk {
+			args = append(args, id)
+		}
+		q := "UPDATE routes SET last_pushed_at = NOW(), last_pushed_hash = ? WHERE id IN (" + placeholders + ")"
+		if _, err := s.DB.ExecContext(ctx, q, args...); err != nil {
+			return fmt.Errorf("mark routes pushed: %w", err)
+		}
+	}
 	return nil
 }
 
@@ -783,11 +814,13 @@ func hashBytes(b []byte) string {
 // integer precision; the default float64 path otherwise flaps the
 // hash and triggers infinite drift resync.
 // filterVirtualRoutes drops infra routes (panel self-route, wstunnel WSS route)
-// from a Caddy srv0/routes array so drift compares only customer routes, which
-// is all expectedNodeHash builds. BuildRoute emits @id="route_"+ID, so the panel
-// route (ID "panel_self") lands as "route_panel_self"; the wstunnel route is
-// built directly as "hpg_wstunnel_*". Customer routes are "route_<numeric>" and
-// are kept. Leaves input untouched if it's not the expected array.
+// from a Caddy srv0/routes array so drift compares only customer routes -
+// neither lives in the routes table, so the DB-derived side never carries
+// them either (see stripVirtualRoutes). BuildRoute emits @id="route_"+ID, so
+// the panel route (ID "panel_self") lands as "route_panel_self"; the wstunnel
+// route is built directly as "hpg_wstunnel_*". Customer routes are
+// "route_<numeric>" and are kept. Leaves input untouched if it's not the
+// expected array.
 func filterVirtualRoutes(raw []byte) []byte {
 	var arr []json.RawMessage
 	if err := json.Unmarshal(raw, &arr); err != nil {
@@ -825,15 +858,142 @@ func canonHashBytes(b []byte) string {
 	return hashBytes(canon)
 }
 
-// expectedNodeHash computes the canonical-format hash of the Caddy routes
-// array Caddy would currently expose, derived from the DB. The drift probe
-// compares this to whatever Caddy actually returns over the admin API.
+// managedConfigPaths are the Caddy admin-API subtrees push actually writes on
+// every /load, in GET-path form. Reconcile hashes exactly these on both sides
+// (HPG-010): before this, drift only compared the bare HTTP route array, so a
+// TLS connection policy, a wildcard DNS-01 policy, or an L4 stream set could
+// diverge on a node and no resync would ever fire.
+//
+// Ownership contract - deliberately NOT compared, so these stay unmanaged by
+// reconcile:
+//   - admin.listen / top-level logging: infra bind, not DB-derived customer
+//     state; an operator changing it is an explicit resync, not drift.
+//   - apps.cache: static per-install block with no per-node deterministic
+//     field beyond what's already implied by route matching.
+//   - apps.tls.certificates: Caddy populates this itself as ACME/manual certs
+//     are obtained. It is never byte-equal to anything we send, so comparing
+//     it would make every node "drift" forever.
+//
+// Any manual edit an operator made inside a path THIS list does cover was
+// already being silently clobbered by the next full push - reconcile noticing
+// it sooner (and resyncing) is the intended effect of this fix, not a new one.
+var managedConfigPaths = []string{
+	"apps/http/servers/srv0",
+	"apps/tls/automation/policies",
+	"apps/layer4",
+}
+
+// lookupConfigPath walks a slash-separated path through nested
+// map[string]any, mirroring the shape of a Caddy config GET path.
+func lookupConfigPath(cfg any, path string) (any, bool) {
+	cur := cfg
+	for _, seg := range strings.Split(path, "/") {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		cur, ok = m[seg]
+		if !ok {
+			return nil, false
+		}
+	}
+	return cur, true
+}
+
+// stripVirtualRoutes removes the panel-self and wstunnel infra routes from a
+// srv0 section's "routes" array (they don't live in the routes table, so the
+// DB-derived side never carries them - see filterVirtualRoutes). Returns a
+// shallow copy; never mutates the map that will actually be /load'ed.
+func stripVirtualRoutes(srv0 map[string]any) map[string]any {
+	routes, ok := srv0["routes"]
+	if !ok {
+		return srv0
+	}
+	b, err := json.Marshal(routes)
+	if err != nil {
+		return srv0
+	}
+	var filtered []any
+	if err := json.Unmarshal(filterVirtualRoutes(b), &filtered); err != nil {
+		return srv0
+	}
+	out := make(map[string]any, len(srv0))
+	for k, v := range srv0 {
+		out[k] = v
+	}
+	out["routes"] = filtered
+	return out
+}
+
+// nodeSnapshotManifest picks the managedConfigPaths sections out of a full
+// node config (as buildNodePush produces it) into one canonical, hashable
+// structure. Both the expected (DB-built) and actual (node-fetched) sides
+// run through this so they are compared shape-for-shape.
+func nodeSnapshotManifest(cfg map[string]any) map[string]any {
+	manifest := map[string]any{}
+	for _, path := range managedConfigPaths {
+		if v, ok := lookupConfigPath(cfg, path); ok {
+			manifest[path] = v
+		}
+	}
+	if srv0, ok := manifest["apps/http/servers/srv0"].(map[string]any); ok {
+		manifest["apps/http/servers/srv0"] = stripVirtualRoutes(srv0)
+	}
+	return manifest
+}
+
+// expectedNodeHash computes the canonical hash of the managed config sections
+// built from DB state via buildNodePush - the same builder the real push
+// uses, not a separate narrower projection (HPG-010).
 func (s *Service) expectedNodeHash(ctx context.Context, nodeID int64) (string, error) {
-	built, _, err := s.buildRoutesForNode(ctx, nodeID)
+	np, err := s.buildNodePush(ctx, nodeID)
 	if err != nil {
 		return "", err
 	}
-	return hashRoutes(built), nil
+	b, err := json.Marshal(nodeSnapshotManifest(np.cfg))
+	if err != nil {
+		return "", err
+	}
+	return canonHashBytes(b), nil
+}
+
+// actualNodeManifestHash fetches managedConfigPaths from the live node and
+// hashes them the same way nodeSnapshotManifest does. apps/http/servers/srv0
+// must always exist, so an error there aborts the probe (inconclusive, try
+// next sweep); the other paths are module-gated and simply absent when the
+// node hasn't mounted that app - matching an expected side that omits them
+// too.
+func (s *Service) actualNodeManifestHash(ctx context.Context, client *caddyapi.Client) (string, error) {
+	manifest := map[string]any{}
+	for _, path := range managedConfigPaths {
+		raw, err := client.GetRaw(ctx, "/config/"+path)
+		if err != nil {
+			if path == "apps/http/servers/srv0" {
+				return "", err
+			}
+			continue
+		}
+		trimmed := strings.TrimSpace(string(raw))
+		if trimmed == "" || trimmed == "null" {
+			continue
+		}
+		var v any
+		if err := json.Unmarshal(raw, &v); err != nil {
+			return "", err
+		}
+		manifest[path] = v
+	}
+	if srv0, ok := manifest["apps/http/servers/srv0"].(map[string]any); ok {
+		manifest["apps/http/servers/srv0"] = stripVirtualRoutes(srv0)
+	}
+	// Canonicalise before hashing: Caddy may reformat the GET response (map key
+	// order, whitespace, number encoding) so a raw hash flaps even when the
+	// config is identical, triggering an infinite resync loop.
+	b, err := json.Marshal(manifest)
+	if err != nil {
+		return "", err
+	}
+	return canonHashBytes(b), nil
 }
 
 // ensureStableHash is a helper used in tests; not called from production.
