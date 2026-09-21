@@ -21,7 +21,7 @@ This policy applies from 1.5.0 onward. Earlier history does not follow it
 consistently - 1.4.2, 1.4.3 and 1.4.9 shipped features as patch releases - and
 is deliberately left as published.
 
-## [Unreleased]
+## [1.5.0] - 2026-09-21
 
 Post-quantum readiness (PQ-01). The threat is harvest-now-decrypt-later:
 traffic recorded today and decrypted once a quantum computer exists. TLS
@@ -32,6 +32,16 @@ TLS, and regressions are caught in CI and at release. Full detail, verification
 commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
 
 ### Security
+
+- **An mTLS-enforced host was still reachable in the clear on port 80.**
+  Client-certificate enforcement lives in the TLS connection policy, so it
+  applies only once a request arrives over TLS; the plaintext listener served
+  the same host with no check at all. `force_https` was a separate stored flag
+  that nothing set when enforcement was turned on. The route builder now
+  derives it from `require_client_cert`, which also covers every row already in
+  the database, and `strict_sni_host` is pinned explicitly so a request cannot
+  reach the host under a different SNI. Migration `00145` backfills
+  `force_https = 1` on existing enforced routes.
 
 - **A host could require client certificates while serving without TLS.** The
   client-authentication policy is part of the route's TLS connection policy,
@@ -167,6 +177,15 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
   rather than merely unsigned.
 
 ### Fixed
+
+- **The WireGuard mesh was dead on every fresh install.** The `wg` named volume
+  is populated from the image at first start, but Docker skips that copy - and
+  the ownership that comes with it - when the image's directory is empty, so
+  the volume stayed root-owned and the non-root panel process could not write
+  `wg0.conf`. Nothing recovered on its own; the node never came up. The image
+  now ships a placeholder in `/app/wg` and `/app/data` so the copy actually
+  happens. Found by an end-to-end run against real kernel WireGuard, which no
+  unit test could have caught.
 
 - **Every `wg syncconf` on a node re-randomised its WireGuard source port and
   blackholed panel -> node traffic for up to 25 s.** `node-join.sh` wrote no
