@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
@@ -23,26 +24,52 @@ const idempotencyTTL = 24 * time.Hour
 const (
 	idemStatePending = 0
 	idemStateDone    = 1
+	// idemStateUnresolved: the handler ran and reported success, but the
+	// outcome could not be recorded. A retry must not re-execute it and must
+	// not be told "in progress" for the next 24 h.
+	idemStateUnresolved = 2
 )
 
-// replayHeaders are the response headers worth preserving for a faithful replay.
-var replayHeaders = []string{"Content-Type", "Location"}
+// idemLease bounds how long a pending row counts as genuinely in flight. Past
+// it, the owning request is gone and the outcome is unknown, not in progress.
+const idemLease = 2 * time.Minute
 
-// captureWriter buffers the response so we can store it for replay.
+// replayHeaders are the response headers worth preserving for a faithful replay.
+var replayHeaders = []string{"Content-Type", "Location", "X-Operation-Id"}
+
+// captureWriter holds the whole response back: nothing reaches the client
+// until the outcome is recorded, so a caller can never see a 201 whose
+// idempotency row stayed pending.
 type captureWriter struct {
-	http.ResponseWriter
+	hdr    http.Header
 	buf    bytes.Buffer
 	status int
+	wrote  bool
 }
 
+func (cw *captureWriter) Header() http.Header { return cw.hdr }
+
 func (cw *captureWriter) WriteHeader(status int) {
+	if cw.wrote {
+		return
+	}
 	cw.status = status
-	cw.ResponseWriter.WriteHeader(status)
+	cw.wrote = true
 }
 
 func (cw *captureWriter) Write(b []byte) (int, error) {
-	cw.buf.Write(b)
-	return cw.ResponseWriter.Write(b)
+	cw.wrote = true
+	return cw.buf.Write(b)
+}
+
+// flush replays the buffered response onto the real writer.
+func (cw *captureWriter) flush(w http.ResponseWriter) {
+	dst := w.Header()
+	for k, v := range cw.hdr {
+		dst[k] = v
+	}
+	w.WriteHeader(cw.status)
+	_, _ = w.Write(cw.buf.Bytes())
 }
 
 // mutatingMethod reports whether a method changes state and is therefore worth
@@ -111,14 +138,22 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 			resCtx, resCancel := context.WithTimeout(r.Context(), 2*time.Second)
 			defer resCancel()
 
-			// Expiry is computed DB-side to share a clock with the
+			// operation_id is the durable handle for this attempt: it goes to
+			// the client and the logs, so an operation whose outcome could not
+			// be recorded can still be traced to what actually happened.
+			opID, oerr := newOperationID()
+			if oerr != nil {
+				writeJSONErr(w, http.StatusServiceUnavailable, "idempotency store unavailable; retry")
+				return
+			}
+			// Expiry and lease are computed DB-side to share a clock with the
 			// 'expires_at > NOW()' lookup below: the panel's timezone need not
 			// match the DB server's.
 			_, err = d.ExecContext(resCtx,
-				`INSERT INTO idempotency_keys (idem_key, user_id, method, path, body_hash, state, response_body, expires_at)
-				 VALUES (?, ?, ?, ?, ?, ?, NULL, `+store.DateAddSecondsParam()+`)`,
-				keyHash, c.UserID, r.Method, r.URL.Path, bodyHash, idemStatePending,
-				int(idempotencyTTL/time.Second),
+				`INSERT INTO idempotency_keys (idem_key, user_id, method, path, body_hash, state, operation_id, lease_until, response_body, expires_at)
+				 VALUES (?, ?, ?, ?, ?, ?, ?, `+store.DateAddSecondsParam()+`, NULL, `+store.DateAddSecondsParam()+`)`,
+				keyHash, c.UserID, r.Method, r.URL.Path, bodyHash, idemStatePending, opID,
+				int(idemLease/time.Second), int(idempotencyTTL/time.Second),
 			)
 			if err != nil {
 				// Only a unique-key collision means "an entry already exists".
@@ -133,20 +168,24 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 				}
 				// Duplicate key: an entry already exists - inspect it.
 				var (
-					state   int
-					method  string
-					path    string
-					oldHash string
-					status  sql.NullInt64
-					body    sql.NullString
-					hdrs    sql.NullString
+					state    int
+					method   string
+					path     string
+					oldHash  string
+					oldOpID  sql.NullString
+					inFlight bool
+					status   sql.NullInt64
+					body     sql.NullString
+					hdrs     sql.NullString
 				)
 				selErr := d.QueryRowContext(resCtx,
-					`SELECT state, method, path, body_hash, response_status, response_body, response_headers
+					`SELECT state, method, path, body_hash, operation_id,
+					        CASE WHEN lease_until IS NOT NULL AND lease_until > NOW() THEN 1 ELSE 0 END,
+					        response_status, response_body, response_headers
 					 FROM idempotency_keys
 					 WHERE idem_key=? AND user_id=? AND expires_at > NOW()`,
 					keyHash, c.UserID,
-				).Scan(&state, &method, &path, &oldHash, &status, &body, &hdrs)
+				).Scan(&state, &method, &path, &oldHash, &oldOpID, &inFlight, &status, &body, &hdrs)
 				switch {
 				case errors.Is(selErr, sql.ErrNoRows):
 					// The colliding row is expired. Reclaim it for this request
@@ -154,12 +193,13 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 					// on it still being expired, so only one racing request wins.
 					res, rerr := d.ExecContext(resCtx,
 						`UPDATE idempotency_keys
-						    SET method=?, path=?, body_hash=?, state=?,
+						    SET method=?, path=?, body_hash=?, state=?, operation_id=?,
+						        lease_until=`+store.DateAddSecondsParam()+`,
 						        response_status=NULL, response_body=NULL, response_headers=NULL,
 						        expires_at=`+store.DateAddSecondsParam()+`
 						  WHERE idem_key=? AND user_id=? AND expires_at <= NOW()`,
-						r.Method, r.URL.Path, bodyHash, idemStatePending,
-						int(idempotencyTTL/time.Second), keyHash, c.UserID)
+						r.Method, r.URL.Path, bodyHash, idemStatePending, opID,
+						int(idemLease/time.Second), int(idempotencyTTL/time.Second), keyHash, c.UserID)
 					if rerr != nil {
 						writeJSONErr(w, http.StatusServiceUnavailable, "idempotency store unavailable; retry")
 						return
@@ -179,8 +219,16 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 						writeJSONErr(w, http.StatusConflict, "idempotency_key reused for a different request")
 						return
 					}
-					if state == idemStatePending {
+					if state == idemStatePending && inFlight {
 						writeJSONErr(w, http.StatusConflict, "request with this idempotency_key is already in progress")
+						return
+					}
+					// Pending past its lease, or explicitly unresolved: the
+					// operation may well have been applied, so replaying it
+					// would duplicate and re-running it is not allowed. Hand
+					// back the operation id so it can be reconciled.
+					if state != idemStateDone {
+						writeIdemUnresolved(w, oldOpID.String)
 						return
 					}
 					// Completed: replay the stored response verbatim.
@@ -198,10 +246,14 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 				}
 			}
 
-			cw := &captureWriter{ResponseWriter: w, status: http.StatusOK}
+			cw := &captureWriter{hdr: http.Header{}, status: http.StatusOK}
+			cw.hdr.Set("X-Operation-Id", opID)
 			next.ServeHTTP(cw, r)
 
-			storeCtx, storeCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+			// Detached from the request: a client that hung up mid-write must
+			// not leave the outcome unrecorded. Generous timeout - the whole
+			// point is that this write, not the response, decides the state.
+			storeCtx, storeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer storeCancel()
 
 			// Only cache successful or conflict responses (2xx / 409). For anything
@@ -211,19 +263,82 @@ func Idempotency(db func() *sql.DB) func(http.Handler) http.Handler {
 					`DELETE FROM idempotency_keys WHERE idem_key=? AND user_id=? AND state=?`,
 					keyHash, c.UserID, idemStatePending,
 				)
+				cw.flush(w)
 				return
 			}
 
-			_, _ = d.ExecContext(storeCtx,
-				`UPDATE idempotency_keys
-				 SET state=?, response_status=?, response_body=?, response_headers=?,
-				     expires_at=`+store.DateAddSecondsParam()+`
-				 WHERE idem_key=? AND user_id=?`,
-				idemStateDone, cw.status, cw.buf.String(), captureHeaders(cw.Header()),
-				int(idempotencyTTL/time.Second), keyHash, c.UserID,
-			)
+			if ferr := finalizeIdem(storeCtx, d, keyHash, c.UserID, cw); ferr != nil {
+				// The handler already applied its change; only the record of it
+				// is missing. Flag the row so the retry gets a definite answer
+				// instead of a 24 h "in progress", and tell the caller that the
+				// operation needs reconciliation rather than a blind retry.
+				markIdemUnresolved(storeCtx, d, keyHash, c.UserID)
+				slog.Error("idempotency finalize failed", "err", ferr, "path", r.URL.Path, "operation_id", opID)
+				writeIdemUnresolved(w, opID)
+				return
+			}
+			cw.flush(w)
 		})
 	}
+}
+
+// newOperationID returns a random durable handle for one attempt.
+func newOperationID() (string, error) {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
+}
+
+// finalizeIdem records the response against the reservation. The result is
+// checked - an ignored UPDATE here is exactly how a row stayed pending after a
+// successful operation. One retry covers a momentary DB blip.
+func finalizeIdem(ctx context.Context, d *sql.DB, keyHash string, userID int64, cw *captureWriter) error {
+	var lastErr error
+	for attempt := 0; attempt < 2; attempt++ {
+		res, err := d.ExecContext(ctx,
+			`UPDATE idempotency_keys
+			 SET state=?, lease_until=NULL, response_status=?, response_body=?, response_headers=?,
+			     expires_at=`+store.DateAddSecondsParam()+`
+			 WHERE idem_key=? AND user_id=? AND state=?`,
+			idemStateDone, cw.status, cw.buf.String(), captureHeaders(cw.hdr),
+			int(idempotencyTTL/time.Second), keyHash, userID, idemStatePending,
+		)
+		if err == nil {
+			if n, rerr := res.RowsAffected(); rerr == nil && n == 0 {
+				return errors.New("idempotency reservation vanished before finalize")
+			}
+			return nil
+		}
+		lastErr = err
+	}
+	return lastErr
+}
+
+// markIdemUnresolved is best effort: if it too fails, the lease expiry makes
+// the row unresolved by time, which reads the same way to a retry.
+func markIdemUnresolved(ctx context.Context, d *sql.DB, keyHash string, userID int64) {
+	_, _ = d.ExecContext(ctx,
+		`UPDATE idempotency_keys SET state=?, lease_until=NULL WHERE idem_key=? AND user_id=? AND state=?`,
+		idemStateUnresolved, keyHash, userID, idemStatePending)
+}
+
+// writeIdemUnresolved answers a request whose operation may have been applied
+// but whose result is not recorded. Machine-readable so a client can reconcile
+// on the operation id instead of retrying with a fresh key and duplicating.
+func writeIdemUnresolved(w http.ResponseWriter, opID string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusConflict)
+	_ = json.NewEncoder(w).Encode(struct {
+		Error       string `json:"error"`
+		Code        string `json:"code"`
+		OperationID string `json:"operation_id,omitempty"`
+	}{
+		Error:       "operation with this idempotency_key was executed but its result was not recorded; reconcile before retrying",
+		Code:        "idempotent_operation_unresolved",
+		OperationID: opID,
+	})
 }
 
 // isDuplicateKeyErr reports whether err is a unique-key violation, in either
