@@ -49,3 +49,8 @@ caddy_config/
 # compiled binaries
 /node-agent
 /server
+
+# Security reviews, audits and scan output stay local - never in a public repo.
+_docs/
+*SYSTEM_REVIEW*
+*REVIEW_EVIDENCE*
