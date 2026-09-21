@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
@@ -121,6 +122,13 @@ func (h *ClientHandlers) GeoBlockUpdate(w http.ResponseWriter, r *http.Request) 
 			clientRedirectFlash(w, r, "/app/account", "", "URLs must be http(s)://")
 			return
 		}
+	}
+	// isHTTPURL parses the URL but says nothing about placeholders, and this one
+	// is emitted into the node config - an unscreened value quarantines every
+	// route of this client at the next push.
+	if err := caddyapi.ScreenTenantTemplate(redirectURL); err != nil {
+		clientRedirectFlash(w, r, "/app/account", "", "redirect URL: "+sanitizeErr(err))
+		return
 	}
 	if bgColor != "" && !isSafeCSSColor(bgColor) {
 		clientRedirectFlash(w, r, "/app/account", "", "background colour must be #RGB / #RRGGBB / #RRGGBBAA or rgb()/rgba()")

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
@@ -222,6 +223,12 @@ func (h *AdminHandlers) BrandingSave(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/settings", "", "all URLs must be http(s)://")
 			return
 		}
+	}
+	// The geo-block redirect is emitted into the node config, unlike the logo
+	// URLs beside it, so it also has to pass the placeholder policy.
+	if err := caddyapi.ScreenTenantTemplate(gbRedirect); err != nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "geo-block redirect URL: "+sanitizeErr(err))
+		return
 	}
 	// Background colour: accept #hex (3/6/8) or a CSS rgb(...) literal.
 	// Reject anything else so we don't smuggle arbitrary CSS into the
