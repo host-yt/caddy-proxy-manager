@@ -2,6 +2,25 @@
 
 All notable changes to this project. Format: [Keep a Changelog](https://keepachangelog.com).
 
+## Versioning
+
+Semantic versioning, decided by what a release actually contains:
+
+- only fixes or security work -> **patch** (1.5.0 -> 1.5.1)
+- anything under `### Added` -> **minor** (1.5.1 -> 1.6.0)
+- upgrade notes that need manual operator work -> **minor**, or **major** if
+  something that worked stops working
+
+Minor numbers are not decimals: 1.9.0 is followed by 1.10.0, and 1.x can run
+indefinitely. 2.0.0 is reserved for a break that forces every operator to act -
+a config or API format change, a removed feature, an upgrade that needs more
+than `docker pull`.
+
+Released versions are immutable; tags and image tags are never renumbered.
+This policy applies from 1.5.0 onward. Earlier history does not follow it
+consistently - 1.4.2, 1.4.3 and 1.4.9 shipped features as patch releases - and
+is deliberately left as published.
+
 ## [Unreleased]
 
 Post-quantum readiness (PQ-01). The threat is harvest-now-decrypt-later:
@@ -557,6 +576,29 @@ Security release. It closes a scan of 24 findings plus everything thirteen round
 - **First-run On-Demand TLS 403 (#1)**: on a clean install the panel's own domain lived only in `caddy_nodes`, so `/internal/ask` denied Caddy's cert request and the panel could never provision its own certificate. The panel's `APP_URL` host is now always approved for issuance.
 - **First-run login loop over HTTP IP (#1)**: the session/auth cookie `Secure` flag was static from config, so accessing the panel via `http://<IP>:8080` before TLS was set up made browsers silently drop the cookie (endless redirect to login). `Secure` is now derived per-request - kept on real HTTPS (direct TLS or `X-Forwarded-Proto: https`), dropped on plain HTTP. Never upgrades a request that config marked insecure.
 - **WireGuard node-to-master 0 bit/s stall (#2)**: Docker forces the kernel `FORWARD` policy to `DROP`, so node-to-master traffic that DNATs into a published container port was silently dropped (infinite TCP retransmits). The master `wg0.conf` now installs `FORWARD` accept rules for `wg0` on interface up and removes them on down; harmless on non-Docker hosts.
+
+## [1.3.3] - 2026-07-04
+
+Recorded after the fact; this release was tagged without a CHANGELOG section.
+
+### Security
+
+- Second-pass audit findings F-07..F-19 and hardening batch S-01..S-06:
+  supply-chain and break-glass gates, per-key quota, portal CSRF, error leaks,
+  secret handling, SQLite path handling.
+- Route-edit takeover, tenant scoping, and rate-limiter / `X-Forwarded-Host`
+  hardening.
+
+### Added
+
+- Complete OpenAPI specification with a dynamic server URL and role-scoped
+  visibility.
+- Reseller Terraform resources (F6b) and their documentation.
+
+### Removed
+
+- The `sqlc` code generation step, which was unused and broke the release
+  build.
 
 ## [1.3.2] - 2026-07-03
 
