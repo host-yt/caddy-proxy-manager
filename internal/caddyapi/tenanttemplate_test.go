@@ -143,6 +143,16 @@ func TestErrorPageBrandingIsNotAnInjectionPoint(t *testing.T) {
 	if ok := renderErrorPage(503, "t", "m", ErrorBranding{BgColor: "rgb(10, 20, 30)"}); !strings.Contains(ok, "rgb(10, 20, 30)") {
 		t.Error("a legitimate CSS colour must survive")
 	}
+	for _, u := range []string{"/static/logo.png", "logo.png", "https://cdn.example/l.svg"} {
+		if got := safeAssetURL(u); got != u {
+			t.Errorf("safeAssetURL(%q) = %q, want it kept", u, got)
+		}
+	}
+	for _, u := range []string{"javascript:alert(1)", "data:text/html,x", "//evil.example/l.png"} {
+		if got := safeAssetURL(u); got != "" {
+			t.Errorf("safeAssetURL(%q) = %q, want it dropped", u, got)
+		}
+	}
 }
 
 // HPG-006: the rewrite that turns the auth SUBREQUEST into a GET must live

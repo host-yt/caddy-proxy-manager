@@ -15,15 +15,17 @@ var cssColorSafe = regexp.MustCompile(`^[#a-zA-Z0-9(),.% -]{1,64}$`)
 // URL. Absolute http(s) or site-relative only; anything else drops the link.
 func safeAssetURL(u string) string {
 	t := strings.TrimSpace(u)
-	switch {
-	case t == "":
+	if t == "" || strings.HasPrefix(t, "//") {
 		return ""
-	case strings.HasPrefix(t, "https://"), strings.HasPrefix(t, "http://"):
-		return t
-	case strings.HasPrefix(t, "/") && !strings.HasPrefix(t, "//"):
+	}
+	if strings.HasPrefix(t, "https://") || strings.HasPrefix(t, "http://") {
 		return t
 	}
-	return ""
+	// Any other scheme (javascript:, data:) is refused; a bare path is fine.
+	if i := strings.IndexAny(t, ":/"); i >= 0 && t[i] == ':' {
+		return ""
+	}
+	return t
 }
 
 // renderErrorPage returns a self-contained HTML doc for error /
