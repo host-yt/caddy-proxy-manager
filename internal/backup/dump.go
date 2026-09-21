@@ -7,9 +7,24 @@ import (
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
+
+// dumpTimeout bounds how long a dump may hold its snapshot transaction open.
+// MySQL keeps undo log entries and SQLite keeps WAL pages alive for the
+// whole transaction, so a stuck or oversized dump must not hold it forever
+// (HPG-012).
+const dumpTimeout = 15 * time.Minute
+
+// queryer is satisfied by both *sql.DB and *sql.Conn. Dump functions take it
+// pinned to a single *sql.Conn so every query in the dump runs against the
+// same connection - and therefore the same transaction snapshot.
+type queryer interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
 
 // DumpDatabase writes a logical dump (DDL + INSERTs) of the connected
 // database to w. Format is MariaDB-compatible plain SQL, restorable via
@@ -22,16 +37,51 @@ import (
 //
 // Skips: goose's internal version table is included (so a restore stays
 // consistent with the schema).
+//
+// The whole dump runs inside one read-only snapshot transaction on a single
+// connection (HPG-012): without it, each table is read independently and a
+// concurrent write between two of those reads can leave the archive with a
+// combination of rows that never coexisted in the live database (orphaned
+// relations across tables even though every individual SELECT succeeded).
 func DumpDatabase(ctx context.Context, db *sql.DB, w io.Writer) error {
 	if db == nil {
 		return fmt.Errorf("dump: nil db")
 	}
+	ctx, cancel := context.WithTimeout(ctx, dumpTimeout)
+	defer cancel()
+
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return fmt.Errorf("dump: acquire connection: %w", err)
+	}
+	defer conn.Close()
+
 	if store.Driver() == "sqlite3" {
 		// Different introspection AND different string escaping - see dump_sqlite.go.
-		return dumpSQLite(ctx, db, w)
+		return dumpSQLite(ctx, conn, w)
 	}
+	return dumpMySQL(ctx, conn, w)
+}
+
+func dumpMySQL(ctx context.Context, conn *sql.Conn, w io.Writer) (err error) {
+	if _, serr := conn.ExecContext(ctx, "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"); serr != nil {
+		return fmt.Errorf("dump: set isolation: %w", serr)
+	}
+	if _, serr := conn.ExecContext(ctx, "START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY"); serr != nil {
+		return fmt.Errorf("dump: start snapshot: %w", serr)
+	}
+	// Read-only: nothing to commit, and rolling back releases the snapshot
+	// promptly instead of leaving it to connection-close cleanup.
+	defer func() { _, _ = conn.ExecContext(context.Background(), "ROLLBACK") }()
+
 	bw := bufio.NewWriterSize(w, 1<<16)
-	defer bw.Flush()
+	defer func() {
+		// A flush error (e.g. disk full) must surface even though every
+		// individual buffered Write above it looked fine (HPG-013).
+		if ferr := bw.Flush(); err == nil {
+			err = ferr
+		}
+	}()
 
 	header := `-- Hostyt Proxy Gateway logical dump
 SET NAMES utf8mb4;
@@ -40,33 +90,33 @@ SET UNIQUE_CHECKS = 0;
 SET SQL_MODE = 'NO_AUTO_VALUE_ON_ZERO';
 
 `
-	if _, err := bw.WriteString(header); err != nil {
-		return err
+	if _, werr := bw.WriteString(header); werr != nil {
+		return werr
 	}
 
-	tables, err := listTables(ctx, db)
-	if err != nil {
-		return fmt.Errorf("list tables: %w", err)
+	tables, terr := listTables(ctx, conn)
+	if terr != nil {
+		return fmt.Errorf("list tables: %w", terr)
 	}
 
 	for _, t := range tables {
 		// DDL.
-		if _, err := fmt.Fprintf(bw, "DROP TABLE IF EXISTS `%s`;\n", t); err != nil {
-			return err
+		if _, werr := fmt.Fprintf(bw, "DROP TABLE IF EXISTS `%s`;\n", t); werr != nil {
+			return werr
 		}
-		ddl, err := showCreate(ctx, db, t)
-		if err != nil {
-			return fmt.Errorf("show create %s: %w", t, err)
+		ddl, cerr := showCreate(ctx, conn, t)
+		if cerr != nil {
+			return fmt.Errorf("show create %s: %w", t, cerr)
 		}
-		if _, err := bw.WriteString(ddl + ";\n\n"); err != nil {
-			return err
+		if _, werr := bw.WriteString(ddl + ";\n\n"); werr != nil {
+			return werr
 		}
 		// Data.
-		if err := dumpRows(ctx, db, t, bw); err != nil {
-			return fmt.Errorf("dump rows %s: %w", t, err)
+		if rerr := dumpRows(ctx, conn, t, bw); rerr != nil {
+			return fmt.Errorf("dump rows %s: %w", t, rerr)
 		}
-		if _, err := bw.WriteString("\n"); err != nil {
-			return err
+		if _, werr := bw.WriteString("\n"); werr != nil {
+			return werr
 		}
 	}
 
@@ -92,7 +142,7 @@ func validIdentifier(s string) bool {
 	return true
 }
 
-func listTables(ctx context.Context, db *sql.DB) ([]string, error) {
+func listTables(ctx context.Context, db queryer) ([]string, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT TABLE_NAME FROM information_schema.tables
 		 WHERE TABLE_SCHEMA = DATABASE() AND TABLE_TYPE = 'BASE TABLE'
@@ -115,7 +165,7 @@ func listTables(ctx context.Context, db *sql.DB) ([]string, error) {
 	return out, rows.Err()
 }
 
-func showCreate(ctx context.Context, db *sql.DB, table string) (string, error) {
+func showCreate(ctx context.Context, db queryer, table string) (string, error) {
 	if !validIdentifier(table) {
 		return "", fmt.Errorf("invalid table name: %q", table)
 	}
@@ -127,7 +177,7 @@ func showCreate(ctx context.Context, db *sql.DB, table string) (string, error) {
 	return ddl, nil
 }
 
-func dumpRows(ctx context.Context, db *sql.DB, table string, w io.Writer) error {
+func dumpRows(ctx context.Context, db queryer, table string, w io.Writer) error {
 	if !validIdentifier(table) {
 		return fmt.Errorf("invalid table name: %q", table)
 	}

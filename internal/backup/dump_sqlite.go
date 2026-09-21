@@ -16,9 +16,21 @@ import (
 // shared: SQLite has no information_schema/SHOW CREATE, and its string
 // literals escape quotes by doubling - backslash escapes would be stored
 // verbatim.
-func dumpSQLite(ctx context.Context, db *sql.DB, w io.Writer) error {
+func dumpSQLite(ctx context.Context, conn *sql.Conn, w io.Writer) (err error) {
+	// The pool already caps SQLite at one connection, but pinning this dump
+	// to an explicit transaction still gives a real read snapshot rather
+	// than relying on pool serialization alone (HPG-012).
+	if _, berr := conn.ExecContext(ctx, "BEGIN"); berr != nil {
+		return fmt.Errorf("dump: begin snapshot: %w", berr)
+	}
+	defer func() { _, _ = conn.ExecContext(context.Background(), "ROLLBACK") }()
+
 	bw := bufio.NewWriterSize(w, 1<<16)
-	defer bw.Flush()
+	defer func() {
+		if ferr := bw.Flush(); err == nil {
+			err = ferr
+		}
+	}()
 
 	if _, err := bw.WriteString("-- Hostyt Proxy Gateway logical dump (sqlite)\nPRAGMA foreign_keys=OFF;\n\n"); err != nil {
 		return err
@@ -26,7 +38,7 @@ func dumpSQLite(ctx context.Context, db *sql.DB, w io.Writer) error {
 
 	type object struct{ name, ddl string }
 	listObjects := func(typ string) ([]object, error) {
-		rows, err := db.QueryContext(ctx,
+		rows, err := conn.QueryContext(ctx,
 			`SELECT name, sql FROM sqlite_master
 			 WHERE type = ? AND name NOT LIKE 'sqlite_%' AND sql IS NOT NULL
 			 ORDER BY name ASC`, typ)
@@ -56,7 +68,7 @@ func dumpSQLite(ctx context.Context, db *sql.DB, w io.Writer) error {
 		if _, err := fmt.Fprintf(bw, "DROP TABLE IF EXISTS `%s`;\n%s;\n\n", t.name, t.ddl); err != nil {
 			return err
 		}
-		if err := dumpRowsSQLite(ctx, db, t.name, bw); err != nil {
+		if err := dumpRowsSQLite(ctx, conn, t.name, bw); err != nil {
 			return fmt.Errorf("dump rows %s: %w", t.name, err)
 		}
 	}
@@ -76,7 +88,7 @@ func dumpSQLite(ctx context.Context, db *sql.DB, w io.Writer) error {
 	return err
 }
 
-func dumpRowsSQLite(ctx context.Context, db *sql.DB, table string, w io.Writer) error {
+func dumpRowsSQLite(ctx context.Context, db queryer, table string, w io.Writer) error {
 	rows, err := db.QueryContext(ctx, fmt.Sprintf("SELECT * FROM `%s`", table))
 	if err != nil {
 		return err

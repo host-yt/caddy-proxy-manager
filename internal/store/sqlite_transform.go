@@ -92,6 +92,11 @@ func unwrapProcedures(input string) string {
 	// guardNotExists records the guard's polarity, so a NOT EXISTS body can keep
 	// its "only if absent" intent via INSERT OR IGNORE once the guard is dropped.
 	guardNotExists := false
+	// guardInElse tracks an ELSEIF/ELSE branch (HPG-015: shape-verification
+	// SIGNALs for an existing-but-wrong-shape MySQL object). Goose applies
+	// each migration once per fresh SQLite DB, so that branch can never be
+	// reached there - drop it along with the guard itself.
+	guardInElse := false
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		upper := strings.ToUpper(trimmed)
@@ -121,6 +126,7 @@ func unwrapProcedures(input string) string {
 					inInfoGuard = false
 					guardPastThen = false
 					guardNotExists = false
+					guardInElse = false
 				} else {
 					result = append(result, line)
 				}
@@ -140,7 +146,15 @@ func unwrapProcedures(input string) string {
 					inInfoGuard = false
 					guardPastThen = false
 					guardNotExists = false
+					guardInElse = false
 					continue
+				}
+				if strings.HasPrefix(upper, "ELSEIF") || strings.HasPrefix(upper, "ELSE") {
+					guardInElse = true
+					continue
+				}
+				if guardInElse {
+					continue // discard the ELSEIF/ELSE branch entirely (HPG-015)
 				}
 				// Keep the inner DDL (ALTER TABLE, etc.).
 				if trimmed != "" {

@@ -350,7 +350,7 @@ newer-generation replica is advertising (that is the point - the older binary is
 and the refusal latches for the life of the process. To downgrade: stop *all* replicas of the newer
 generation, wait ~20s for their fleet keys to expire, then start the older ones fresh.
 
-Always take a database backup before upgrading (see section 6). Migrations run automatically on startup via the embedded goose runner and are idempotent.
+Always take a database backup before upgrading (see section 6). Migrations run automatically on startup via the embedded goose runner. Most are safely re-runnable if the process dies mid-migration (MariaDB/MySQL DDL implicit-commits, so this needs an explicit guard per statement - not every older migration has one yet). If a migration fails partway through on a live database, do not just restart the container in a loop: check the migration file the error names for a guard, or restore from the pre-upgrade backup before retrying.
 
 ```bash
 # Pull latest images

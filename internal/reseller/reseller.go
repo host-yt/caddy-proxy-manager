@@ -219,8 +219,14 @@ func (s *Store) SetStatus(ctx context.Context, id int64, status string) error {
 	return nil
 }
 
-// Delete removes a reseller; owned clients/plans/users have their reseller_id
-// reset to NULL by the ON DELETE SET NULL foreign keys (returns to platform-direct).
+// Delete removes a reseller. Owned clients/plans/users have their
+// reseller_id reset to NULL explicitly in this transaction (HPG-016): the
+// MySQL->SQLite migration transform has no equivalent for ADD CONSTRAINT
+// (SQLite can't add a FK to an existing table without a full rebuild), so
+// SQLite installs never got the ON DELETE SET NULL this used to rely on and
+// would otherwise leave reseller_id pointing at a deleted row. Doing it here
+// instead makes MySQL and SQLite behave identically and stops depending on
+// the FK at all.
 func (s *Store) Delete(ctx context.Context, id int64) error {
 	db := s.db()
 	if db == nil {
@@ -230,14 +236,23 @@ func (s *Store) Delete(ctx context.Context, id int64) error {
 	if err != nil {
 		return fmt.Errorf("reseller: delete: %w", err)
 	}
-	// Confine the bound users FIRST. ON DELETE SET NULL only clears reseller_id,
-	// so an admin-role binding would otherwise fall out as a bare unrestricted
-	// platform admin the moment its reseller disappears.
+	// Confine the bound users FIRST: an admin-role binding must not fall out
+	// as a bare unrestricted platform admin the moment its reseller disappears.
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE users SET role='admin', is_restricted=1 WHERE reseller_id=? AND role IN ('reseller','admin','support')`,
 		id); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("reseller: delete confine: %w", err)
+	}
+	for _, stmt := range []string{
+		`UPDATE clients SET reseller_id = NULL WHERE reseller_id = ?`,
+		`UPDATE plans SET reseller_id = NULL WHERE reseller_id = ?`,
+		`UPDATE users SET reseller_id = NULL WHERE reseller_id = ?`,
+	} {
+		if _, err := tx.ExecContext(ctx, stmt, id); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("reseller: delete relation cleanup: %w", err)
+		}
 	}
 	res, err := tx.ExecContext(ctx, `DELETE FROM resellers WHERE id=?`, id)
 	if err != nil {
