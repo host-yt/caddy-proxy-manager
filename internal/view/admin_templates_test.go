@@ -84,6 +84,11 @@ func TestHostsNewTemplateExecutes(t *testing.T) {
 		!strings.Contains(out, `name="mtls_ca_id"`) || !strings.Contains(out, "corp-ca") {
 		t.Fatalf("mTLS block not rendered despite an active CA")
 	}
+	// The dependency is a hard create-time rejection, so say so in the form
+	// rather than letting the operator discover it as a failed submit.
+	if !strings.Contains(out, "Client certificates require SSL") {
+		t.Fatalf("mTLS block does not state the SSL dependency")
+	}
 
 	empty := map[string]any{"CSRF": "x", "CSPNonce": "n", "Form": form, "NodeGroups": nil}
 	sb.Reset()

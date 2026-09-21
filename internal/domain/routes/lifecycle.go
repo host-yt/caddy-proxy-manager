@@ -188,13 +188,18 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		}
 	}
 
-	// mTLS: enforcement without a usable anchor emits no client-auth policy,
-	// so the host would come up either open (fail_open) or as a blanket deny.
-	// Refuse here - the one choke point every create path goes through.
+	// mTLS: enforcement without TLS or without a usable anchor emits no
+	// client-auth policy, so the host would come up either open (fail_open)
+	// or as a blanket deny. Refuse here - the one choke point every create
+	// path goes through, and the point where in.SSL has settled: the external
+	// force-on and the plan gate above are the only writers of it.
 	mtlsCAID := in.MTLSCAID
 	if !in.RequireClientCert {
 		mtlsCAID = 0 // an anchor with no enforcement is dead state
 	} else {
+		if !in.SSL {
+			return 0, ErrMTLSNeedsTLS
+		}
 		var usable int
 		if err := s.DB.QueryRowContext(ctx,
 			`SELECT COUNT(*) FROM mtls_cas WHERE id = ? AND status = 'active' AND COALESCE(cert_pem,'') <> ''`,

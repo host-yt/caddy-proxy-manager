@@ -339,6 +339,10 @@ var (
 	// active CA that has a certificate, so no client-auth policy could be
 	// emitted. Refuse rather than create a host that looks locked and is not.
 	ErrMTLSCAUnusable = errors.New("mTLS requires an active CA with an uploaded certificate")
+	// ErrMTLSNeedsTLS: client-cert enforcement was requested for a route that
+	// serves without TLS. The client-auth policy rides on the route's TLS
+	// connection policy, so with SSL off there is nothing to attach it to.
+	ErrMTLSNeedsTLS = errors.New("mTLS requires SSL enabled on the host")
 )
 
 // ExternalHostAllowed is the exported wrapper so handlers can validate an

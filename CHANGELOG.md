@@ -14,6 +14,19 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
 
 ### Security
 
+- **A host could require client certificates while serving without TLS.** The
+  client-authentication policy is part of the route's TLS connection policy,
+  so with SSL off nothing is emitted: the host answered every request with a
+  permanent 503 under the default fail-closed mode, or served everyone with no
+  client-cert check at all under fail-open - while the panel listed it as
+  locked. All three ways into that state are now refused: creating a host
+  (checked after the plan gate settles SSL, so a plan without SSL cannot force
+  it), saving the host edit page (checked after the external-upstream branch,
+  the last thing that can turn SSL back on), and `PATCH /api/v1/routes/{id}`
+  clearing `ssl_enabled` on an enforced route. The add form and the edit page
+  now state the dependency, and a host already in this state is shown as
+  "mTLS saved - SSL off, not enforced" instead of "mTLS enforced".
+
 - **"Require a client certificate" was silently discarded when adding a host.**
   The create handler validated `require_client_cert` and the chosen CA, then
   never wrote either column, and the add-host form had no such inputs - so the

@@ -872,6 +872,11 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	// Validate the mTLS CA up front for a readable error; Create re-checks it
 	// (it is the choke point for every create path) and refuses otherwise.
 	if form.RequireClientCert {
+		// External routes always get their own cert, so SSL is forced on there.
+		if !form.SSL && !form.External {
+			h.renderHostsNewErr(w, r, form, "client certificates require SSL - enable SSL for this host first")
+			return
+		}
 		if form.MTLSCAID <= 0 {
 			h.renderHostsNewErr(w, r, form, "require_client_cert needs an mTLS CA assigned")
 			return
@@ -3661,6 +3666,16 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		if extHostHeader == "" {
 			extHostHeader = externalHost
 		}
+	}
+	// mTLS needs TLS: the client-auth policy is part of the route's TLS
+	// connection policy, so saving enforcement with SSL off yields a host the
+	// panel calls locked while Caddy either serves it wide open (fail_open) or
+	// 503s every request. Checked here, not up with the other mTLS validation,
+	// because the external branch above is the last writer of `ssl`.
+	if requireClientCert && !ssl {
+		redirectWithFlash(w, r, editPath, "",
+			"client certificates require SSL - enable SSL for this host or turn mTLS off")
+		return
 	}
 	// SSRF screen: the effective backend (proxy IP/host or external FQDN) must
 	// not resolve to loopback/link-local/metadata. Redirect routes never dial a

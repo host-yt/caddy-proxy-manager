@@ -168,6 +168,49 @@ func TestCreate_RejectsMTLSWithoutUsableCA(t *testing.T) {
 	}
 }
 
+// TestCreate_RejectsMTLSWithoutTLS: the client-auth policy is emitted as part
+// of the route's TLS connection policy, so enforcement with SSL off produces
+// either a wide-open host (fail_open) or a permanent 503 - while the panel
+// records it as requiring client certificates. Both the submitted value and
+// the one the plan gate forces must be refused.
+func TestCreate_RejectsMTLSWithoutTLS(t *testing.T) {
+	cases := map[string]struct {
+		ssl     bool
+		planSSL bool
+	}{
+		"SSL unchecked on the form":   {ssl: false, planSSL: true},
+		"plan forces SSL off":         {ssl: true, planSSL: false},
+		"neither form nor plan allow": {ssl: false, planSSL: false},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			db := newPushTestDB(t)
+			seedCapacityFixture(t, db, 10)
+			caID := seedMTLSCA(t, db, mtlsTestCAPEM(t), "active")
+			if !tc.planSSL {
+				if _, err := db.Exec("UPDATE plans SET ssl_enabled = 0 WHERE id = 1"); err != nil {
+					t.Fatal(err)
+				}
+			}
+
+			_, err := newMTLSCreateSvc(t, db).Create(context.Background(), 0, CreateInput{
+				ServiceID: 1, UpstreamPort: 10004, Domain: "plaintext.example",
+				SSL: tc.ssl, RequireClientCert: true, MTLSCAID: caID,
+			})
+			if !errors.Is(err, ErrMTLSNeedsTLS) {
+				t.Fatalf("err = %v, want ErrMTLSNeedsTLS", err)
+			}
+			var n int
+			if err := db.QueryRow("SELECT COUNT(*) FROM routes WHERE domain = 'plaintext.example'").Scan(&n); err != nil {
+				t.Fatal(err)
+			}
+			if n != 0 {
+				t.Errorf("%d route(s) created despite the rejection", n)
+			}
+		})
+	}
+}
+
 // TestCreate_ClearsAnchorWhenEnforcementOff: an mtls_ca_id with the flag off is
 // dead state that a later toggle would silently activate.
 func TestCreate_ClearsAnchorWhenEnforcementOff(t *testing.T) {

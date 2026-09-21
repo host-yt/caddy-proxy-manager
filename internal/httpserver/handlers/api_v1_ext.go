@@ -301,6 +301,17 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 	if !h.routeInScope(ctx, w, r, id) {
 		return
 	}
+	// mTLS rides on the route's TLS connection policy: dropping SSL on an
+	// enforced host leaves it either wide open or permanently 503, while the
+	// panel still reports it as requiring client certificates.
+	if in.SSLEnabled != nil && !*in.SSLEnabled {
+		var enforced int
+		if err := h.DB().QueryRowContext(ctx,
+			"SELECT COALESCE(require_client_cert, 0) FROM routes WHERE id = ?", id).Scan(&enforced); err == nil && enforced != 0 {
+			apiErr(w, http.StatusBadRequest, "cannot disable ssl_enabled while require_client_cert is set")
+			return
+		}
+	}
 	res, err := h.DB().ExecContext(ctx,
 		"UPDATE routes SET "+strings.Join(parts, ", ")+" WHERE id=?", args...)
 	if err != nil {
