@@ -53,6 +53,16 @@ deployment, treat this as a priority upgrade.
   sent to an origin the tenant controls. All such values are now screened on
   save and again at build.
 
+- **High: a backend hostname could be moved after it was approved.** Backends
+  were screened when the route was saved but handed to the node as names, so
+  the address actually dialed was whatever DNS answered later. The node now
+  dials the address the panel screened, with the origin hostname kept for SNI
+  and certificate verification on https backends. Applies to the primary
+  backend, additional upstreams and path-rule upstreams. Backends resolved on
+  the node, external allowlisted origins and routes using a node-side DNS
+  resolver keep their names and keep being screened against the deny set on
+  every push.
+
 - **Medium: a backend name the panel could not resolve was accepted anyway.**
   The node was then left to resolve an address nothing had checked. Such a
   name is now refused unless the route carries an explicit, per-route
@@ -141,6 +151,17 @@ deployment, treat this as a priority upgrade.
 6. Operators running large `active_active` groups should check their ACME
    rate-limit headroom against nodes x hosts - certificates have always been
    issued per node, the documentation just said otherwise.
+7. Backend hostnames are resolved by the panel and pushed to nodes as
+   addresses. A backend with several A records is pinned to one of them, so
+   DNS round-robin across backends no longer spreads traffic - use several
+   upstreams on the route instead. A backend whose address changes is picked
+   up on the next push - immediately on any route change, otherwise within
+   the five-minute drift sweep. If the name stops resolving, the address the
+   panel last screened keeps being served rather than the route going down -
+   that record is held in memory, so a name that is still unresolvable after
+   a panel restart leaves its route out of the pushed configuration until it
+   resolves again. Routes whose backend only the node can resolve are
+   unaffected - see note 2.
 
 ## [1.5.1] - 2026-09-21
 
