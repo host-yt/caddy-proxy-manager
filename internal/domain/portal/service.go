@@ -7,8 +7,11 @@ package portal
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
@@ -231,14 +234,46 @@ func (s *Service) RouteGrants(ctx context.Context, routeID int64) ([]int64, erro
 func (s *Service) SetRouteGrants(ctx context.Context, routeID int64, groupIDs []int64, visibleGroupIDs map[int64]bool, all bool) error {
 	db := s.db()
 	if db == nil {
-		return nil
+		// A silent no-op on a security write would report success while the
+		// old grant set stays live.
+		return errors.New("portal: no db")
 	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM route_access_grants WHERE route_id = ?`, routeID); err != nil {
+	if err := replaceGrantsTx(ctx, tx, routeID, groupIDs, visibleGroupIDs, all); err != nil {
 		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+// SetRouteProtection writes the portal flag and the grant set in ONE
+// transaction. Split writes can leave a route flagged protected with an empty
+// grant set (or the reverse), and either half-state changes who gets in.
+func (s *Service) SetRouteProtection(ctx context.Context, routeID int64, protect bool, groupIDs []int64, visibleGroupIDs map[int64]bool, all bool) error {
+	db := s.db()
+	if db == nil {
+		return errors.New("portal: no db")
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE routes SET portal_protect = ? WHERE id = ?`, protect, routeID); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	if err := replaceGrantsTx(ctx, tx, routeID, groupIDs, visibleGroupIDs, all); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
+}
+
+func replaceGrantsTx(ctx context.Context, tx *sql.Tx, routeID int64, groupIDs []int64, visibleGroupIDs map[int64]bool, all bool) error {
+	if _, err := tx.ExecContext(ctx, `DELETE FROM route_access_grants WHERE route_id = ?`, routeID); err != nil {
 		return err
 	}
 	for _, gid := range groupIDs {
@@ -247,11 +282,10 @@ func (s *Service) SetRouteGrants(ctx context.Context, routeID int64, groupIDs []
 		}
 		if _, err := tx.ExecContext(ctx,
 			store.InsertOrIgnore()+` INTO route_access_grants (route_id, group_id) VALUES (?, ?)`, routeID, gid); err != nil {
-			_ = tx.Rollback()
 			return err
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // IsAllowed reports whether a user is a member of any group granted access to
@@ -274,23 +308,146 @@ func (s *Service) IsAllowed(ctx context.Context, routeID, userID int64) (bool, e
 	return n > 0, nil
 }
 
-// RouteByHost resolves the route id + portal_protect flag for a hostname. The
-// verify endpoint uses this to map the protected host to its route. Matches the
-// primary domain or any alias (aliases stored as a comma/space list).
-func (s *Service) RouteByHost(ctx context.Context, host string) (routeID int64, portalProtect bool, err error) {
+// ErrNoRoute means no serving route matches the request. ErrAmbiguousRoute
+// means two equally specific routes do, so there is no single policy to apply.
+// Both are deny conditions for the verifier.
+var (
+	ErrNoRoute        = errors.New("portal: no route for request")
+	ErrAmbiguousRoute = errors.New("portal: ambiguous route for request")
+)
+
+// RouteForRequest resolves the EXACT route a request lands on, mirroring the
+// node's own matching: a proven host matcher plus the longest path prefix,
+// which is the order routes are emitted in. Host alone is not an identity -
+// several routes can share a hostname with different grants, and one of them
+// may be public.
+func (s *Service) RouteForRequest(ctx context.Context, host, path string) (routeID int64, portalProtect bool, err error) {
 	db := s.db()
 	if db == nil {
-		return 0, false, fmt.Errorf("portal: no db")
+		return 0, false, errors.New("portal: no db")
 	}
-	err = db.QueryRowContext(ctx,
-		`SELECT id, COALESCE(portal_protect,0) FROM routes
-		  WHERE domain = ?
-		     OR FIND_IN_SET(?, REPLACE(REPLACE(COALESCE(aliases,''),' ',''),'\n',',')) > 0
-		  ORDER BY (domain = ?) DESC LIMIT 1`, host, host, host).Scan(&routeID, &portalProtect)
-	if err == sql.ErrNoRows {
-		return 0, false, nil
+	host = strings.ToLower(strings.TrimSpace(host))
+	// Both halves of the identity come from the gate config the panel emits
+	// (Host + X-Forwarded-Uri, both "set"). Missing either one means the call
+	// did not come through a gate: refuse rather than guess a route.
+	if host == "" || !strings.HasPrefix(path, "/") {
+		return 0, false, ErrNoRoute
 	}
-	return routeID, portalProtect, err
+	// Prefilter in SQL, decide in Go: alias lists and wildcard labels cannot be
+	// matched portably in SQL, and the emitted-host rules live in one place.
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, COALESCE(path_prefix,''), domain, COALESCE(aliases,''), COALESCE(aliases_verified,''),
+		        COALESCE(portal_protect,0)
+		   FROM routes
+		  WHERE COALESCE(domain_verified,0) = 1
+		    AND status IN ('dns_ok','active','pending_ssl')
+		    AND (LOWER(domain) = ? OR domain LIKE '%*%'
+		         OR LOWER(COALESCE(aliases,'')) LIKE ? OR COALESCE(aliases,'') LIKE '%*%')`,
+		host, "%"+host+"%")
+	if err != nil {
+		return 0, false, fmt.Errorf("portal: route for request: %w", err)
+	}
+	defer rows.Close()
+
+	lowPath := strings.ToLower(path)
+	var (
+		bestID      int64
+		bestProtect bool
+		bestLen     = -1
+		ambiguous   bool
+	)
+	for rows.Next() {
+		var (
+			id                                  int64
+			prefix, domain, aliases, aliasesVer string
+			protect                             bool
+		)
+		if err := rows.Scan(&id, &prefix, &domain, &aliases, &aliasesVer, &protect); err != nil {
+			return 0, false, err
+		}
+		if !hostServedBy(host, domain, aliases, aliasesVer) {
+			continue
+		}
+		p := strings.TrimSpace(prefix)
+		if p == "/" {
+			p = "" // the host catch-all, same as no prefix
+		}
+		// Caddy matches "<prefix>*", so a plain prefix test is the exact rule.
+		if p != "" && !strings.HasPrefix(lowPath, strings.ToLower(p)) {
+			continue
+		}
+		switch {
+		case len(p) > bestLen:
+			bestID, bestProtect, bestLen, ambiguous = id, protect, len(p), false
+		case len(p) == bestLen:
+			ambiguous = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, false, err
+	}
+	if bestLen < 0 {
+		return 0, false, ErrNoRoute
+	}
+	if ambiguous {
+		return 0, false, ErrAmbiguousRoute
+	}
+	return bestID, bestProtect, nil
+}
+
+// hostServedBy mirrors buildRoutesForNode's host matchers: the primary domain
+// always, plus only aliases whose ownership was proven.
+func hostServedBy(host, domain, aliases, aliasesVerified string) bool {
+	if caddyapi.HostsOverlap(domain, host) {
+		return true
+	}
+	proven := map[string]bool{}
+	for _, a := range splitHosts(aliasesVerified) {
+		proven[a] = true
+	}
+	for _, a := range splitHosts(aliases) {
+		if proven[a] && caddyapi.HostsOverlap(a, host) {
+			return true
+		}
+	}
+	return false
+}
+
+// splitHosts mirrors routes.splitHostList (unexported there).
+func splitHosts(raw string) []string {
+	var out []string
+	for _, p := range strings.FieldsFunc(raw, func(r rune) bool {
+		return r == ',' || r == ' ' || r == '\t' || r == '\n' || r == '\r' || r == ';'
+	}) {
+		if v := strings.ToLower(strings.TrimSpace(p)); v != "" {
+			out = append(out, v)
+		}
+	}
+	return out
+}
+
+// IdentityStillValid re-checks the account behind a live portal session: the
+// row must exist, be active, and still carry the epoch the session was minted
+// with. (false, nil) is a definitive revocation - the caller may drop the
+// session; a non-nil error is indeterminate - deny, but keep the session.
+func (s *Service) IdentityStillValid(ctx context.Context, userID, epoch int64) (bool, error) {
+	db := s.db()
+	if db == nil {
+		return false, errors.New("portal: no db")
+	}
+	var (
+		active bool
+		cur    int64
+	)
+	err := db.QueryRowContext(ctx,
+		`SELECT is_active, auth_epoch FROM users WHERE id = ?`, userID).Scan(&active, &cur)
+	if errors.Is(err, sql.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return active && cur == epoch, nil
 }
 
 func placeholders(n int) string {
