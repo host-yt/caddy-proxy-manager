@@ -1,16 +1,26 @@
+// Command palette: local nav (instant, fuzzy) + async /admin/search (debounced),
+// merged into one result list, one keyboard/mouse handler set, one open/close state.
 (function () {
   'use strict';
   var palette = document.getElementById('hpg-palette');
   var inp = document.getElementById('hpg-palette-input');
   var list = document.getElementById('hpg-palette-list');
+  var btn = document.getElementById('cmd-palette-btn');
   if (!palette || !inp || !list) return;
 
-  var items = [];
-  function collectItems() {
-    items = [];
+  var kindClass = {
+    host:   'bg-[rgb(var(--accent)/.12)] text-[rgb(var(--accent))]',
+    client: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
+    node:   'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
+    tunnel: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
+  };
+
+  var navItems = [];
+  function collectNavItems() {
+    navItems = [];
     document.querySelectorAll('#admin-sidebar a[href]').forEach(function (a) {
       var label = a.textContent.trim();
-      if (label) items.push({ label: label, href: a.getAttribute('href') });
+      if (label) navItems.push({ kind: 'nav', label: label, url: a.getAttribute('href') });
     });
   }
 
@@ -18,78 +28,131 @@
     if (!q) return 1;
     text = text.toLowerCase(); q = q.toLowerCase();
     var i = 0;
-    for (var j = 0; j < text.length && i < q.length; j++) {
-      if (text[j] === q[i]) i++;
-    }
+    for (var j = 0; j < text.length && i < q.length; j++) if (text[j] === q[i]) i++;
     return i === q.length ? (q.length / text.length) : 0;
   }
-
-  var selIdx = 0;
-
-  function render(q) {
-    var res = items
+  function localResults(q) {
+    return navItems
       .map(function (it) { return { it: it, sc: fuzzy(it.label, q) }; })
       .filter(function (r) { return r.sc > 0; })
       .sort(function (a, b) { return b.sc - a.sc; })
-      .slice(0, 8);
-    list.innerHTML = '';
-    selIdx = 0;
-    res.forEach(function (r, i) {
-      var li = document.createElement('li');
-      li.setAttribute('role', 'option');
-      li.dataset.href = r.it.href;
-      li.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;cursor:pointer;font-size:14px;' +
-        (i === 0 ? 'background:rgb(var(--surface-2))' : '');
-      li.innerHTML = '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" style="opacity:.4;flex-shrink:0"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg><span style="flex:1;color:rgb(var(--text))">' + r.it.label + '</span>';
-      li.addEventListener('click', function () { go(this.dataset.href); });
-      list.appendChild(li);
-    });
-    if (res.length === 0) {
-      list.innerHTML = '<li style="padding:20px 16px;text-align:center;font-size:13px;color:rgb(var(--muted))">No results</li>';
+      .slice(0, 8)
+      .map(function (r) { return r.it; });
+  }
+
+  function escHtml(s) {
+    return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+  }
+
+  var items = [], cursor = -1;
+  var reqSeq = 0, inflight = null, debTimer = null;
+
+  function renderRow(r, i) {
+    var li = document.createElement('li');
+    li.setAttribute('role', 'option');
+    li.setAttribute('data-idx', i);
+    li.className = 'flex items-center gap-3 px-4 py-2.5 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm';
+    var badge = r.kind === 'nav'
+      ? '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="shrink-0 opacity-40"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>'
+      : '<span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ' + (kindClass[r.kind] || '') + '">' + escHtml(r.kind) + '</span>';
+    li.innerHTML = badge +
+      '<span class="flex-1 min-w-0"><span class="block truncate text-slate-900 dark:text-slate-100">' + escHtml(r.label) + '</span>' +
+      (r.sub ? '<span class="block truncate text-xs text-slate-400 dark:text-slate-500">' + escHtml(r.sub) + '</span>' : '') + '</span>';
+    li.addEventListener('click', function () { navigate(i); });
+    li.addEventListener('mouseenter', function () { setCursor(i); });
+    return li;
+  }
+
+  function render(results, message) {
+    items = results; cursor = -1; list.innerHTML = '';
+    if (message) {
+      list.innerHTML = '<li class="px-4 py-3 text-sm text-slate-400 dark:text-slate-600">' + escHtml(message) + '</li>';
+      return;
+    }
+    if (!results.length) {
+      list.innerHTML = '<li class="px-4 py-3 text-sm text-slate-400 dark:text-slate-600">No results</li>';
+      return;
+    }
+    results.forEach(function (r, i) { list.appendChild(renderRow(r, i)); });
+    setCursor(0);
+  }
+
+  function setCursor(idx) {
+    var els = list.querySelectorAll('[data-idx]');
+    els.forEach(function (el) { el.classList.remove('bg-slate-50', 'dark:bg-zinc-800'); });
+    cursor = idx;
+    if (idx >= 0 && idx < els.length) {
+      els[idx].classList.add('bg-slate-50', 'dark:bg-zinc-800');
+      els[idx].scrollIntoView({ block: 'nearest' });
     }
   }
 
-  function setSelection(idx) {
-    var lis = list.querySelectorAll('li');
-    lis.forEach(function (li, i) {
-      li.style.background = i === idx ? 'rgb(var(--surface-2))' : '';
-    });
-    selIdx = idx;
+  function navigate(idx) {
+    if (idx < 0 || idx >= items.length) return;
+    close();
+    window.location.href = items[idx].url;
   }
 
-  function go(href) { close(); window.location.href = href; }
+  function doSearch(q) {
+    var local = localResults(q);
+    if (inflight) inflight.abort();
+    if (q.length < 2) { render(local); return; }
+    render(local); // show instant nav matches while server results load
+    var seq = ++reqSeq;
+    var ac = ('AbortController' in window) ? new AbortController() : null;
+    inflight = ac;
+    fetch('/admin/search?q=' + encodeURIComponent(q), {
+      credentials: 'same-origin',
+      headers: { 'Accept': 'application/json' },
+      signal: ac ? ac.signal : undefined
+    })
+      .then(function (res) { if (!res.ok) throw new Error('http ' + res.status); return res.json(); })
+      .then(function (data) {
+        if (seq !== reqSeq) return; // stale response, a newer search superseded it
+        render(local.concat(data.results || []));
+      })
+      .catch(function (err) {
+        if (seq !== reqSeq || (err && err.name === 'AbortError')) return;
+        render(local.length ? local : [], local.length ? null : 'Search failed - try again.');
+      });
+  }
+
+  var lastFocus = null;
   function open() {
-    collectItems();
+    collectNavItems();
+    lastFocus = document.activeElement;
     palette.style.display = 'flex';
     inp.value = '';
-    render('');
-    inp.focus();
+    render(localResults(''));
+    setTimeout(function () { inp.focus(); }, 30);
   }
-  function close() { palette.style.display = 'none'; inp.value = ''; }
+  function close() {
+    palette.style.display = 'none';
+    clearTimeout(debTimer);
+    if (inflight) { inflight.abort(); inflight = null; }
+    if (lastFocus && lastFocus.focus) lastFocus.focus();
+  }
 
-  inp.addEventListener('input', function () { render(this.value); });
+  inp.addEventListener('input', function () {
+    clearTimeout(debTimer);
+    var q = inp.value.trim();
+    debTimer = setTimeout(function () { doSearch(q); }, 180);
+  });
   inp.addEventListener('keydown', function (e) {
-    var lis = list.querySelectorAll('li[data-href]');
-    if (!lis.length) return;
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelection(Math.min(selIdx + 1, lis.length - 1));
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelection(Math.max(selIdx - 1, 0));
-    } else if (e.key === 'Enter') {
-      var sel = lis[selIdx];
-      if (sel) go(sel.dataset.href);
-    }
+    var len = items.length;
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (len) setCursor((cursor + 1) % len); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); if (len) setCursor((cursor - 1 + len) % len); }
+    else if (e.key === 'Enter') { e.preventDefault(); navigate(cursor >= 0 ? cursor : 0); }
+    else if (e.key === 'Escape') { e.preventDefault(); close(); }
   });
   palette.addEventListener('click', function (e) { if (e.target === palette) close(); });
-  document.addEventListener('keydown', function (e) {
-    if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); palette.style.display === 'none' ? open() : close(); }
-    if (e.key === 'Escape' && palette.style.display !== 'none') close();
-  });
-  var btn = document.getElementById('cmd-palette-btn');
   if (btn) btn.addEventListener('click', open);
+  document.addEventListener('keydown', function (e) {
+    if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+      e.preventDefault();
+      palette.style.display === 'none' || !palette.style.display ? open() : close();
+    }
+  });
 
-  // init: palette hidden by default (it may use style or hidden class)
   palette.style.display = 'none';
 })();

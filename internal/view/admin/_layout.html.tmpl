@@ -1,5 +1,5 @@
 {{define "layout.html.tmpl"}}<!doctype html>
-<html lang="en" class="h-full" data-theme="{{.Data.Theme}}">
+<html lang="{{.Data.Lang}}" class="h-full" data-theme="{{.Data.Theme}}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -602,6 +602,20 @@ document.addEventListener('DOMContentLoaded', function(){
       });
     });
   });
+  // button[data-confirm]: gate a single submit button (e.g. a formaction=
+  // delete alongside a plain Save) without confirming the whole form.
+  document.querySelectorAll('button[type=submit][data-confirm]').forEach(function(b){
+    var armed = false;
+    b.addEventListener('click', function(e){
+      if (armed) { armed = false; return; }
+      var f = b.form;
+      if (!f) return;
+      e.preventDefault();
+      window.hpgConfirm(b.dataset.confirm).then(function(ok){
+        if (ok) { armed = true; f.requestSubmit ? f.requestSubmit(b) : f.submit(); }
+      });
+    });
+  });
   // data-confirm-type: high-risk action; user must type data-confirm-type
   // (the resource name/keyword) exactly before the submit goes through.
   document.querySelectorAll('form[data-confirm-type]').forEach(function(f){
@@ -653,69 +667,6 @@ document.addEventListener('DOMContentLoaded', function(){
     window.hpgToast(el.dataset.toastMsg, el.dataset.toast);
   });
 });
-</script>
-<script nonce="{{.Data.CSPNonce}}">
-// Command palette: Cmd/Ctrl+K, debounced /admin/search, keyboard nav.
-(function(){
-  var pal = document.getElementById('hpg-palette');
-  var inp = document.getElementById('hpg-palette-input');
-  var lst = document.getElementById('hpg-palette-list');
-  var btn = document.getElementById('cmd-palette-btn');
-  if (!pal || !inp || !lst) return;
-  var debTimer = null, items = [], cursor = -1;
-  var kindClass = {
-    host:   'bg-[rgb(var(--accent)/.12)] text-[rgb(var(--accent))]',
-    client: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900 dark:text-emerald-300',
-    node:   'bg-amber-100 text-amber-700 dark:bg-amber-900 dark:text-amber-300',
-    tunnel: 'bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-300'
-  };
-  function open(){ pal.classList.remove('hidden'); pal.classList.add('flex'); inp.value=''; lst.innerHTML=''; items=[]; cursor=-1; setTimeout(function(){ inp.focus(); },30); }
-  function close(){ pal.classList.add('hidden'); pal.classList.remove('flex'); clearTimeout(debTimer); }
-  function escHtml(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
-  function render(results){
-    items = results; cursor = -1; lst.innerHTML = '';
-    if (!results.length){ lst.innerHTML='<li class="px-4 py-3 text-sm text-slate-400 dark:text-slate-600">No results</li>'; return; }
-    results.forEach(function(r,i){
-      var li = document.createElement('li');
-      li.setAttribute('role','option'); li.setAttribute('data-idx',i);
-      li.className = 'flex items-center gap-3 px-4 py-2.5 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm';
-      li.innerHTML =
-        '<span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium '+(kindClass[r.kind]||'')+'">'+escHtml(r.kind)+'</span>'+
-        '<span class="flex-1 min-w-0"><span class="block truncate text-slate-900 dark:text-slate-100">'+escHtml(r.label)+'</span>'+
-        (r.sub?'<span class="block truncate text-xs text-slate-400 dark:text-slate-500">'+escHtml(r.sub)+'</span>':'')+'</span>';
-      li.addEventListener('click', function(){ navigate(i); });
-      li.addEventListener('mouseenter', function(){ setCursor(i); });
-      lst.appendChild(li);
-    });
-  }
-  function setCursor(idx){
-    var els = lst.querySelectorAll('[data-idx]');
-    els.forEach(function(el){ el.classList.remove('bg-slate-50','dark:bg-zinc-800'); });
-    cursor = idx;
-    if (idx>=0 && idx<els.length){ els[idx].classList.add('bg-slate-50','dark:bg-zinc-800'); els[idx].scrollIntoView({block:'nearest'}); }
-  }
-  function navigate(idx){ if (idx<0||idx>=items.length) return; close(); window.location.href = items[idx].url; }
-  function doSearch(q){
-    if (q.length<2){ lst.innerHTML=''; items=[]; cursor=-1; return; }
-    fetch('/admin/search?q='+encodeURIComponent(q), {credentials:'same-origin', headers:{'Accept':'application/json'}})
-      .then(function(res){ return res.ok?res.json():{results:[]}; })
-      .then(function(data){ render(data.results||[]); })
-      .catch(function(){});
-  }
-  inp.addEventListener('input', function(){ clearTimeout(debTimer); debTimer=setTimeout(function(){ doSearch(inp.value.trim()); },180); });
-  inp.addEventListener('keydown', function(e){
-    var len = items.length;
-    if (e.key==='ArrowDown'){ e.preventDefault(); if(len) setCursor((cursor+1)%len); }
-    else if (e.key==='ArrowUp'){ e.preventDefault(); if(len) setCursor((cursor-1+len)%len); }
-    else if (e.key==='Enter'){ e.preventDefault(); navigate(cursor>=0?cursor:0); }
-    else if (e.key==='Escape'){ e.preventDefault(); close(); }
-  });
-  pal.addEventListener('click', function(e){ if (e.target===pal) close(); });
-  if (btn) btn.addEventListener('click', open);
-  document.addEventListener('keydown', function(e){
-    if ((e.metaKey||e.ctrlKey) && (e.key==='k'||e.key==='K')){ e.preventDefault(); if (pal.classList.contains('hidden')) open(); else close(); }
-  });
-})();
 </script>
 <script nonce="{{.Data.CSPNonce}}">(function(){var K='hpg-ng';function L(){try{return JSON.parse(localStorage.getItem(K)||'{}')}catch{return{}}}function S(s){try{localStorage.setItem(K,JSON.stringify(s))}catch{}}var st=L();document.querySelectorAll('[data-nav-group]').forEach(function(w){var g=w.dataset.navGroup;var btn=w.querySelector('.nav-group-btn');var body=w.querySelector('.nav-group-body');var chev=btn&&btn.querySelector('.nav-chevron');if(!body)return;var open=st[g]!==false;if(!open){body.style.display='none';if(chev)chev.style.transform='rotate(-90deg)';}if(btn)btn.addEventListener('click',function(){open=!open;st[g]=open;S(st);body.style.display=open?'':'none';if(chev)chev.style.transform=open?'':'rotate(-90deg)';});});document.querySelectorAll('[data-greeting]').forEach(function(el){var h=new Date().getHours();el.textContent=h<12?'Good morning':h<17?'Good afternoon':'Good evening';});})();</script>
 </body>
