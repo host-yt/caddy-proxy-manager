@@ -634,11 +634,18 @@ The manager-side sidecar logs to Docker. Check:
 docker logs <wg-sidecar-container-name>
 ```
 
-If it reports `syncconf failed, will retry next tick`, check that the config
-file is not empty (the app writes atomically via temp-file + rename; a partial
-write cannot cause a corrupt file but a missing keypair can cause the render to
-fail). Confirm WireGuard settings are saved: **Settings -> WireGuard** should
-show a public key.
+If it reports `ERR reload of mtime ... failed, keeping the applied marker`,
+check that the config file is not empty (the app writes atomically via
+temp-file + rename; a partial write cannot cause a corrupt file but a missing
+keypair can cause the render to fail). Confirm WireGuard settings are saved:
+**Settings -> WireGuard** should show a public key. The sidecar retries the
+whole reload every 10 s until it succeeds, so the message repeats.
+
+A reload also fails when a preshared key that the config no longer carries
+cannot be removed from the live interface - logged as
+`ERR SECURITY the preshared key of peer <pubkey> is STILL LIVE`. That key is
+still in use even though the panel considers it gone; clear it by hand with
+the command the log line prints, or restart the sidecar.
 
 ### Peer stats not updating
 

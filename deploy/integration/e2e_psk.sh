@@ -21,6 +21,10 @@
 #   6 first-enable    - a denied confirm on a node that had NO key before:
 #     rollback        the rollback must leave the live interface without a
 #                     key, not just the file
+#   7 sidecar faults  - `wg set` and `wg show` are made to fail while the
+#                       sidecar has a key to remove: the reload must report
+#                       failure, keep its mtime marker, retry on its own,
+#                       and converge once the fault is lifted
 #
 # Every assertion is fatal. In particular, a `wg show` that still carries a
 # key which was supposed to be removed fails the run: `wg syncconf` cannot
@@ -399,5 +403,86 @@ for _ in $(seq 1 20); do
 done
 poll_until "node-b is still on the mesh 200 s after the rollback" 60 mesh_up 10.66.0.3
 log "node-b probe misses during the window: $misses"
+
+# ---- 7. a removal the sidecar cannot apply -------------------------------
+# The sidecar clears keys `wg syncconf` cannot remove by hand. If that
+# clearing fails and the sidecar still reports success, it advances its
+# mtime marker - and since an unchanged render keeps that mtime forever, it
+# never retries: the key stays live while the panel believes it is gone.
+# Inject both failure modes and require failure, retry, then convergence.
+
+log "SCENARIO 7: sidecar fault injection on the preshared-key removal path"
+# A shim in front of the real wg, failing one subcommand while its marker
+# file exists. It REPLACES the binary rather than shadowing it via PATH,
+# because bash caches the resolved path of a command it has already run.
+in_panel_ns 'set -e
+[ -f /usr/bin/wg.real ] || mv /usr/bin/wg /usr/bin/wg.real
+cat > /usr/bin/wg <<\EOF
+#!/bin/sh
+[ -e /tmp/wgfail_set ] && [ "$1" = "set" ] && { echo "e2e: injected wg set failure" >&2; exit 1; }
+[ -e /tmp/wgfail_show ] && [ "$1" = "show" ] && { echo "e2e: injected wg show failure" >&2; exit 1; }
+exec /usr/bin/wg.real "$@"
+EOF
+chmod +x /usr/bin/wg'
+pass "fault-injection wg shim installed in the sidecar container"
+
+# Live state read through the real binary: the shim is what we are testing.
+psk_live_panel() {
+	in_panel_ns "wg.real show wg0 preshared-keys" \
+		| awk -v p="$NODE_A_PUB" '$1 == p && $2 != "(none)" { f = 1 } END { exit !f }'
+}
+# A key that is live on the panel but absent from the rendered config, i.e.
+# exactly the state "Clear PSK" leaves behind for the sidecar to apply.
+arm_stale_psk() {
+	in_panel_ns "wg.real genpsk > /tmp/e2e.psk && wg.real set wg0 peer $NODE_A_PUB preshared-key /tmp/e2e.psk"
+	psk_live_panel || fail "could not stage a stale preshared key on the panel's interface"
+}
+psk_gone_panel() { ! psk_live_panel; }
+conf_mtime() { in_panel_ns "stat -c %Y /config/wg0.conf" | tr -d '\r\n'; }
+# grep -c exits 1 on no match, which pipefail would turn into a run abort.
+sidecar_says() { cc logs wg-panel 2>&1 | grep -cF "$1" || true; }
+
+STILL_LIVE="peer $NODE_A_PUB is STILL LIVE"
+NO_READ="cannot read the live preshared keys of wg0"
+KEPT_MARKER="keeping the applied marker at"
+
+# --- 7a. `wg set` fails: the removal itself cannot be applied -------------
+in_panel_ns 'touch /tmp/wgfail_set'
+arm_stale_psk
+in_panel_ns 'touch /config/wg0.conf'
+MTIME_7A=$(conf_mtime)
+poll_until "sidecar named the peer it could not clear on two separate ticks (so it retried by itself)" 90 \
+	bash -c "[[ \$($CCS logs wg-panel 2>&1 | grep -cF '$STILL_LIVE') -ge 2 ]]"
+[[ $(sidecar_says "$KEPT_MARKER") -ge 2 ]] \
+	|| fail "the sidecar did not report the reload as failed while it could not clear the key"
+pass "the failed reload is reported as a failure and the mtime marker is held back"
+psk_live_panel || fail "the sidecar reported the removal as failed but the key is gone - the injection did not take"
+pass "the key the sidecar could not remove is still live, as reported"
+in_panel_ns 'rm -f /tmp/wgfail_set'
+poll_until "the very next tick retried and cleared the key, with no new config write" 90 psk_gone_panel
+[[ "$(conf_mtime)" == "$MTIME_7A" ]] \
+	|| fail "the config was rewritten during 7a, so the retry is not proven to be the sidecar's own"
+pass "the retry was driven by the unchanged config, not by a new render"
+
+# --- 7b. `wg show` fails: the live state cannot even be read --------------
+# The old code read it through a process substitution, whose exit status
+# never reaches the caller: the failure read as "nothing to clear".
+BEFORE_7B=$(sidecar_says "$NO_READ")
+in_panel_ns 'touch /tmp/wgfail_show'
+arm_stale_psk
+in_panel_ns 'touch /config/wg0.conf'
+MTIME_7B=$(conf_mtime)
+poll_until "sidecar reported the unreadable live state on two separate ticks" 90 \
+	bash -c "[[ \$($CCS logs wg-panel 2>&1 | grep -cF '$NO_READ') -ge $((BEFORE_7B + 2)) ]]"
+psk_live_panel || fail "a failing 'wg show' still let the sidecar clear the key - the injection did not take"
+pass "a failing 'wg show' surfaces as a failed reload instead of a silent no-op"
+in_panel_ns 'rm -f /tmp/wgfail_show'
+poll_until "the sidecar retried after the read fault was lifted and cleared the key" 90 psk_gone_panel
+[[ "$(conf_mtime)" == "$MTIME_7B" ]] \
+	|| fail "the config was rewritten during 7b, so the retry is not proven to be the sidecar's own"
+pass "both fault modes fail loudly, hold the marker back and recover on a later tick"
+
+in_panel_ns 'mv -f /usr/bin/wg.real /usr/bin/wg'
+poll_until "mesh to node-a is still up with the faults removed" 90 mesh_up 10.66.0.2
 
 summary

@@ -20,7 +20,7 @@ die() { printf '[wg-sidecar] ERR %s\n' "$*" >&2; exit 1; }
 # - without this an admin "Clear PSK" only rewrites the file and the key
 # stays live until the next restart, when the two ends silently split.
 clear_removed_psks() {
-  local stripped="$1" want pub psk
+  local stripped="$1" live rc=0 want pub psk
   want=$(awk '
     function emit() { if (pub != "" && has) print pub; pub = ""; has = 0 }
     /^[[:space:]]*\[/                        { emit() }
@@ -28,14 +28,27 @@ clear_removed_psks() {
     /^[[:space:]]*PresharedKey[[:space:]]*=/ { has = 1 }
     END { emit() }
   ' "$stripped")
+  # Via a file, not `< <(wg show ...)`: a process substitution hides the
+  # producer's exit status, so a failing `wg show` used to read as "no peer
+  # needs clearing" and the reload was reported as fully applied.
+  live=$(mktemp)
+  if ! wg show "$IFACE" preshared-keys > "$live"; then
+    log "ERR SECURITY cannot read the live preshared keys of $IFACE - key removals were NOT applied"
+    rm -f "$live"
+    return 1
+  fi
   while read -r pub psk; do
     case "$psk" in ''|'(none)') continue ;; esac
     # `&& continue` would abort the sidecar on a non-match under `set -e`.
     if printf '%s\n' "$want" | grep -qxF "$pub"; then continue; fi
     log "peer $pub has no preshared key in the config any more, clearing it on $IFACE"
-    wg set "$IFACE" peer "$pub" preshared-key /dev/null \
-      || log "ERR could not clear the preshared key of peer $pub - run: wg set $IFACE peer $pub preshared-key /dev/null"
-  done < <(wg show "$IFACE" preshared-keys)
+    if ! wg set "$IFACE" peer "$pub" preshared-key /dev/null; then
+      log "ERR SECURITY the preshared key of peer $pub is STILL LIVE on $IFACE and could not be removed - run: wg set $IFACE peer $pub preshared-key /dev/null"
+      rc=1
+    fi
+  done < "$live"
+  rm -f "$live"
+  return "$rc"
 }
 
 # Wait for the app to drop the first config in.
@@ -61,11 +74,14 @@ while true; do
     # the interface. Setting or changing a PresharedKey is applied too;
     # removing one is not, hence clear_removed_psks below.
     strip=$(mktemp)
-    if wg-quick strip "$CONF" > "$strip" && wg syncconf "$IFACE" "$strip"; then
-      clear_removed_psks "$strip"
+    # `last` only moves once syncconf AND every key removal succeeded. An
+    # unchanged render keeps the same mtime forever, so advancing it on a
+    # partial failure would mean the retry never happens and a key that was
+    # supposed to be gone stays live for good.
+    if wg-quick strip "$CONF" > "$strip" && wg syncconf "$IFACE" "$strip" && clear_removed_psks "$strip"; then
       last="$cur"
     else
-      log "syncconf failed, will retry next tick"
+      log "ERR reload of mtime $cur failed, keeping the applied marker at $last - retrying next tick"
     fi
     rm -f "$strip"
   fi

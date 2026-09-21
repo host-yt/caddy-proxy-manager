@@ -195,6 +195,18 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
   with `500` if that write fails; and removal is no longer inferred from an
   omitted field at all - the answer carries `psk_managed` when the panel is
   really stating the whole key set, and the agent clears nothing without it.
+- **A preshared-key removal the sidecar could not apply was reported as
+  success and then never retried.** The removal loop lost a failing `wg show`
+  through a process substitution (whose exit status never reaches the caller)
+  and turned a failing `wg set` into a log line, so the reload always looked
+  complete and the watch loop advanced its mtime marker. An unchanged render
+  keeps that mtime forever, so the retry never came: the manager could keep
+  serving a key the panel considered cleared until someone restarted the
+  sidecar - and if the operator cleared it on the node side meanwhile, the
+  control-plane mesh split. Both failures now abort the reload, the marker
+  only moves once syncconf and every removal succeeded (so the next 10 s tick
+  retries), and a key that is still live is logged as such by peer public key
+  on every tick. `make e2e-psk` injects both faults against real WireGuard.
 - **The WireGuard sidecar was told to `wg syncconf` on every unrelated admin
   action.** The rendered `wg0.conf` carried a generated-at timestamp in its
   header, so every render produced a different file and the sidecar, which
