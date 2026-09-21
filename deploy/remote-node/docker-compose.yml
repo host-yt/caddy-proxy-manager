@@ -27,7 +27,7 @@ services:
     # no cache-handler, coraza, caddy-l4, rate_limit or maxmind-geolocation,
     # so cache_enabled / WAF / streams / GeoIP routes are rejected or silently
     # absent there. Override with IMAGE_CADDY=caddy:2.11.4 for a plain node.
-    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.5.1}
+    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.6.0}
     restart: unless-stopped
     # SEC-002: :2019 is Caddy's admin API and it authenticates NOTHING, so it
     # is published on host loopback only. The host-networked hpg-node-agent
