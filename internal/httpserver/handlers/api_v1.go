@@ -16,8 +16,8 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
-	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"

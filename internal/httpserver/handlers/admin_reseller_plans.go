@@ -8,8 +8,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 	"github.com/go-chi/chi/v5"
+	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 )
 
 // ResellerPlanSave handles POST /admin/reseller-plans (id=0 creates).
@@ -23,7 +23,13 @@ func (h *AdminHandlers) ResellerPlanSave(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	_ = r.ParseForm()
-	atoi := func(k string) int { n, _ := strconv.Atoi(r.FormValue(k)); if n < 0 { n = 0 }; return n }
+	atoi := func(k string) int {
+		n, _ := strconv.Atoi(r.FormValue(k))
+		if n < 0 {
+			n = 0
+		}
+		return n
+	}
 	id, _ := strconv.ParseInt(r.FormValue("id"), 10, 64)
 	p := reseller.Plan{
 		ID:              id,

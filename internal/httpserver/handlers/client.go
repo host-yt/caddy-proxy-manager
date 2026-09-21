@@ -163,12 +163,12 @@ type clientDashboardData struct {
 	ActiveRoutes      int
 	PendingRoutes     int
 	FailedRoutes      int
-	TotalBandwidth7d  string // formatted bytes for last 7 days
-	Requests24h       int64  // total requests in last 24h across all client routes
-	Errors24h         int64  // 4xx+5xx in last 24h
+	TotalBandwidth7d  string                         // formatted bytes for last 7 days
+	Requests24h       int64                          // total requests in last 24h across all client routes
+	Errors24h         int64                          // 4xx+5xx in last 24h
 	Bandwidth30dDays  []accesslog.BandwidthDayBucket // 30-day daily totals
-	Bandwidth30dTotal int64                           // sum across Bandwidth30dDays
-	MaxDay30dBytes    int64                           // max bucket for bar scaling
+	Bandwidth30dTotal int64                          // sum across Bandwidth30dDays
+	MaxDay30dBytes    int64                          // max bucket for bar scaling
 }
 
 func (h *ClientHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
@@ -1634,21 +1634,21 @@ func (h *ClientHandlers) loadClientAPIKeys(ctx context.Context) []clientAPIKeyRo
 
 type clientRouteLogsData struct {
 	baseAppData
-	RouteID          int64
-	Domain           string
-	Error            string
-	Entries          []accesslog.Entry
-	AnalyticsTotal   int64
-	StatusBuckets    []accesslog.StatusBucket
-	ProtoBreakdown   []accesslog.ProtoHit
-	BytesSummary     accesslog.BytesSummary
-	TopPaths         []accesslog.PathHit
-	TopCountries     []accesslog.CountryHit
-	TopRemoteIPs     []accesslog.RemoteIPHit
-	TopASNOrgs       []accesslog.ASNOrgHit
-	BandwidthDays    []accesslog.BandwidthDayBucket // 7-day daily totals
-	BandwidthTotal7d int64                          // sum across BandwidthDays
-	MaxDayBytes      int64                          // max bucket for bar scaling
+	RouteID           int64
+	Domain            string
+	Error             string
+	Entries           []accesslog.Entry
+	AnalyticsTotal    int64
+	StatusBuckets     []accesslog.StatusBucket
+	ProtoBreakdown    []accesslog.ProtoHit
+	BytesSummary      accesslog.BytesSummary
+	TopPaths          []accesslog.PathHit
+	TopCountries      []accesslog.CountryHit
+	TopRemoteIPs      []accesslog.RemoteIPHit
+	TopASNOrgs        []accesslog.ASNOrgHit
+	BandwidthDays     []accesslog.BandwidthDayBucket // 7-day daily totals
+	BandwidthTotal7d  int64                          // sum across BandwidthDays
+	MaxDayBytes       int64                          // max bucket for bar scaling
 	Bandwidth30dDays  []accesslog.BandwidthDayBucket // 30-day daily totals
 	Bandwidth30dTotal int64                          // sum across Bandwidth30dDays
 	MaxDay30dBytes    int64                          // max bucket for 30-day bar scaling
@@ -1827,4 +1827,3 @@ func (h *ClientHandlers) RouteLogsCSV(w http.ResponseWriter, r *http.Request) {
 	}
 	cw.Flush()
 }
-

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	mw "github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 )
 
 //go:embed openapi.json

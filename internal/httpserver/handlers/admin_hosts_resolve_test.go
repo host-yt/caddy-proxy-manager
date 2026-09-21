@@ -54,3 +54,17 @@ func TestUnresolvedHint(t *testing.T) {
 		t.Errorf("other errors keep their message, got %q", got)
 	}
 }
+
+// The node-side resolve switch waives the resolved-address screen, so it must
+// stay with the unrestricted role. A scoped admin granting it to themselves
+// would put an unscreened name back in the dial path.
+func TestCanWaivePanelResolution(t *testing.T) {
+	if !canWaivePanelResolution("super_admin") {
+		t.Error("super_admin must be able to set it")
+	}
+	for _, role := range []string{"admin", "reseller", "client", "viewer", "", "SUPER_ADMIN"} {
+		if canWaivePanelResolution(role) {
+			t.Errorf("role %q must not be able to waive panel-side resolution", role)
+		}
+	}
+}

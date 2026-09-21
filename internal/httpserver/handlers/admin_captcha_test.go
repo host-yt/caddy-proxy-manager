@@ -7,10 +7,10 @@ import "testing"
 // a secret already exists.
 func TestCaptchaSecretRequired(t *testing.T) {
 	cases := []struct {
-		name                    string
-		newProvider, curProvider string
+		name                      string
+		newProvider, curProvider  string
 		hasSecret, secretProvided bool
-		want                    bool
+		want                      bool
 	}{
 		{"fresh secret always ok", "hcaptcha", "turnstile", true, true, false},
 		{"switch provider, no new secret -> required", "hcaptcha", "turnstile", true, false, true},

@@ -2232,7 +2232,7 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 		 JOIN routes r ON r.id = lr.route_id
 		 JOIN services s ON s.id = r.service_id
 		 WHERE s.client_id IN (` + strings.Join(ph, ",") + `)
-		   AND lr.bucket_start >= `+store.DateSub(30, "DAY")+`
+		   AND lr.bucket_start >= ` + store.DateSub(30, "DAY") + `
 		 GROUP BY s.client_id`
 		bwRows, bwErr := db.QueryContext(ctx, bwSQL, ids...)
 		if bwErr == nil {
