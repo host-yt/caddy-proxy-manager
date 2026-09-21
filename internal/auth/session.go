@@ -115,6 +115,15 @@ const sessionKeyPrefix = "hpg:sess2:"
 // old replica is happily serving those keys and never sees the epoch bump.
 const legacySessionKeyPrefix = "hpg:sess:"
 
+// PortalSessionKeyPrefix is the forward-auth portal's namespace. Revocation
+// must reach every session KIND, not just the panel's: a portal session lives
+// up to 30 days and used to survive a disabled account entirely.
+const PortalSessionKeyPrefix = "hpg:portal:sess:"
+
+// revokablePrefixes is the full set a user revoke sweeps. Add a namespace here
+// the moment one is minted, or the sweep silently skips it.
+var revokablePrefixes = []string{sessionKeyPrefix, legacySessionKeyPrefix, PortalSessionKeyPrefix}
+
 // sessionSchemaVer invalidates sessions minted before a security-relevant
 // field was added. Bump it whenever a missing field would fail open.
 // Ver 2 adds Epoch: a pre-epoch session was minted from claims that were
@@ -303,7 +312,7 @@ func (m *Manager) DestroyAllForUser(ctx context.Context, userID int64) (int, err
 		killed int
 		errs   []error
 	)
-	for _, prefix := range []string{sessionKeyPrefix, legacySessionKeyPrefix} {
+	for _, prefix := range revokablePrefixes {
 		n, perr := m.destroyForUserIn(ctx, prefix, userID)
 		killed += n
 		if perr != nil {
@@ -311,6 +320,20 @@ func (m *Manager) DestroyAllForUser(ctx context.Context, userID int64) (int, err
 		}
 	}
 	return killed, errors.Join(errs...)
+}
+
+// sessionOwner decodes the identity of ANY session kind: the panel and the
+// portal serialise the user id under different keys, and a revoke that only
+// understands one shape silently leaves the other kind alive.
+type sessionOwner struct {
+	UserID             int64 `json:"user_id"`
+	PortalUserID       int64 `json:"u"`
+	ImpersonatorUserID int64 `json:"impersonator_user_id"`
+}
+
+func (o sessionOwner) owns(userID int64) bool {
+	return userID != 0 &&
+		(o.UserID == userID || o.PortalUserID == userID || o.ImpersonatorUserID == userID)
 }
 
 // destroyForUserIn purges one namespace. Legacy keys carry no Ver/Epoch, so a
@@ -336,12 +359,12 @@ func (m *Manager) destroyForUserIn(ctx context.Context, prefix string, userID in
 				errs = append(errs, fmt.Errorf("read %s: %w", k, err))
 				continue
 			}
-			var s Session
-			if uerr := json.Unmarshal(b, &s); uerr != nil {
+			var owner sessionOwner
+			if uerr := json.Unmarshal(b, &owner); uerr != nil {
 				errs = append(errs, fmt.Errorf("decode %s: %w", k, uerr))
 				continue
 			}
-			if s.UserID != userID && s.ImpersonatorUserID != userID {
+			if !owner.owns(userID) {
 				continue
 			}
 			n, derr := m.rdb.Del(ctx, k).Result()

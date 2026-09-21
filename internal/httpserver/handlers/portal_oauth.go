@@ -176,7 +176,7 @@ func (h *PortalHandlers) PortalOAuthCallback(w http.ResponseWriter, r *http.Requ
 	}
 
 	// Check route access: user must be in a group granted to the protected route.
-	routeID, protect, _ := h.Portal.RouteByHost(ctx, host)
+	routeID, protect, _ := h.Portal.RouteForRequest(ctx, host, portalPathOf(back))
 	if protect && routeID > 0 {
 		allowed, aerr := h.Portal.IsAllowed(ctx, routeID, userID)
 		if aerr != nil || !allowed {

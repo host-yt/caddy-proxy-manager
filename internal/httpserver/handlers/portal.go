@@ -56,7 +56,7 @@ type metricsLoginEmitter interface {
 const (
 	portalCookie      = "hpg_portal"
 	portalCSRFCookie  = "hpg_portal_csrf"
-	portalSessPrefix  = "hpg:portal:sess:"
+	portalSessPrefix  = auth.PortalSessionKeyPrefix
 	portalLoginPath   = "/hpg-portal/login"
 	portalFailWindow  = 15 * time.Minute
 	portalFailIPLimit = 10
@@ -66,12 +66,20 @@ const (
 
 // portalSession is the Redis-stored record keyed by a random id in the cookie.
 type portalSession struct {
-	UserID    int64     `json:"u"`
-	Email     string    `json:"e"`
-	Username  string    `json:"n"` // full_name, used for X-Forwarded-User
+	UserID   int64  `json:"u"`
+	Email    string `json:"e"`
+	Username string `json:"n"` // full_name, used for X-Forwarded-User
+	// Epoch is users.auth_epoch at mint time; every verification re-reads it,
+	// so disabling or re-scoping an account kills the portal session too.
+	Epoch int64 `json:"ep"`
+	// Ver rejects pre-epoch sessions rather than trusting a zero epoch.
+	Ver       int       `json:"v,omitempty"`
 	CreatedAt time.Time `json:"c"`
 	ExpiresAt time.Time `json:"x"`
 }
+
+// portalSessionVer 1 adds Epoch. Anything older is dropped on sight.
+const portalSessionVer = 1
 
 // ParseSameSite maps the config string to http.SameSite, defaulting to Lax
 // (same default the session manager uses) so the portal cookie matches.
@@ -142,7 +150,23 @@ func (h *PortalHandlers) loadPortalSession(ctx context.Context, r *http.Request)
 	if json.Unmarshal(b, &s) != nil {
 		return nil
 	}
-	if time.Now().After(s.ExpiresAt) {
+	if s.Ver < portalSessionVer || time.Now().After(s.ExpiresAt) {
+		h.RDB.Del(ctx, portalSessPrefix+c.Value)
+		return nil
+	}
+	// The account behind the cookie is re-checked on every use: a "remember"
+	// session otherwise outlives a disabled account by up to 30 days.
+	if h.Portal == nil {
+		return nil
+	}
+	ok, err := h.Portal.IdentityStillValid(ctx, s.UserID, s.Epoch)
+	if err != nil {
+		// Indeterminate (DB blip): deny, but do not destroy a session that may
+		// still be valid once the database recovers.
+		return nil
+	}
+	if !ok {
+		h.RDB.Del(ctx, portalSessPrefix+c.Value)
 		return nil
 	}
 	return &s
@@ -159,10 +183,18 @@ func (h *PortalHandlers) Verify(w http.ResponseWriter, r *http.Request) {
 		h.denyVerify(w, r, host, 0, 0, "no_backend")
 		return
 	}
-	routeID, protect, err := h.Portal.RouteByHost(ctx, host)
+	// Resource identity, not host identity: several routes can share a host
+	// with different grants, and one of them may be public.
+	path, ok := portalRequestPath(r)
+	if !ok {
+		// No trusted URI => the call did not come through the emitted gate.
+		h.denyVerify(w, r, host, 0, 0, "no_route_identity")
+		return
+	}
+	routeID, protect, err := h.Portal.RouteForRequest(ctx, host, path)
 	if err != nil || routeID == 0 {
-		// Unknown host or lookup error: deny (fail closed).
-		h.denyVerify(w, r, host, 0, 0, "unknown_host")
+		// Unknown, ambiguous, or unreadable: deny (fail closed).
+		h.denyVerify(w, r, host, 0, 0, "unknown_route")
 		return
 	}
 	if !protect {
@@ -267,7 +299,7 @@ func (h *PortalHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	routeID, protect, _ := h.Portal.RouteByHost(ctx, host)
+	routeID, protect, _ := h.Portal.RouteForRequest(ctx, host, portalPathOf(back))
 
 	var (
 		userID      int64
@@ -609,12 +641,22 @@ func (h *PortalHandlers) createPortalSession(ctx context.Context, w http.Respons
 		return err
 	}
 	id := base64.RawURLEncoding.EncodeToString(idb)
+	// Stamp the epoch the session is minted against; an unreadable epoch must
+	// not mint a session that can never be revoked.
+	epoch, err := auth.UserEpoch(ctx, h.DB(), userID)
+	if err != nil {
+		return err
+	}
 	now := time.Now().UTC()
 	ttl := h.ttl()
 	if rememberMe {
 		ttl = 30 * 24 * time.Hour
 	}
-	s := portalSession{UserID: userID, Email: email, Username: username, CreatedAt: now, ExpiresAt: now.Add(ttl)}
+	s := portalSession{
+		UserID: userID, Email: email, Username: username,
+		Epoch: epoch, Ver: portalSessionVer,
+		CreatedAt: now, ExpiresAt: now.Add(ttl),
+	}
 	b, _ := json.Marshal(s)
 	if err := h.RDB.Set(ctx, portalSessPrefix+id, b, ttl).Err(); err != nil {
 		return err
@@ -691,6 +733,37 @@ func portalRequestHost(r *http.Request) string {
 		host = host[:i]
 	}
 	return strings.ToLower(strings.TrimSpace(host))
+}
+
+// portalRequestPath returns the path of the originally-requested URL, and
+// whether it is usable as a resource identity. The gate config the panel emits
+// SETs X-Forwarded-Uri (overriding whatever the client sent), so this - never a
+// route id the browser hands us - is what the policy lookup is bound to.
+// Fails closed: absent or non-absolute means "no identity".
+func portalRequestPath(r *http.Request) (string, bool) {
+	raw := r.Header.Get("X-Forwarded-Uri")
+	if !strings.HasPrefix(raw, "/") {
+		return "", false
+	}
+	u, err := url.Parse(raw)
+	// A protocol-relative "//host/path" parses with a Host: that is a different
+	// origin's path, never this route's.
+	if err != nil || u.Host != "" || u.Scheme != "" || !strings.HasPrefix(u.Path, "/") {
+		return "", false
+	}
+	return u.Path, true
+}
+
+// portalPathOf strips the query from an already-validated same-host "back"
+// target, giving the path the login-time authorization pre-check applies to.
+func portalPathOf(back string) string {
+	if i := strings.IndexByte(back, '?'); i >= 0 {
+		back = back[:i]
+	}
+	if !strings.HasPrefix(back, "/") {
+		return "/"
+	}
+	return back
 }
 
 // portalOriginalURL reconstructs the user's originally-requested URL from the
