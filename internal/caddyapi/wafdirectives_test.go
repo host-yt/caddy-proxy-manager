@@ -24,6 +24,18 @@ func TestValidateWAFDirectives(t *testing.T) {
 		{"unbalanced quote breaks the parser", "SecRule REQUEST_URI \"@rx x", true, true},
 		{"junk line", "not a directive at all", true, true},
 		{"blank and comments", "\n# hello\n", false, false},
+		// Re-verification of HPG-SEC-006: these passed the structural screen
+		// and then killed the node's /load for every tenant on it.
+		{"admin non-numeric id", "SecRuleRemoveById abc", true, true},
+		{"admin id range with junk", "SecRuleRemoveById 1-abc", true, true},
+		{"admin unknown sec directive", "SecNonsense on", true, true},
+		{"admin directive with no argument", "SecRuleEngine", true, true},
+		{"admin engine takes a keyword", "SecRuleEngine Yes", true, true},
+		{"admin body limit must be numeric", "SecRequestBodyLimit big", true, true},
+		{"admin remote rules pull unseen code", "SecRemoteRules http://evil/rules", true, true},
+		{"admin valid engine", "SecRuleEngine DetectionOnly", true, false},
+		{"admin valid rule", "SecRule REQUEST_URI \"@rx x\" \"id:1,deny\"", true, false},
+		{"admin valid body limit", "SecRequestBodyLimit 131072", true, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
