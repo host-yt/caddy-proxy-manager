@@ -161,25 +161,47 @@ func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (user
 	}
 	scopes = scopeCol.String
 
-	// Fast path: constant-time HMAC compare.
-	if hmacCol.Valid && hmacCol.String != "" && len(HMACKey) > 0 {
-		want, derr := hex.DecodeString(hmacCol.String)
+	// Fast path: constant-time HMAC compare. A usable stored HMAC is
+	// AUTHORITATIVE - a mismatch denies here. Falling through to Argon2 on
+	// every miss let anyone who knew a prefix force 64 MiB of uncancellable
+	// KDF work per request. Rotating APP_SECRET nulls key_hmac (cmd/rotate-
+	// secret), which is what puts a row back on the compat path deliberately.
+	if want, ok := storedHMAC(hmacCol); ok {
 		got, gerr := hex.DecodeString(hmacHex(secret))
-		if derr == nil && gerr == nil && subtle.ConstantTimeCompare(want, got) == 1 {
+		if gerr == nil && subtle.ConstantTimeCompare(want, got) == 1 {
 			finalizeAPIKey(ctx, db, id, uid, secret, hmacCol.String, clientIP)
 			return uid, id, role, scopes, nil
 		}
-		// HMAC present + mismatch → still try Argon2id below in case the
-		// stored HMAC was written with a different key (post-rotation).
+		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 
-	// Legacy slow path: Argon2id from key_hash. On success, write key_hmac
-	// so the next call uses the fast path.
+	// Legacy compat path: no usable HMAC on the row (key predates HMAC, or a
+	// secret rotation cleared it). Argon2id from key_hash, under its own
+	// budget; on success write key_hmac so the next call takes the fast path.
+	release, berr := legacyKDF.acquire(ctx, prefix)
+	if berr != nil {
+		return 0, 0, "", "", berr
+	}
+	defer release()
 	if err := VerifyPassword(hash, secret); err != nil {
 		return 0, 0, "", "", ErrAPIKeyInvalid
 	}
 	finalizeAPIKey(ctx, db, id, uid, secret, "", clientIP)
 	return uid, id, role, scopes, nil
+}
+
+// storedHMAC decodes key_hmac when it can decide a verification. A NULL, empty
+// or undecodable value is "no HMAC on this row", which routes to the compat
+// path - a corrupted column must not brick a key permanently.
+func storedHMAC(col sql.NullString) ([]byte, bool) {
+	if !col.Valid || col.String == "" || len(HMACKey) == 0 {
+		return nil, false
+	}
+	b, err := hex.DecodeString(col.String)
+	if err != nil || len(b) != sha256.Size {
+		return nil, false
+	}
+	return b, true
 }
 
 func finalizeAPIKey(ctx context.Context, db *sql.DB, id, uid int64, secret, existingHMAC, clientIP string) {
