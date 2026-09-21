@@ -51,11 +51,11 @@
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block t-small mb-1" style="color:rgb(var(--muted))">Zone (apex)</label>
-          <input name="name" required placeholder="customer.com" class="r-input w-full font-mono text-xs">
+          <label class="block t-small mb-1" style="color:rgb(var(--muted))" for="f-name">Zone (apex)</label>
+          <input id="f-name" name="name" required placeholder="customer.com" class="r-input w-full font-mono text-xs">
         </div>
         <div>
-          <label class="block t-small mb-1" style="color:rgb(var(--muted))">Provider</label>
+          <label class="block t-small mb-1" style="color:rgb(var(--muted))" for="dns-provider-select">Provider</label>
           <select id="dns-provider-select" name="provider" class="r-select w-full">
             {{range .Registry}}<option value="{{.Slug}}">{{.DisplayName}}</option>{{end}}
           </select>

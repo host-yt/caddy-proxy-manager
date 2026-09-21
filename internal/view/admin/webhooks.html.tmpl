@@ -62,21 +62,21 @@
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block t-small mb-1" style="color:rgb(var(--muted))">Name</label>
-          <input name="name" required class="r-input w-full">
+          <label class="block t-small mb-1" style="color:rgb(var(--muted))" for="f-name">Name</label>
+          <input id="f-name" name="name" required class="r-input w-full">
         </div>
         <div>
-          <label class="block t-small mb-1" style="color:rgb(var(--muted))">Events pattern</label>
-          <input name="events" value="*" required class="r-input w-full">
+          <label class="block t-small mb-1" style="color:rgb(var(--muted))" for="f-events">Events pattern</label>
+          <input id="f-events" name="events" value="*" required class="r-input w-full">
         </div>
       </div>
       <div>
-        <label class="block t-small mb-1" style="color:rgb(var(--muted))">URL</label>
-        <input name="url" type="url" required placeholder="https://billing.example.com/hooks/hpg" class="r-input w-full font-mono text-xs">
+        <label class="block t-small mb-1" style="color:rgb(var(--muted))" for="f-url">URL</label>
+        <input id="f-url" name="url" type="url" required placeholder="https://billing.example.com/hooks/hpg" class="r-input w-full font-mono text-xs">
       </div>
       <div>
-        <label class="block t-small mb-1" style="color:rgb(var(--muted))">HMAC secret (stored encrypted; receiver verifies <code>X-HPG-Signature</code>)</label>
-        <input name="secret" type="password" class="r-input w-full">
+        <label class="block t-small mb-1" style="color:rgb(var(--muted))" for="f-secret">HMAC secret (stored encrypted; receiver verifies <code>X-HPG-Signature</code>)</label>
+        <input id="f-secret" name="secret" type="password" class="r-input w-full">
       </div>
       <label class="flex items-center gap-2 t-small cursor-pointer" style="color:rgb(var(--text))">
         <input type="checkbox" name="enabled" value="1" checked class="r-toggle"> Enabled

@@ -105,8 +105,8 @@
         Allow client self-registration
       </label>
       <div>
-        <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Default plan for new registrations</label>
-        <input name="default_plan_id" value="{{.DefaultPlanID}}" placeholder="Plan ID (optional)" class="r-input w-full font-mono">
+        <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))" for="f-default_plan_id">Default plan for new registrations</label>
+        <input id="f-default_plan_id" name="default_plan_id" value="{{.DefaultPlanID}}" placeholder="Plan ID (optional)" class="r-input w-full font-mono">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">When set, a service on this plan is assigned to the new client automatically. Leave empty to assign no plan.</p>
       </div>
       <div class="flex justify-end">
@@ -173,16 +173,16 @@
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <input type="hidden" name="entity_type" id="cf-entity-type-input" value="client">
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Label</label>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="cf-label-input">Label</label>
           <input name="label" id="cf-label-input" maxlength="120" placeholder="e.g. Company name" class="r-input" required>
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Key (slug)</label>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="cf-key-input">Key (slug)</label>
           <input name="field_key" id="cf-key-input" maxlength="40" placeholder="e.g. company_name" pattern="[a-z0-9_]{1,40}" class="r-input font-mono" required>
           <p class="t-caption mt-1" style="color:rgb(var(--muted))">Lowercase letters, digits, underscores only.</p>
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Type</label>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="cf-type-select">Type</label>
           <select name="field_type" id="cf-type-select" class="r-select">
             <option value="text">Text</option>
             <option value="number">Number</option>
@@ -191,8 +191,8 @@
           </select>
         </div>
         <div id="cf-options-row" class="hidden">
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Options (one per line or comma-separated)</label>
-          <textarea name="options" rows="3" class="r-input" placeholder="Option A&#10;Option B"></textarea>
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-options">Options (one per line or comma-separated)</label>
+          <textarea id="f-options" name="options" rows="3" class="r-input" placeholder="Option A&#10;Option B"></textarea>
         </div>
         <div class="sm:col-span-2">
           <label class="r-toggle">
@@ -391,34 +391,34 @@
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
 
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Brand name</label>
-          <input name="brand_name" value="{{.Branding.BrandName}}" maxlength="64" placeholder="Hostyt Proxy" class="r-input">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-brand_name">Brand name</label>
+          <input id="f-brand_name" name="brand_name" value="{{.Branding.BrandName}}" maxlength="64" placeholder="Hostyt Proxy" class="r-input">
           <p class="t-caption mt-1" style="color:rgb(var(--muted))">Shown in the sidebar + login header. Empty = default "Hostyt Proxy".</p>
         </div>
 
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Tagline (optional)</label>
-          <input name="tagline" value="{{.Branding.Tagline}}" maxlength="128" placeholder="Self-hosted reverse-proxy panel" class="r-input">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-tagline">Tagline (optional)</label>
+          <input id="f-tagline" name="tagline" value="{{.Branding.Tagline}}" maxlength="128" placeholder="Self-hosted reverse-proxy panel" class="r-input">
         </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label class="block t-caption mb-1" style="color:rgb(var(--text))">Logo URL (light mode)</label>
-            <input name="logo_url_light" value="{{.Branding.LogoURLLight}}" placeholder="https://cdn.example.com/logo-dark.svg" class="r-input">
+            <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-logo_url_light">Logo URL (light mode)</label>
+            <input id="f-logo_url_light" name="logo_url_light" value="{{.Branding.LogoURLLight}}" placeholder="https://cdn.example.com/logo-dark.svg" class="r-input" pattern="https?://.+|[^:]*" title="http(s):// URL or a scheme-less path">
             {{if .Branding.LogoURLLight}}<div class="mt-2 inline-block p-2 rounded-lg r-card"><img src="{{.Branding.LogoURLLight}}" alt="light preview" class="h-8"></div>{{end}}
             <p class="t-caption mt-1" style="color:rgb(var(--muted))">Used on white backgrounds. Pick a logo with dark ink.</p>
           </div>
           <div>
-            <label class="block t-caption mb-1" style="color:rgb(var(--text))">Logo URL (dark mode)</label>
-            <input name="logo_url_dark" value="{{.Branding.LogoURLDark}}" placeholder="https://cdn.example.com/logo-light.svg" class="r-input">
+            <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-logo_url_dark">Logo URL (dark mode)</label>
+            <input id="f-logo_url_dark" name="logo_url_dark" value="{{.Branding.LogoURLDark}}" placeholder="https://cdn.example.com/logo-light.svg" class="r-input" pattern="https?://.+|[^:]*" title="http(s):// URL or a scheme-less path">
             {{if .Branding.LogoURLDark}}<div class="mt-2 inline-block p-2 rounded-lg r-card"><img src="{{.Branding.LogoURLDark}}" alt="dark preview" class="h-8"></div>{{end}}
             <p class="t-caption mt-1" style="color:rgb(var(--muted))">Falls back to the light logo if empty. Pick a logo with light ink for dark backgrounds.</p>
           </div>
         </div>
 
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Favicon URL</label>
-          <input name="favicon_url" value="{{.Branding.FaviconURL}}" placeholder="https://cdn.example.com/favicon.ico" class="r-input">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-favicon_url">Favicon URL</label>
+          <input id="f-favicon_url" name="favicon_url" value="{{.Branding.FaviconURL}}" placeholder="https://cdn.example.com/favicon.ico" class="r-input" pattern="https?://.+|[^:]*" title="http(s):// URL or a scheme-less path">
           <p class="t-caption mt-1" style="color:rgb(var(--muted))">16x16 ICO or PNG. Browsers cache aggressively - change the URL or path to bust.</p>
         </div>
 
@@ -428,19 +428,19 @@
           <p class="t-caption mb-3" style="color:rgb(var(--muted))">Branding for the pages Caddy serves directly (404, 403, 502, 503, 504, maintenance). Empty fields fall back to a neutral deep-gray skin.</p>
           <div class="space-y-3">
             <div>
-              <label class="block t-caption mb-1" style="color:rgb(var(--text))">Error page logo URL</label>
-              <input name="error_logo_url" value="{{.Branding.ErrorLogoURL}}" placeholder="https://cdn.example.com/logo-error.svg" class="r-input">
+              <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-error_logo_url">Error page logo URL</label>
+              <input id="f-error_logo_url" name="error_logo_url" value="{{.Branding.ErrorLogoURL}}" placeholder="https://cdn.example.com/logo-error.svg" class="r-input" pattern="https?://.+|[^:]*" title="http(s):// URL or a scheme-less path">
               {{if .Branding.ErrorLogoURL}}<div class="mt-2 inline-block p-2 rounded-lg" style="background: {{if .Branding.ErrorBgColor}}{{.Branding.ErrorBgColor}}{{else}}#1f2937{{end}};"><img src="{{.Branding.ErrorLogoURL}}" alt="error logo preview" class="h-8"></div>{{end}}
             </div>
             <div>
-              <label class="block t-caption mb-1" style="color:rgb(var(--text))">Error page logo link</label>
-              <input name="error_logo_link" value="{{.Branding.ErrorLogoLink}}" placeholder="https://www.your-brand.com/" class="r-input">
+              <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-error_logo_link">Error page logo link</label>
+              <input id="f-error_logo_link" name="error_logo_link" value="{{.Branding.ErrorLogoLink}}" placeholder="https://www.your-brand.com/" class="r-input" pattern="https?://.+|[^:]*" title="http(s):// URL or a scheme-less path - never javascript:/data:">
               <p class="t-caption mt-1" style="color:rgb(var(--muted))">Where the logo links on error pages. Leave empty for a non-clickable logo.</p>
             </div>
             <div>
-              <label class="block t-caption mb-1" style="color:rgb(var(--text))">Background color</label>
+              <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-error_bg_color">Background color</label>
               <div class="flex gap-2 items-center">
-                <input name="error_bg_color" value="{{.Branding.ErrorBgColor}}" placeholder="#1f2937" class="r-input font-mono flex-1">
+                <input id="f-error_bg_color" name="error_bg_color" value="{{.Branding.ErrorBgColor}}" placeholder="#1f2937" class="r-input font-mono flex-1" maxlength="64" pattern="[#a-zA-Z0-9(),.% -]{1,64}" title="CSS color: hex, rgb()/rgba(), or a named color">
                 <span class="inline-block w-8 h-8 rounded-lg shrink-0" style="background: {{if .Branding.ErrorBgColor}}{{.Branding.ErrorBgColor}}{{else}}#1f2937{{end}}; border:1px solid rgb(var(--border))"></span>
               </div>
               <p class="t-caption mt-1" style="color:rgb(var(--muted))">Hex (#RGB / #RRGGBB / #RRGGBBAA) or rgb()/rgba(). Default is deep slate (#1f2937).</p>
@@ -597,15 +597,15 @@
     <form method="POST" action="/admin/settings/smtp" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Host</label>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="smtp-host">Host</label>
         <input name="host" id="smtp-host" value="{{.SMTP.Host}}" class="r-input">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Port</label>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="smtp-port">Port</label>
         <input name="port" id="smtp-port" type="number" min="1" max="65535" value="{{.SMTP.Port}}" class="r-input tabular-nums">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Encryption</label>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="smtp-encryption">Encryption</label>
         <select name="encryption" id="smtp-encryption" class="r-select">
           <option value="tls" {{if eq .SMTP.Encryption "tls"}}selected{{end}}>STARTTLS</option>
           <option value="ssl" {{if eq .SMTP.Encryption "ssl"}}selected{{end}}>SSL/TLS</option>
@@ -613,20 +613,20 @@
         </select>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Username</label>
-        <input name="username" value="{{.SMTP.Username}}" class="r-input">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-username">Username</label>
+        <input id="f-username" name="username" value="{{.SMTP.Username}}" class="r-input">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Password {{if .SMTP.HasPassword}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-        <input name="password" type="password" placeholder="{{if .SMTP.HasPassword}}leave blank to keep{{end}}" class="r-input">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-password">Password {{if .SMTP.HasPassword}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+        <input id="f-password" name="password" type="password" placeholder="{{if .SMTP.HasPassword}}leave blank to keep{{end}}" class="r-input">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">From email</label>
-        <input name="from_email" type="email" value="{{.SMTP.FromEmail}}" class="r-input">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-from_email">From email</label>
+        <input id="f-from_email" name="from_email" type="email" value="{{.SMTP.FromEmail}}" class="r-input">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">From name</label>
-        <input name="from_name" value="{{.SMTP.FromName}}" class="r-input">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-from_name">From name</label>
+        <input id="f-from_name" name="from_name" value="{{.SMTP.FromName}}" class="r-input">
       </div>
       <div class="sm:col-span-2 flex flex-wrap justify-end gap-2">
         <button name="action" value="test" class="r-btn-secondary">Send test email</button>
@@ -650,13 +650,13 @@
         </label>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Provider display name</label>
-        <input name="provider_name" value="{{.OIDC.ProviderName}}" placeholder="Authentik" class="r-input">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-provider_name">Provider display name</label>
+        <input id="f-provider_name" name="provider_name" value="{{.OIDC.ProviderName}}" placeholder="Authentik" class="r-input">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Label for the login button, e.g. "Sign in with Authentik".</p>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Default role for new users</label>
-        <select name="default_role" class="r-select">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-default_role">Default role for new users</label>
+        <select id="f-default_role" name="default_role" class="r-select">
           <option value="support" {{if eq .OIDC.DefaultRole "support"}}selected{{end}}>support</option>
           <option value="admin" {{if eq .OIDC.DefaultRole "admin"}}selected{{end}}>admin</option>
           <option value="client" {{if eq .OIDC.DefaultRole "client"}}selected{{end}}>client</option>
@@ -664,21 +664,21 @@
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">"admin" + auto-provision is refused for safety.</p>
       </div>
       <div class="sm:col-span-2">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Issuer URL</label>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="oidc-issuer">Issuer URL</label>
         <input id="oidc-issuer" name="issuer" value="{{.OIDC.Issuer}}" placeholder="https://authentik.example.com/application/o/hostyt/" class="r-input font-mono">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">In Authentik: Application → Provider → "OpenID Configuration Issuer". Paste the base URL, not <code class="text-xs">/.well-known/openid-configuration</code>.</p>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Client ID</label>
-        <input name="client_id" value="{{.OIDC.ClientID}}" class="r-input font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-client_id">Client ID</label>
+        <input id="f-client_id" name="client_id" value="{{.OIDC.ClientID}}" class="r-input font-mono">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Client secret {{if .OIDC.HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved, encrypted</span>{{end}}</label>
-        <input name="client_secret" type="password" autocomplete="new-password" placeholder="{{if .OIDC.HasSecret}}leave blank to keep{{end}}" class="r-input">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-client_secret">Client secret {{if .OIDC.HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved, encrypted</span>{{end}}</label>
+        <input id="f-client_secret" name="client_secret" type="password" autocomplete="new-password" placeholder="{{if .OIDC.HasSecret}}leave blank to keep{{end}}" class="r-input">
         {{if .OIDC.HasSecret}}<label class="r-toggle mt-1" style="font-size:.75rem;color:rgb(var(--danger))"><input type="checkbox" name="clear_secret" value="1"><span></span>Clear stored secret on save</label>{{end}}
       </div>
       <div class="sm:col-span-2">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Redirect URL <span style="color:rgb(var(--muted))">(configure this exact URL on the IdP side)</span></label>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="oidc-redirect">Redirect URL <span style="color:rgb(var(--muted))">(configure this exact URL on the IdP side)</span></label>
         <div class="flex gap-2">
           <input id="oidc-redirect" name="redirect_url" value="{{.OIDC.RedirectURL}}" placeholder="{{.OIDC.DefaultRedirect}}" class="r-input font-mono flex-1">
           <button type="button" data-oidc-fill-redirect data-redirect="{{.OIDC.DefaultRedirect}}" class="r-btn-secondary shrink-0">Use default</button>
@@ -686,8 +686,8 @@
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Leave blank to auto-fill from APP_URL on save.</p>
       </div>
       <div class="sm:col-span-2">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Scopes (space-separated; <code class="text-xs">openid</code> always included)</label>
-        <input name="scopes" value="{{.OIDC.Scopes}}" placeholder="openid email profile" class="r-input font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-scopes">Scopes (space-separated; <code class="text-xs">openid</code> always included)</label>
+        <input id="f-scopes" name="scopes" value="{{.OIDC.Scopes}}" placeholder="openid email profile" class="r-input font-mono">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Add <code class="text-xs">groups</code> only when your IdP exposes a groups claim you actually map.</p>
       </div>
       <div class="sm:col-span-2">
@@ -747,26 +747,26 @@
           </label>
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Client ID</label>
-          <input name="client_id" value="{{.ClientID}}" class="r-input font-mono">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-client_id-2">Client ID</label>
+          <input id="f-client_id-2" name="client_id" value="{{.ClientID}}" class="r-input font-mono">
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Client secret {{if .HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved, encrypted</span>{{end}}</label>
-          <input name="client_secret" type="password" autocomplete="new-password" placeholder="{{if .HasSecret}}leave blank to keep{{end}}" class="r-input">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-client_secret-2">Client secret {{if .HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved, encrypted</span>{{end}}</label>
+          <input id="f-client_secret-2" name="client_secret" type="password" autocomplete="new-password" placeholder="{{if .HasSecret}}leave blank to keep{{end}}" class="r-input">
           {{if .HasSecret}}<label class="r-toggle mt-1" style="font-size:.75rem;color:rgb(var(--danger))"><input type="checkbox" name="clear_secret" value="1"><span></span>Clear stored secret on save</label>{{end}}
         </div>
         <div class="sm:col-span-2">
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Authorization callback URL <span style="color:rgb(var(--muted))">(set this exact URL on the provider)</span></label>
-          <input value="{{.DefaultRedirect}}" readonly class="r-input font-mono" style="opacity:.7;cursor:default">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-oidc-callback-url">Authorization callback URL <span style="color:rgb(var(--muted))">(set this exact URL on the provider)</span></label>
+          <input id="f-oidc-callback-url" value="{{.DefaultRedirect}}" readonly class="r-input font-mono" style="opacity:.7;cursor:default">
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Extra scopes (space-separated)</label>
-          <input name="scopes" value="{{.Scopes}}" placeholder="optional" class="r-input font-mono">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-scopes-2">Extra scopes (space-separated)</label>
+          <input id="f-scopes-2" name="scopes" value="{{.Scopes}}" placeholder="optional" class="r-input font-mono">
           <p class="t-caption mt-1" style="color:rgb(var(--muted))">Email + profile scopes are always requested.</p>
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Default role for new users</label>
-          <select name="default_role" class="r-select">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-default_role-2">Default role for new users</label>
+          <select id="f-default_role-2" name="default_role" class="r-select">
             <option value="support" {{if eq .DefaultRole "support"}}selected{{end}}>support</option>
             <option value="client" {{if eq .DefaultRole "client"}}selected{{end}}>client</option>
           </select>
@@ -820,12 +820,12 @@
       <div id="captcha-keys" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <p id="captcha-help" class="sm:col-span-2 t-caption" style="color:rgb(var(--muted))"></p>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Site key (public)</label>
-          <input name="site_key" value="{{.Turnstile.SiteKey}}" class="r-input font-mono">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-site_key">Site key (public)</label>
+          <input id="f-site_key" name="site_key" value="{{.Turnstile.SiteKey}}" class="r-input font-mono">
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Secret key {{if .Turnstile.HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input name="secret" type="password" placeholder="{{if .Turnstile.HasSecret}}leave blank to keep{{end}}" class="r-input">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-secret">Secret key {{if .Turnstile.HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input id="f-secret" name="secret" type="password" placeholder="{{if .Turnstile.HasSecret}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
@@ -886,12 +886,12 @@
         </label>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Account ID</label>
-        <input name="account_id" value="{{.Cloudflare.AccountID}}" class="r-input font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-account_id">Account ID</label>
+        <input id="f-account_id" name="account_id" value="{{.Cloudflare.AccountID}}" class="r-input font-mono">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">API token {{if .Cloudflare.HasToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-        <input name="api_token" type="password" placeholder="{{if .Cloudflare.HasToken}}leave blank to keep{{end}}" class="r-input">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-api_token">API token {{if .Cloudflare.HasToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+        <input id="f-api_token" name="api_token" type="password" placeholder="{{if .Cloudflare.HasToken}}leave blank to keep{{end}}" class="r-input">
       </div>
       <div class="sm:col-span-2">
         <label class="r-toggle">
@@ -1000,20 +1000,20 @@
         </label>
       </div>
       <div class="sm:col-span-2">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Public endpoint (host:port - what new nodes will dial)</label>
-        <input name="endpoint" value="{{.WireGuard.Endpoint}}" placeholder="manager.example.com:51820" class="r-input font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-endpoint">Public endpoint (host:port - what new nodes will dial)</label>
+        <input id="f-endpoint" name="endpoint" value="{{.WireGuard.Endpoint}}" placeholder="manager.example.com:51820" class="r-input font-mono">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Listen port (UDP)</label>
-        <input name="listen_port" type="number" value="{{.WireGuard.ListenPort}}" class="r-input tabular-nums">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-listen_port">Listen port (UDP)</label>
+        <input id="f-listen_port" name="listen_port" type="number" value="{{.WireGuard.ListenPort}}" class="r-input tabular-nums">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Overlay subnet</label>
-        <input name="subnet" value="{{.WireGuard.Subnet}}" class="r-input font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-subnet">Overlay subnet</label>
+        <input id="f-subnet" name="subnet" value="{{.WireGuard.Subnet}}" class="r-input font-mono">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Control plane IP</label>
-        <input name="control_ip" value="{{.WireGuard.ControlIP}}" class="r-input font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-control_ip">Control plane IP</label>
+        <input id="f-control_ip" name="control_ip" value="{{.WireGuard.ControlIP}}" class="r-input font-mono">
       </div>
       {{if .WireGuard.PublicKey}}
       <div class="sm:col-span-2">
@@ -1037,30 +1037,30 @@
     <form method="POST" action="/admin/settings/acme" class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="acme-form">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">ACME contact email</label>
-        <input name="email" type="email" required value="{{.ACME.Email}}" class="r-input">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-email">ACME contact email</label>
+        <input id="f-email" name="email" type="email" required value="{{.ACME.Email}}" class="r-input">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Registration contact for the ACME CA.</p>
       </div>
       <div class="sm:col-span-2">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Certificate Authority</label>
-        <select name="acme_ca_url" id="acme-ca-select" class="r-input cursor-pointer" onchange="acmeCAChange(this.value)">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="acme-ca-select">Certificate Authority</label>
+        <select name="acme_ca_url" id="acme-ca-select" class="r-input cursor-pointer">
           <option value="" {{if or (eq .ACME.CaURL "") (eq .ACME.CaURL "letsencrypt")}}selected{{end}}>Let's Encrypt (default)</option>
           <option value="zerossl" {{if eq .ACME.CaURL "zerossl"}}selected{{end}}>ZeroSSL</option>
           <option value="custom" {{if and (ne .ACME.CaURL "") (ne .ACME.CaURL "letsencrypt") (ne .ACME.CaURL "zerossl")}}selected{{end}}>Custom URL</option>
         </select>
       </div>
       <div class="sm:col-span-2" id="acme-custom-url-row" style="display:none">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Custom ACME directory URL</label>
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="acme-ca-url-custom">Custom ACME directory URL</label>
         <input name="acme_ca_url_custom" id="acme-ca-url-custom" type="url" class="r-input" placeholder="https://acme.example.com/directory" value="{{if and (ne .ACME.CaURL "") (ne .ACME.CaURL "letsencrypt") (ne .ACME.CaURL "zerossl")}}{{.ACME.CaURL}}{{end}}">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Full ACME directory URL for a private or alternate CA.</p>
       </div>
       <div class="sm:col-span-2" id="acme-eab-row" style="display:none">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">EAB Key ID</label>
-        <input name="acme_eab_kid" type="text" class="r-input" placeholder="ZeroSSL EAB key ID" value="{{.ACME.EabKID}}">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-acme_eab_kid">EAB Key ID</label>
+        <input id="f-acme_eab_kid" name="acme_eab_kid" type="text" class="r-input" placeholder="ZeroSSL EAB key ID" value="{{.ACME.EabKID}}">
       </div>
       <div class="sm:col-span-2" id="acme-eab-hmac-row" style="display:none">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">EAB HMAC Key</label>
-        <input name="acme_eab_hmac" type="password" class="r-input" placeholder="{{if .ACME.HasEABKey}}(unchanged){{else}}ZeroSSL EAB HMAC key{{end}}" autocomplete="new-password">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-acme_eab_hmac">EAB HMAC Key</label>
+        <input id="f-acme_eab_hmac" name="acme_eab_hmac" type="password" class="r-input" placeholder="{{if .ACME.HasEABKey}}(unchanged){{else}}ZeroSSL EAB HMAC key{{end}}" autocomplete="new-password">
         {{if .ACME.HasEABKey}}<p class="t-caption mt-1" style="color:rgb(var(--muted))">A key is stored. Leave blank to keep the existing value.</p>{{end}}
       </div>
       <div class="sm:col-span-2">
@@ -1076,14 +1076,13 @@
       </div>
     </form>
     <p class="t-caption mt-3" style="color:rgb(var(--muted))">Changes take effect on the next Caddy push (next route create/delete or node resync).</p>
-    <script>
+    <script nonce="{{.CSPNonce}}">
     (function(){
       function acmeCAChange(val){
         document.getElementById('acme-custom-url-row').style.display = val === 'custom' ? '' : 'none';
         document.getElementById('acme-eab-row').style.display = val === 'zerossl' ? '' : 'none';
         document.getElementById('acme-eab-hmac-row').style.display = val === 'zerossl' ? '' : 'none';
       }
-      window.acmeCAChange = acmeCAChange;
       // On submit, write custom URL into the select value so the server sees it.
       var form = document.getElementById('acme-form');
       if(form){
@@ -1096,7 +1095,10 @@
         });
       }
       var sel = document.getElementById('acme-ca-select');
-      if(sel) acmeCAChange(sel.value);
+      if(sel){
+        sel.addEventListener('change', function(){ acmeCAChange(this.value); });
+        acmeCAChange(sel.value);
+      }
     })();
     </script>
   </section>
@@ -1221,8 +1223,8 @@
     <form method="POST" action="/admin/settings/analytics" id="form-analytics" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
-        <label class="block t-body font-medium mb-1" style="color:rgb(var(--text))">Rollup retention (days)</label>
-        <input type="number" name="rollup_retention_days" value="{{.RollupRetentionDays}}"
+        <label class="block t-body font-medium mb-1" style="color:rgb(var(--text))" for="f-rollup_retention_days">Rollup retention (days)</label>
+        <input id="f-rollup_retention_days" type="number" name="rollup_retention_days" value="{{.RollupRetentionDays}}"
                min="0" max="3650"
                placeholder="0 (keep forever)"
                class="r-input tabular-nums" style="max-width:16rem">
@@ -1261,33 +1263,33 @@
     <form method="POST" action="/admin/settings/alert" id="form-alerts" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Node offline threshold (minutes)</label>
-        <input name="node_offline_min" type="number" min="1" value="{{.AlertNodeOfflineMin}}" class="r-input tabular-nums">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-node_offline_min">Node offline threshold (minutes)</label>
+        <input id="f-node_offline_min" name="node_offline_min" type="number" min="1" value="{{.AlertNodeOfflineMin}}" class="r-input tabular-nums">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Node must be unhealthy for at least this many minutes before alerting.</p>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Cert stuck threshold (minutes)</label>
-        <input name="cert_stuck_min" type="number" min="1" value="{{.AlertCertStuckMin}}" class="r-input tabular-nums">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-cert_stuck_min">Cert stuck threshold (minutes)</label>
+        <input id="f-cert_stuck_min" name="cert_stuck_min" type="number" min="1" value="{{.AlertCertStuckMin}}" class="r-input tabular-nums">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Minutes a cert may stay in pending_ssl before firing a "cert failing" alert.</p>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Alert cooldown (seconds)</label>
-        <input name="cooldown_sec" type="number" min="60" value="{{.AlertCooldownSec}}" class="r-input tabular-nums">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-cooldown_sec">Alert cooldown (seconds)</label>
+        <input id="f-cooldown_sec" name="cooldown_sec" type="number" min="60" value="{{.AlertCooldownSec}}" class="r-input tabular-nums">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Minimum seconds between repeated fires of the same rule and label combination.</p>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Manual cert expiry warn (days)</label>
-        <input name="manual_cert_days_warn" type="number" min="1" value="{{.AlertManualCertDaysWarn}}" class="r-input tabular-nums">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-manual_cert_days_warn">Manual cert expiry warn (days)</label>
+        <input id="f-manual_cert_days_warn" name="manual_cert_days_warn" type="number" min="1" value="{{.AlertManualCertDaysWarn}}" class="r-input tabular-nums">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Days before expiry to alert for manually imported certificates.</p>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Error rate threshold (0.01 - 1)</label>
-        <input name="error_rate_pct" type="number" step="0.01" min="0.01" max="1" value="{{.AlertErrorRatePct}}" class="r-input tabular-nums">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-error_rate_pct">Error rate threshold (0.01 - 1)</label>
+        <input id="f-error_rate_pct" name="error_rate_pct" type="number" step="0.01" min="0.01" max="1" value="{{.AlertErrorRatePct}}" class="r-input tabular-nums">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">5xx ratio (fraction of 1) within the window that triggers a high-error-rate alert.</p>
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Error rate window (minutes)</label>
-        <input name="error_rate_window_min" type="number" min="1" value="{{.AlertErrorRateWindowMin}}" class="r-input tabular-nums">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-error_rate_window_min">Error rate window (minutes)</label>
+        <input id="f-error_rate_window_min" name="error_rate_window_min" type="number" min="1" value="{{.AlertErrorRateWindowMin}}" class="r-input tabular-nums">
         <p class="t-caption mt-1" style="color:rgb(var(--muted))">Rolling window size used by the high-error-rate calculation.</p>
       </div>
       <div class="sm:col-span-2 flex justify-end">
@@ -1305,12 +1307,12 @@
     <form method="POST" action="/admin/settings/geoip" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">MaxMind account ID</label>
-        <input name="account_id" type="text" value="{{.GeoIP.AccountID}}" autocomplete="off" class="r-input tabular-nums">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-account_id-2">MaxMind account ID</label>
+        <input id="f-account_id-2" name="account_id" type="text" value="{{.GeoIP.AccountID}}" autocomplete="off" class="r-input tabular-nums">
       </div>
       <div>
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">License key {{if .GeoIP.Configured}}<span class="r-pill r-pill-success" style="font-size:.6rem">configured</span>{{end}}</label>
-        <input name="license_key" type="password" placeholder="{{if .GeoIP.Configured}}leave blank to keep current{{else}}paste license key{{end}}" autocomplete="new-password" class="r-input">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-license_key">License key {{if .GeoIP.Configured}}<span class="r-pill r-pill-success" style="font-size:.6rem">configured</span>{{end}}</label>
+        <input id="f-license_key" name="license_key" type="password" placeholder="{{if .GeoIP.Configured}}leave blank to keep current{{else}}paste license key{{end}}" autocomplete="new-password" class="r-input">
       </div>
       <div class="sm:col-span-2 flex justify-end">
         <button class="r-btn-primary">Save GeoIP credentials</button>
@@ -1403,56 +1405,56 @@
       <!-- Shared: sender -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Sender (phone or alphanumeric)</label>
-          <input name="from" value="{{.SMS.From}}" placeholder="+48555111222 or HostytPxy" class="r-input font-mono">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-from">Sender (phone or alphanumeric)</label>
+          <input id="f-from" name="from" value="{{.SMS.From}}" placeholder="+48555111222 or HostytPxy" class="r-input font-mono">
         </div>
       </div>
 
       <!-- BulkGate fields -->
       <div id="sms-fields-bulkgate" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">BulkGate Application ID</label>
-          <input name="bulkgate_app_id" value="{{.SMS.BulkGateAppID}}" placeholder="123" class="r-input font-mono" data-sms-required="bulkgate">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-bulkgate_app_id">BulkGate Application ID</label>
+          <input id="f-bulkgate_app_id" name="bulkgate_app_id" value="{{.SMS.BulkGateAppID}}" placeholder="123" class="r-input font-mono" data-sms-required="bulkgate">
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">BulkGate Application Token {{if .SMS.HasBulkGateToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input name="bulkgate_app_token" type="password" placeholder="{{if .SMS.HasBulkGateToken}}leave blank to keep{{end}}" class="r-input">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-bulkgate_app_token">BulkGate Application Token {{if .SMS.HasBulkGateToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input id="f-bulkgate_app_token" name="bulkgate_app_token" type="password" placeholder="{{if .SMS.HasBulkGateToken}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
       <!-- Twilio fields -->
       <div id="sms-fields-twilio" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Twilio Account SID</label>
-          <input name="twilio_account_sid" value="{{.SMS.TwilioAccountSID}}" placeholder="AC..." class="r-input font-mono" data-sms-required="twilio">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-twilio_account_sid">Twilio Account SID</label>
+          <input id="f-twilio_account_sid" name="twilio_account_sid" value="{{.SMS.TwilioAccountSID}}" placeholder="AC..." class="r-input font-mono" data-sms-required="twilio">
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Twilio Auth Token {{if .SMS.HasTwilioToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input name="twilio_auth_token" type="password" placeholder="{{if .SMS.HasTwilioToken}}leave blank to keep{{end}}" class="r-input">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-twilio_auth_token">Twilio Auth Token {{if .SMS.HasTwilioToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input id="f-twilio_auth_token" name="twilio_auth_token" type="password" placeholder="{{if .SMS.HasTwilioToken}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
       <!-- SMSAPI fields -->
       <div id="sms-fields-smsapi" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">SMSAPI base URL</label>
-          <input name="smsapi_base_url" value="{{.SMS.SMSAPIBaseURL}}" placeholder="https://api.smsapi.pl" class="r-input font-mono">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-smsapi_base_url">SMSAPI base URL</label>
+          <input id="f-smsapi_base_url" name="smsapi_base_url" value="{{.SMS.SMSAPIBaseURL}}" placeholder="https://api.smsapi.pl" class="r-input font-mono">
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">SMSAPI OAuth token {{if .SMS.HasSMSAPIToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input name="smsapi_token" type="password" placeholder="{{if .SMS.HasSMSAPIToken}}leave blank to keep{{end}}" class="r-input" data-sms-required="smsapi">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-smsapi_token">SMSAPI OAuth token {{if .SMS.HasSMSAPIToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input id="f-smsapi_token" name="smsapi_token" type="password" placeholder="{{if .SMS.HasSMSAPIToken}}leave blank to keep{{end}}" class="r-input" data-sms-required="smsapi">
         </div>
       </div>
 
       <!-- Webhook fields -->
       <div id="sms-fields-webhook" class="sms-provider-fields grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3 hidden">
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Webhook URL (any HTTP gateway)</label>
-          <input name="webhook_url" value="{{.SMS.WebhookURL}}" placeholder="https://sms-gw.example.com/send" class="r-input font-mono" data-sms-required="webhook">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-webhook_url">Webhook URL (any HTTP gateway)</label>
+          <input id="f-webhook_url" name="webhook_url" value="{{.SMS.WebhookURL}}" placeholder="https://sms-gw.example.com/send" class="r-input font-mono" data-sms-required="webhook">
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--text))">Webhook Bearer token {{if .SMS.HasWebhookToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input name="webhook_token" type="password" placeholder="{{if .SMS.HasWebhookToken}}leave blank to keep{{end}}" class="r-input">
+          <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-webhook_token">Webhook Bearer token {{if .SMS.HasWebhookToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
+          <input id="f-webhook_token" name="webhook_token" type="password" placeholder="{{if .SMS.HasWebhookToken}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
@@ -1465,8 +1467,8 @@
     <form method="POST" action="/admin/settings/sms/test" class="mt-4 flex flex-wrap items-end gap-2" style="border-top:1px solid rgb(var(--border));padding-top:1rem">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="flex-1" style="min-width:14rem">
-        <label class="block t-caption mb-1" style="color:rgb(var(--text))">Send a test SMS to (E.164)</label>
-        <input name="test_phone" placeholder="+48555111222" class="r-input font-mono">
+        <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-test_phone">Send a test SMS to (E.164)</label>
+        <input id="f-test_phone" name="test_phone" placeholder="+48555111222" class="r-input font-mono">
       </div>
       <button class="r-btn-secondary">Send test SMS</button>
     </form>
@@ -1518,7 +1520,7 @@
           <button type="button" data-sso-secret-close class="cursor-pointer" style="color:rgb(var(--muted));font-size:1.25rem;line-height:1">×</button>
         </div>
         <div>
-          <label class="block t-caption mb-1" style="color:rgb(var(--muted))">HOSTYT_SSO_SECRET</label>
+          <label class="block t-caption mb-1" style="color:rgb(var(--muted))" for="hpg-sso-secret-val">HOSTYT_SSO_SECRET</label>
           <div class="flex gap-2">
             <input id="hpg-sso-secret-val" readonly value="{{.SSOJump.NewSecret}}" class="r-input font-mono flex-1 text-xs">
             <button type="button" data-copy-target="hpg-sso-secret-val" class="r-btn-primary text-xs">Copy</button>
@@ -1899,8 +1901,8 @@
   <form method="POST" action="/admin/settings/banner" class="space-y-4">
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
     <div>
-      <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Message</label>
-      <textarea name="banner_text" rows="3" placeholder="Leave blank to clear the announcement" class="r-input">{{.SystemBannerText}}</textarea>
+      <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))" for="f-banner_text">Message</label>
+      <textarea id="f-banner_text" name="banner_text" rows="3" placeholder="Leave blank to clear the announcement" class="r-input">{{.SystemBannerText}}</textarea>
     </div>
     <div>
       <label class="block t-caption font-medium mb-2" style="color:rgb(var(--text))">Type</label>
@@ -1920,12 +1922,12 @@
       </div>
     </div>
     <div>
-      <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Link URL (optional)</label>
-      <input name="banner_link" type="url" value="{{.SystemBannerLink}}" placeholder="https://example.com/status" class="r-input">
+      <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))" for="f-banner_link">Link URL (optional)</label>
+      <input id="f-banner_link" name="banner_link" type="url" value="{{.SystemBannerLink}}" placeholder="https://example.com/status" class="r-input">
     </div>
     <div>
-      <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Link label (optional)</label>
-      <input name="banner_link_label" value="{{.SystemBannerLinkLabel}}" placeholder="View details" class="r-input">
+      <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))" for="f-banner_link_label">Link label (optional)</label>
+      <input id="f-banner_link_label" name="banner_link_label" value="{{.SystemBannerLinkLabel}}" placeholder="View details" class="r-input">
     </div>
     <div class="flex justify-end">
       <button class="r-btn-primary">Save</button>
