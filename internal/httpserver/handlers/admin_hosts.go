@@ -3477,6 +3477,19 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "error background must be #RGB / #RRGGBB / #RRGGBBAA or rgb()/rgba()")
 		return
 	}
+	// HPG-001: Caddy expands placeholders in a static_response body and in the
+	// Location header, so a tenant string landing there is screened at write
+	// time, not only before emission. Fail closed.
+	for _, f := range []struct{ name, val string }{
+		{"custom error HTML", errHTML},
+		{"maintenance message", maintenanceMsg},
+		{"redirect URL", redirectURL},
+	} {
+		if err := routes.ScreenTenantString(f.val); err != nil {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", f.name+": "+sanitizeErr(err))
+			return
+		}
+	}
 	cacheVary := sanitizeHeaderList(r.FormValue("cache_vary"))
 	accessAllow, err1 := sanitizeCIDRList(r.FormValue("access_allow"))
 	if err1 != nil {
@@ -3876,6 +3889,16 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ssoStrictMode := ssoStrictFromForm(r.Form, prevSSOStrict)
+
+	// HPG-008: the edit form used to write a port or path the create path would
+	// have refused. Same command, same rules, full resulting state.
+	if err := h.Routes.ValidateRouteState(ctx, serviceID, id, routes.RouteState{
+		Kind: kind, External: external, UpstreamPort: port, PathPrefix: pathPrefix,
+		SSL: ssl, WebSocket: websocket, RedirectURL: redirectURL,
+	}); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", sanitizeErr(err))
+		return
+	}
 
 	// Backend edits are PER-ROUTE via routes.backend_ip_override so editing
 	// one route does NOT cascade to siblings sharing the same service.
@@ -4323,21 +4346,30 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// (groups owned by the route's client, plus globals for super_admin), so a
 	// scoped admin cannot grant another tenant's group via a forged form post.
 	if h.Portal != nil {
-		if _, perr := h.DB().ExecContext(ctx,
-			`UPDATE routes SET portal_protect = ? WHERE id = ?`, portalProtect, id); perr != nil {
-			h.Logger.Warn("portal_protect update", "id", id, "err", perr)
-		}
 		var portalClientID int64
-		_ = h.DB().QueryRowContext(ctx, `SELECT client_id FROM services WHERE id = ?`, serviceID).Scan(&portalClientID)
-		includeGlobal := sess != nil && sess.Role == "super_admin"
-		visible := map[int64]bool{}
-		if grps, gerr := h.Portal.GroupsForGrant(ctx, portalClientID, includeGlobal); gerr == nil {
-			for _, g := range grps {
-				visible[g.ID] = true
-			}
+		if cerr := h.DB().QueryRowContext(ctx,
+			`SELECT client_id FROM services WHERE id = ?`, serviceID).Scan(&portalClientID); cerr != nil {
+			redirectWithFlash(w, r, editPath, "", "portal: owner lookup failed")
+			return
 		}
-		if gerr := h.Portal.SetRouteGrants(ctx, id, portalGroupIDs, visible, false); gerr != nil {
-			h.Logger.Warn("portal grants update", "id", id, "err", gerr)
+		includeGlobal := sess != nil && sess.Role == "super_admin"
+		// A failed read must not leave `visible` empty: that silently drops every
+		// grant and turns a protected route into one nobody can reach.
+		grps, gerr := h.Portal.GroupsForGrant(ctx, portalClientID, includeGlobal)
+		if gerr != nil {
+			redirectWithFlash(w, r, editPath, "", "portal: group lookup failed, protection left unchanged")
+			return
+		}
+		visible := map[int64]bool{}
+		for _, g := range grps {
+			visible[g.ID] = true
+		}
+		// Toggle and grants in one transaction (WP2): a half-applied portal write
+		// is either an open protected route or a locked-out one.
+		if perr := h.Portal.SetRouteProtection(ctx, id, portalProtect, portalGroupIDs, visible, false); perr != nil {
+			h.Logger.Warn("portal protection update", "id", id, "err", perr)
+			redirectWithFlash(w, r, editPath, "", "portal: saving protection failed")
+			return
 		}
 		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 			UserID: actorUserID(sess), Action: "portal.route.grants", Entity: "route", EntityID: itoa64(id),

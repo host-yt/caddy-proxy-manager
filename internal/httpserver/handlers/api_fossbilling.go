@@ -368,7 +368,8 @@ func (h *FOSSBillingHandlers) ProvisionRoute(w http.ResponseWriter, r *http.Requ
 
 // ---- Suspend ---------------------------------------------------------------
 
-// SuspendService sets service status to 'suspended' and disables all routes.
+// SuspendService sets service status to 'suspended' and stops its routes from
+// being served. Route definitions are kept so an unsuspend can restore them.
 func (h *FOSSBillingHandlers) SuspendService(w http.ResponseWriter, r *http.Request) {
 	if !requireAdmin(r) {
 		fbErr(w, http.StatusForbidden, "admin role required")
@@ -393,32 +394,23 @@ func (h *FOSSBillingHandlers) SuspendService(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Fetch all active route IDs for this service so we can delete them from Caddy.
-	rows, err := db.QueryContext(ctx, "SELECT id FROM routes WHERE service_id = ?", svcID)
-	if err != nil {
-		fbErr(w, http.StatusInternalServerError, "query failed")
+	// Suspend through the domain lifecycle. This used to call Routes.Delete in
+	// a loop, which physically deleted the route rows: a later unsuspend had
+	// nothing left to restore. Routes now stop serving and survive.
+	if h.Routes == nil {
+		fbErr(w, http.StatusServiceUnavailable, "route service not ready")
 		return
 	}
-	var routeIDs []int64
-	for rows.Next() {
-		var rid int64
-		if rows.Scan(&rid) == nil {
-			routeIDs = append(routeIDs, rid)
-		}
-	}
-	rows.Close()
-
-	// Mark service suspended.
-	if _, err := db.ExecContext(ctx,
-		"UPDATE services SET status = 'suspended' WHERE id = ?", svcID,
-	); err != nil {
-		fbErr(w, http.StatusInternalServerError, "update failed")
+	switch err := h.Routes.SuspendService(ctx, svcID); {
+	case errors.Is(err, routes.ErrServiceNotFound):
+		fbErr(w, http.StatusNotFound, "service not found")
 		return
-	}
-
-	// Remove each route from Caddy nodes; clientID=0 = admin scope (verified above).
-	for _, rid := range routeIDs {
-		_ = h.Routes.Delete(ctx, 0, rid)
+	case errors.Is(err, routes.ErrServiceTerminated):
+		fbErr(w, http.StatusConflict, "service is terminated")
+		return
+	case err != nil:
+		fbErr(w, http.StatusInternalServerError, "suspend failed")
+		return
 	}
 
 	uid := apiCallerID(r)
@@ -463,13 +455,23 @@ func (h *FOSSBillingHandlers) DeleteService(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	var routeIDs []int64
+	var scanErr error
 	for rows.Next() {
 		var rid int64
-		if rows.Scan(&rid) == nil {
-			routeIDs = append(routeIDs, rid)
+		if scanErr = rows.Scan(&rid); scanErr != nil {
+			break
 		}
+		routeIDs = append(routeIDs, rid)
+	}
+	if scanErr == nil {
+		scanErr = rows.Err()
 	}
 	rows.Close()
+	// A short list here would delete the service while leaving routes serving.
+	if scanErr != nil {
+		fbErr(w, http.StatusInternalServerError, "route enumeration failed")
+		return
+	}
 
 	// Delete routes via domain service (updates node counters + pushes Caddy).
 	for _, rid := range routeIDs {

@@ -243,7 +243,10 @@ func TestAPIRouteUpdate_RejectsSSLOffWhileMTLSOn(t *testing.T) {
 // patchRoute7 drives PATCH /api/v1/routes/7 as a super_admin API caller.
 func patchRoute7(t *testing.T, db *sql.DB, body string) *httptest.ResponseRecorder {
 	t.Helper()
-	h := &APIHandlers{DB: func() *sql.DB { return db }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	// RouteUpdate now goes through the domain command, so the handler needs it.
+	h := &APIHandlers{DB: func() *sql.DB { return db }, Logger: logger,
+		Routes: &routes.Service{DB: db, Logger: logger}}
 	req := httptest.NewRequest(http.MethodPatch, "/api/v1/routes/7", strings.NewReader(body))
 	rctx := chi.NewRouteContext()
 	rctx.URLParams.Add("id", "7")
@@ -292,7 +295,8 @@ func TestAPIRouteUpdate_RejectsWhenMTLSReadFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	setMTLSSQLHook(t, func(_ func(string) error, query string) error {
-		if strings.Contains(query, "SELECT COALESCE(require_client_cert") {
+		// Any prerequisite read of the flag, wherever the command loads it.
+		if strings.HasPrefix(strings.TrimSpace(query), "SELECT") && strings.Contains(query, "require_client_cert") {
 			return errors.New("injected read failure")
 		}
 		return nil
@@ -515,7 +519,9 @@ func TestAPIRouteUpdate_MTLSEnabledBeforeForceHTTPSWrite(t *testing.T) {
 		}
 		return nil
 	})
-	if rec := patchRoute7(t, db, `{"force_https":false}`); rec.Code != http.StatusOK {
+	// websocket rides along so the request is not a no-op: the hook needs the
+	// UPDATE to actually run for the interleaving to happen.
+	if rec := patchRoute7(t, db, `{"force_https":false,"websocket":true}`); rec.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body %s", rec.Code, rec.Body.String())
 	}
 	if fh, mtls := forceHTTPSOf(t, db); fh != 1 || mtls != 1 {

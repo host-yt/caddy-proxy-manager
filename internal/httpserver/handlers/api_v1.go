@@ -387,18 +387,42 @@ func (h *APIHandlers) ServiceUpdate(w http.ResponseWriter, r *http.Request) {
 	if !h.serviceInScope(ctx, w, r, id) {
 		return
 	}
-	parts := []string{}
-	args := []any{}
+	// Status goes through the domain lifecycle, never a bare UPDATE: writing
+	// 'suspended' here used to leave every route of the service serving.
 	if in.Status != nil {
+		if h.Routes == nil {
+			apiErr(w, http.StatusServiceUnavailable, "route service not ready")
+			return
+		}
+		var lerr error
 		switch *in.Status {
-		case "active", "suspended", "terminated":
-			parts = append(parts, "status = ?")
-			args = append(args, *in.Status)
+		case "active":
+			lerr = h.Routes.ResumeService(ctx, id)
+			if errors.Is(lerr, routes.ErrServiceNotSuspended) {
+				lerr = nil // already active: idempotent
+			}
+		case "suspended":
+			lerr = h.Routes.SuspendService(ctx, id)
+		case "terminated":
+			lerr = h.Routes.TerminateService(ctx, id)
 		default:
 			apiErr(w, http.StatusBadRequest, "invalid status")
 			return
 		}
+		switch {
+		case errors.Is(lerr, routes.ErrServiceNotFound):
+			apiErr(w, http.StatusNotFound, "not found")
+			return
+		case errors.Is(lerr, routes.ErrServiceTerminated):
+			apiErr(w, http.StatusConflict, "service is terminated")
+			return
+		case lerr != nil:
+			apiErr(w, http.StatusInternalServerError, "update failed")
+			return
+		}
 	}
+	parts := []string{}
+	args := []any{}
 	if in.ExternalReference != nil {
 		parts = append(parts, "external_reference = ?")
 		args = append(args, *in.ExternalReference)
@@ -407,14 +431,16 @@ func (h *APIHandlers) ServiceUpdate(w http.ResponseWriter, r *http.Request) {
 		parts = append(parts, "notes = ?")
 		args = append(args, *in.Notes)
 	}
-	if len(parts) == 0 {
+	if len(parts) == 0 && in.Status == nil {
 		apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": false})
 		return
 	}
-	args = append(args, id)
-	if _, err := h.DB().ExecContext(ctx, "UPDATE services SET "+strings.Join(parts, ", ")+" WHERE id = ?", args...); err != nil {
-		apiErr(w, http.StatusInternalServerError, "update failed")
-		return
+	if len(parts) > 0 {
+		args = append(args, id)
+		if _, err := h.DB().ExecContext(ctx, "UPDATE services SET "+strings.Join(parts, ", ")+" WHERE id = ?", args...); err != nil {
+			apiErr(w, http.StatusInternalServerError, "update failed")
+			return
+		}
 	}
 	uid := apiCallerID(r)
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
@@ -514,9 +540,16 @@ func (h *APIHandlers) ServiceRoutes(w http.ResponseWriter, r *http.Request) {
 	out := []rr{}
 	for rows.Next() {
 		var x rr
-		if err := rows.Scan(&x.ID, &x.Domain, &x.PathPrefix, &x.UpstreamPort, &x.Status); err == nil {
-			out = append(out, x)
+		if err := rows.Scan(&x.ID, &x.Domain, &x.PathPrefix, &x.UpstreamPort, &x.Status); err != nil {
+			apiErr(w, http.StatusInternalServerError, "read failed")
+			return
 		}
+		out = append(out, x)
+	}
+	// A failed read must not reach the client as a shorter list (HPG-020).
+	if err := rows.Err(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "read failed")
+		return
 	}
 	apiJSON(w, http.StatusOK, map[string]any{"routes": out})
 }
@@ -735,12 +768,18 @@ func (h *APIHandlers) NodesList(w http.ResponseWriter, r *http.Request) {
 		var x nr
 		var rtt sql.NullInt32
 		if err := rows.Scan(&x.ID, &x.Name, &x.APIURL, &x.PublicHostname, &x.PublicIP,
-			&x.NodeGroupID, &x.MaxRoutes, &x.CurrentRoutes, &x.Enabled, &x.Health, &rtt); err == nil {
-			if rtt.Valid {
-				x.LastRTTMs = &rtt.Int32
-			}
-			out = append(out, x)
+			&x.NodeGroupID, &x.MaxRoutes, &x.CurrentRoutes, &x.Enabled, &x.Health, &rtt); err != nil {
+			apiErr(w, http.StatusInternalServerError, "read failed")
+			return
 		}
+		if rtt.Valid {
+			x.LastRTTMs = &rtt.Int32
+		}
+		out = append(out, x)
+	}
+	if err := rows.Err(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "read failed")
+		return
 	}
 	apiJSON(w, http.StatusOK, map[string]any{"nodes": out})
 }

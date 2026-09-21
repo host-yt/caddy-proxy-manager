@@ -18,8 +18,67 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
+
+
+// ---- list contract -----------------------------------------------------
+//
+// A read that fails must never look like a short list: a Scan or iteration
+// error fails the whole response (HPG-020). Pagination is opt-in and additive:
+// without ?limit the caller keeps getting one complete array, and a result set
+// past apiListHardCap is refused loudly instead of being silently truncated.
+
+const (
+	apiListHardCap     = 5000 // unpaginated ceiling; refused, never cut
+	apiListMaxPageSize = 500
+)
+
+// apiListWindow parses ?limit / ?cursor. limit 0 means the caller asked for the
+// whole list (legacy contract). cursor is a keyset on id, descending.
+func apiListWindow(r *http.Request) (limit int, cursor int64, err error) {
+	q := r.URL.Query()
+	if v := strings.TrimSpace(q.Get("limit")); v != "" {
+		limit, err = strconv.Atoi(v)
+		if err != nil || limit < 1 || limit > apiListMaxPageSize {
+			return 0, 0, errors.New("limit must be 1.." + strconv.Itoa(apiListMaxPageSize))
+		}
+	}
+	if v := strings.TrimSpace(q.Get("cursor")); v != "" {
+		cursor, err = strconv.ParseInt(v, 10, 64)
+		if err != nil || cursor <= 0 {
+			return 0, 0, errors.New("cursor must be a positive row id")
+		}
+	}
+	return limit, cursor, nil
+}
+
+// apiListFetchCap is how many rows to ask the DB for: one past what we will
+// return, so "there is more" is known without a second query.
+func apiListFetchCap(limit int) int {
+	if limit > 0 {
+		return limit + 1
+	}
+	return apiListHardCap + 1
+}
+
+// apiListTruncated trims the sentinel row and reports whether more rows exist.
+// With no ?limit an overflow is an error, not a page.
+func apiListTruncated(w http.ResponseWriter, n, limit int) (keep int, more, ok bool) {
+	if limit > 0 {
+		if n > limit {
+			return limit, true, true
+		}
+		return n, false, true
+	}
+	if n > apiListHardCap {
+		apiErr(w, http.StatusRequestEntityTooLarge,
+			"result set exceeds "+strconv.Itoa(apiListHardCap)+" rows; page it with ?limit= and ?cursor=")
+		return 0, false, false
+	}
+	return n, false, true
+}
 
 // ---- Services (list + delete) ------------------------------------------
 
@@ -35,22 +94,35 @@ func (h *APIHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusForbidden, "scope unresolved")
 		return
 	}
+	limit, cursor, werr := apiListWindow(r)
+	if werr != nil {
+		apiErr(w, http.StatusBadRequest, werr.Error())
+		return
+	}
 	query := `SELECT id, client_id, name, backend_ip, allowed_port_start, allowed_port_end,
 	        plan_id, status, COALESCE(external_reference,''), created_at
 	 FROM services`
 	var args []any
+	var where []string
 	if !all {
 		// Reseller/scoped admin: only services of owned clients.
 		if len(ids) == 0 {
 			apiJSON(w, http.StatusOK, map[string]any{"services": []apiService{}})
 			return
 		}
-		query += " WHERE client_id IN (" + adminMapPlaceholders(len(ids)) + ")"
+		where = append(where, "client_id IN ("+adminMapPlaceholders(len(ids))+")")
 		for _, id := range ids {
 			args = append(args, id)
 		}
 	}
-	query += " ORDER BY id DESC"
+	if cursor > 0 {
+		where = append(where, "id < ?")
+		args = append(args, cursor)
+	}
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
+	}
+	query += " ORDER BY id DESC LIMIT " + strconv.Itoa(apiListFetchCap(limit))
 	rows, err := h.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "query failed")
@@ -62,11 +134,26 @@ func (h *APIHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 		var s apiService
 		if err := rows.Scan(&s.ID, &s.ClientID, &s.Name, &s.BackendIP,
 			&s.AllowedPortStart, &s.AllowedPortEnd, &s.PlanID, &s.Status,
-			&s.ExternalReference, &s.CreatedAt); err == nil {
-			out = append(out, s)
+			&s.ExternalReference, &s.CreatedAt); err != nil {
+			apiErr(w, http.StatusInternalServerError, "read failed")
+			return
 		}
+		out = append(out, s)
 	}
-	apiJSON(w, http.StatusOK, map[string]any{"services": out})
+	if err := rows.Err(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "read failed")
+		return
+	}
+	keep, more, ok := apiListTruncated(w, len(out), limit)
+	if !ok {
+		return
+	}
+	out = out[:keep]
+	body := map[string]any{"services": out}
+	if more {
+		body["next_cursor"] = strconv.FormatInt(out[len(out)-1].ID, 10)
+	}
+	apiJSON(w, http.StatusOK, body)
 }
 
 func (h *APIHandlers) ServiceDelete(w http.ResponseWriter, r *http.Request) {
@@ -140,6 +227,16 @@ func (h *APIHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 	}
 
 	svcIDFilter, _ := strconv.ParseInt(r.URL.Query().Get("service_id"), 10, 64)
+	limit, cursor, werr := apiListWindow(r)
+	if werr != nil {
+		apiErr(w, http.StatusBadRequest, werr.Error())
+		return
+	}
+	// Keyset page boundary, appended to whichever WHERE the branches below build.
+	keyset := ""
+	if cursor > 0 {
+		keyset = " AND r.id < ?"
+	}
 
 	var (
 		query string
@@ -152,11 +249,14 @@ func (h *APIHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if svcIDFilter > 0 {
-			query = "SELECT " + routeSelectCols + " FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=? AND r.service_id=? ORDER BY r.id DESC"
+			query = "SELECT " + routeSelectCols + " FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=? AND r.service_id=?" + keyset + " ORDER BY r.id DESC"
 			args = []any{clientID, svcIDFilter}
 		} else {
-			query = "SELECT " + routeSelectCols + " FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=? ORDER BY r.id DESC"
+			query = "SELECT " + routeSelectCols + " FROM routes r JOIN services s ON s.id=r.service_id WHERE s.client_id=?" + keyset + " ORDER BY r.id DESC"
 			args = []any{clientID}
+		}
+		if cursor > 0 {
+			args = append(args, cursor)
 		}
 	} else {
 		// Admin: bare admin sees all; reseller/scoped admin is limited to routes
@@ -183,12 +283,17 @@ func (h *APIHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 			where = append(where, "r.service_id=?")
 			args = append(args, svcIDFilter)
 		}
+		if cursor > 0 {
+			where = append(where, "r.id < ?")
+			args = append(args, cursor)
+		}
 		if len(where) > 0 {
 			base += " WHERE " + strings.Join(where, " AND ")
 		}
 		query = base + " ORDER BY r.id DESC"
 	}
 
+	query += " LIMIT " + strconv.Itoa(apiListFetchCap(limit))
 	rows, err := h.DB().QueryContext(ctx, query, args...)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "query failed")
@@ -198,11 +303,26 @@ func (h *APIHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
 	out := []apiRoute{}
 	for rows.Next() {
 		var rt apiRoute
-		if err := scanRoute(rows, &rt); err == nil {
-			out = append(out, rt)
+		if err := scanRoute(rows, &rt); err != nil {
+			apiErr(w, http.StatusInternalServerError, "read failed")
+			return
 		}
+		out = append(out, rt)
 	}
-	apiJSON(w, http.StatusOK, map[string]any{"routes": out})
+	if err := rows.Err(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "read failed")
+		return
+	}
+	keep, more, ok := apiListTruncated(w, len(out), limit)
+	if !ok {
+		return
+	}
+	out = out[:keep]
+	body := map[string]any{"routes": out}
+	if more {
+		body["next_cursor"] = strconv.FormatInt(out[len(out)-1].ID, 10)
+	}
+	apiJSON(w, http.StatusOK, body)
 }
 
 func (h *APIHandlers) RouteGet(w http.ResponseWriter, r *http.Request) {
@@ -270,74 +390,28 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "path_prefix max 100 chars")
 		return
 	}
-	parts := []string{}
-	args := []any{}
-	if in.UpstreamPort != nil {
-		parts = append(parts, "upstream_port=?")
-		args = append(args, *in.UpstreamPort)
-	}
-	if in.SSLEnabled != nil {
-		parts = append(parts, "ssl_enabled=?")
-		args = append(args, *in.SSLEnabled)
-	}
-	if in.WebSocket != nil {
-		parts = append(parts, "websocket=?")
-		args = append(args, *in.WebSocket)
-	}
-	if in.ForceHTTPS != nil {
-		// An mTLS host is HTTPS-only whatever is asked: the node derives the
-		// redirect from require_client_cert, so the row must read the same.
-		// Derived inside the statement so a concurrent "enable mTLS" cannot
-		// slip between a check and this write.
-		parts = append(parts, "force_https=(? OR COALESCE(require_client_cert,0))")
-		args = append(args, *in.ForceHTTPS)
-	}
-	if in.PathPrefix != nil {
-		parts = append(parts, "path_prefix=?")
-		args = append(args, *in.PathPrefix)
-	}
-	if len(parts) == 0 {
-		apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": false, "resync_required": false})
-		return
-	}
-	args = append(args, id)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if !h.routeInScope(ctx, w, r, id) {
 		return
 	}
-	// mTLS rides on the route's TLS connection policy: dropping SSL on an
-	// enforced host leaves it either wide open or permanently 503, while the
-	// panel still reports it as requiring client certificates. The guard is
-	// part of the UPDATE's own WHERE, not a read before it: a separate SELECT
-	// can be overtaken by a concurrent "enable mTLS" and, if it fails, tells
-	// us nothing at all.
-	where := "id=?"
-	if in.SSLEnabled != nil && !*in.SSLEnabled {
-		where += " AND COALESCE(require_client_cert, 0) = 0"
-	}
-	res, err := h.DB().ExecContext(ctx,
-		"UPDATE routes SET "+strings.Join(parts, ", ")+" WHERE "+where, args...)
-	if err != nil {
-		apiErr(w, http.StatusInternalServerError, "update failed")
+	if h.Routes == nil {
+		apiErr(w, http.StatusServiceUnavailable, "route service not ready")
 		return
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		// Nothing was written: either the route is gone or the mTLS guard held
-		// it back. This read only picks the status code, and a read that fails
-		// still rejects.
-		var enforced int
-		switch err := h.DB().QueryRowContext(ctx,
-			"SELECT COALESCE(require_client_cert, 0) FROM routes WHERE id = ?", id).Scan(&enforced); {
-		case errors.Is(err, sql.ErrNoRows):
-			apiErr(w, http.StatusNotFound, "not found")
-		case err != nil:
-			apiErr(w, http.StatusInternalServerError, "update failed")
-		case enforced != 0 && in.SSLEnabled != nil && !*in.SSLEnabled:
-			apiErr(w, http.StatusBadRequest, "cannot disable ssl_enabled while require_client_cert is set")
-		default:
-			apiErr(w, http.StatusNotFound, "not found")
-		}
+	// One command validates the full resulting state against the current plan,
+	// so the API can no longer move a route somewhere create would refuse.
+	changed, err := h.Routes.UpdateRoute(ctx, 0, id, routes.UpdateInput{
+		UpstreamPort: in.UpstreamPort, PathPrefix: in.PathPrefix,
+		SSL: in.SSLEnabled, WebSocket: in.WebSocket, ForceHTTPS: in.ForceHTTPS,
+	})
+	if err != nil {
+		apiRouteUpdateErr(w, err)
+		return
+	}
+	if !changed {
+		// Nothing to write on an existing, authorized route: a success.
+		apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": false, "resync_required": false})
 		return
 	}
 	uid := apiCallerID(r)
@@ -346,6 +420,27 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		EntityID: strconv.FormatInt(id, 10),
 	})
 	apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true, "resync_required": true})
+}
+
+// apiRouteUpdateErr keeps the three outcomes apart: the record is missing, a
+// security condition refused the new state, or the new state is not one this
+// plan allows.
+func apiRouteUpdateErr(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, routes.ErrRouteNotFound):
+		apiErr(w, http.StatusNotFound, "not found")
+	case errors.Is(err, routes.ErrMTLSNeedsTLS):
+		apiErr(w, http.StatusBadRequest, "cannot disable ssl_enabled while require_client_cert is set")
+	case errors.Is(err, routes.ErrServiceNotYours):
+		apiErr(w, http.StatusForbidden, "forbidden")
+	case errors.Is(err, routes.ErrPortOutOfRange), errors.Is(err, routes.ErrPortInUse),
+		errors.Is(err, routes.ErrPathNotInPlan), errors.Is(err, routes.ErrSSLNotInPlan),
+		errors.Is(err, routes.ErrWebSocketNotInPlan), errors.Is(err, routes.ErrUnsafePlaceholder),
+		errors.Is(err, routes.ErrInvalidDomain):
+		apiErr(w, http.StatusBadRequest, err.Error())
+	default:
+		apiErr(w, http.StatusInternalServerError, "update failed")
+	}
 }
 
 // ---- Plans CRUD --------------------------------------------------------
@@ -408,9 +503,16 @@ func (h *APIHandlers) PlansList(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	out := []apiPlan{}
 	for rows.Next() {
-		if p, err := scanPlan(rows); err == nil {
-			out = append(out, p)
+		p, err := scanPlan(rows)
+		if err != nil {
+			apiErr(w, http.StatusInternalServerError, "read failed")
+			return
 		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "read failed")
+		return
 	}
 	apiJSON(w, http.StatusOK, map[string]any{"plans": out})
 }
@@ -702,9 +804,15 @@ func (h *APIHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var c apiClient
 		if err := rows.Scan(&c.ID, &c.UserID, &c.DisplayName, &c.Email,
-			&c.ExternalRef, &c.CreatedAt); err == nil {
-			out = append(out, c)
+			&c.ExternalRef, &c.CreatedAt); err != nil {
+			apiErr(w, http.StatusInternalServerError, "read failed")
+			return
 		}
+		out = append(out, c)
+	}
+	if err := rows.Err(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "read failed")
+		return
 	}
 	apiJSON(w, http.StatusOK, map[string]any{"clients": out})
 }
@@ -1005,9 +1113,15 @@ func (h *APIHandlers) NodePoolsList(w http.ResponseWriter, r *http.Request) {
 	out := []apiNodePool{}
 	for rows.Next() {
 		var p apiNodePool
-		if err := rows.Scan(&p.ID, &p.Name, &p.Mode, &p.CreatedAt); err == nil {
-			out = append(out, p)
+		if err := rows.Scan(&p.ID, &p.Name, &p.Mode, &p.CreatedAt); err != nil {
+			apiErr(w, http.StatusInternalServerError, "read failed")
+			return
 		}
+		out = append(out, p)
+	}
+	if err := rows.Err(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "read failed")
+		return
 	}
 	apiJSON(w, http.StatusOK, map[string]any{"node_pools": out})
 }
