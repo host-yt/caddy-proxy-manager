@@ -123,6 +123,11 @@ type hostRow struct {
 	Health         string // route-status-derived health hint
 	// CertDaysLeft is days until manual cert expiry; -1 = no manual cert.
 	CertDaysLeft int
+
+	// Compile-state badge: "" means never compiled since upgrade (unknown), NEVER defaults to "ok".
+	CompileStatus string // "" | "ok" | "quarantined" | "denied" | "target_rejected" | "not_emitted"
+	CompileReason string
+	CompileAt     time.Time
 }
 
 type hostsData struct {
@@ -372,6 +377,27 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 			d.Hosts = append(d.Hosts, hr)
 		}
 	}
+
+	// CompileStatus stays "" (unknown) for any route absent from the map or on error - never defaults to "ok".
+	if h.Routes != nil && len(d.Hosts) > 0 {
+		ids := make([]int64, len(d.Hosts))
+		for i, hr := range d.Hosts {
+			ids[i] = hr.RouteID
+		}
+		results, err := h.Routes.CompileResults(ctx, ids)
+		if err != nil {
+			h.Logger.Error("hosts list compile results", "err", err)
+		} else {
+			for i := range d.Hosts {
+				if cr, ok := results[d.Hosts[i].RouteID]; ok {
+					d.Hosts[i].CompileStatus = cr.Status
+					d.Hosts[i].CompileReason = cr.Reason
+					d.Hosts[i].CompileAt = cr.At
+				}
+			}
+		}
+	}
+
 	h.render(w, "hosts", d)
 }
 

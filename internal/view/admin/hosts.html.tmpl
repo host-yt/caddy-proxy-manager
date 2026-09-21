@@ -212,6 +212,15 @@
                 {{if eq .Health "failed"}}<span class="r-pill r-pill-danger" title="{{.LastError}}">failed</span>{{end}}
                 {{if eq .Health "disabled"}}<span class="r-pill r-pill-neutral">disabled</span>{{end}}
               </div>
+              {{/* line 1b: last compile outcome - can contradict Health, that contradiction is the point */}}
+              <div>
+                {{if eq .CompileStatus "ok"}}<span class="r-pill r-pill-success" title="{{.CompileReason}}">published</span>
+                {{else if eq .CompileStatus "quarantined"}}<span class="r-pill r-pill-danger" title="{{.CompileReason}}">quarantined</span>
+                {{else if eq .CompileStatus "denied"}}<span class="r-pill r-pill-danger" title="{{.CompileReason}}">rejected</span>
+                {{else if eq .CompileStatus "target_rejected"}}<span class="r-pill r-pill-danger" title="{{.CompileReason}}">target rejected</span>
+                {{else if eq .CompileStatus "not_emitted"}}<span class="r-pill r-pill-warning" title="{{.CompileReason}}">not emitted</span>
+                {{else}}<span class="r-pill r-pill-neutral" title="Never compiled since upgrade">unchecked</span>{{end}}
+              </div>
               {{/* line 2: cert status + expiry warning */}}
               <div class="flex items-center gap-1 flex-wrap">
                 <span class="t-eyebrow" style="color:rgb(var(--muted))">cert</span>
