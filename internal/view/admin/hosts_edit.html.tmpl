@@ -66,13 +66,13 @@
     <section data-pane="basics" class="hpg-pane r-card space-y-4">
       <p class="t-eyebrow">Domain &amp; identity</p>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Domain (primary)</label>
-        <input name="domain" value="{{.Domain}}" required class="r-input w-full font-mono">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-domain">Domain (primary)</label>
+        <input id="f-domain" name="domain" value="{{.Domain}}" required class="r-input w-full font-mono">
       </div>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Additional domains (aliases, comma-separated)</label>
-        <textarea name="aliases" rows="2" placeholder="alias1.example.com, alias2.example.com" class="r-input w-full font-mono text-sm">{{.Aliases}}</textarea>
-        <p class="t-caption text-muted mt-1">Each alias gets its own Let's Encrypt cert on first hit (on-demand). Point DNS for each at this node before adding. Unless you are a platform admin, a newly added alias stays inactive until you publish the route's verification TXT record at <code>_hpg-verify.&lt;alias&gt;</code> and re-run Verify.</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-aliases">Additional domains (aliases, comma-separated)</label>
+        <textarea id="f-aliases" aria-describedby="f-aliases-help" name="aliases" rows="2" placeholder="alias1.example.com, alias2.example.com" class="r-input w-full font-mono text-sm">{{.Aliases}}</textarea>
+        <p id="f-aliases-help" class="t-caption text-muted mt-1">Each alias gets its own Let's Encrypt cert on first hit (on-demand). Point DNS for each at this node before adding. Unless you are a platform admin, a newly added alias stays inactive until you publish the route's verification TXT record at <code>_hpg-verify.&lt;alias&gt;</code> and re-run Verify.</p>
         {{if .AliasStates}}
         <div class="mt-2 flex flex-wrap gap-1.5">
           {{range .AliasStates}}
@@ -89,16 +89,16 @@
       </div>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Path prefix (optional)</label>
-          <input name="path_prefix" value="{{.PathPrefix}}" placeholder="/api" class="r-input w-full font-mono">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-path_prefix">Path prefix (optional)</label>
+          <input id="f-path_prefix" name="path_prefix" value="{{.PathPrefix}}" placeholder="/api" class="r-input w-full font-mono">
         </div>
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Tag / group (optional)</label>
-          <input name="tag" value="{{.Tag}}" placeholder="saas-customer-1" maxlength="64" class="r-input w-full">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-tag">Tag / group (optional)</label>
+          <input id="f-tag" name="tag" value="{{.Tag}}" placeholder="saas-customer-1" maxlength="64" class="r-input w-full">
         </div>
         <div class="col-span-full sm:col-span-1">
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Host group</label>
-          <select name="group_id" class="r-select w-full cursor-pointer">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-group_id">Host group</label>
+          <select id="f-group_id" name="group_id" class="r-select w-full cursor-pointer">
             <option value="0">- none -</option>
             {{range .Groups}}
             <option value="{{.ID}}" {{if and $.GroupID.Valid (eq $.GroupID.Int64 .ID)}}selected{{end}}>{{.Name}}</option>
@@ -107,7 +107,7 @@
         </div>
       </div>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Route kind</label>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="hpg-kind">Route kind</label>
         <select name="kind" id="hpg-kind" class="r-select w-full cursor-pointer">
           <option value="proxy"    {{if eq .Kind "proxy"}}selected{{end}}>Reverse proxy - backend</option>
           <option value="redirect" {{if eq .Kind "redirect"}}selected{{end}}>Redirect to URL</option>
@@ -194,7 +194,7 @@
         <p class="t-eyebrow">Backend (proxy mode)</p>
         {{if .ClientTunnels}}
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Backend via</label>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="hpg-via-peer">Backend via</label>
           <select id="hpg-via-peer" name="via_wg_peer_id" class="r-select w-full cursor-pointer">
             <option value="">Direct IP / hostname (default)</option>
             {{range .ClientTunnels}}<option value="{{.ID}}" data-ip="{{.AssignedIP}}" {{if eq .ID $.ViaWGPeerID}}selected{{end}}>WG tunnel #{{.ID}} &middot; {{.Name}} ({{.AssignedIP}})</option>{{end}}
@@ -204,20 +204,20 @@
         {{end}}
         <div class="grid grid-cols-6 gap-3">
           <div>
-            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Scheme</label>
-            <select name="upstream_scheme" class="r-select w-full cursor-pointer">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-upstream_scheme">Scheme</label>
+            <select id="f-upstream_scheme" name="upstream_scheme" class="r-select w-full cursor-pointer">
               <option value="http"  {{if ne .UpstreamScheme "https"}}selected{{end}}>http</option>
               <option value="https" {{if eq .UpstreamScheme "https"}}selected{{end}}>https</option>
             </select>
           </div>
           <div class="col-span-3">
-            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Backend host (IP or hostname)</label>
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="hpg-backend-ip">Backend host (IP or hostname)</label>
             <input id="hpg-backend-ip" name="backend_ip" value="{{.BackendIP}}" placeholder="10.0.0.5 or backend.example.com" class="r-input w-full">
             <p id="hpg-backend-ip-note" class="t-caption text-warning mt-1 hidden">Tunnel selected: leave empty to dial peer IP, or type an IP or container name. Names resolve via peer DNS to the peer - use the HOST-published port.</p>
           </div>
           <div class="col-span-2">
-            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Port</label>
-            <input name="port" type="number" min="1" max="65535" value="{{.Port}}" class="r-input w-full">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-port">Port</label>
+            <input id="f-port" name="port" type="number" min="1" max="65535" value="{{.Port}}" class="r-input w-full">
           </div>
         </div>
         <p class="t-caption text-muted">Whitespace trimmed. Changing host updates owning service - every route on this service swaps backend on next push.</p>
@@ -249,13 +249,13 @@
         </p>
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label class="block t-caption font-medium mb-1">External host (FQDN)</label>
-            <input name="external_host" list="hpg-ext-allow" value="{{.ExternalHost}}" placeholder="adm.tools" class="r-input w-full">
+            <label class="block t-caption font-medium mb-1" for="f-external_host">External host (FQDN)</label>
+            <input id="f-external_host" name="external_host" list="hpg-ext-allow" value="{{.ExternalHost}}" placeholder="adm.tools" class="r-input w-full">
             <datalist id="hpg-ext-allow">{{range .ExternalAllowlist}}<option value="{{.}}">{{end}}</datalist>
           </div>
           <div>
-            <label class="block t-caption font-medium mb-1">Host / SNI override (optional)</label>
-            <input name="upstream_host_header" value="{{.UpstreamHostHeader}}" placeholder="defaults to external host" class="r-input w-full">
+            <label class="block t-caption font-medium mb-1" for="f-upstream_host_header">Host / SNI override (optional)</label>
+            <input id="f-upstream_host_header" name="upstream_host_header" value="{{.UpstreamHostHeader}}" placeholder="defaults to external host" class="r-input w-full">
           </div>
         </div>
         <div class="pt-1 space-y-2">
@@ -288,12 +288,12 @@
         <p class="t-eyebrow">Redirect (redirect mode)</p>
         <div class="grid grid-cols-4 gap-3">
           <div class="col-span-3">
-            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Destination URL</label>
-            <input name="redirect_url" value="{{.RedirectURL}}" placeholder="https://target.example.com" class="r-input w-full">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-redirect_url">Destination URL</label>
+            <input id="f-redirect_url" name="redirect_url" value="{{.RedirectURL}}" placeholder="https://target.example.com" class="r-input w-full">
           </div>
           <div>
-            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Status code</label>
-            <select name="redirect_code" class="r-select w-full cursor-pointer">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-redirect_code">Status code</label>
+            <select id="f-redirect_code" name="redirect_code" class="r-select w-full cursor-pointer">
               <option value="308" {{if eq .RedirectCode 308}}selected{{end}}>308 Permanent</option>
               <option value="301" {{if eq .RedirectCode 301}}selected{{end}}>301 Permanent (legacy)</option>
               <option value="307" {{if eq .RedirectCode 307}}selected{{end}}>307 Temporary</option>
@@ -395,8 +395,8 @@
           <span class="t-body ml-2">Wildcard cert via DNS-01 (needs a DNS provider + DNS01_AVAILABLE)</span>
         </label>
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Wildcard zone (apex, e.g. customer.com)</label>
-          <input type="text" name="wildcard_zone" value="{{.WildcardZone}}" list="hpg-wild-zones" placeholder="customer.com" class="r-input w-full">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-wildcard_zone">Wildcard zone (apex, e.g. customer.com)</label>
+          <input id="f-wildcard_zone" type="text" name="wildcard_zone" value="{{.WildcardZone}}" list="hpg-wild-zones" placeholder="customer.com" class="r-input w-full">
           <datalist id="hpg-wild-zones">{{range .WildcardZones}}<option value="{{.}}">{{end}}</datalist>
           <p class="t-caption text-muted mt-1">Zone must cover this domain. Add the provider credential under <a href="/admin/settings/dns-providers" class="text-[rgb(var(--accent))] hover:underline">DNS providers</a>.</p>
         </div>
@@ -409,15 +409,15 @@
         </label>
         <div class="grid grid-cols-3 gap-3">
           <div class="col-span-2">
-            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">DNS provider</label>
-            <select name="dns_provider_id" class="r-select w-full cursor-pointer">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-dns_provider_id">DNS provider</label>
+            <select id="f-dns_provider_id" name="dns_provider_id" class="r-select w-full cursor-pointer">
               <option value="">- select -</option>
               {{range .DNSProviders}}<option value="{{.ID}}" {{if eq .ID $.DNSSteeringProvider}}selected{{end}}>{{.Label}}</option>{{end}}
             </select>
           </div>
           <div>
-            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">TTL (seconds)</label>
-            <input type="number" name="dns_steering_ttl" min="30" max="86400" value="{{.DNSSteeringTTL}}" class="r-input w-full">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-dns_steering_ttl">TTL (seconds)</label>
+            <input id="f-dns_steering_ttl" type="number" name="dns_steering_ttl" min="30" max="86400" value="{{.DNSSteeringTTL}}" class="r-input w-full">
           </div>
         </div>
         <p class="t-caption text-muted">Publishes an A/AAAA record per healthy, enabled node hosting this route and removes it when a node goes unhealthy - never the last remaining record (fail-static beats NXDOMAIN). Only this route's anchor node + its fan-out peers are managed.</p>
@@ -449,12 +449,12 @@
       <p class="t-caption text-muted">Leave off unless every visitor may see the identical response. Off keeps the cache <code class="text-xs">private</code>: requests carrying a <code class="text-xs">Cookie</code> or <code class="text-xs">Authorization</code> header always bypass the shared cache.</p>
       <div class="grid grid-cols-3 gap-3">
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">TTL (seconds)</label>
-          <input name="cache_ttl_secs" type="number" min="0" max="31536000" value="{{.CacheTTLSecs}}" class="r-input w-full">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-cache_ttl_secs">TTL (seconds)</label>
+          <input id="f-cache_ttl_secs" name="cache_ttl_secs" type="number" min="0" max="31536000" value="{{.CacheTTLSecs}}" class="r-input w-full">
         </div>
         <div class="col-span-2">
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Vary headers (cache key)</label>
-          <input name="cache_vary" value="{{.CacheVary}}" placeholder="Accept-Encoding,Accept-Language" class="r-input w-full font-mono text-xs">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-cache_vary">Vary headers (cache key)</label>
+          <input id="f-cache_vary" name="cache_vary" value="{{.CacheVary}}" placeholder="Accept-Encoding,Accept-Language" class="r-input w-full font-mono text-xs">
         </div>
       </div>
       <p class="t-caption text-muted">Avoid <code class="text-xs">Cookie</code>/<code class="text-xs">Authorization</code> in Vary - cardinality blows up and you cache per-user.</p>
@@ -484,14 +484,14 @@
       </label>
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Allow these IPs / CIDRs</label>
-          <textarea name="access_allow" rows="4" placeholder="10.0.0.0/8&#10;1.2.3.4&#10;2001:db8::/32" class="r-input w-full font-mono text-xs">{{.AccessAllow}}</textarea>
-          <p class="t-caption text-muted mt-1">Only meaningful when "Block all" is on. Whitelist of allowed sources.</p>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-access_allow">Allow these IPs / CIDRs</label>
+          <textarea id="f-access_allow" aria-describedby="f-access_allow-help" name="access_allow" rows="4" placeholder="10.0.0.0/8&#10;1.2.3.4&#10;2001:db8::/32" class="r-input w-full font-mono text-xs">{{.AccessAllow}}</textarea>
+          <p id="f-access_allow-help" class="t-caption text-muted mt-1">Only meaningful when "Block all" is on. Whitelist of allowed sources.</p>
         </div>
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Deny these IPs / CIDRs (403)</label>
-          <textarea name="access_deny" rows="4" placeholder="5.6.7.0/24&#10;2001:db8:bad::/48" class="r-input w-full font-mono text-xs">{{.AccessDeny}}</textarea>
-          <p class="t-caption text-muted mt-1">Always wins. Use to block specific bad actors even when "Block all" is off, or to carve exceptions from the Allow list.</p>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-access_deny">Deny these IPs / CIDRs (403)</label>
+          <textarea id="f-access_deny" aria-describedby="f-access_deny-help" name="access_deny" rows="4" placeholder="5.6.7.0/24&#10;2001:db8:bad::/48" class="r-input w-full font-mono text-xs">{{.AccessDeny}}</textarea>
+          <p id="f-access_deny-help" class="t-caption text-muted mt-1">Always wins. Use to block specific bad actors even when "Block all" is off, or to carve exceptions from the Allow list.</p>
         </div>
       </div>
       <p class="t-caption text-muted">One IP/CIDR per line, IPv4 + IPv6 supported. Bare IPs auto-expand to /32 or /128. Three common setups:
@@ -516,7 +516,7 @@
             <tr class="border-t border-[rgb(var(--border))]">
               <td class="px-3 py-2 font-mono">{{.Username}}</td>
               <td class="px-3 py-2 text-right">
-                <button type="submit" form="del-ba-{{.Username}}" class="r-btn r-btn-danger-sm cursor-pointer" onclick="return confirm('Remove user {{.Username}}?')">Remove</button>
+                <button type="submit" form="del-ba-{{.Username}}" class="r-btn r-btn-danger-sm cursor-pointer">Remove</button>
               </td>
             </tr>
             {{end}}
@@ -529,12 +529,12 @@
           <summary class="cursor-pointer t-caption font-medium text-[rgb(var(--accent))] select-none">+ Add account</summary>
           <div class="mt-3 grid grid-cols-2 gap-3">
             <div>
-              <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Username</label>
-              <input name="username" form="add-ba-user" maxlength="128" placeholder="admin" autocomplete="off" class="r-input w-full font-mono">
+              <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-username">Username</label>
+              <input id="f-username" name="username" form="add-ba-user" maxlength="128" placeholder="admin" autocomplete="off" class="r-input w-full font-mono">
             </div>
             <div>
-              <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Password</label>
-              <input type="password" name="password" form="add-ba-user" autocomplete="new-password" placeholder="min 8 chars" class="r-input w-full font-mono">
+              <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-password">Password</label>
+              <input id="f-password" type="password" name="password" form="add-ba-user" autocomplete="new-password" placeholder="min 8 chars" class="r-input w-full font-mono">
             </div>
             <div class="col-span-2 flex justify-end">
               <button type="submit" form="add-ba-user" class="r-btn r-btn-primary cursor-pointer">Add user</button>
@@ -552,8 +552,8 @@
       </div>
       {{if .ClientTunnels}}
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">SSO via</label>
-        <select name="sso_via_wg_peer_id" class="r-select w-full cursor-pointer">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-sso_via_wg_peer_id">SSO via</label>
+        <select id="f-sso_via_wg_peer_id" name="sso_via_wg_peer_id" class="r-select w-full cursor-pointer">
           <option value="">Direct (public URL or local container)</option>
           {{range .ClientTunnels}}<option value="{{.ID}}" {{if eq .ID $.SSOViaWGPeerID}}selected{{end}}>WG tunnel #{{.ID}} - {{.Name}} ({{.AssignedIP}})</option>{{end}}
         </select>
@@ -561,14 +561,14 @@
       </div>
       {{end}}
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">SSO provider URL</label>
-        <input name="sso_provider_url" value="{{.SSOProviderURL}}" placeholder="https://sso.example.com or authentik-server:9000" class="r-input w-full font-mono text-sm">
-        <p class="t-caption text-muted mt-1">Three modes: (1) <strong>Local container</strong> e.g. <code>authentik-server:9000</code> when Authentik runs in the same docker network as Caddy. (2) <strong>Through tunnel</strong> e.g. <code>http://authentik-server:9000</code> with "SSO via" set - Caddy resolves the hostname via the peer's DNS. (3) <strong>Public URL</strong> e.g. <code>https://sso.example.com</code> only when the IdP is on a separate node (otherwise causes a loop).</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-sso_provider_url">SSO provider URL</label>
+        <input id="f-sso_provider_url" aria-describedby="f-sso_provider_url-help" name="sso_provider_url" value="{{.SSOProviderURL}}" placeholder="https://sso.example.com or authentik-server:9000" class="r-input w-full font-mono text-sm">
+        <p id="f-sso_provider_url-help" class="t-caption text-muted mt-1">Three modes: (1) <strong>Local container</strong> e.g. <code>authentik-server:9000</code> when Authentik runs in the same docker network as Caddy. (2) <strong>Through tunnel</strong> e.g. <code>http://authentik-server:9000</code> with "SSO via" set - Caddy resolves the hostname via the peer's DNS. (3) <strong>Public URL</strong> e.g. <code>https://sso.example.com</code> only when the IdP is on a separate node (otherwise causes a loop).</p>
       </div>
       <label class="r-toggle">
         <!-- Always post the field: a save that omits it leaves the stored gate alone, so this is what makes turning strict off an explicit act. -->
         <input type="hidden" name="sso_strict_mode" value="0">
-        <input type="checkbox" name="sso_strict_mode" value="1" id="sso_strict_mode" onchange="document.getElementById('sso-permissive-warn').hidden = this.checked" {{if .SSOStrictMode}}checked{{end}}>
+        <input type="checkbox" name="sso_strict_mode" value="1" id="sso_strict_mode" {{if .SSOStrictMode}}checked{{end}}>
         <span></span>
         <div class="ml-2">
           <span class="t-caption font-medium cursor-pointer">Strict mode - authenticate every request (default)</span>
@@ -578,30 +578,38 @@
       <p id="sso-permissive-warn" class="t-caption rounded-lg border border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:border-amber-600 dark:text-amber-200 px-3 py-2" {{if .SSOStrictMode}}hidden{{end}}>
         <strong>Permissive mode does not authenticate this route.</strong> Covered: GET and HEAD requests outside the static asset paths. <strong>Not covered:</strong> POST, PUT, PATCH and DELETE, and static assets - those reach the backend with no auth check at all. Choose it only when the backend authenticates everything except the initial page load. The choice is written to the audit log.
       </p>
+      <script nonce="{{.CSPNonce}}">
+      // CSP forbids inline onchange; wire the strict-mode toggle here instead.
+      (function(){
+        var cb = document.getElementById('sso_strict_mode');
+        var warn = document.getElementById('sso-permissive-warn');
+        if (cb && warn) cb.addEventListener('change', function(){ warn.hidden = cb.checked; });
+      })();
+      </script>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Copy headers (one per line)</label>
-        <textarea name="sso_copy_headers" rows="6" placeholder="X-Authentik-Username&#10;X-Authentik-Email&#10;X-Authentik-Groups" class="r-input w-full font-mono text-xs">{{.SSOCopyHeaders}}</textarea>
-        <p class="t-caption text-muted mt-1">Headers from the auth subrequest that get lifted into the upstream request. Default Authentik set:
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-sso_copy_headers">Copy headers (one per line)</label>
+        <textarea id="f-sso_copy_headers" aria-describedby="f-sso_copy_headers-help" name="sso_copy_headers" rows="6" placeholder="X-Authentik-Username&#10;X-Authentik-Email&#10;X-Authentik-Groups" class="r-input w-full font-mono text-xs">{{.SSOCopyHeaders}}</textarea>
+        <p id="f-sso_copy_headers-help" class="t-caption text-muted mt-1">Headers from the auth subrequest that get lifted into the upstream request. Default Authentik set:
           <code>X-Authentik-Username</code>, <code>X-Authentik-Groups</code>, <code>X-Authentik-Email</code>, <code>X-Authentik-Name</code>, <code>X-Authentik-Uid</code>, <code>X-Authentik-Jwt</code>.
         </p>
       </div>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Trusted proxies (optional, comma/space-separated)</label>
-        <input name="sso_trusted_proxies" value="{{.SSOTrustedProxies}}" placeholder="10.0.0.0/8 172.16.0.0/12" class="r-input w-full font-mono text-sm">
-        <p class="t-caption text-muted mt-1">Networks the outpost is allowed to set <code>X-Forwarded-*</code> from. Empty = Caddy's <code>private_ranges</code> default.</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-sso_trusted_proxies">Trusted proxies (optional, comma/space-separated)</label>
+        <input id="f-sso_trusted_proxies" aria-describedby="f-sso_trusted_proxies-help" name="sso_trusted_proxies" value="{{.SSOTrustedProxies}}" placeholder="10.0.0.0/8 172.16.0.0/12" class="r-input w-full font-mono text-sm">
+        <p id="f-sso_trusted_proxies-help" class="t-caption text-muted mt-1">Networks the outpost is allowed to set <code>X-Forwarded-*</code> from. Empty = Caddy's <code>private_ranges</code> default.</p>
       </div>
       <fieldset class="ring-1 ring-[rgb(var(--border))] rounded-xl p-4 space-y-3">
         <legend class="px-2 t-caption font-semibold text-[rgb(var(--text))]">SSO scope (optional)</legend>
         <p class="t-caption text-muted">By default the SSO gate covers the whole route on every host. Narrow it here when you only want SSO on specific URLs (e.g. <code>/admin/*</code>) or on a subset of the hosts/aliases this route serves.</p>
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Gate only these paths</label>
-          <textarea name="sso_paths" rows="3" placeholder="/admin/*&#10;/dashboard/*" class="r-input w-full font-mono text-xs">{{.SSOPaths}}</textarea>
-          <p class="t-caption text-muted mt-1">One glob per line. Empty = gate every path on the matched hosts.</p>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-sso_paths">Gate only these paths</label>
+          <textarea id="f-sso_paths" aria-describedby="f-sso_paths-help" name="sso_paths" rows="3" placeholder="/admin/*&#10;/dashboard/*" class="r-input w-full font-mono text-xs">{{.SSOPaths}}</textarea>
+          <p id="f-sso_paths-help" class="t-caption text-muted mt-1">One glob per line. Empty = gate every path on the matched hosts.</p>
         </div>
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Gate only these hosts</label>
-          <input name="sso_hosts" value="{{.SSOHosts}}" placeholder="s1.example.com, s2.example.com" class="r-input w-full font-mono text-xs">
-          <p class="t-caption text-muted mt-1">Comma/space-separated subset of the route's hosts + aliases. Empty = gate every host this route serves.</p>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-sso_hosts">Gate only these hosts</label>
+          <input id="f-sso_hosts" aria-describedby="f-sso_hosts-help" name="sso_hosts" value="{{.SSOHosts}}" placeholder="s1.example.com, s2.example.com" class="r-input w-full font-mono text-xs">
+          <p id="f-sso_hosts-help" class="t-caption text-muted mt-1">Comma/space-separated subset of the route's hosts + aliases. Empty = gate every host this route serves.</p>
         </div>
       </fieldset>
       <details class="t-caption text-muted">
@@ -659,13 +667,13 @@ X-Authentik-Meta-Version</pre>
         <span class="t-body ml-2">Serve a 503 maintenance page instead of forwarding</span>
       </label>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Message (optional, max 500)</label>
-        <textarea name="maintenance_message" rows="3" maxlength="500" placeholder="We are performing scheduled maintenance. Please check back shortly." class="r-input w-full text-sm">{{.MaintenanceMessage}}</textarea>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-maintenance_message">Message (optional, max 500)</label>
+        <textarea id="f-maintenance_message" name="maintenance_message" rows="3" maxlength="500" placeholder="We are performing scheduled maintenance. Please check back shortly." class="r-input w-full text-sm">{{.MaintenanceMessage}}</textarea>
       </div>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Allow IPs during maintenance (optional)</label>
-        <textarea name="maintenance_allow" rows="3" placeholder="85.222.65.102&#10;2001:db8:cafe::/48" class="r-input w-full font-mono text-xs">{{.MaintenanceAllow}}</textarea>
-        <p class="t-caption text-muted mt-1">These IPs see the real backend while everyone else gets the 503 page. Handy for testing a fix before lifting maintenance globally.</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-maintenance_allow">Allow IPs during maintenance (optional)</label>
+        <textarea id="f-maintenance_allow" aria-describedby="f-maintenance_allow-help" name="maintenance_allow" rows="3" placeholder="85.222.65.102&#10;2001:db8:cafe::/48" class="r-input w-full font-mono text-xs">{{.MaintenanceAllow}}</textarea>
+        <p id="f-maintenance_allow-help" class="t-caption text-muted mt-1">These IPs see the real backend while everyone else gets the 503 page. Handy for testing a fix before lifting maintenance globally.</p>
       </div>
       <p class="t-caption text-muted">HTTP 503 + <code class="text-xs">Retry-After: 60</code>. Branded with your error-page skin. SSL + ForceHTTPS still apply.</p>
 
@@ -678,29 +686,29 @@ X-Authentik-Meta-Version</pre>
       </label>
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Brand label</label>
-          <input name="error_brand" value="{{.ErrorBrand}}" maxlength="128" placeholder="Acme Inc" class="r-input w-full text-sm">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-error_brand">Brand label</label>
+          <input id="f-error_brand" name="error_brand" value="{{.ErrorBrand}}" maxlength="128" placeholder="Acme Inc" class="r-input w-full text-sm">
         </div>
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Logo URL</label>
-          <input name="error_logo_url" value="{{.ErrorLogoURL}}" maxlength="512" placeholder="https://cdn.acme.com/logo.svg" class="r-input w-full text-sm">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-error_logo_url">Logo URL</label>
+          <input id="f-error_logo_url" name="error_logo_url" value="{{.ErrorLogoURL}}" maxlength="512" placeholder="https://cdn.acme.com/logo.svg" class="r-input w-full text-sm" pattern="https?://.+|[^:]*" title="http(s):// URL or a scheme-less path">
         </div>
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Background color</label>
-          <input name="error_bg_color" value="{{.ErrorBgColor}}" maxlength="32" placeholder="#1f2937" class="r-input w-full text-sm font-mono">
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-error_bg_color">Background color</label>
+          <input id="f-error_bg_color" name="error_bg_color" value="{{.ErrorBgColor}}" maxlength="32" placeholder="#1f2937" class="r-input w-full text-sm font-mono" pattern="[#a-zA-Z0-9(),.% -]{1,64}" title="CSS color: hex, rgb()/rgba(), or a named color">
         </div>
       </div>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Full custom maintenance HTML (optional, max 100 KB)</label>
-        <textarea name="error_html" rows="6" placeholder="&lt;!doctype html&gt;&lt;html&gt;… your own maintenance page …&lt;/html&gt;" class="r-input w-full font-mono text-xs">{{.ErrorHTML}}</textarea>
-        <p class="t-caption text-muted mt-1">When set, this exact HTML is served as the maintenance body (served verbatim, admin-trusted). Leave empty to use the brand label / logo / color above on the standard shell.</p>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-error_html">Full custom maintenance HTML (optional, max 100 KB)</label>
+        <textarea id="f-error_html" aria-describedby="f-error_html-help" name="error_html" rows="6" placeholder="&lt;!doctype html&gt;&lt;html&gt;… your own maintenance page …&lt;/html&gt;" class="r-input w-full font-mono text-xs">{{.ErrorHTML}}</textarea>
+        <p id="f-error_html-help" class="t-caption text-muted mt-1">When set, this exact HTML is served as the maintenance body (served verbatim, admin-trusted). Leave empty to use the brand label / logo / color above on the standard shell.</p>
       </div>
     </section>
 
     <!-- Headers -->
     <section data-pane="headers" class="hpg-pane hidden r-card space-y-3">
       <p class="t-eyebrow">Custom request headers</p>
-      <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Custom upstream request headers</label>
+      <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="hpg-custom-headers">Custom upstream request headers</label>
       <textarea id="hpg-custom-headers" name="custom_headers" rows="6" placeholder="X-Forwarded-Host: {http.request.host}&#10;X-Real-IP: {http.request.remote.host}" class="r-input w-full font-mono text-xs">{{.CustomHeaders}}</textarea>
       <p class="t-caption text-muted">One <code class="text-xs">Name: value</code> per line. Caddy placeholders work.</p>
     </section>
@@ -819,12 +827,12 @@ X-Authentik-Meta-Version</pre>
           <p class="t-caption text-muted">Total time Caddy may spend retrying a request across backends, and delay between each attempt. Defaults: 5000 ms / 250 ms.</p>
           <div class="grid grid-cols-2 gap-3 pt-2 border-t border-[rgb(var(--border))]">
             <div>
-              <label class="block t-caption text-muted mb-1">Dial timeout (ms, 0=default 10s)</label>
-              <input type="number" name="dial_timeout_ms" min="0" max="300000" value="{{.DialTimeoutMs}}" class="r-input w-full text-sm">
+              <label class="block t-caption text-muted mb-1" for="f-dial_timeout_ms">Dial timeout (ms, 0=default 10s)</label>
+              <input id="f-dial_timeout_ms" type="number" name="dial_timeout_ms" min="0" max="300000" value="{{.DialTimeoutMs}}" class="r-input w-full text-sm">
             </div>
             <div>
-              <label class="block t-caption text-muted mb-1">Response header timeout (ms, 0=none)</label>
-              <input type="number" name="response_header_timeout_ms" min="0" max="300000" value="{{.ResponseHeaderTimeoutMs}}" class="r-input w-full text-sm">
+              <label class="block t-caption text-muted mb-1" for="f-response_header_timeout_ms">Response header timeout (ms, 0=none)</label>
+              <input id="f-response_header_timeout_ms" type="number" name="response_header_timeout_ms" min="0" max="300000" value="{{.ResponseHeaderTimeoutMs}}" class="r-input w-full text-sm">
             </div>
           </div>
         </div>
@@ -906,9 +914,9 @@ X-Authentik-Meta-Version</pre>
           <span class="t-body ml-2">Blocking mode (off = detection-only, logs but never blocks)</span>
         </label>
         <div>
-          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Custom seclang directives (rule exclusions)</label>
-          <textarea name="waf_directives" rows="4" placeholder="SecRuleRemoveById 920420" class="r-input w-full font-mono text-xs">{{.WAFDirectives}}</textarea>
-          <span class="t-caption text-muted">Applied after the CRS rules are loaded, so overrides like SecRuleRemoveById take effect. 16 KiB max. Start in detection-only and watch logs before enabling blocking.</span>
+          <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-waf_directives">Custom seclang directives (rule exclusions)</label>
+          <textarea id="f-waf_directives" aria-describedby="f-waf_directives-help" name="waf_directives" rows="4" placeholder="SecRuleRemoveById 920420" class="r-input w-full font-mono text-xs">{{.WAFDirectives}}</textarea>
+          <span id="f-waf_directives-help" class="t-caption text-muted">Applied after the CRS rules are loaded, so overrides like SecRuleRemoveById take effect. 16 KiB max. Start in detection-only and watch logs before enabling blocking.</span>
         </div>
       </div>
     </section>
@@ -933,8 +941,8 @@ X-Authentik-Meta-Version</pre>
       </div>
       {{end}}
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Mode</label>
-        <select name="geo_mode" class="r-select w-full cursor-pointer">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-geo_mode">Mode</label>
+        <select id="f-geo_mode" name="geo_mode" class="r-select w-full cursor-pointer">
           <option value="off"   {{if eq .GeoMode "off"}}selected{{end}}>Off (no geo rule)</option>
           <option value="allow" {{if eq .GeoMode "allow"}}selected{{end}}>Allow only listed countries</option>
           <option value="deny"  {{if eq .GeoMode "deny"}}selected{{end}}>Deny listed countries</option>
@@ -951,8 +959,8 @@ X-Authentik-Meta-Version</pre>
         {{end}}
       </div>
       <div class="relative" data-geo-multi="country">
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Countries</label>
-        <button type="button" data-geo-toggle class="r-input w-full text-left flex items-center justify-between gap-2 cursor-pointer">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="geo-countries-toggle">Countries</label>
+        <button type="button" id="geo-countries-toggle" data-geo-toggle class="r-input w-full text-left flex items-center justify-between gap-2 cursor-pointer">
           <span data-geo-summary class="truncate text-xs text-muted">No countries selected</span>
           <svg class="w-4 h-4 shrink-0 text-muted" fill="none" viewBox="0 0 20 20" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 8l4 4 4-4"/></svg>
         </button>
@@ -964,8 +972,8 @@ X-Authentik-Meta-Version</pre>
         <span class="t-caption text-muted">Selected countries apply with the chosen mode above.</span>
       </div>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Block response code</label>
-        <select name="geo_response_code" class="r-select w-full cursor-pointer">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-geo_response_code">Block response code</label>
+        <select id="f-geo_response_code" name="geo_response_code" class="r-select w-full cursor-pointer">
           <option value="403" {{if or (eq .GeoResponseCode 0) (eq .GeoResponseCode 403)}}selected{{end}}>403 Forbidden</option>
           <option value="444" {{if eq .GeoResponseCode 444}}selected{{end}}>444 No Response (Nginx-style)</option>
           <option value="503" {{if eq .GeoResponseCode 503}}selected{{end}}>503 Service Unavailable</option>
@@ -980,13 +988,13 @@ X-Authentik-Meta-Version</pre>
         </div>
       </div>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">IP/CIDR allow-list</label>
-        <textarea name="geo_allow_cidrs" rows="3" placeholder="1.2.3.4, 10.0.0.0/8, 2001:db8::/32" class="r-input w-full font-mono text-xs">{{.GeoAllowCIDRs}}</textarea>
-        <span class="t-caption text-muted">Comma-separated IPs or CIDR ranges that bypass the country block.</span>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-geo_allow_cidrs">IP/CIDR allow-list</label>
+        <textarea id="f-geo_allow_cidrs" aria-describedby="f-geo_allow_cidrs-help" name="geo_allow_cidrs" rows="3" placeholder="1.2.3.4, 10.0.0.0/8, 2001:db8::/32" class="r-input w-full font-mono text-xs">{{.GeoAllowCIDRs}}</textarea>
+        <span id="f-geo_allow_cidrs-help" class="t-caption text-muted">Comma-separated IPs or CIDR ranges that bypass the country block.</span>
       </div>
       <div class="relative" data-geo-multi="continent">
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Continents</label>
-        <button type="button" data-geo-toggle class="r-input w-full text-left flex items-center justify-between gap-2 cursor-pointer">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="geo-continents-toggle">Continents</label>
+        <button type="button" id="geo-continents-toggle" data-geo-toggle class="r-input w-full text-left flex items-center justify-between gap-2 cursor-pointer">
           <span data-geo-summary class="truncate text-xs text-muted">No continents selected</span>
           <svg class="w-4 h-4 shrink-0 text-muted" fill="none" viewBox="0 0 20 20" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M6 8l4 4 4-4"/></svg>
         </button>
@@ -997,9 +1005,9 @@ X-Authentik-Meta-Version</pre>
         <span class="t-caption text-muted">Each selected continent expands to its member countries.</span>
       </div>
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Always-block IPs/CIDRs</label>
-        <textarea name="geo_block_cidrs" rows="3" placeholder="192.0.2.0/24, 1.2.3.4" class="r-input w-full font-mono text-xs">{{.GeoBlockCIDRs}}</textarea>
-        <span class="t-caption text-muted">Blocked regardless of geo mode. Comma-separated IPs or CIDR ranges (e.g. 192.0.2.0/24, 1.2.3.4).</span>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-geo_block_cidrs">Always-block IPs/CIDRs</label>
+        <textarea id="f-geo_block_cidrs" aria-describedby="f-geo_block_cidrs-help" name="geo_block_cidrs" rows="3" placeholder="192.0.2.0/24, 1.2.3.4" class="r-input w-full font-mono text-xs">{{.GeoBlockCIDRs}}</textarea>
+        <span id="f-geo_block_cidrs-help" class="t-caption text-muted">Blocked regardless of geo mode. Comma-separated IPs or CIDR ranges (e.g. 192.0.2.0/24, 1.2.3.4).</span>
       </div>
     </section>
 
@@ -1151,7 +1159,7 @@ X-Authentik-Meta-Version</pre>
               <td class="font-mono text-xs">{{.PathPattern}}</td>
               <td><span class="r-pill r-pill-neutral">{{.RequiredRole}}</span></td>
               <td class="text-right">
-                <button type="submit" form="del-mpr-{{.ID}}" class="text-[rgb(var(--danger))] hover:underline t-caption cursor-pointer" onclick="return confirm('Remove this path rule?')">remove</button>
+                <button type="submit" form="del-mpr-{{.ID}}" class="text-[rgb(var(--danger))] hover:underline t-caption cursor-pointer">remove</button>
               </td>
             </tr>
           {{end}}
@@ -1164,12 +1172,12 @@ X-Authentik-Meta-Version</pre>
         {{if .MTLSCARoles}}
         <div class="flex items-end gap-2 flex-wrap">
           <div class="flex-1 min-w-0">
-            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Path pattern</label>
-            <input name="path_pattern" form="add-mpr" placeholder="/admin/*" class="r-input w-full font-mono text-xs">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-path_pattern">Path pattern</label>
+            <input id="f-path_pattern" name="path_pattern" form="add-mpr" placeholder="/admin/*" class="r-input w-full font-mono text-xs">
           </div>
           <div class="w-40">
-            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Required role</label>
-            <select name="role_id" form="add-mpr" class="r-select w-full cursor-pointer">
+            <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-role_id">Required role</label>
+            <select id="f-role_id" name="role_id" form="add-mpr" class="r-select w-full cursor-pointer">
               <option value="">- role -</option>
               {{range .MTLSCARoles}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
             </select>
@@ -1202,7 +1210,7 @@ X-Authentik-Meta-Version</pre>
       </div>
       {{end}}
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Mode</label>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="hpg-egress-mode">Mode</label>
         <select name="outbound_ip_mode" id="hpg-egress-mode" class="r-select w-full cursor-pointer" {{if not .PlanAllowEgressIP}}disabled{{end}}>
           <option value="default" {{if eq .OutboundIPMode "default"}}selected{{end}}>Default (OS picks source IP)</option>
           <option value="fixed"   {{if eq .OutboundIPMode "fixed"}}selected{{end}}>Fixed IP</option>
@@ -1210,7 +1218,7 @@ X-Authentik-Meta-Version</pre>
         </select>
       </div>
       <div id="hpg-egress-ip-row" class="{{if ne .OutboundIPMode "fixed"}}hidden{{end}}">
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Egress IP</label>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="hpg-egress-ip">Egress IP</label>
         {{if .NodeOutboundIPs}}
         <datalist id="hpg-egress-ip-list">
           {{range .NodeOutboundIPs}}<option value="{{.}}">{{end}}
@@ -1233,16 +1241,16 @@ X-Authentik-Meta-Version</pre>
       </div>
 
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Custom resolver IP</label>
-        <input type="text" name="dns_resolver_ip" value="{{.DNSResolverIP}}" placeholder="10.8.0.1 or 2001:db8::1"
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-dns_resolver_ip">Custom resolver IP</label>
+        <input id="f-dns_resolver_ip" type="text" name="dns_resolver_ip" value="{{.DNSResolverIP}}" placeholder="10.8.0.1 or 2001:db8::1"
           class="r-input w-full font-mono text-sm">
         <p class="t-caption text-muted mt-1">Direct resolver IP (port 53). When set, the WG peer resolver below is ignored. Leave blank to use OS default.</p>
       </div>
 
       {{if .ClientTunnels}}
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Resolver via WG peer</label>
-        <select name="dns_resolver_via_wg_peer_id" class="r-select w-full cursor-pointer">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-dns_resolver_via_wg_peer_id">Resolver via WG peer</label>
+        <select id="f-dns_resolver_via_wg_peer_id" name="dns_resolver_via_wg_peer_id" class="r-select w-full cursor-pointer">
           <option value="">None (use resolver IP above or OS default)</option>
           {{range .ClientTunnels}}<option value="{{.ID}}" {{if eq .ID $.DNSResolverViaWGID}}selected{{end}}>WG tunnel #{{.ID}} - {{.Name}} ({{.AssignedIP}})</option>{{end}}
         </select>
@@ -1251,8 +1259,8 @@ X-Authentik-Meta-Version</pre>
       {{end}}
 
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Address family</label>
-        <select name="dns_address_family" class="r-select w-full cursor-pointer">
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-dns_address_family">Address family</label>
+        <select id="f-dns_address_family" name="dns_address_family" class="r-select w-full cursor-pointer">
           <option value="any"  {{if or (eq .DNSAddressFamily "") (eq .DNSAddressFamily "any")}}selected{{end}}>Any (A records / IPv4)</option>
           <option value="ipv4" {{if eq .DNSAddressFamily "ipv4"}}selected{{end}}>IPv4 only (A records)</option>
           <option value="ipv6" {{if eq .DNSAddressFamily "ipv6"}}selected{{end}}>IPv6 only (AAAA records)</option>
@@ -1296,21 +1304,23 @@ X-Authentik-Meta-Version</pre>
       {{range .CFViews}}
       {{$cfv := .Value}}
       <div>
-        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">{{.Def.Label}}{{if .Def.Required}}<span class="text-danger ml-0.5">*</span>{{end}}</label>
         {{if eq .Def.Type "bool"}}
         <label class="flex items-center gap-2 t-body cursor-pointer">
           <input type="checkbox" name="cf_{{.Def.Key}}" value="1" {{if eq .Value "1"}}checked{{end}} class="rounded cursor-pointer">
-          {{.Def.Label}}
+          {{.Def.Label}}{{if .Def.Required}}<span class="text-danger ml-0.5">*</span>{{end}}
         </label>
-        {{else if eq .Def.Type "select"}}
-        <select name="cf_{{.Def.Key}}" class="r-select w-full cursor-pointer">
+        {{else}}
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-cf-{{.Def.Key}}">{{.Def.Label}}{{if .Def.Required}}<span class="text-danger ml-0.5">*</span>{{end}}</label>
+        {{if eq .Def.Type "select"}}
+        <select id="f-cf-{{.Def.Key}}" name="cf_{{.Def.Key}}" class="r-select w-full cursor-pointer">
           <option value="">- select -</option>
           {{range .Def.Options}}<option value="{{.}}" {{if eq . $cfv}}selected{{end}}>{{.}}</option>{{end}}
         </select>
         {{else if eq .Def.Type "number"}}
-        <input type="number" name="cf_{{.Def.Key}}" value="{{.Value}}" {{if .Def.Required}}required{{end}} class="r-input w-full">
+        <input id="f-cf-{{.Def.Key}}" type="number" name="cf_{{.Def.Key}}" value="{{.Value}}" {{if .Def.Required}}required{{end}} class="r-input w-full">
         {{else}}
-        <input type="text" name="cf_{{.Def.Key}}" value="{{.Value}}" {{if .Def.Required}}required{{end}} maxlength="1000" class="r-input w-full">
+        <input id="f-cf-{{.Def.Key}}" type="text" name="cf_{{.Def.Key}}" value="{{.Value}}" {{if .Def.Required}}required{{end}} maxlength="1000" class="r-input w-full">
+        {{end}}
         {{end}}
       </div>
       {{end}}
@@ -1337,7 +1347,7 @@ X-Authentik-Meta-Version</pre>
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   </form>
   {{range .BasicAuthUsers}}
-  <form id="del-ba-{{.Username}}" method="POST" action="/admin/hosts/{{$.RouteID}}/basic-auth/{{.Username}}/delete">
+  <form id="del-ba-{{.Username}}" method="POST" action="/admin/hosts/{{$.RouteID}}/basic-auth/{{.Username}}/delete" data-confirm="Remove user {{.Username}}?">
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
   </form>
   {{end}}
@@ -1347,7 +1357,7 @@ X-Authentik-Meta-Version</pre>
     <input type="hidden" name="csrf_token" value="{{.CSRF}}">
   </form>
   {{range .MTLSPathRules}}
-  <form id="del-mpr-{{.ID}}" method="POST" action="/admin/hosts/{{$.RouteID}}/mtls-path-rules/{{.ID}}/delete">
+  <form id="del-mpr-{{.ID}}" method="POST" action="/admin/hosts/{{$.RouteID}}/mtls-path-rules/{{.ID}}/delete" data-confirm="Remove this path rule?">
     <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
   </form>
   {{end}}
