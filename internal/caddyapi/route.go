@@ -48,6 +48,10 @@ type Route struct {
 	// BackendResolver: when UpstreamIP is a hostname, emit dynamic_upstreams.a
 	// using this resolver IP (e.g. peer tunnel IP that runs dnsmasq).
 	BackendResolver string
+	// ResolveNodeSide: the operator accepted that only the node can resolve
+	// this backend name, so emission neither resolves nor pins it. Policy
+	// input, never emitted into the Caddy config.
+	ResolveNodeSide bool
 	// http (default) or https → BuildRoute adds transport.tls when https.
 	UpstreamScheme string
 	// UpstreamSkipTLSVerify disables upstream cert verification.

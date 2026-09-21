@@ -53,6 +53,11 @@ deployment, treat this as a priority upgrade.
   sent to an origin the tenant controls. All such values are now screened on
   save and again at build.
 
+- **Medium: a backend name the panel could not resolve was accepted anyway.**
+  The node was then left to resolve an address nothing had checked. Such a
+  name is now refused unless the route carries an explicit, per-route
+  operator acceptance that only the node can resolve it.
+
 - **Medium: a client could influence the source address** the panel recorded
   and rate-limited on. The panel route now stamps the address the proxy
   actually saw; the middleware prefers the verified forwarded chain and trusts
@@ -116,8 +121,12 @@ deployment, treat this as a priority upgrade.
    the control mesh is now refused when the node configuration is pushed, with
    a `route.blocked_target` audit entry. Most plausible on single-box installs.
    The audit row is the diagnostic; the UI does not surface it.
-2. Additional upstreams and path-rule upstreams must now resolve panel-side
-   unless the route is tunnel-bound.
+2. Every proxy backend name - primary backend, additional upstreams and
+   path-rule upstreams - must resolve from the panel when the route is saved.
+   A panel lookup that fails no longer counts as approval. A name only the
+   node can resolve (container name, tunnel peer) needs the new per-route
+   **Backend is resolved on the node** switch on the Target tab; tunnel-bound
+   routes have it set for you by the upgrade, so nothing live goes down.
 3. Editing a route whose header, rewrite or redirect contains a proxy
    placeholder expression blocks the save until the value is removed. At build
    such values are dropped, so the route keeps serving without that header.

@@ -301,6 +301,11 @@ type CreateInput struct {
 	// ViaWGPeerID binds the backend dial to a WG tunnel peer (0 = none).
 	ViaWGPeerID int64
 
+	// BackendResolveNodeSide records that the operator accepted a backend name
+	// only the node can resolve. Without it the create is refused when the
+	// panel cannot resolve the name, and emission pins the resolved address.
+	BackendResolveNodeSide bool
+
 	// RequireClientCert turns on mTLS from the very first push, so a host the
 	// operator meant to lock is never briefly served without client certs.
 	// MTLSCAID is the trust anchor: mandatory when the flag is on, cleared
