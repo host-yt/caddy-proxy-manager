@@ -41,11 +41,148 @@ is deliberately left as published.
   Previously it could only be set when the node was registered, so a node could
   not be repointed at a different admin endpoint without re-adding it.
 
+- **Routes show what the compiler actually did with them.** The hosts list now
+  carries a publish state of its own - published, quarantined, rejected, target
+  rejected, not emitted - next to the DNS/SSL health pill. A route can be
+  "active" and still not be served, and that contradiction is now visible
+  instead of only reaching the audit log. Rows that have not been compiled
+  since the upgrade read as unchecked, never as published.
+- **Portal-protected routes have an explicit public-path list**
+  (`portal_public_paths` on the route, editable on the host's portal tab).
+
 ### Security
 
 - Upstream proxy targets are checked to be plain `host:port`
   (`caddyapi.ScreenDialTarget`): Caddy also accepts socket and
   file-descriptor upstream forms, which no address-based screen covers.
+- **Route owners could put Caddy placeholders into strings the node expands.**
+  Several tenant-editable fields reach parts of the node config that Caddy
+  resolves at request time, which reached further than the intended text. Those
+  fields now accept only request placeholders; everything else is refused when
+  saved, and a route whose stored value is already unsafe is quarantined
+  (503) rather than published. Shared nodes should be treated as having had
+  their local secrets exposed and rotated.
+- **The access portal authorized a hostname, not a route.** One host with
+  several routes could be verified against the wrong route's policy. The
+  verifier now resolves the exact route the same way the node does, from the
+  panel's own gate config rather than anything the browser sends, and refuses
+  when the route is ambiguous.
+- **Portal protection with nobody granted access served the route publicly.**
+  Removing the last grant widened access instead of narrowing it. Protection
+  intent alone now denies; the gate is never dropped because the grant set is
+  empty. The old implicit public bypass for static-looking paths is gone -
+  see the upgrade notes.
+- **Disabling a user did not end their portal session.** Portal sessions were a
+  separate lifecycle that never saw the account's revocation epoch. They now
+  share it and re-check that the account is active on every verification.
+- **A read error while compiling could publish a weaker config.** Loading extra
+  Basic Auth users and per-path mTLS rules treated a failed read as "no policy".
+  Required policy reads now fail the build, so the node keeps its last good
+  config instead of receiving one with the protection missing.
+- **Forward-auth changed the real request's method to GET.** An authenticated
+  POST, PUT or DELETE could reach the backend as a GET. The rewrite now happens
+  inside the verifier subrequest, where it belongs.
+- **Passwordless passkeys did not require user verification** although the
+  session was recorded as MFA.
+- **An unauthenticated caller who knew an API key prefix could force expensive
+  key-derivation work** before any rate limit applied. The stored HMAC is now
+  the verdict, and the legacy compatibility path has its own budget.
+- **Suspending a service did not reliably stop serving it, and one entry point
+  deleted its routes outright.** Suspend, resume and terminate now have a single
+  implementation that every entry point calls - panel, bulk action, REST API and
+  the FOSSBilling integration - in one transaction. Route rows are never
+  deleted by a suspend, and the compiler independently refuses to emit a route
+  whose service is not active.
+- **Updating a route through the API skipped the limits enforced when creating
+  one.** Update now validates the whole new state against the service's current
+  plan and allocation, the same check the create path uses.
+- Custom error pages: the background colour was spliced into an inline style
+  block unescaped, and the logo link accepted any scheme.
+
+### Fixed
+
+- The config compiler could block until its context deadline on SQLite, because
+  it wrote audit rows while still holding the only pooled connection.
+- Drift detection compared a different, smaller artifact than the one being
+  published, so TLS and L4 changes on a node went unnoticed while per-node
+  differences could trigger pointless full pushes. Push and reconcile now
+  compare one canonical manifest of every managed section.
+- A full push issued one UPDATE per route and ignored the results; it is now
+  batched and checked.
+- Secret rotation could leave the state file and the database under different
+  keys. Rotation is now staged behind a preflight and a recovery journal.
+- Database dumps read table after table with no shared snapshot, so a backup
+  could contain a state that never existed. The dump now runs from one
+  consistent snapshot.
+- Backups reported success even when a required component was unreadable or the
+  archive failed to close cleanly, and the "streaming" backup first buffered the
+  whole dump in RAM. The dump now streams through a temp file, and the manifest
+  records which components are required, present or skipped.
+- An interrupted schema migration could leave an upgrade unable to continue.
+  The reseller migrations now detect a partial apply and verify the shape of
+  what they find, failing loudly on a mismatch rather than papering over it.
+- Deleting a reseller left dangling references on SQLite, where the transform
+  had silently dropped the foreign keys that MySQL relied on.
+- A no-op PATCH could answer 404 for a route that exists.
+- API list endpoints swallowed read errors, so a failed query looked like a
+  short but successful list.
+- An idempotency reservation could stay pending after its operation had already
+  succeeded, blocking retries until the key expired.
+- The command palette had two implementations fighting over the same DOM.
+- The panel's own Content-Security-Policy blocked the inline confirmations and
+  warnings the templates relied on, so those never ran. One of them, the ACME
+  custom CA toggle, had no nonce at all.
+- Form labels were not associated with their controls, the light theme's
+  primary button did not meet WCAG AA contrast (3.74:1, now 5.47:1), and the
+  document language was hard-coded regardless of the rendered language.
+- A validation error on the host form no longer discards everything typed into
+  it; the form comes back with the submitted values and the field marked.
+- The Caddy healthcheck could pass on a leftover socket with nothing listening.
+- Release images are pinned by digest and every published digest is scanned,
+  rather than scanning a separate image built only for CI.
+- CI provisions a real database, so the fail-closed tests run instead of
+  skipping, and the Terraform provider module is covered.
+
+### Upgrade notes
+
+Read these before upgrading a multi-tenant install.
+
+- **Portal routes with no grants now deny.** Any route left protected with an
+  empty grant list was publicly reachable and will start returning 503. Grant
+  access, or turn protection off, whichever you meant.
+- **The implicit public bypass for static-looking paths is gone.** Requests that
+  used to skip the portal because the path looked like an asset now hit the
+  verifier. Fill `portal_public_paths` on each protected route before upgrading
+  a single-page app, or expect a hard refresh to stampede the verifier.
+- **All portal sessions are logged out once.** Existing sessions carry no epoch.
+- **Routes of suspended services stop serving.** This is the fix, but if you
+  have been relying on a suspend that never actually suspended, check those
+  services first. Routes that the FOSSBilling path already deleted cannot be
+  recovered by resuming - restore from a backup.
+- **Routes already outside their plan or port allocation will refuse to save**
+  until the configuration or the plan is corrected.
+- **Passkeys that cannot do user verification stop working for passwordless
+  login.** Inventory them with
+  `SELECT user_id, name FROM webauthn_credentials WHERE user_verified = 0`, and
+  make sure those users have a password or TOTP route back in before upgrading.
+  Affected users must re-register the passkey.
+- **If APP_SECRET was ever rotated by hand rather than with
+  `hpg-rotate-secret`,** API keys now fail instead of quietly recovering. Run
+  the rotation tool, or clear the stored HMAC so the keys re-derive.
+- **Idempotency keys left pending are marked unresolved,** not deleted. A retry
+  gets 409 with the operation id; reconcile against the audit log before
+  clearing one.
+- **API lists**: a failed read is now 500 rather than a short 200, and an
+  unpaginated request over 5000 rows is refused with 413 pointing at `?limit=`
+  and `?cursor=`. Complete lists under that size behave as before.
+- **Reconcile now reverts manual edits** inside the config sections the panel
+  manages. Certificates, logging and the admin listener stay unmanaged.
+- **Backups that were silently partial now fail.** A backup reporting an
+  unreadable component was producing an incomplete archive before.
+- A backup's `manifest.json` reports `components` instead of `contents`.
+- An interrupted `hpg-rotate-secret` leaves a `.rotate-journal` next to the
+  state file. Re-run the same command to resume; a journal for a different
+  secret pair blocks a new rotation until it is resolved.
 
 ## [1.7.1] - 2026-09-21
 
