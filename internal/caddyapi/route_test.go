@@ -991,3 +991,27 @@ func TestSSOStrictModeGatesAllMethods(t *testing.T) {
 		t.Errorf("strict mode must not restrict to GET/HEAD\nfull: %s", s)
 	}
 }
+
+// TestPanelSelfRouteStripsSpoofableRealIPHeaders is the regression for
+// HPG-SEC-005: the panel self-route is reached over the trusted docker
+// bridge, so an inbound client-set True-Client-IP / X-Real-IP would ride
+// straight through to the panel unless Caddy strips and re-stamps them.
+func TestPanelSelfRouteStripsSpoofableRealIPHeaders(t *testing.T) {
+	panel := Route{
+		ID: "panel_self", Hosts: []string{"proxy.example.com"}, UpstreamIP: "app", UpstreamPort: 8080,
+		IsPanelSelfRoute: true,
+	}
+	s := mustJSON(panel)
+	if !strings.Contains(s, `"delete":["True-Client-IP","X-Real-IP"]`) {
+		t.Errorf("panel self-route must delete both spoofable headers\nfull: %s", s)
+	}
+	if !strings.Contains(s, `"X-Real-IP":["{http.request.client_ip}"]`) {
+		t.Errorf("panel self-route must re-stamp X-Real-IP from Caddy's own client_ip\nfull: %s", s)
+	}
+
+	// A normal tenant route must be unaffected - no header strip/stamp at all.
+	tenant := Route{ID: "1", Hosts: []string{"tenant.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80}
+	if s := mustJSON(tenant); strings.Contains(s, "True-Client-IP") || strings.Contains(s, "X-Real-IP") {
+		t.Errorf("non-panel route must not touch real-IP headers\nfull: %s", s)
+	}
+}

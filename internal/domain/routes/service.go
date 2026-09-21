@@ -193,13 +193,14 @@ func (s *Service) panelRoute() *caddyapi.Route {
 		return nil
 	}
 	return &caddyapi.Route{
-		ID:           "panel_self",
-		Hosts:        []string{s.PanelPublicHost},
-		UpstreamIP:   s.PanelInternalHost,
-		UpstreamPort: s.PanelInternalPort,
-		WebSocket:    true,
-		ForceHTTPS:   true,
-		HTTP2:        true,
+		ID:               "panel_self",
+		Hosts:            []string{s.PanelPublicHost},
+		UpstreamIP:       s.PanelInternalHost,
+		UpstreamPort:     s.PanelInternalPort,
+		WebSocket:        true,
+		ForceHTTPS:       true,
+		IsPanelSelfRoute: true, // HPG-SEC-005: strip/re-stamp the real-IP headers
+		HTTP2:            true,
 	}
 }
 

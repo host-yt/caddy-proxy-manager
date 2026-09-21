@@ -39,6 +39,12 @@ type Route struct {
 	PathPrefix   string   // optional, e.g. "/api"
 	UpstreamIP   string   // backend IP or hostname
 	UpstreamPort int
+	// IsPanelSelfRoute marks the panel's own self-bootstrap route (see
+	// routes.Service.panelRoute). HPG-SEC-005: the docker-bridge peer that
+	// reaches this route is trusted, so any inbound True-Client-IP /
+	// X-Real-IP is a client claim carried straight through unless we act -
+	// strip both and stamp a canonical one from Caddy's own client_ip.
+	IsPanelSelfRoute bool
 	// BackendResolver: when UpstreamIP is a hostname, emit dynamic_upstreams.a
 	// using this resolver IP (e.g. peer tunnel IP that runs dnsmasq).
 	BackendResolver string
@@ -634,6 +640,21 @@ func BuildRoute(r Route) map[string]any {
 			"delete": []string{"X-Mtls-Subject"},
 		},
 	})
+	// HPG-SEC-005: the panel self-route is reached over the trusted docker
+	// bridge, so nothing downstream re-checks who the caller claims to be -
+	// an inbound True-Client-IP/X-Real-IP would otherwise ride straight
+	// through to the panel's rate limiter and audit log. Drop both, then
+	// stamp X-Real-IP with Caddy's own client_ip so the panel always sees
+	// the address Caddy itself resolved, not one the client asserted.
+	if r.IsPanelSelfRoute {
+		handlers = append(handlers, map[string]any{
+			"handler": "headers",
+			"request": map[string]any{
+				"delete": []string{"True-Client-IP", "X-Real-IP"},
+				"set":    map[string]any{"X-Real-IP": []string{"{http.request.client_ip}"}},
+			},
+		})
+	}
 	// CIDR block list fires before geo check so explicit IP bans always apply.
 	if cidrH := buildCIDRBlock(r); cidrH != nil {
 		handlers = append(handlers, cidrH)

@@ -137,8 +137,10 @@ func (s *Server) routes() {
 	r.Use(mw.TraceID) // echo request id into X-Request-Id response header
 	// TrustedRealIP replaces chi's blind RealIP - only honors XFF / X-Real-IP
 	// / True-Client-IP when the immediate peer is in APP_TRUSTED_PROXIES.
-	// Empty list = headers ignored, RemoteAddr stays as the raw peer.
-	r.Use(mw.TrustedRealIP(mw.ParseCIDRList(s.deps.Config.App.TrustedProxies)))
+	// Empty list = headers ignored, RemoteAddr stays as the raw peer. XFF's
+	// verified entry is always preferred; True-Client-IP/X-Real-IP need an
+	// explicit per-header opt-in (APP_TRUST_REALIP_HEADERS, HPG-SEC-005).
+	r.Use(mw.TrustedRealIP(mw.ParseCIDRList(s.deps.Config.App.TrustedProxies), mw.ParseTrustHeaders(s.deps.Config.App.TrustRealIPHeaders)))
 	r.Use(mw.CloudflareIP(s.deps.TrustCFIP))
 	r.Use(chimw.Recoverer)
 	r.Use(mw.SecurityHeaders)
