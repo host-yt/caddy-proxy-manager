@@ -137,8 +137,10 @@ func (s *Server) routes() {
 	r.Use(mw.TraceID) // echo request id into X-Request-Id response header
 	// TrustedRealIP replaces chi's blind RealIP - only honors XFF / X-Real-IP
 	// / True-Client-IP when the immediate peer is in APP_TRUSTED_PROXIES.
-	// Empty list = headers ignored, RemoteAddr stays as the raw peer.
-	r.Use(mw.TrustedRealIP(mw.ParseCIDRList(s.deps.Config.App.TrustedProxies)))
+	// Empty list = headers ignored, RemoteAddr stays as the raw peer. XFF's
+	// verified entry is always preferred; True-Client-IP/X-Real-IP need an
+	// explicit per-header opt-in (APP_TRUST_REALIP_HEADERS, HPG-SEC-005).
+	r.Use(mw.TrustedRealIP(mw.ParseCIDRList(s.deps.Config.App.TrustedProxies), mw.ParseTrustHeaders(s.deps.Config.App.TrustRealIPHeaders)))
 	r.Use(mw.CloudflareIP(s.deps.TrustCFIP))
 	r.Use(chimw.Recoverer)
 	r.Use(mw.SecurityHeaders)
@@ -329,8 +331,10 @@ func (s *Server) routes() {
 			r.Get("/verify", s.deps.Portal.Verify)
 			r.Get("/login", s.deps.Portal.LoginPage)
 			r.Post("/login", s.deps.Portal.LoginSubmit)
+			// HPG-SEC-007: logout is a state change, POST-only + CSRF-checked
+			// (Portal.Logout). GET only renders a confirmation that posts to it.
 			r.Post("/logout", s.deps.Portal.Logout)
-			r.Get("/logout", s.deps.Portal.Logout)
+			r.Get("/logout", s.deps.Portal.LogoutConfirm)
 			r.Get("/2fa", s.deps.Portal.Portal2FAPage)
 			r.Post("/2fa", s.deps.Portal.Portal2FASubmit)
 			// OAuth2 social login for the portal (provider-agnostic).

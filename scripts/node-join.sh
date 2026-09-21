@@ -160,6 +160,9 @@ services:
     image: caddy:2.11.4
     restart: unless-stopped
     ports:
+      # SEC-002: Caddy's admin API authenticates nothing, so whoever can route
+      # to this address owns the node. Published on the WG address for the
+      # legacy direct path; see the migration steps this script prints.
       - "${admin_listen}:2019"
       - "80:80"
       - "443:443"
@@ -177,9 +180,12 @@ volumes:
 EOF
 
 log "Writing $INSTALL_DIR/Caddyfile.bootstrap"
+# admin binds 0.0.0.0 in the CONTAINER's namespace - the WG address lives on
+# the host and cannot be bound from inside a bridge container. Reachability is
+# decided by the port mapping above, not by this line.
 cat > "$INSTALL_DIR/Caddyfile.bootstrap" <<EOF
 {
-	admin ${admin_listen}
+	admin 0.0.0.0:2019
 	email ${acme_email}
 	on_demand_tls {
 		ask ${ask_url}
@@ -212,3 +218,10 @@ if [[ -n "$manager_note" ]]; then
 fi
 echo
 log "Open the admin UI → Caddy nodes → click 'resync' once handshake is up."
+echo
+warn "This node's Caddy Admin API is unauthenticated and reachable from the whole"
+warn "control-plane mesh. Close it (docs/MULTI_NODE.md section 12):"
+echo "  1. panel → node → Enable tunnel, copy HPG_ADMIN_PROXY_KEY"
+echo "  2. run hpg-node-agent here with HPG_ADMIN_PROXY_LISTEN=${wg_addr%%/*}:2021"
+echo "  3. panel → node → API URL = http://${wg_addr%%/*}:2021"
+echo "  4. change the mapping above to \"127.0.0.1:2019:2019\" and restart Caddy"

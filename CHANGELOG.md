@@ -21,6 +21,111 @@ This policy applies from 1.5.0 onward. Earlier history does not follow it
 consistently - 1.4.2, 1.4.3 and 1.4.9 shipped features as patch releases - and
 is deliberately left as published.
 
+## [1.6.0] - 2026-09-21
+
+Closes all 14 findings of the 2026-09-21 external system review
+(`_docs/SYSTEM_REVIEW.md`): 1 critical, 3 high, 3 medium, 6 low and 1
+architectural note.
+
+### Security
+
+- **A tenant could reach the control plane through their own route.** The main
+  backend was screened, but additional upstreams and path-proxy location rules
+  got only host/port syntax validation - and all three end up as `dial` in the
+  generated Caddy config. A reseller or scope-restricted admin could point one
+  at `127.0.0.1:2019`, or at a managed node's own address, and drive requests
+  to the node's unauthenticated Caddy Admin API through their own public
+  domain: read the whole node configuration, or replace it. One central
+  fail-closed screener now covers all three paths at save time and again at
+  build time, denying port 2019, every node/panel address, the control mesh
+  and the tunnel gateway. Customer private ranges (RFC1918, CGNAT) remain
+  allowed - they are a legitimate origin.
+
+- **Remote nodes published an unauthenticated Caddy Admin API on the mesh.**
+  The remote-node profile mapped `10.66.0.2:2019`, so any peer or host with a
+  route to that address could read or replace the node's configuration. The
+  authenticated agent admin proxy is now required for remote nodes, the port
+  maps to loopback, and registering a node with an unauthenticated admin URL
+  is refused. Approving an already-registered node warns instead of blocking,
+  so the documented onboarding order still works.
+
+- **External SSO let every mutating request through.** In the default
+  permissive mode the forward-auth matcher covered only GET and HEAD, so
+  POST/PUT/PATCH/DELETE reached the origin with no check at all - and the
+  matcher keyed on `Sec-Fetch-Dest`, a header the client sets, so even a GET
+  could opt out of authentication. The header is no longer trusted, and new
+  routes are created strict. Existing routes keep their current mode.
+
+- **Tenant-supplied header values expanded Caddy placeholders.** `{env.…}`,
+  `{file.…}` and `{system.…}` in a custom header, rewrite URI or redirect
+  target were expanded by Caddy and sent to an origin the tenant controls. The
+  screen the privileged custom-handler path already used now covers these too,
+  on save and again over stored rows at build.
+
+- **A client could choose its own source IP.** The generated panel route
+  passed an inbound `True-Client-IP` / `X-Real-IP` straight through, and the
+  middleware preferred those over the parsed `X-Forwarded-For` chain once
+  Caddy was a trusted peer - so an internet client could rotate past per-IP
+  rate limits, poison the audit log, and potentially match an IP allowlist.
+  The panel route now strips both and stamps the address Caddy actually saw.
+  The middleware prefers the verified right-hand XFF entry and honours those
+  headers only for names an operator opts into with `APP_TRUST_REALIP_HEADERS`.
+
+- **One tenant's WAF directive could block every other tenant's changes.**
+  `waf_directives` was only length-capped and concatenated into the shared
+  node config, so a single broken directive made every later `/load` fail for
+  the whole node. Scoped admins are now limited to `SecRuleRemoveById` with
+  numeric ids; arbitrary SecLang stays with unrestricted platform admins, and
+  unparseable lines are dropped at emission so a legacy row cannot brick a
+  node.
+
+- **`GET /hpg-portal/logout` was a logout CSRF.** Logout is now POST with a
+  token bound to the portal session; the GET renders a confirmation.
+
+- Secret files are created `0600`. `install_state.json` kept the mode it had
+  when restored or synced, which was commonly `0644`.
+
+### Added
+
+- `server healthcheck` subcommand, and Compose healthchecks for the app and
+  Caddy - the runtime image is distroless, so there is no shell for a `curl`
+  probe. Start periods are sized for a long migration or certificate issuance.
+- `server doctor` reports per-node admin API authentication, secret file modes
+  and the process umask, and names every missing or empty required environment
+  variable with a generated value to use.
+- `make pin-version V=x.y.z` rewrites every image pin, and CI fails if the
+  deploy profiles or the README disagree on the version.
+
+### Fixed
+
+- **The remote-node bootstrap could not start.** It set `admin <wg-ip>:2019`
+  inside a bridge container, where that address does not exist, so the Caddy
+  config failed to bind. Not in the review - found while fixing the admin API
+  exposure.
+- **The lite and Portainer profiles still deployed 1.3.2.** A fresh install
+  from either got code six months old, with none of the 1.4 or 1.5 fixes.
+- The remote GeoIP profile could not work: the agent wrote the database into
+  its own container and remote Caddy ran a stock image with no geolocation
+  module. Agent and Caddy now share a read-only volume and the profile uses
+  the custom edge image.
+- `make run` claimed to load `.env` and did not; the config never parsed the
+  file either.
+
+### Documentation
+
+- README and `internal/domain/routes/placement.go` claimed Redis-backed shared
+  certificate storage. The module was never built into the image and the
+  Caddyfile line was commented out, so each node has always issued its own
+  certificates. The claim is removed and per-node issuance documented,
+  including what to budget for ACME rate limits on failover. Building the
+  shared store was considered and rejected: it would put private keys in Redis
+  and make every node depend on it.
+- `docs/SECURITY.md` said rotating `APP_SECRET` needs no downtime, while
+  `cmd/rotate-secret` requires the panel stopped and invalidates every HMAC API
+  key. Replaced with a runbook that includes re-issuing the keys.
+- `docs/ARCHITECTURE.md` now states the real recovery window for deferred work
+  after a crash (up to about five minutes) instead of implying durability.
+
 ## [1.5.1] - 2026-09-21
 
 Three mTLS defects found while bringing the documentation in line with 1.5.0.

@@ -1,7 +1,8 @@
 // Package config loads runtime configuration from environment variables.
 //
-// Source of truth: env. .env file is loaded only in development (when present)
-// to avoid surprises in production where secrets come from the orchestrator.
+// Source of truth: the process environment. This package never reads a .env
+// file - in production Compose interpolates it, and `make run` sources it into
+// the shell first.
 package config
 
 import (
@@ -29,7 +30,13 @@ type AppConfig struct {
 	Bind           string
 	Secret         string
 	TrustedProxies []string
-	LogLevel       string
+	// TrustRealIPHeaders names which single-value client-IP override headers
+	// (True-Client-IP, X-Real-IP) a trusted peer is allowed to set (HPG-SEC-005).
+	// Empty (default) = neither; XFF's verified right-hand entry is always
+	// used instead. Opt in only when a real edge proxy overwrites one of
+	// these before forwarding - env APP_TRUST_REALIP_HEADERS, comma list.
+	TrustRealIPHeaders []string
+	LogLevel           string
 
 	// PanelInternalHost is the address Caddy nodes use to reach the panel
 	// container on the internal network (docker compose service name, k8s
@@ -195,14 +202,15 @@ func LoadUnvalidated() *Config {
 func loadEnv() *Config {
 	c := &Config{
 		App: AppConfig{
-			Env:               envOr("APP_ENV", "production"),
-			URL:               os.Getenv("APP_URL"),
-			Bind:              envOr("APP_BIND", "0.0.0.0:8080"),
-			Secret:            os.Getenv("APP_SECRET"),
-			TrustedProxies:    splitCSV(os.Getenv("APP_TRUSTED_PROXIES")),
-			LogLevel:          envOr("LOG_LEVEL", "info"),
-			PanelInternalHost: envOr("APP_INTERNAL_HOST", "app"),
-			PanelInternalPort: envInt("APP_INTERNAL_PORT", 8080),
+			Env:                envOr("APP_ENV", "production"),
+			URL:                os.Getenv("APP_URL"),
+			Bind:               envOr("APP_BIND", "0.0.0.0:8080"),
+			Secret:             os.Getenv("APP_SECRET"),
+			TrustedProxies:     splitCSV(os.Getenv("APP_TRUSTED_PROXIES")),
+			TrustRealIPHeaders: splitCSV(os.Getenv("APP_TRUST_REALIP_HEADERS")),
+			LogLevel:           envOr("LOG_LEVEL", "info"),
+			PanelInternalHost:  envOr("APP_INTERNAL_HOST", "app"),
+			PanelInternalPort:  envInt("APP_INTERNAL_PORT", 8080),
 		},
 		Install: InstallConfig{
 			Installed: envBool("INSTALLED", false),

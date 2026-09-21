@@ -289,7 +289,7 @@ func (h *AdminHandlers) importProxyHosts(ctx context.Context, db *sql.DB, result
 			continue
 		}
 		// SSRF: refuse forward hosts that resolve to loopback/link-local/metadata.
-		if err := screenBackendHost(ctx, ph.ForwardHost); err != nil {
+		if err := screenBackendHost(ctx, db, ph.ForwardHost, ph.ForwardPort); err != nil {
 			result.add(kind, name, npmActionSkipped, fmt.Sprintf("forward host %s rejected: %s", ph.ForwardHost, err))
 			result.Errors = append(result.Errors, fmt.Sprintf("%s: %s", ph.ForwardHost, err))
 			continue

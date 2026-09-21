@@ -30,6 +30,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
+	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
 // bcryptHash returns a bcrypt hash of pw with the default cost (Caddy's
@@ -795,13 +796,18 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// SSRF screen: proxy backends and external upstreams must not target
-	// loopback/link-local/metadata (169.254.169.254). Redirect routes use a
+	// loopback/link-local/metadata or the control plane. Redirect routes use a
 	// sentinel backend (0.0.0.0) that is never dialed, so skip them.
-	// Tunnel routes with empty/hostname backend resolve peer-side; public
-	// DNS screening would false-fail them.
+	// Tunnel routes with a hostname backend resolve peer-side, so only the
+	// resolution step is waived there - the deny set still applies.
 	tunnelPrivate := viaWGPeerID > 0 && (form.BackendIP == "" || net.ParseIP(form.BackendIP) == nil)
-	if (form.Kind == "proxy" || form.External) && !tunnelPrivate {
-		if err := screenBackendHost(ctx, form.BackendIP); err != nil {
+	if form.Kind == "proxy" || form.External {
+		infra, ierr := loadInfraOrFail(ctx, db, h.Logger)
+		if ierr != nil {
+			h.renderHostsNewErr(w, r, form, ierr.Error())
+			return
+		}
+		if err := screenBackendWith(ctx, infra, form.BackendIP, port, tunnelPrivate); err != nil {
 			h.Logger.Warn("backend host screen failed", "err", err)
 			h.renderHostsNewErr(w, r, form, "backend host is not reachable or not allowed")
 			return
@@ -3205,6 +3211,15 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "WAF: custom directives too long (16 KiB max)")
 		return
 	}
+	if wafDirectives != "" {
+		// One node compiles every tenant's directives into one Coraza config,
+		// so a boundary-scoped admin gets the structured subset only.
+		wafScoped, wafOK := h.selfProvisionScope(r.Context(), sess)
+		if err := caddyapi.ValidateWAFDirectives(wafDirectives, wafOK && !wafScoped); err != nil {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit#tab=waf", "", "WAF: "+sanitizeErr(err))
+			return
+		}
+	}
 	// Geo blocking. Normalize codes (uppercase, dedupe, drop junk); off when no mode.
 	geoMode := strings.ToLower(strings.TrimSpace(r.FormValue("geo_mode")))
 	if geoMode != "allow" && geoMode != "deny" {
@@ -3680,22 +3695,61 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// mTLS implies HTTPS-only: the node redirects :80 for an enforced host
 	// whatever the box says (BuildRoute derives it), so store what is served.
 	forceHTTPS = forceHTTPS || requireClientCert
-	// SSRF screen: the effective backend (proxy IP/host or external FQDN) must
-	// not resolve to loopback/link-local/metadata. Redirect routes never dial a
-	// backend, so only screen proxy/external saves. Empty backend is a no-op.
+	// SSRF screen: EVERY tenant-controlled dial target of this save - primary
+	// backend, extra upstreams and path-rule upstreams - goes through the same
+	// fail-closed screener. Redirect routes never dial, so skip them.
 	if kind == "proxy" {
 		screenHost := backendIP
+		screenPort := port
 		if external {
 			screenHost = externalHost
 		}
-		sctx, scancel := context.WithTimeout(r.Context(), 5*time.Second)
-		if err := screenBackendHost(sctx, screenHost); err != nil {
+		sctx, scancel := context.WithTimeout(r.Context(), 10*time.Second)
+		infra, ierr := loadInfraOrFail(sctx, h.DB(), h.Logger)
+		if ierr != nil {
 			scancel()
-			h.Logger.Warn("host save: backend screen failed", "host", screenHost, "err", err)
-			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "backend address blocked or unresolvable")
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", ierr.Error())
 			return
 		}
+		// A hostname behind a tunnel is resolved node-side; waive only the
+		// resolution step, never the deny set.
+		tunnelPrivate := viaPeerID > 0 && net.ParseIP(screenHost) == nil
+		serr := screenBackendWith(sctx, infra, screenHost, screenPort, tunnelPrivate)
+		for _, u := range newUpstreams {
+			if serr != nil {
+				break
+			}
+			serr = screenBackendWith(sctx, infra, u.Host, u.Port, viaPeerID > 0 && net.ParseIP(u.Host) == nil)
+		}
+		for _, lr := range newLocationRules {
+			if serr != nil {
+				break
+			}
+			if lr.Action != "proxy" {
+				continue
+			}
+			serr = screenBackendWith(sctx, infra, lr.UpstreamHost, lr.UpstreamPort, viaPeerID > 0 && net.ParseIP(lr.UpstreamHost) == nil)
+		}
+		// A tenant-set Host naming infrastructure is how a screened dial gets
+		// re-aimed at a vhost of the control plane; nobody needs it.
+		for k, v := range parseHeaderMap(headersRaw) {
+			if !strings.EqualFold(k, "Host") {
+				continue
+			}
+			hv := v
+			if hh, _, err := net.SplitHostPort(v); err == nil {
+				hv = hh
+			}
+			if infra.Blocked(hv) {
+				serr = fmt.Errorf("Host header %q names control-plane infrastructure", v)
+			}
+		}
 		scancel()
+		if serr != nil {
+			h.Logger.Warn("host save: backend screen failed", "host", screenHost, "err", serr)
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "upstream address blocked or unresolvable: "+sanitizeErr(serr))
+			return
+		}
 	}
 	// Cross-tenant + node-topology guard: tunnel must belong to the same
 	// client that owns the route's service AND live on the same Caddy
@@ -3774,7 +3828,11 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	headersJSON := parseHeaderLines(headersRaw)
+	headersJSON, hdrErr := parseHeaderLines(headersRaw)
+	if hdrErr != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", sanitizeErr(hdrErr))
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
@@ -4504,6 +4562,9 @@ func sanitizeLocationRules(form url.Values) ([]locationRuleRow, error) {
 			if !(strings.HasPrefix(rule.RedirectURL, "http://") || strings.HasPrefix(rule.RedirectURL, "https://") || strings.HasPrefix(rule.RedirectURL, "/")) {
 				return nil, fmt.Errorf("%s redirect destination must be http(s):// or /relative", path)
 			}
+			if err := caddyapi.ScreenReplacerValue(rule.RedirectURL); err != nil {
+				return nil, fmt.Errorf("%s redirect destination: %w", path, err)
+			}
 			rule.RedirectCode = atoiDefault(fieldAt(codes, i), 308)
 			switch rule.RedirectCode {
 			case 301, 302, 307, 308:
@@ -4517,6 +4578,10 @@ func sanitizeLocationRules(form url.Values) ([]locationRuleRow, error) {
 			}
 			if len(rule.RewriteURI) > 1024 {
 				return nil, fmt.Errorf("%s rewrite URI too long", path)
+			}
+			// Same replacer as custom handlers: no env/file/system reads.
+			if err := caddyapi.ScreenReplacerValue(rule.RewriteURI); err != nil {
+				return nil, fmt.Errorf("%s rewrite URI: %w", path, err)
 			}
 		}
 		out = append(out, rule)
@@ -4889,31 +4954,30 @@ func clampInt(n, lo, hi int) int {
 	return n
 }
 
-// screenBackendHost SSRF-screens a reverse-proxy backend the same way the
-// self-service client path does: IP literals go through IsDangerousProxyBackend
-// (RFC1918/CGNAT allowed for the WG mesh, loopback/metadata blocked), hostnames
-// resolve and every A/AAAA must pass ValidateOutboundHost. Empty host is a no-op.
-func screenBackendHost(ctx context.Context, host string) error {
-	host = strings.TrimSpace(host)
-	if host == "" {
+// screenBackendHost SSRF-screens a single reverse-proxy backend through the
+// central screener (loopback/metadata, admin API port, managed node, panel and
+// control-plane addresses). It loads the deny set itself, so use
+// screenBackendWith when several targets of one save are screened together.
+func screenBackendHost(ctx context.Context, db *sql.DB, host string, port int) error {
+	if strings.TrimSpace(host) == "" {
 		return nil
 	}
-	if ip := net.ParseIP(host); ip != nil {
-		if security.IsDangerousProxyBackend(ip) {
-			return fmt.Errorf("backend address %s is not allowed", host)
-		}
+	infra, err := streamguard.LoadInfraTargets(ctx, db)
+	if err != nil {
+		return fmt.Errorf("backend screening unavailable: %w", err)
+	}
+	return screenBackendWith(ctx, infra, host, port, false)
+}
+
+// screenBackendWith applies the central screen to one target. tolerateUnresolved
+// keeps a name the panel cannot resolve (tunnel backends resolve node-side)
+// usable while every deny-set check still applies.
+func screenBackendWith(ctx context.Context, infra *streamguard.InfraTargets, host string, port int, tolerateUnresolved bool) error {
+	err := infra.ScreenHTTPBackend(ctx, host, port)
+	if tolerateUnresolved && errors.Is(err, streamguard.ErrUnresolved) {
 		return nil
 	}
-	addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
-	if err != nil || len(addrs) == 0 {
-		return fmt.Errorf("backend host %s did not resolve", host)
-	}
-	for _, a := range addrs {
-		if security.IsDangerousProxyBackend(net.IP(a.AsSlice())) {
-			return fmt.Errorf("backend host %s resolves to a blocked address", host)
-		}
-	}
-	return nil
+	return err
 }
 
 func isValidUpstreamHost(h string) bool {
@@ -4995,7 +5059,24 @@ func sanitizeCustomConfig(raw string) (string, error) {
 // into a compact JSON object the routes.custom_headers column stores.
 // Empty lines and lines without ":" are skipped silently. Returns "" if
 // no valid lines so we keep a NULL column instead of an empty {}.
-func parseHeaderLines(raw string) string {
+// Values are screened first: Caddy's replacer expands them on the node, so an
+// {env./file./system.} placeholder here is node-secret exfiltration.
+func parseHeaderLines(raw string) (string, error) {
+	out := parseHeaderMap(raw)
+	if len(out) == 0 {
+		return "", nil
+	}
+	for k, v := range out {
+		if err := caddyapi.ScreenReplacerValue(k + ": " + v); err != nil {
+			return "", fmt.Errorf("custom header %q: %w", k, err)
+		}
+	}
+	b, _ := json.Marshal(out)
+	return string(b), nil
+}
+
+// parseHeaderMap splits the textarea into name/value pairs.
+func parseHeaderMap(raw string) map[string]string {
 	out := map[string]string{}
 	for _, line := range strings.Split(raw, "\n") {
 		line = strings.TrimSpace(line)
@@ -5013,11 +5094,7 @@ func parseHeaderLines(raw string) string {
 		}
 		out[name] = value
 	}
-	if len(out) == 0 {
-		return ""
-	}
-	b, _ := json.Marshal(out)
-	return string(b)
+	return out
 }
 
 func (h *AdminHandlers) HostGroupCreate(w http.ResponseWriter, r *http.Request) {

@@ -492,6 +492,14 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var headers map[string]string
 		if headersJSON != "" {
 			_ = json.Unmarshal([]byte(headersJSON), &headers)
+			// Re-screen stored values: rows written before the header screener
+			// existed can still carry an {env./file./system.} placeholder.
+			for k, v := range headers {
+				if err := caddyapi.ScreenReplacerValue(k + ": " + v); err != nil {
+					delete(headers, k)
+					s.Logger.Warn("unsafe custom header dropped from config", "route_id", id, "header", k, "err", err)
+				}
+			}
 		}
 		// Hostname-via-tunnel-DNS feature is disabled at build time.
 		// External route: the upstream FQDN (ip) is intentionally a hostname,
@@ -545,6 +553,10 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		portalReady := s.PanelInternalHost != "" && s.PanelInternalPort != 0
 		mtlsEnforceable := sslEnabled && mtlsCACertPEM != "" && caddyapi.MTLSCAUsable(mtlsCACertPEM)
 		if wafEnabled {
+			if clean, dropped := caddyapi.SanitizeWAFDirectives(wafDirectives); dropped {
+				s.Logger.Warn("unparseable WAF directives dropped from config", "route_id", id)
+				wafDirectives = clean
+			}
 			wafDirectives = appendWAFDirectives(wafDirectives, wafSuppressionDirectives(wafSups, id))
 		}
 		built = append(built, caddyapi.Route{
@@ -704,6 +716,12 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	s.attachBasicAuthUsers(ctx, built, ids)
 	s.attachMTLSPathRules(ctx, built, ids)
 	s.attachRBACTokens(built, ids, nodeID)
+	// Fail-closed re-screen of every dial target; must run after the upstream
+	// and location-rule attachments, which add targets of their own.
+	built, ids, err = s.screenHTTPTargets(ctx, built, ids)
+	if err != nil {
+		return nil, nil, err
+	}
 	// Emission order, not DB id order: a catch-all ahead of a narrower sibling
 	// on the same host would shadow it. ids must follow the same permutation -
 	// buildOneRoute pairs ids[i] with built[i].
@@ -911,6 +929,14 @@ func (s *Service) attachLocationRules(ctx context.Context, built []caddyapi.Rout
 		var rule caddyapi.LocationRule
 		if err := rows.Scan(&rid, &rule.Path, &rule.Action, &rule.UpstreamHost, &rule.UpstreamPort,
 			&rule.UpstreamScheme, &rule.RedirectURL, &rule.RedirectCode, &rule.RewriteURI); err != nil {
+			continue
+		}
+		// Rewrite target and redirect Location go through Caddy's replacer;
+		// re-screen stored rows the way the write path now does.
+		if err := firstErrOf(caddyapi.ScreenReplacerValue(rule.RewriteURI), caddyapi.ScreenReplacerValue(rule.RedirectURL)); err != nil {
+			if s.Logger != nil {
+				s.Logger.Warn("unsafe location rule dropped from config", "route_id", rid, "path", rule.Path, "err", err)
+			}
 			continue
 		}
 		if i, ok := idx[rid]; ok {

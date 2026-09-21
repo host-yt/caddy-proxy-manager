@@ -1,6 +1,7 @@
-// Package streamguard screens L4 stream destinations against the control-plane
-// deny set. It lives outside the HTTP handlers because emission (config push)
-// must apply the same check as the write path.
+// Package streamguard screens tenant-controlled proxy destinations (L4 streams
+// and HTTP backends) against the control-plane deny set. It lives outside the
+// HTTP handlers because emission (config push) must apply the same check as
+// the write path.
 package streamguard
 
 import (
@@ -45,6 +46,7 @@ func LoadInfraTargets(ctx context.Context, db *sql.DB) (*InfraTargets, error) {
 		return nil, errors.New("no db")
 	}
 	t := New()
+	t.addEnvInfra()
 	rows, err := db.QueryContext(ctx,
 		`SELECT COALESCE(public_ip,''), COALESCE(wg_ip,''), COALESCE(api_url,''),
 		        COALESCE(public_hostname,''), COALESCE(tunnel_subnet,'')

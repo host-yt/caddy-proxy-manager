@@ -80,6 +80,11 @@ func main() {
 	if len(os.Args) > 1 && os.Args[1] == "doctor" {
 		os.Exit(runDoctor())
 	}
+	// "server healthcheck" is the container HEALTHCHECK: the image is
+	// distroless, so there is no curl/wget to probe /readyz with.
+	if len(os.Args) > 1 && os.Args[1] == "healthcheck" {
+		os.Exit(runHealthcheck())
+	}
 	doctor := flag.Bool("doctor", false, "run preflight diagnostics and exit")
 	flag.Parse()
 	if *doctor {

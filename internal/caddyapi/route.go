@@ -39,6 +39,12 @@ type Route struct {
 	PathPrefix   string   // optional, e.g. "/api"
 	UpstreamIP   string   // backend IP or hostname
 	UpstreamPort int
+	// IsPanelSelfRoute marks the panel's own self-bootstrap route (see
+	// routes.Service.panelRoute). HPG-SEC-005: the docker-bridge peer that
+	// reaches this route is trusted, so any inbound True-Client-IP /
+	// X-Real-IP is a client claim carried straight through unless we act -
+	// strip both and stamp a canonical one from Caddy's own client_ip.
+	IsPanelSelfRoute bool
 	// BackendResolver: when UpstreamIP is a hostname, emit dynamic_upstreams.a
 	// using this resolver IP (e.g. peer tunnel IP that runs dnsmasq).
 	BackendResolver string
@@ -121,8 +127,13 @@ type Route struct {
 	SSOResolver string
 	// SSOStrictMode extends the SSO gate to ALL HTTP methods (not just GET/HEAD)
 	// and returns 401 JSON when the IdP replies with a redirect (3xx) instead of
-	// passing the redirect through to the client. Use for API-only routes.
-	// When false (default), the gate only checks GET/HEAD document loads.
+	// passing the redirect through to the client. This is the only mode that
+	// actually authenticates every request; new routes default to it
+	// (routes.Service.Create). When false, the gate is permissive/document-only:
+	// it checks GET/HEAD page loads and lets every other method and every
+	// XHR/fetch subresource request through with no auth check at all - it
+	// exists for browser apps with their own API auth layer, not as a weaker
+	// form of real protection (HPG-SEC-003).
 	SSOStrictMode bool
 
 	// External marks a reverse_proxy route whose upstream is an allowlisted
@@ -629,6 +640,21 @@ func BuildRoute(r Route) map[string]any {
 			"delete": []string{"X-Mtls-Subject"},
 		},
 	})
+	// HPG-SEC-005: the panel self-route is reached over the trusted docker
+	// bridge, so nothing downstream re-checks who the caller claims to be -
+	// an inbound True-Client-IP/X-Real-IP would otherwise ride straight
+	// through to the panel's rate limiter and audit log. Drop both, then
+	// stamp X-Real-IP with Caddy's own client_ip so the panel always sees
+	// the address Caddy itself resolved, not one the client asserted.
+	if r.IsPanelSelfRoute {
+		handlers = append(handlers, map[string]any{
+			"handler": "headers",
+			"request": map[string]any{
+				"delete": []string{"True-Client-IP", "X-Real-IP"},
+				"set":    map[string]any{"X-Real-IP": []string{"{http.request.client_ip}"}},
+			},
+		})
+	}
 	// CIDR block list fires before geo check so explicit IP bans always apply.
 	if cidrH := buildCIDRBlock(r); cidrH != nil {
 		handlers = append(handlers, cidrH)
@@ -653,7 +679,9 @@ func BuildRoute(r Route) map[string]any {
 		sb.WriteString("Include @owasp_crs/*.conf\n")
 		// Custom directives must come AFTER the CRS include: SecRuleRemoveById
 		// only matches rules already parsed, so emitting them earlier is a no-op.
-		if extra := strings.TrimSpace(r.WAFDirectives); extra != "" {
+		// Structural screen at emission: a stored line Coraza cannot parse
+		// would fail /load for every tenant sharing this node.
+		if extra, _ := SanitizeWAFDirectives(r.WAFDirectives); extra != "" {
 			sb.WriteString(extra)
 			sb.WriteString("\n")
 		}
@@ -994,25 +1022,25 @@ func BuildRoute(r Route) map[string]any {
 		// on top - Proxmox uses its CSRFPreventionToken + auth ticket,
 		// Authelia-protected apps typically share the session cookie,
 		// etc.
-		// Forward-auth matcher: GET/HEAD only, AND skip
-		//  (a) common static asset extensions / asset path trees, and
-		//  (b) browser XHR / fetch / subresource requests detected via
-		//      Sec-Fetch-Dest (anything other than "document"/"iframe").
+		// Forward-auth matcher (permissive/document-only mode): GET/HEAD only,
+		// AND skip common static asset extensions / asset path trees.
 		//
-		// (a) Hard SPA refresh fires dozens of parallel JS/CSS/font
-		// requests; each one going through Authentik queues up and the
-		// IdP's auth endpoint serialises behind its own DB calls →
-		// tail-latency blows past Caddy's read timeout → 504.
+		// Hard SPA refresh fires dozens of parallel JS/CSS/font requests;
+		// each one going through Authentik queues up and the IdP's auth
+		// endpoint serialises behind its own DB calls → tail-latency blows
+		// past Caddy's read timeout → 504.
 		//
-		// (b) The browser cannot follow a cross-origin 302 on an XHR /
-		// fetch, so if Authentik replies with a redirect to sso.example.com the
-		// request is killed by CORS. SPAs talking to their own backend
-		// API (Proxmox, internal dashboards…) thus break under SSO
-		// unless we bypass forward_auth for those subresource hits. The
-		// upstream app must own its own API auth in this mode; SSO only
-		// guarantees the document load is gated. Sec-Fetch-Dest is sent
-		// by every modern browser - non-browser clients (curl, agents)
-		// omit it and are still gated, which is the safer default.
+		// HPG-SEC-003: this mode used to also exclude requests by
+		// Sec-Fetch-Dest (to spare XHR/fetch from the redirect-under-CORS
+		// problem), but that header is entirely client-supplied - a GET to
+		// a sensitive document just had to claim an excluded value to skip
+		// the auth gate. Never base an auth decision on it. The path-based
+		// asset exclusion stays (it only widens what's cacheable-looking,
+		// not what a specific request claims to be) but SPA XHR/fetch calls
+		// to their own backend API are gated like any other request now;
+		// use SSOPaths/SSOHosts to scope the gate away from an API path if
+		// that breaks a specific app, or Strict mode's all-methods 401 JSON
+		// which browsers don't try to redirect-follow.
 		ssoMatch := map[string]any{
 			"method": []string{"GET", "HEAD"},
 			"not": []any{
@@ -1025,16 +1053,6 @@ func BuildRoute(r Route) map[string]any {
 						"/pve2/*", "/static/*", "/assets/*", "/_next/static/*",
 					},
 				},
-				map[string]any{
-					"header": map[string]any{
-						"Sec-Fetch-Dest": []string{
-							"empty", "image", "font", "audio", "video",
-							"manifest", "object", "embed", "track",
-							"script", "style", "report",
-							"worker", "serviceworker", "sharedworker",
-						},
-					},
-				},
 			},
 		}
 		// Per-route SSO scope: narrow the gate to specific paths and/or
@@ -1045,8 +1063,11 @@ func BuildRoute(r Route) map[string]any {
 		if len(r.SSOHosts) > 0 {
 			ssoMatch["host"] = r.SSOHosts
 		}
-		// In strict mode: gate all methods with no path/header exclusions.
-		// In default mode: gate only GET/HEAD document loads (ssoMatch restrictions apply).
+		// In strict mode: gate all methods with no path exclusions.
+		// In permissive/document-only mode: gate only GET/HEAD page loads
+		// (ssoMatch restrictions apply) - POST/PUT/PATCH/DELETE reach the
+		// origin unauthenticated, so this mode is for browser apps with
+		// their own API auth layer, never for APIs with none of their own.
 		authRoute := map[string]any{
 			"handle": []any{
 				map[string]any{

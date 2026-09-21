@@ -84,8 +84,16 @@ build: gen build-css ## Build server binary (CSS first so it embeds).
 	CGO_ENABLED=0 $(GO) build -trimpath -ldflags="-s -w" -o $(BIN) ./cmd/server
 
 .PHONY: run
-run: build-css ## Run locally (loads .env).
-	$(GO) run ./cmd/server
+run: build-css ## Run locally (sources .env into the environment when present).
+	@set -a; [ -f .env ] && . ./.env; set +a; $(GO) run ./cmd/server
+
+.PHONY: pin-version
+pin-version: ## Rewrite every deploy/ image pin + README status to V=x.y.z (single version source).
+	@test -n "$(V)" || { echo "usage: make pin-version V=1.5.2"; exit 1; }
+	@grep -rlE 'ghcr\.io/host-yt/[a-z-]+:[0-9]+\.[0-9]+\.[0-9]+' deploy/ \
+	  | xargs perl -pi -e 's|(ghcr\.io/host-yt/[a-z-]+):\d+\.\d+\.\d+|$$1:$(V)|g'
+	@perl -pi -e 's|^\*\*Status:\*\* v\d+\.\d+\.\d+|**Status:** v$(V)|' README.md
+	@echo "pinned $(V); CI fails if anything still disagrees"
 
 .PHONY: dev
 dev: build-css ## Hot-reload dev (air + templ watcher).

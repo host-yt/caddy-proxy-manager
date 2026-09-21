@@ -537,8 +537,39 @@ var portal2FATmpl = template.Must(template.New("portal_2fa").Parse(`<!doctype ht
 </div>
 </body></html>`))
 
-// Logout destroys the portal session.
+// portalLogoutViewData is the logout confirmation page payload.
+type portalLogoutViewData struct {
+	Host      string
+	CSPNonce  string
+	CSRFToken string
+}
+
+// LogoutConfirm renders a GET confirmation page. HPG-SEC-007: logout is a
+// state change, so GET must never perform it - this page only asks; the
+// form it renders POSTs to Logout.
+func (h *PortalHandlers) LogoutConfirm(w http.ResponseWriter, r *http.Request) {
+	d := portalLogoutViewData{Host: portalRequestHost(r), CSPNonce: middleware.CSPNonce(r.Context())}
+	d.CSRFToken = h.issuePortalCSRF(w)
+	var buf bytes.Buffer
+	if err := portalLogoutTmpl.Execute(&buf, d); err != nil {
+		http.Error(w, "render failed", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(buf.Bytes())
+}
+
+// Logout destroys the portal session. POST-only (HPG-SEC-007): a GET here
+// used to log the caller out too, so a third-party page could force a logout
+// with a plain image tag or link (the public portal has no panel session and
+// bypasses the panel's CSRF middleware). The double-submit token below is the
+// same mechanism LoginSubmit/Portal2FASubmit already use.
 func (h *PortalHandlers) Logout(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	if !h.verifyPortalCSRF(r) {
+		h.LogoutConfirm(w, r)
+		return
+	}
 	if c, err := r.Cookie(portalCookie); err == nil && c.Value != "" {
 		_ = h.RDB.Del(r.Context(), portalSessPrefix+c.Value).Err()
 	}
@@ -549,6 +580,28 @@ func (h *PortalHandlers) Logout(w http.ResponseWriter, r *http.Request) {
 	host := portalRequestHost(r)
 	http.Redirect(w, r, portalLoginURL(host, "/", h.Secure), http.StatusSeeOther)
 }
+
+// portalLogoutTmpl mirrors portalLoginTmpl's minimal self-contained style.
+var portalLogoutTmpl = template.Must(template.New("portal_logout").Parse(`<!doctype html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sign out</title>
+<style nonce="{{.CSPNonce}}">
+ body{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:#f1f5f9;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center}
+ .card{background:#fff;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);padding:28px;width:340px;text-align:center}
+ h1{font-size:18px;margin:0 0 4px}
+ p.sub{color:#64748b;font-size:13px;margin:0 0 18px}
+ button{width:100%;padding:10px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-size:14px;cursor:pointer}
+</style></head><body>
+<div class="card">
+ <h1>Sign out</h1>
+ <p class="sub">{{.Host}}</p>
+ <form method="POST" action="/hpg-portal/logout">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <button type="submit">Sign out</button>
+ </form>
+</div>
+</body></html>`))
 
 func (h *PortalHandlers) createPortalSession(ctx context.Context, w http.ResponseWriter, userID int64, email, username string, rememberMe bool) error {
 	idb := make([]byte, 32)

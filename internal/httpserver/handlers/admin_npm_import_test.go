@@ -26,9 +26,11 @@ func newNpmTestDB(t *testing.T) *sql.DB {
 	t.Cleanup(func() { _ = db.Close() })
 	stmts := []string{
 		`CREATE TABLE caddy_nodes (id INTEGER PRIMARY KEY, node_group_id INTEGER,
-			approved_at TIMESTAMP NULL, is_enabled INTEGER)`,
+			approved_at TIMESTAMP NULL, is_enabled INTEGER,
+			public_ip TEXT, wg_ip TEXT, api_url TEXT, public_hostname TEXT, tunnel_subnet TEXT)`,
+		`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT)`,
 		`CREATE TABLE routes (id INTEGER PRIMARY KEY, domain TEXT)`,
-		`INSERT INTO caddy_nodes VALUES (1, 1, CURRENT_TIMESTAMP, 1)`,
+		`INSERT INTO caddy_nodes VALUES (1, 1, CURRENT_TIMESTAMP, 1, '', '', '', '', '')`,
 		`INSERT INTO routes VALUES (1, 'taken.example')`,
 	}
 	for _, s := range stmts {

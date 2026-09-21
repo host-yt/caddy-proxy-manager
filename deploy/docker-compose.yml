@@ -28,7 +28,7 @@ services:
       - internal
 
   app:
-    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:1.5.1}
+    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:1.6.0}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     # App runs as distroless nonroot; block any setuid privilege escalation.
@@ -75,6 +75,15 @@ services:
       GEOIP_AVAILABLE: ${GEOIP_AVAILABLE:-1}
       RATE_LIMIT_AVAILABLE: ${RATE_LIMIT_AVAILABLE:-1}
       WEIGHTED_LB_AVAILABLE: ${WEIGHTED_LB_AVAILABLE:-1}
+    # Reports readiness; it does not restart anything on its own (Compose has
+    # no autoheal). start_period is generous: a first boot runs every migration
+    # before /readyz turns green, and a restart during that would loop forever.
+    healthcheck:
+      test: ["CMD", "/app/server", "healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 300s
     depends_on:
       mariadb:
         condition: service_healthy
@@ -141,7 +150,7 @@ services:
     # can flip CACHE_HANDLER_AVAILABLE=1 and per-route cache_enabled does
     # real origin caching. CI pushes deploy/caddy/Dockerfile to ghcr; local
     # dev falls back to `build:` when the image isn't pullable.
-    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.5.1}
+    image: ${IMAGE_CADDY:-ghcr.io/host-yt/caddy-proxy-manager-edge:1.6.0}
     build:
       context: ./caddy
       dockerfile: Dockerfile
@@ -153,6 +162,16 @@ services:
       - "80:80"
       - "443:443"
       - "443:443/udp"        # HTTP/3
+    # Probes the local admin API - it answers as soon as the config is loaded
+    # and carries no secrets. Deliberately not the :80/:443 listeners: those
+    # legitimately 503 before any route is pushed, and an ACME order in flight
+    # must never look like a wedged process.
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
     depends_on:
       geoip-init:
         condition: service_completed_successfully
@@ -183,7 +202,7 @@ services:
   # file is written but nobody ships it - dashboard stays empty.
   # Needs a one-shot node token + WG key from the panel tunnel-enable flash.
   hpg-node-agent:
-    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.5.1}
+    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.6.0}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     network_mode: host
@@ -230,7 +249,7 @@ services:
   # the kernel module path may not exist; this service is intended for
   # the Linux VPS where the manager actually runs in production.
   wireguard:
-    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:1.5.1}
+    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:1.6.0}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     cap_add:

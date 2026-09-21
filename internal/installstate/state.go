@@ -179,6 +179,12 @@ func (m *Manager) Save(s *State) error {
 	if err := os.Rename(tmp, m.path); err != nil {
 		return fmt.Errorf("rename: %w", err)
 	}
+	// The 0600 above only applies when WriteFile creates the temp file; a file
+	// restored from a backup, synced by a file-sync client, or written by an
+	// older build can still be world-readable. This holds the invariant.
+	if err := os.Chmod(m.path, 0o600); err != nil {
+		return fmt.Errorf("chmod: %w", err)
+	}
 	m.cache = s
 	return nil
 }

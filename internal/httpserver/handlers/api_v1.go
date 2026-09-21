@@ -276,10 +276,10 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "backend_ip invalid")
 		return
 	}
-	// Screen the backend for SSRF-sensitive ranges (loopback/link-local/
-	// metadata) - twin of CADDY-02 on the web path (API-02).
-	if security.IsDangerousProxyBackend(backendIP) {
-		apiErr(w, http.StatusBadRequest, "backend_ip not allowed (loopback/link-local/metadata)")
+	// Screen the backend through the same fail-closed screener as the web path:
+	// loopback/link-local/metadata plus managed node and control-plane addresses.
+	if err := screenBackendHost(r.Context(), h.DB(), in.BackendIP, 0); err != nil {
+		apiErr(w, http.StatusBadRequest, "backend_ip not allowed: "+sanitizeErr(err))
 		return
 	}
 	if in.AllowedPortStart < 1 || in.AllowedPortEnd > 65535 || in.AllowedPortStart > in.AllowedPortEnd {
@@ -778,6 +778,11 @@ func (h *APIHandlers) NodeCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if ip := net.ParseIP(u.Hostname()); ip != nil && security.IsDangerousProxyBackend(ip) {
 		apiErr(w, http.StatusBadRequest, "api_url host not allowed (loopback/link-local/metadata)")
+		return
+	}
+	// SEC-002: remote nodes go through the agent's authenticated admin proxy.
+	if err := security.RejectUnauthenticatedNodeAdminURL(in.APIURL); err != nil {
+		apiErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)

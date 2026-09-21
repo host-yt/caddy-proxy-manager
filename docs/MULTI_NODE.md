@@ -14,8 +14,10 @@ WireGuard mesh:
 
 - Manager gets a private WG IP (`10.66.0.1` by default).
 - Each remote node gets a unique private WG IP (`10.66.0.2`, `.3`, etc.).
-- Caddy Admin API on every node binds to its WG IP only, never to
-  `0.0.0.0`.
+- Caddy's Admin API is published on the node's host loopback only, and the
+  node-agent fronts it with an authenticated proxy on the node's WG IP
+  (`:2021`) - see Section 12. Legacy nodes that publish `<wg-ip>:2019:2019`
+  directly still work, but `server doctor` warns about them.
 - All `/load`, `/config`, `/reverse_proxy` and metrics calls from the manager
   travel over the encrypted WG tunnel, not over the public internet.
 - Public traffic (HTTP/HTTPS) arrives at the node directly; WG carries
@@ -296,8 +298,9 @@ wg-quick up wg0
 
 ### Step 4 - Write Caddy compose and Caddyfile
 
-Creates `/opt/hostyt-node/docker-compose.yml` binding Caddy's Admin API to the
-WG IP only:
+Creates `/opt/hostyt-node/docker-compose.yml` publishing Caddy's Admin API on
+the node's WG IP (the legacy direct path - the script prints the steps to close
+it, see Section 12):
 
 ```
 - "10.66.0.3:2019:2019"   # WG IP only - never public
@@ -310,7 +313,7 @@ Creates `/opt/hostyt-node/Caddyfile.bootstrap`:
 
 ```caddyfile
 {
-    admin 10.66.0.3:2019
+    admin 0.0.0.0:2019
     email ops@example.com
     on_demand_tls {
         ask http://10.66.0.1:8080/internal/ask
@@ -391,12 +394,12 @@ ping -c3 10.66.0.1   # should reach the manager
 ### 7.4 Write Caddy compose
 
 Create `/opt/hostyt-node/docker-compose.yml` using the template from
-`deploy/remote-node/docker-compose.yml`. Change the Admin API bind address to
-this node's WG IP:
+`deploy/remote-node/docker-compose.yml`. Keep the Admin API on host loopback
+and let the node-agent front it (Section 12):
 
 ```yaml
 ports:
-  - "10.66.0.X:2019:2019"   # replace X with this node's last octet
+  - "127.0.0.1:2019:2019"   # node-agent proxies it, authenticated, on :2021
   - "80:80"
   - "443:443"
   - "443:443/udp"
@@ -426,7 +429,8 @@ extra_hosts:
 ```bash
 cat > /opt/hostyt-node/Caddyfile.bootstrap <<EOF
 {
-    admin 10.66.0.X:2019
+    # Container namespace - the port mapping decides who can reach it.
+    admin 0.0.0.0:2019
     email <caddy.acme_email>
     on_demand_tls {
         ask <caddy.ask_endpoint_url>
@@ -525,6 +529,29 @@ to another peer in the same group without requiring manual intervention.
   whether IP forwarding and iptables/nftables rules are correctly set on each
   node.
 
+### Certificates on failover
+
+**Certificate storage is per node.** Each node keeps its own `caddy_data`
+volume and there is no shared store: the edge image (`deploy/caddy/Dockerfile`)
+builds no TLS-storage module, so do not add a `storage` directive to a node's
+Caddyfile - Caddy would reject the whole config at load.
+
+What that means in practice:
+
+- A route on an `active_active`/`failover` group is pushed to every node in the
+  group, so a peer can answer the moment traffic arrives - but it holds no
+  certificate for that host until it serves a handshake itself.
+- The first TLS handshake a peer serves triggers on-demand issuance, gated by
+  the panel's `ask` endpoint. That is one ACME order per node per host, and it
+  costs the client a slow first handshake (seconds), not an error - unless the
+  CA's rate limit has been hit.
+- Budget ACME rate limits for `nodes x hosts`, not `hosts`. Let's Encrypt's
+  50 certificates/registered-domain/week is the one that bites on a large
+  active_active group; move to a CA with a higher limit or a wildcard via
+  DNS-01 (Section on DNS providers in [DNS_PROVIDERS.md](DNS_PROVIDERS.md)) if you are near it.
+- To pre-warm a peer before a planned failover, resolve the host to that node
+  and complete one HTTPS request against it.
+
 **Automatic failover** is implemented. When `failover.auto_enabled` is set
 (`Admin → Settings → Failover`), the alert evaluator moves active routes from
 a dead node to a healthy sibling in the same `mode=failover` node group and
@@ -599,22 +626,22 @@ was still holding. Revoked peers in the group are left alone.
 ### Node shows offline in the panel
 
 1. Verify WG handshake is up (step above).
-2. Check the Caddy Admin API is reachable from the manager over WG:
+2. Check the node's admin endpoint is reachable from the manager over WG:
    ```bash
-   # On manager:
-   curl http://10.66.0.X:2019/config/
+   # On manager - :2021 is the node-agent admin proxy (401 without the key is
+   # the healthy answer); :2019 only on a legacy, unmigrated node.
+   curl -o /dev/null -w '%{http_code}\n' http://10.66.0.X:2021/config/
    ```
-   `connection refused` - Caddy is not running on the node, or it is bound to
-   the wrong IP.
+   `connection refused` - the agent (or Caddy) is not running on the node.
 3. Check Caddy is running on the node:
    ```bash
    # On node:
    cd /opt/hostyt-node && docker compose ps
    docker compose logs caddy
    ```
-4. Confirm the Admin API bind in `Caddyfile.bootstrap` matches the node's WG
-   IP. It must be `admin 10.66.0.X:2019`, not `admin localhost:2019` or
-   `admin :2019`.
+4. Confirm the Admin API bind in `Caddyfile.bootstrap` is `admin 0.0.0.0:2019`
+   - that is the container's namespace. A WG address cannot be bound from
+   inside a bridge container; the `ports:` mapping decides reachability.
 
 ### Node is approved but receives no routes / domains return 503
 
@@ -823,12 +850,19 @@ panel:
 
 ## 12. Authenticating the node's admin API
 
-Caddy's admin API has no authentication of its own. In the default topology it
-is published on the node's WireGuard address, so anything that can route to
-`<wg-ip>:2019` can replace that node's entire configuration - every tenant on
-it. See [SECURITY.md](SECURITY.md#caddy-admin-api---known-limitation).
+Caddy's admin API has no authentication of its own. Published on a node's
+WireGuard address, anything that can route to `<wg-ip>:2019` can replace that
+node's entire configuration - every tenant on it. See
+[SECURITY.md](SECURITY.md#caddy-admin-api---known-limitation).
 
-A node can close that by putting its **node-agent in front of the admin API**:
+**This is now required for remote nodes.** `deploy/remote-node/docker-compose.yml`
+publishes Caddy's admin port on host loopback only, the node-agent example has
+the proxy switched on, and the panel refuses to register a node whose API URL is
+a raw remote `:2019` (`/admin/nodes` and `POST /api/v1/nodes`). A fleet that is
+mid-migration can set `HPG_ALLOW_UNAUTHENTICATED_NODE_ADMIN=1` on the panel to
+restore the old behaviour; `server doctor` warns for every node still on it.
+
+The node-agent goes **in front of the admin API**:
 
 ```
 panel ──(bearer key, over the WG mesh)──▶ node-agent :2021 ──(127.0.0.1)──▶ Caddy admin :2019
@@ -862,9 +896,12 @@ Order matters: the panel must be able to reach the node at every step.
 3. **Point the panel at the agent.** Edit the node in `/admin/nodes` and set its
    API URL to `http://10.66.0.2:2021`. Pushes now carry the key.
 
-4. **Close the direct port.** In the node's compose, drop the
-   `"10.66.0.2:2019:2019"` mapping from the `caddy` service, and set
-   `admin 127.0.0.1:2019` in its Caddyfile. Restart Caddy.
+4. **Close the direct port.** In the node's compose, change the `caddy`
+   service's mapping from `"10.66.0.2:2019:2019"` to `"127.0.0.1:2019:2019"`
+   and restart Caddy. Leave `admin 0.0.0.0:2019` in the Caddyfile: that is the
+   *container's* namespace, and the host-networked agent reaches the published
+   loopback port. Binding `127.0.0.1` inside the container would hide the admin
+   API from the agent too.
 
 5. **Verify.** `docker compose exec app /app/server doctor` should still report
    the node's admin API as reachable, and a **Resync** from the panel should

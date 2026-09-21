@@ -3,9 +3,11 @@
 # is superseded by the JSON config pushed via the Admin API.
 
 {
-	# Admin API listens on the WireGuard IP only - never publicly.
-	# Edit the IP below to match this node's wg0 address.
-	admin 10.66.0.2:2019
+	# 0.0.0.0 here is the CONTAINER's namespace, not the host: the compose file
+	# publishes this port on host loopback only and the node-agent fronts it
+	# with authentication (SEC-002). A WireGuard IP cannot be bound here at all
+	# - it lives on the host, outside this container's netns.
+	admin 0.0.0.0:2019
 
 	email {$ACME_EMAIL}
 
