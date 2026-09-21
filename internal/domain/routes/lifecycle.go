@@ -349,6 +349,11 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		}
 		s.Logger.Warn("anti-squat: evicted unverified route on create", "evicted_id", conflictID, "domain", domain)
 	}
+	// sso_strict_mode = 1: HPG-SEC-003, a new route defaults to the only SSO
+	// mode that actually authenticates every request. SSO itself stays off
+	// (sso_provider_url empty) until the operator sets it up via edit; this
+	// only decides what they get once they do. Existing rows are untouched -
+	// this is an INSERT-time default, not a migration/backfill.
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO routes (service_id, caddy_node_id, domain, path_prefix, upstream_port, upstream_scheme,
 		   ssl_enabled, websocket, force_https, http2_enabled, http3_enabled, status,
@@ -357,8 +362,8 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		   wildcard_enabled, wildcard_zone, group_id, custom_fields,
 		   via_wg_peer_id, dns_resolver_via_wg_peer_id,
 		   require_client_cert, mtls_ca_id,
-		   domain_verified, verify_token)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?)`,
+		   domain_verified, verify_token, sso_strict_mode)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?, 1)`,
 		in.ServiceID, nodeID, domain, pathPrefix, in.UpstreamPort, scheme,
 		in.SSL, in.WebSocket, in.ForceHTTPS,
 		kind, redirURL, redirCode, tagVal,

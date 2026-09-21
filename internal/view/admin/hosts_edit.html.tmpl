@@ -540,7 +540,7 @@
     <section data-pane="sso" class="hpg-pane hidden r-card space-y-4">
       <div>
         <p class="t-eyebrow">Single sign-on (forward-auth)</p>
-        <p class="t-caption text-muted mt-1">GET/HEAD page navigations are gated through your SSO provider; unauthenticated users are redirected to login. POST/PUT/DELETE and XHR/fetch are passed through (backend enforces its own API auth). Enable Strict mode below to gate all methods and return 401 instead of redirect. Empty Provider URL = SSO off.</p>
+        <p class="t-caption text-muted mt-1">Strict mode (default for new routes) gates every HTTP method and returns 401 instead of a login redirect. Turning it off switches to permissive/document-only mode: only GET/HEAD page loads are gated - POST/PUT/PATCH/DELETE and XHR/fetch reach the backend with no auth check at all, so only use it when the backend enforces its own API auth. Empty Provider URL = SSO off.</p>
       </div>
       {{if .ClientTunnels}}
       <div>
@@ -558,13 +558,16 @@
         <p class="t-caption text-muted mt-1">Three modes: (1) <strong>Local container</strong> e.g. <code>authentik-server:9000</code> when Authentik runs in the same docker network as Caddy. (2) <strong>Through tunnel</strong> e.g. <code>http://authentik-server:9000</code> with "SSO via" set - Caddy resolves the hostname via the peer's DNS. (3) <strong>Public URL</strong> e.g. <code>https://sso.example.com</code> only when the IdP is on a separate node (otherwise causes a loop).</p>
       </div>
       <label class="r-toggle">
-        <input type="checkbox" name="sso_strict_mode" value="1" id="sso_strict_mode" {{if .SSOStrictMode}}checked{{end}}>
+        <input type="checkbox" name="sso_strict_mode" value="1" id="sso_strict_mode" onchange="document.getElementById('sso-permissive-warn').hidden = this.checked" {{if .SSOStrictMode}}checked{{end}}>
         <span></span>
         <div class="ml-2">
-          <span class="t-caption font-medium cursor-pointer">Strict mode (zero-trust)</span>
+          <span class="t-caption font-medium cursor-pointer">Strict mode (recommended - authenticates every method)</span>
           <p class="t-caption text-muted mt-0.5">Gates ALL HTTP methods (not just GET/HEAD page loads). Returns 401 JSON instead of redirect for unauthenticated requests. Use for API services; breaks browser apps that rely on login redirect.</p>
         </div>
       </label>
+      <p id="sso-permissive-warn" class="t-caption rounded-lg border border-amber-300 bg-amber-50 text-amber-800 dark:bg-amber-900/30 dark:border-amber-600 dark:text-amber-200 px-3 py-2" {{if .SSOStrictMode}}hidden{{end}}>
+        <strong>Warning:</strong> permissive/document-only mode is not full authentication. Only GET/HEAD page loads are gated; POST/PUT/PATCH/DELETE and every XHR/fetch request reach the backend unauthenticated. Only turn Strict mode off when the backend has its own auth for everything but the initial page load.
+      </p>
       <div>
         <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1">Copy headers (one per line)</label>
         <textarea name="sso_copy_headers" rows="6" placeholder="X-Authentik-Username&#10;X-Authentik-Email&#10;X-Authentik-Groups" class="r-input w-full font-mono text-xs">{{.SSOCopyHeaders}}</textarea>

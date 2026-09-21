@@ -958,3 +958,36 @@ func TestBuildMTLSRBAC_CarriesNodeToken(t *testing.T) {
 		t.Error("token header emitted without a token")
 	}
 }
+
+// TestSSOPermissiveModeIgnoresSecFetchDest is the regression for HPG-SEC-003:
+// permissive/document-only SSO used to skip the auth gate for any GET/HEAD
+// whose Sec-Fetch-Dest claimed a subresource kind - entirely client-supplied,
+// so a plain curl GET to a sensitive page could dodge auth by setting the
+// header. The matcher must never reference it.
+func TestSSOPermissiveModeIgnoresSecFetchDest(t *testing.T) {
+	r := Route{
+		ID: "60", Hosts: []string{"perm.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+		SSOProviderURL: "https://sso.example.com", SSOStrictMode: false,
+	}
+	s := mustJSON(r)
+	if strings.Contains(s, "Sec-Fetch-Dest") {
+		t.Errorf("permissive-mode matcher must not key off client-supplied Sec-Fetch-Dest\nfull: %s", s)
+	}
+	// The static-asset path exclusion must still be present (unrelated skip).
+	if !strings.Contains(s, `"*.js"`) {
+		t.Errorf("permissive-mode matcher lost its static-asset exclusion\nfull: %s", s)
+	}
+}
+
+// TestSSOStrictModeGatesAllMethods: strict mode's forward-auth subroute must
+// carry no "match" restriction at all - every method, every path.
+func TestSSOStrictModeGatesAllMethods(t *testing.T) {
+	r := Route{
+		ID: "61", Hosts: []string{"strict.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80,
+		SSOProviderURL: "https://sso.example.com", SSOStrictMode: true,
+	}
+	s := mustJSON(r)
+	if strings.Contains(s, `"method":["GET","HEAD"]`) {
+		t.Errorf("strict mode must not restrict to GET/HEAD\nfull: %s", s)
+	}
+}
