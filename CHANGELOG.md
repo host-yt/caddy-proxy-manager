@@ -98,6 +98,34 @@ is deliberately left as published.
   plan and allocation, the same check the create path uses.
 - Custom error pages: the background colour was spliced into an inline style
   block unescaped, and the logo link accepted any scheme.
+- **A route could make its node resolve a backend name through a resolver the
+  route owner controlled.** Panel-side screening was skipped whenever a tunnel,
+  a bound peer or a custom DNS resolver was in play, which left the destination
+  decided somewhere the panel could not check. The panel now resolves and pins
+  those names itself; a tunnel-bound backend dials the peer directly. Choosing
+  node-side resolution is still possible, but it is now an explicit super_admin
+  decision per route rather than a side effect, and the resolver fields
+  themselves require super_admin to set.
+- **The SSO provider URL was never checked.** It is a route-owner-supplied
+  destination that the node dials, including on an unauthenticated passthrough.
+  It now goes through the same destination screening as every other backend, at
+  save time and again before publishing.
+- **The node admin transport now defaults to authenticated.** A key that cannot
+  be decrypted no longer falls back to an unauthenticated connection - the push
+  fails instead. Node registration no longer accepts an unauthenticated endpoint
+  disguised by a remapped port or a hostname. Existing keyless nodes are
+  grandfathered per node and clear themselves once a key works; see the upgrade
+  notes.
+- **A single bad WAF directive took the whole node down.** One route's rules
+  could make the node reject its entire configuration, for every tenant on it.
+  A route whose directives the node refuses is now quarantined on its own and
+  the rest of the node still publishes. Arbitrary rule directives are now
+  restricted to super_admin, are no longer copied by cloning a host, and are
+  re-checked whenever a route is re-enabled. `SecRemoteRules` and
+  `SecRuleScript` are refused outright.
+- The geo-block redirect URL was validated as a URL but not against the
+  placeholder policy, so a customer could hold back all of their own routes
+  without seeing an error.
 
 ### Fixed
 
@@ -142,6 +170,17 @@ is deliberately left as published.
   rather than scanning a separate image built only for CI.
 - CI provisions a real database, so the fail-closed tests run instead of
   skipping, and the Terraform provider module is covered.
+- `server doctor` reported a node as reachable that the control plane would
+  refuse to talk to, because it probed with a weaker client than the push path.
+- `server doctor` gained a read-only inventory of stored routes that would not
+  pass today's policies (backend destinations, placeholders, WAF directives),
+  naming the route id and owner. It reports honestly when a check could not be
+  performed rather than implying a clean result.
+- `hpg-node-agent doctor` now checks that the GeoIP database is actually
+  mounted on the node. A missing file previously made the node reject its whole
+  configuration with no local signal.
+- The Caddy healthcheck was fixed in the default and Portainer profiles, and
+  added to the remote-node profile, which had none.
 
 ### Upgrade notes
 
@@ -185,6 +224,30 @@ Read these before upgrading a multi-tenant install.
 - An interrupted `hpg-rotate-secret` leaves a `.rotate-journal` next to the
   state file. Re-run the same command to resume; a journal for a different
   secret pair blocks a new rotation until it is resolved.
+- **Node admin transport.** Existing nodes with no admin-proxy key are
+  grandfathered automatically, per node, and keep working; each such push logs
+  it. The allowance clears itself on the first push where the node's key
+  decrypts. Nodes added after this upgrade start fail-closed, so a remote node
+  needs its agent admin proxy up before it can receive configuration. The
+  allowance is now visible and editable on the node edit form.
+  `HPG_ALLOW_UNAUTHENTICATED_NODE_ADMIN=1` no longer authorizes a push - it only
+  re-opens registration of a legacy URL. Use `HPG_ADMIN_PROXY_PORTS` if your
+  agent proxy does not listen on 2021.
+- **Resolver fields are super_admin-only.** A scoped admin saving a host that
+  carries a custom DNS resolver will be refused until the field is cleared or a
+  super_admin makes the change. Ordinary tunnel routes are unaffected: the panel
+  still binds the peer itself.
+- **A backend name that the panel cannot resolve now holds its route back**
+  instead of being passed to the node to resolve. If a name only resolves inside
+  a tunnel, either bind the tunnel peer or have a super_admin tick node-side
+  resolution for that route.
+- **While an SSO provider name does not resolve from the panel, saving that host
+  is refused** - including edits to unrelated fields on it.
+- **`SecRemoteRules` and `SecRuleScript` stop working.** Any route using them
+  needs its rules rewritten before the upgrade.
+- Run `server doctor` after upgrading: it now inventories stored rows that
+  predate these policies. Nothing was migrated or rewritten, so an install can
+  be holding values that today's checks would refuse.
 
 ## [1.7.1] - 2026-09-21
 
