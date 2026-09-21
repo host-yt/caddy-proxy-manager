@@ -2611,6 +2611,9 @@ type hostEditData struct {
 	// Built-in forward-auth portal: per-host toggle + selectable groups.
 	PortalProtect bool
 	PortalGroups  []portalGroupOption
+	// PortalPublicPaths: comma/whitespace-separated path matchers exempt from
+	// the verifier. Empty = no exceptions, every protected request is checked.
+	PortalPublicPaths string
 
 	// External HTTPS upstream (admin-only). When External, BackendIP holds the
 	// upstream FQDN (= backend_ip_override). HasProxySecret is whether an
@@ -3043,7 +3046,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	d.SSOStrictMode = ssoStrictMode
 	// Built-in portal: toggle + grantable groups for this host (additive
 	// query so the large route SELECT above stays untouched).
-	_ = db.QueryRowContext(ctx, `SELECT COALESCE(portal_protect,0) FROM routes WHERE id = ?`, id).Scan(&d.PortalProtect)
+	_ = db.QueryRowContext(ctx, `SELECT COALESCE(portal_protect,0), COALESCE(portal_public_paths,'') FROM routes WHERE id = ?`, id).Scan(&d.PortalProtect, &d.PortalPublicPaths)
 	d.PortalGroups = h.portalGroupsForRoute(ctx, sess, id, clientID)
 	d.ClientTunnels = loadClientTunnels(ctx, db, clientID)
 	// Fetch node's outbound IP inventory and plan egress flag for the egress tab.
@@ -3545,6 +3548,8 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	ssoViaPeerID, _ := strconv.ParseInt(r.FormValue("sso_via_wg_peer_id"), 10, 64)
 	// Built-in portal toggle + selected group IDs.
 	portalProtect := r.FormValue("portal_protect") == "1"
+	// Empty = no exceptions; every protected request hits the verifier.
+	portalPublicPathsVal := sanitizePathList(r.FormValue("portal_public_paths"))
 	var portalGroupIDs []int64
 	for _, v := range r.Form["portal_group_ids"] {
 		if gid, perr := strconv.ParseInt(v, 10, 64); perr == nil && gid > 0 {
@@ -4137,6 +4142,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   basic_auth_user = ?,
 			   sso_provider_url = ?, sso_copy_headers = ?, sso_trusted_proxies = ?,
 			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
+			   portal_public_paths = ?,
 			   outbound_ip_mode = ?, outbound_ip = ?,
 			   dns_resolver_ip = ?, dns_resolver_via_wg_peer_id = ?, dns_address_family = ?,
 			   group_id = NULLIF(?, 0),
@@ -4174,6 +4180,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			basicUserUpdate,
 			ssoProviderURLVal, ssoCopyHeadersVal, ssoTrustedProxiesVal,
 			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
+			portalPublicPathsVal,
 			outboundIPMode, nullableString(outboundIP),
 			nullableString(dnsResolverIP), nullableInt64(dnsResolverViaWGID), dnsAddressFamily,
 			groupID,
@@ -4213,6 +4220,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			   basic_auth_user = ?, basic_auth_bcrypt = ?,
 			   sso_provider_url = ?, sso_copy_headers = ?, sso_trusted_proxies = ?,
 			   sso_paths = ?, sso_hosts = ?, sso_via_wg_peer_id = ?, sso_strict_mode = ?,
+			   portal_public_paths = ?,
 			   outbound_ip_mode = ?, outbound_ip = ?,
 			   dns_resolver_ip = ?, dns_resolver_via_wg_peer_id = ?, dns_address_family = ?,
 			   group_id = NULLIF(?, 0),
@@ -4250,6 +4258,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			basicUserUpdate, basicHashUpdate,
 			ssoProviderURLVal, ssoCopyHeadersVal, ssoTrustedProxiesVal,
 			ssoPathsVal, ssoHostsVal, nullableInt64(ssoViaPeerID), ssoStrictMode,
+			portalPublicPathsVal,
 			outboundIPMode, nullableString(outboundIP),
 			nullableString(dnsResolverIP), nullableInt64(dnsResolverViaWGID), dnsAddressFamily,
 			groupID,

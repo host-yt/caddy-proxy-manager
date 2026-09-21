@@ -656,6 +656,11 @@ X-Authentik-Meta-Version</pre>
         <p class="t-caption text-muted">No access groups exist for this host's client yet. Create one under <a href="/admin/access-groups" class="text-[rgb(var(--accent))] hover:underline">Access groups</a>.</p>
         {{end}}
       </fieldset>
+      <div>
+        <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-portal_public_paths">Public paths (bypass the portal)</label>
+        <textarea id="f-portal_public_paths" aria-describedby="f-portal_public_paths-help" name="portal_public_paths" rows="3" placeholder="/assets/*&#10;*.js&#10;*.css" class="r-input w-full font-mono text-xs">{{.PortalPublicPaths}}</textarea>
+        <p id="f-portal_public_paths-help" class="t-caption text-muted mt-1">One glob per line. Empty means NO exceptions - every request to a protected route hits the verifier. If you're upgrading from the old implicit .js/.css/assets bypass, fill this in first, or SPA hard-refreshes will stampede the verifier.</p>
+      </div>
     </section>
 
     <!-- Maintenance -->
