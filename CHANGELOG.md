@@ -47,6 +47,18 @@ is deliberately left as published.
   (`caddyapi.ScreenDialTarget`): Caddy also accepts socket and
   file-descriptor upstream forms, which no address-based screen covers.
 
+## [1.7.1] - 2026-09-21
+
+### Security
+
+- **The per-route "backend is resolved on the node" switch was available to
+  scope-restricted accounts.** That switch waives panel-side resolution, and
+  with it the screen that checks where a backend actually points - so an
+  account limited to its own routes could turn its own screening off. It now
+  requires super_admin, the same bar as skipping upstream TLS verification.
+  Existing routes are unaffected: tunnel-bound routes were marked
+  automatically and keep working, and nothing already saved is re-evaluated.
+
 ## [1.7.0] - 2026-09-21
 
 Follow-up to the 1.6.0 remediation: an independent review of that work found

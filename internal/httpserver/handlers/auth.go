@@ -2446,4 +2446,3 @@ func (h *AuthHandlers) renderEmailOTP(w http.ResponseWriter, status int, d email
 	w.WriteHeader(status)
 	_, _ = w.Write(buf.Bytes())
 }
-

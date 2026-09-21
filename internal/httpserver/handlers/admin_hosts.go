@@ -715,8 +715,14 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		WildcardEnabled:    r.FormValue("wildcard_enabled") == "1",
 		WildcardZone:       strings.ToLower(strings.TrimSpace(r.FormValue("wildcard_zone"))),
 		ViaWGPeerID:        strings.TrimSpace(r.FormValue("via_wg_peer_id")),
-		ResolveNodeSide:    r.FormValue("backend_resolve_node_side") == "1",
+		ResolveNodeSide:    r.FormValue("backend_resolve_node_side") == "1" && canWaivePanelResolution(sess.Role),
 		RequireClientCert:  r.FormValue("require_client_cert") == "1",
+	}
+	// Waiving panel-side resolution means the target is never screened against
+	// a resolved address, so it stays with the unrestricted role.
+	if r.FormValue("backend_resolve_node_side") == "1" && !canWaivePanelResolution(sess.Role) {
+		h.renderHostsNewErr(w, r, form, "resolving the backend on the node requires super_admin")
+		return
 	}
 	form.MTLSCAID, _ = strconv.ParseInt(r.FormValue("mtls_ca_id"), 10, 64)
 	if !form.RequireClientCert {
@@ -3669,6 +3675,11 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	viaPeerID, _ := strconv.ParseInt(r.FormValue("via_wg_peer_id"), 10, 64)
 	resolveNodeSide := r.FormValue("backend_resolve_node_side") == "1"
+	if resolveNodeSide && (sess == nil || !canWaivePanelResolution(sess.Role)) {
+		editPath := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
+		redirectWithFlash(w, r, editPath, "", "resolving the backend on the node requires super_admin")
+		return
+	}
 	if external {
 		editPath := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
 		// MUTUAL EXCLUSION: an external route must NOT be bound to a WG peer -
@@ -5013,6 +5024,11 @@ func screenBackendWith(ctx context.Context, infra *streamguard.InfraTargets, hos
 
 // unresolvedHint turns a panel-side resolution failure into the one action
 // that actually unblocks the operator, instead of a dead end.
+// canWaivePanelResolution gates the "backend is resolved on the node" switch.
+// Waiving panel-side resolution means no resolved address is ever screened, so
+// it stays with the unrestricted role rather than any scoped admin.
+func canWaivePanelResolution(role string) bool { return role == "super_admin" }
+
 func unresolvedHint(err error, fallback string) string {
 	if errors.Is(err, streamguard.ErrUnresolved) {
 		return "backend hostname does not resolve from the panel - fix DNS, or tick " +

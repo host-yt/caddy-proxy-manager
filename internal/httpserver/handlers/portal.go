@@ -39,9 +39,9 @@ type PortalHandlers struct {
 	Logger   *slog.Logger
 	Portal   *portal.Service
 	Metrics  metricsLoginEmitter
-	Secure   bool          // cookie Secure flag, mirrors the panel auth cookie
-	SameSite http.SameSite // mirrors the panel auth cookie SameSite
-	TTL      time.Duration      // portal session lifetime
+	Secure   bool                  // cookie Secure flag, mirrors the panel auth cookie
+	SameSite http.SameSite         // mirrors the panel auth cookie SameSite
+	TTL      time.Duration         // portal session lifetime
 	State    *installstate.Manager // for decrypting totp_secret_enc
 	OAuth2X  *oauth2x.Service      // social login for the portal; nil disables buttons
 	AppURL   string                // panel base URL, used to build OAuth callback URLs
