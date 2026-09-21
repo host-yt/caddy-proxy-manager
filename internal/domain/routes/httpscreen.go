@@ -257,6 +257,11 @@ func screenEmitted(infra *streamguard.InfraTargets, host string, port int) error
 	if strings.TrimSpace(host) == "" {
 		return nil
 	}
+	// Socket and file-descriptor upstreams name no address, so the deny set
+	// cannot see them; reject the whole shape before screening the rest.
+	if err := caddyapi.ScreenDialTarget(host); err != nil {
+		return err
+	}
 	return infra.ScreenHTTPTargetLiteral(host, port)
 }
 
