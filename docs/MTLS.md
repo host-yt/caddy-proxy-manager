@@ -106,6 +106,13 @@ Admin → Settings → mTLS has a global "Fail open" toggle:
 | Fail closed (default) | `require_and_verify` - handshake fails if no valid cert |
 | Fail open | `verify_if_given` - cert presented and verified if sent; no cert = allowed |
 
+Fail-open relaxes the requirement to present a certificate, not the
+requirement that a presented one be genuine: an invalid or self-signed
+certificate still fails the handshake. Up to v1.5.0 the builder emitted
+`request` here instead, which accepted any certificate without checking it -
+and since the subject travels onward as `X-Mtls-Subject`, a client could claim
+any identity. Fixed in v1.5.1.
+
 Fail-open is intended for gradual rollout or debugging. For production use fail-closed.
 
 The setting applies to all mTLS-enabled routes on a push.

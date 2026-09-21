@@ -10,6 +10,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/mtls"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
@@ -105,13 +106,17 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 	}
 	// Check across ALL active certs with this subject (subject is not unique per CA).
 	// Any active cert carrying the required role grants access.
+	//
+	// Caddy sends the full DN ("CN=device-42"); issuance stores the bare common
+	// name. Match either, so rows written before this are found too.
+	cn := mtls.SubjectCN(subject)
 	var count int
 	_ = db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM mtls_issued_certs c
 		  JOIN mtls_cert_roles cr ON cr.cert_id = c.id
 		  JOIN mtls_roles ro ON ro.id = cr.role_id
-		 WHERE c.ca_id = ? AND c.subject = ? AND c.status = 'active'
-		   AND ro.name = ?`, caID, subject, requiredRole).Scan(&count)
+		 WHERE c.ca_id = ? AND c.subject IN (?, ?) AND c.status = 'active'
+		   AND ro.name = ?`, caID, subject, cn, requiredRole).Scan(&count)
 	if count == 0 {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
