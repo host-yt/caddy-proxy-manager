@@ -3505,9 +3505,18 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	dnsResolverViaWGID, _ := strconv.ParseInt(r.FormValue("dns_resolver_via_wg_peer_id"), 10, 64)
-	// Mutual exclusion: direct IP beats peer; clear peer when IP is set.
-	if dnsResolverIP != "" {
-		dnsResolverViaWGID = 0
+	// Write-time half of HPG-SEC-001a: a submitted resolver needs the same
+	// waiver as node-side resolution, the panel's own tunnel auto-bind does not.
+	dnsResolverIP, dnsResolverViaWGID, dnsResolverAutoBound, dnsResolverErr := resolverForSave(
+		sessRole(sess), dnsResolverIP, dnsResolverViaWGID,
+		kind, backendIP, int64Default(r.FormValue("via_wg_peer_id")))
+	if dnsResolverErr != nil {
+		redirectWithFlash(w, r, editPath, "", dnsResolverErr.Error())
+		return
+	}
+	if dnsResolverAutoBound {
+		h.Logger.Info("host save: hostname backend with tunnel, auto-binding peer DNS resolver",
+			"route_id", id, "backend", backendIP, "peer", dnsResolverViaWGID)
 	}
 	dnsAddressFamily := r.FormValue("dns_address_family")
 	switch dnsAddressFamily {
@@ -3758,16 +3767,6 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "backend_ip", "backend must be a valid IP or hostname")
 		return
 	}
-	// Tunnel + hostname: keep the name and resolve it through the tunnel.
-	// If no DNS resolver is configured, auto-bind the tunnel peer as the
-	// resolver so dynamic upstreams query container DNS on the peer.
-	viaPeerPreview, _ := strconv.ParseInt(r.FormValue("via_wg_peer_id"), 10, 64)
-	if kind == "proxy" && backendIP != "" && viaPeerPreview > 0 && net.ParseIP(backendIP) == nil &&
-		dnsResolverIP == "" && dnsResolverViaWGID == 0 {
-		h.Logger.Info("host save: hostname backend with tunnel, auto-binding peer DNS resolver",
-			"route_id", id, "backend", backendIP, "peer", viaPeerPreview)
-		dnsResolverViaWGID = viaPeerPreview
-	}
 	upstreamScheme := strings.TrimSpace(r.FormValue("upstream_scheme"))
 	if upstreamScheme != "https" {
 		upstreamScheme = "http"
@@ -3876,6 +3875,30 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			h.Logger.Warn("host save: backend screen failed", "host", screenHost, "err", serr)
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "",
 				unresolvedHint(serr, "upstream address blocked or unresolvable: "+sanitizeErr(serr)))
+			return
+		}
+	}
+	// HPG-SEC-001b: the SSO provider is a dial target like any other, and
+	// emission holds the whole route back when it fails. Screen it here too so
+	// the operator hears about it at save time instead of losing the host.
+	if ssoProviderURL != "" {
+		octx, ocancel := context.WithTimeout(r.Context(), 10*time.Second)
+		var ssoPeerIP string
+		if ssoViaPeerID > 0 {
+			// The bound peer replaces the URL host, so that is what gets dialed.
+			_ = h.DB().QueryRowContext(octx,
+				"SELECT COALESCE(assigned_ip,'') FROM customer_wg_peer WHERE id = ? AND status <> 'revoked'",
+				ssoViaPeerID).Scan(&ssoPeerIP)
+		}
+		infra, ierr := loadInfraOrFail(octx, h.DB(), h.Logger)
+		oerr := ierr
+		if oerr == nil {
+			oerr = screenSSOTarget(octx, infra, ssoProviderURL, ssoPeerIP)
+		}
+		ocancel()
+		if oerr != nil {
+			h.Logger.Warn("host save: SSO provider screen failed", "err", oerr)
+			redirectWithFlash(w, r, editPath, "", "SSO provider: "+sanitizeErr(oerr))
 			return
 		}
 	}
@@ -5459,6 +5482,63 @@ func screenBackendWith(ctx context.Context, infra *streamguard.InfraTargets, hos
 // Waiving panel-side resolution means no resolved address is ever screened, so
 // it stays with the unrestricted role rather than any scoped admin.
 func canWaivePanelResolution(role string) bool { return role == "super_admin" }
+
+// sessRole is the caller's role, or "" when there is no session - an absent
+// session must never read as a privileged one.
+func sessRole(sess *auth.Session) string {
+	if sess == nil {
+		return ""
+	}
+	return sess.Role
+}
+
+// screenSSOTarget screens what the SSO subroutes actually dial, using the same
+// target definition (caddyapi.SSODialTarget) and the same screener as emission
+// - one policy, two moments, so a save cannot store a route that will be held
+// back at push. peerIP is the bound tunnel peer, which replaces the URL host.
+func screenSSOTarget(ctx context.Context, infra *streamguard.InfraTargets, providerURL, peerIP string) error {
+	if strings.TrimSpace(providerURL) == "" {
+		return nil
+	}
+	host, port, ok := caddyapi.SSODialTarget(caddyapi.Route{
+		SSOProviderURL: providerURL,
+		SSOResolver:    strings.TrimSpace(peerIP),
+	})
+	if !ok {
+		return errors.New("provider URL has no dialable host:port")
+	}
+	return screenBackendWith(ctx, infra, host, port, false)
+}
+
+// errResolverNeedsWaiver is the refusal for a submitted DNS resolver. The
+// operator is told rather than having the value dropped: a split-horizon name
+// that stops resolving is otherwise a silent outage.
+var errResolverNeedsWaiver = errors.New("a custom DNS resolver for this backend requires super_admin")
+
+// resolverForSave applies the write policy for a host save's DNS resolver
+// columns (HPG-SEC-001a). A submitted resolver decides what the node dials
+// without the panel ever screening the answer, so it takes the same waiver as
+// node-side resolution. The tunnel auto-bind for a hostname backend is
+// panel-generated, not tenant input, and is inert without that waiver - it is
+// applied after the gate and needs no role.
+func resolverForSave(role, ip string, peerID int64, kind, backendIP string, viaPeerID int64) (string, int64, bool, error) {
+	ip = strings.TrimSpace(ip)
+	if ip != "" || peerID > 0 {
+		if !canWaivePanelResolution(role) {
+			return "", 0, false, errResolverNeedsWaiver
+		}
+		if ip != "" {
+			peerID = 0 // mutual exclusion: direct IP beats peer
+		}
+		return ip, peerID, false, nil
+	}
+	// Tunnel + hostname backend: keep the name and resolve it through the
+	// tunnel, so dynamic upstreams query container DNS on the peer.
+	if kind == "proxy" && viaPeerID > 0 && backendIP != "" && net.ParseIP(backendIP) == nil {
+		return "", viaPeerID, true, nil
+	}
+	return "", 0, false, nil
+}
 
 func unresolvedHint(err error, fallback string) string {
 	if errors.Is(err, streamguard.ErrUnresolved) {
