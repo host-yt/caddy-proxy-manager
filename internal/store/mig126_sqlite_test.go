@@ -10,20 +10,28 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-// Guards migration 00126 on SQLite: the MySQL->SQLite transform is comment-blind,
-// so DDL-looking text in a comment (e.g. "ALTER TABLE ...") corrupts the output.
-// Also checks the Unlimited seed + backfill (role/owner/package) apply cleanly.
+// HPG-015: migration 00126 uses the same ELSEIF + SIGNAL shape-verification
+// procedure as 00124 - a MySQL-only concern a fresh SQLite DB can never hit.
+// This proves the transform strips that branch cleanly, the MODIFY COLUMN
+// role statement is skipped (role stays TEXT), and the seed/backfill
+// statements still run.
 func TestMig126ResellerPlansSQLite(t *testing.T) {
 	raw, err := os.ReadFile("../../migrations/00126_reseller_plans.sql")
 	if err != nil {
 		t.Fatal(err)
 	}
-	// take only the Up section
 	up := string(raw)
 	if i := strings.Index(up, "-- +goose Down"); i >= 0 {
 		up = up[:i]
 	}
 	sqlText := TransformForSQLite(up)
+
+	if strings.Contains(strings.ToUpper(sqlText), "ELSEIF") || strings.Contains(strings.ToUpper(sqlText), "SIGNAL") {
+		t.Fatalf("transform left MySQL-only ELSEIF/SIGNAL in the SQLite output:\n%s", sqlText)
+	}
+	if strings.Contains(strings.ToUpper(sqlText), "MODIFY") {
+		t.Fatalf("transform left a MODIFY COLUMN statement in the SQLite output (role must stay untouched/TEXT):\n%s", sqlText)
+	}
 
 	db, err := sql.Open("sqlite", ":memory:")
 	if err != nil {
@@ -31,22 +39,27 @@ func TestMig126ResellerPlansSQLite(t *testing.T) {
 	}
 	defer db.Close()
 
-	// minimal prerequisite schema the migration references
-	pre := []string{
-		`CREATE TABLE node_groups (id INTEGER PRIMARY KEY, name TEXT)`,
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, role TEXT, reseller_id INTEGER)`,
-		`CREATE TABLE resellers (id INTEGER PRIMARY KEY, name TEXT, status TEXT)`,
-		`INSERT INTO node_groups (id,name) VALUES (1,'default'),(2,'edge')`,
-		`INSERT INTO resellers (id,name,status) VALUES (1,'acme','active')`,
-		`INSERT INTO users (id,role,reseller_id) VALUES (10,'admin',1),(11,'admin',1),(12,'client',NULL)`,
-	}
-	for _, s := range pre {
-		if _, err := db.Exec(s); err != nil {
-			t.Fatalf("pre %q: %v", s, err)
+	for _, stmt := range []string{
+		`CREATE TABLE resellers (id INTEGER PRIMARY KEY)`,
+		`CREATE TABLE node_groups (id INTEGER PRIMARY KEY, name TEXT NOT NULL)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, role TEXT NOT NULL DEFAULT 'client', reseller_id INTEGER)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("prereq %q: %v", stmt, err)
 		}
 	}
+	if _, err := db.Exec(`INSERT INTO node_groups (name) VALUES ('default'), ('edge')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO resellers DEFAULT VALUES`); err != nil {
+		t.Fatal(err)
+	}
+	// Two admins linked to the reseller - owner_user_id backfill must pick the
+	// earliest (MIN id), matching the original F1 backfill semantics.
+	if _, err := db.Exec(`INSERT INTO users (role, reseller_id) VALUES ('admin', 1), ('admin', 1), ('client', NULL)`); err != nil {
+		t.Fatal(err)
+	}
 
-	// strip goose annotation lines, split on ; and exec each
 	clean := regexp.MustCompile(`(?m)^\s*--.*$`).ReplaceAllString(sqlText, "")
 	for _, stmt := range strings.Split(clean, ";") {
 		stmt = strings.TrimSpace(stmt)
@@ -58,29 +71,49 @@ func TestMig126ResellerPlansSQLite(t *testing.T) {
 		}
 	}
 
-	// assertions: Unlimited plan seeded, all pools + features granted, backfill applied
-	var pools, feats, rplan int
-	db.QueryRow(`SELECT COUNT(*) FROM reseller_plan_node_groups`).Scan(&pools)
-	db.QueryRow(`SELECT COUNT(*) FROM reseller_plan_features`).Scan(&feats)
-	db.QueryRow(`SELECT reseller_plan_id FROM resellers WHERE id=1`).Scan(&rplan)
-	if pools != 2 {
-		t.Errorf("pools granted = %d, want 2", pools)
+	var planCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reseller_plans WHERE name='Unlimited'`).Scan(&planCount); err != nil || planCount != 1 {
+		t.Fatalf("Unlimited plan missing: n=%d err=%v", planCount, err)
 	}
-	if feats != 12 {
-		t.Errorf("features granted = %d, want 12", feats)
+
+	var groupGrants int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reseller_plan_node_groups`).Scan(&groupGrants); err != nil || groupGrants != 2 {
+		t.Fatalf("expected 2 node_group grants, got %d err=%v", groupGrants, err)
 	}
-	if rplan == 0 {
-		t.Error("reseller not backfilled to Unlimited")
+
+	var featureGrants int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM reseller_plan_features`).Scan(&featureGrants); err != nil || featureGrants != 12 {
+		t.Fatalf("expected 12 feature grants, got %d err=%v", featureGrants, err)
 	}
+
+	var planID sql.NullInt64
+	if err := db.QueryRow(`SELECT reseller_plan_id FROM resellers WHERE id=1`).Scan(&planID); err != nil || !planID.Valid {
+		t.Fatalf("resellers.reseller_plan_id not backfilled: %v err=%v", planID, err)
+	}
+
+	// F1 backfill semantics: owner = earliest (MIN id) linked user.
 	var owner sql.NullInt64
-	db.QueryRow(`SELECT owner_user_id FROM resellers WHERE id=1`).Scan(&owner)
-	if !owner.Valid || owner.Int64 != 10 {
-		t.Errorf("owner_user_id = %v, want 10", owner)
+	if err := db.QueryRow(`SELECT owner_user_id FROM resellers WHERE id=1`).Scan(&owner); err != nil {
+		t.Fatalf("check owner_user_id: %v", err)
 	}
+	var wantOwner int64
+	if err := db.QueryRow(`SELECT MIN(id) FROM users WHERE reseller_id=1`).Scan(&wantOwner); err != nil {
+		t.Fatal(err)
+	}
+	if !owner.Valid || owner.Int64 != wantOwner {
+		t.Errorf("owner_user_id = %v, want %d (earliest linked user)", owner, wantOwner)
+	}
+
 	// F1 intentionally does NOT flip role yet (guards still key off reseller_id).
-	var role string
-	db.QueryRow(`SELECT role FROM users WHERE id=10`).Scan(&role)
-	if role != "admin" {
-		t.Errorf("user 10 role = %q, want admin (role flip is F2)", role)
+	var nonAdmin int
+	db.QueryRow(`SELECT COUNT(*) FROM users WHERE reseller_id=1 AND role<>'admin'`).Scan(&nonAdmin)
+	if nonAdmin != 0 {
+		t.Errorf("%d reseller-linked admins were unexpectedly flipped off 'admin'", nonAdmin)
+	}
+
+	for _, col := range []string{"overselling_allowed", "can_create_plans"} {
+		if _, err := db.Exec(`UPDATE resellers SET ` + col + ` = ` + col); err != nil {
+			t.Errorf("resellers.%s missing: %v", col, err)
+		}
 	}
 }
