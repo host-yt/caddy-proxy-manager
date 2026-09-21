@@ -58,6 +58,16 @@ jobs:
             deploy/remote-node/docker-compose.yml scripts/node-join.sh docs/ README.md | sort -u || true)
           if [ "$(printf '%s' "$caddy_pins" | grep -c .)" -ne 1 ]; then
             echo "::error::caddy image pins disagree: $(echo $caddy_pins)"; fail=1; fi
+          # OPS-002: every own-image pin across deploy/ must name one version,
+          # or an alternative profile silently deploys an older panel.
+          hpg_pins=$(grep -rhoE 'ghcr\.io/host-yt/[a-z-]+:[0-9]+\.[0-9]+\.[0-9]+' deploy/ \
+            | grep -oE '[0-9]+\.[0-9]+\.[0-9]+$' | sort -u)
+          if [ "$(printf '%s' "$hpg_pins" | grep -c .)" -ne 1 ]; then
+            echo "::error::hpg image pins in deploy/ disagree: $(echo $hpg_pins) (run: make pin-version V=x.y.z)"; fail=1; fi
+          # The README status line names the same version operators will deploy.
+          readme_ver=$(grep -oE '^\*\*Status:\*\* v[0-9]+\.[0-9]+\.[0-9]+' README.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          if [ "$readme_ver" != "$hpg_pins" ]; then
+            echo "::error::README status v$readme_ver != deploy/ image pins $hpg_pins"; fail=1; fi
           # The node image and the customer install script must ship the same
           # wstunnel, or a bump upgrades one side of the tunnel only.
           wst_vers=$( { grep -hoE 'WSTUNNEL_VERSION=[0-9]+\.[0-9]+\.[0-9]+' deploy/node-agent/Dockerfile; \
