@@ -151,7 +151,9 @@ func TestCreateHAGateIsAllOrNothing(t *testing.T) {
 
 // Second half of the gate: an old agent must never see a PSK in its pull, even
 // when the peer row has one (e.g. the agent was downgraded after provisioning).
-func TestPeersForNodeGatesOnAgentPSK(t *testing.T) {
+// The gate is the capability the caller declares, not caddy_nodes.agent_psk:
+// the stored flag must have no say in what a snapshot contains.
+func TestPeersForNodeGatesOnDeclaredCapability(t *testing.T) {
 	db := openTestDB(t)
 	defer db.Close()
 	ctx := context.Background()
@@ -162,23 +164,31 @@ func TestPeersForNodeGatesOnAgentPSK(t *testing.T) {
 	if _, _, err := svc.Create(ctx, CreateInput{ClientID: clientID, NodeID: nodeID, Name: "t"}); err != nil {
 		t.Fatalf("create: %v", err)
 	}
-	snap, err := svc.PeersForNode(ctx, nodeID)
+	snap, err := svc.PeersForNode(ctx, nodeID, true)
 	if err != nil {
 		t.Fatalf("peers: %v", err)
 	}
 	if len(snap) != 1 || snap[0].PresharedKey == "" {
 		t.Fatalf("supported agent got %+v, want a PSK", snap)
 	}
-
-	if _, err := db.ExecContext(ctx, "UPDATE caddy_nodes SET agent_psk=0 WHERE id=?", nodeID); err != nil {
-		t.Fatalf("downgrade node: %v", err)
-	}
-	snap, err = svc.PeersForNode(ctx, nodeID)
+	snap, err = svc.PeersForNode(ctx, nodeID, false)
 	if err != nil {
 		t.Fatalf("peers: %v", err)
 	}
 	if len(snap) != 1 || snap[0].PresharedKey != "" {
 		t.Fatalf("unsupported agent got %+v, want no PSK", snap)
+	}
+
+	// The column may say anything; a declared capability still gets the key.
+	if _, err := db.ExecContext(ctx, "UPDATE caddy_nodes SET agent_psk=0 WHERE id=?", nodeID); err != nil {
+		t.Fatalf("downgrade node: %v", err)
+	}
+	snap, err = svc.PeersForNode(ctx, nodeID, true)
+	if err != nil {
+		t.Fatalf("peers: %v", err)
+	}
+	if len(snap) != 1 || snap[0].PresharedKey == "" {
+		t.Fatalf("stored agent_psk=0 overrode the declared capability: %+v", snap)
 	}
 }
 
@@ -355,7 +365,7 @@ func TestRotateKeyRotatesWholeHAGroup(t *testing.T) {
 	}
 	// And the nodes serve exactly that pubkey on both sides.
 	for _, nid := range []int64{n1, n2} {
-		snap, err := svc.PeersForNode(ctx, nid)
+		snap, err := svc.PeersForNode(ctx, nid, true)
 		if err != nil {
 			t.Fatalf("peers for node %d: %v", nid, err)
 		}

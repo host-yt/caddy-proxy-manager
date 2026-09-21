@@ -343,8 +343,14 @@ func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Reques
 	}
 	if !capable {
 		var withPSK int
-		_ = db.QueryRowContext(ctx,
-			`SELECT COUNT(*) FROM customer_wg_peer WHERE node_id = ? AND psk_enc IS NOT NULL`, nodeID).Scan(&withPSK)
+		// A failed count must not read as "no PSK peers": that is the one
+		// case where serving this agent drops tunnels.
+		if err := db.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM customer_wg_peer WHERE node_id = ? AND psk_enc IS NOT NULL`, nodeID).Scan(&withPSK); err != nil {
+			h.Logger.Error("could not count preshared-key peers for a pre-PSK node-agent", "node_id", nodeID, "err", err)
+			http.Error(w, "lookup failed", http.StatusInternalServerError)
+			return
+		}
 		if withPSK > 0 {
 			h.Logger.Error("node-agent does not support preshared keys but this node has peers that use them; refusing to serve a peer set that would drop them",
 				"node_id", nodeID, "psk_peers", withPSK)
@@ -353,7 +359,11 @@ func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	peers, err := h.Peers.PeersForNode(ctx, nodeID)
+	// `capable` decides both what this snapshot contains and what it claims:
+	// keys are included exactly when psk_managed is stated. The stored flag
+	// is never read back here, so nothing that writes it (a stats report from
+	// an older agent, a rollback) can produce a keyless "authoritative" set.
+	peers, err := h.Peers.PeersForNode(ctx, nodeID, capable)
 	if err != nil {
 		http.Error(w, "lookup failed", http.StatusInternalServerError)
 		return
@@ -380,7 +390,7 @@ func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Reques
 		b.WriteString(jsonEsc(p.Status))
 		b.WriteString(`"`)
 		// omitempty: an agent that predates PSK support never sees the key
-		// (PeersForNode already gates on caddy_nodes.agent_psk).
+		// (PeersForNode was told not to include it).
 		if p.PresharedKey != "" {
 			b.WriteString(`,"preshared_key":"`)
 			b.WriteString(jsonEsc(p.PresharedKey))

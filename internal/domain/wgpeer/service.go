@@ -713,13 +713,18 @@ type NodePeerSnapshot struct {
 	PresharedKey string // "" unless the peer has a PSK and this node can apply it
 }
 
-func (s *Service) PeersForNode(ctx context.Context, nodeID int64) ([]NodePeerSnapshot, error) {
-	// agent_psk is the second half of the capability gate: an agent that
-	// doesn't understand PresharedKey must never see one, because a single
-	// unknown line makes `wg syncconf` drop every peer on the node.
+// PeersForNode returns the peer set a node-agent should apply. withPSK is the
+// capability the agent declared on the request being answered, not the stored
+// caddy_nodes.agent_psk: a stats report from an older agent can flip that
+// column at any moment, and a snapshot whose keys came from the column while
+// its "authoritative" claim came from the request would tell the agent to
+// clear every live key. One caller-supplied decision drives both.
+// An agent that doesn't understand PresharedKey must never see one, because a
+// single unknown line makes `wg syncconf` drop every peer on the node.
+func (s *Service) PeersForNode(ctx context.Context, nodeID int64, withPSK bool) ([]NodePeerSnapshot, error) {
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT p.pubkey, p.assigned_ip, p.status, p.psk_enc, n.agent_psk
-		   FROM customer_wg_peer p JOIN caddy_nodes n ON n.id = p.node_id
+		`SELECT p.pubkey, p.assigned_ip, p.status, p.psk_enc
+		   FROM customer_wg_peer p
 		  WHERE p.node_id=? AND p.pubkey IS NOT NULL`, nodeID)
 	if err != nil {
 		return nil, err
@@ -728,14 +733,13 @@ func (s *Service) PeersForNode(ctx context.Context, nodeID int64) ([]NodePeerSna
 	var out []NodePeerSnapshot
 	for rows.Next() {
 		var (
-			p        NodePeerSnapshot
-			encPSK   sql.NullString
-			agentPSK bool
+			p      NodePeerSnapshot
+			encPSK sql.NullString
 		)
-		if err := rows.Scan(&p.Pubkey, &p.AssignedIP, &p.Status, &encPSK, &agentPSK); err != nil {
+		if err := rows.Scan(&p.Pubkey, &p.AssignedIP, &p.Status, &encPSK); err != nil {
 			return nil, err
 		}
-		if agentPSK {
+		if withPSK {
 			psk, derr := s.decryptPSK(encPSK)
 			if derr != nil {
 				// Serving this peer without its PSK would fail the handshake
