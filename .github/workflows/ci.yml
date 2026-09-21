@@ -8,6 +8,13 @@ on:
   # guard a pull request, instead of building whatever was pushed.
   workflow_call:
 
+# One run per ref. Pushing again supersedes the older run instead of queueing
+# a second full build. `github.workflow` is the CALLER's name under
+# workflow_call, so Release's gate run lands in its own group.
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 

@@ -133,8 +133,10 @@ claim either way - check the project's own docs before relying on it.
 - **AI assistant**: floating bubble, multi-provider (Anthropic / OpenAI / Gemini / OpenRouter), streaming SSE, scoped read-only tool-calling, per-user rate limit.
 - **WAF (Coraza)**: per-route toggle, rule suppression, event acknowledgement, real-time events from node-agent.
 - **GeoIP blocking**: country allow/deny, continent blocking, CIDR always-block/allow, configurable response code, fail-closed mode, world traffic map.
-- **mTLS per route**: per-tenant CA, client cert issue/revoke, path-based RBAC, enforcement audit log.
+- **mTLS enforced per hostname**: per-tenant CA, client cert issue/revoke, enforcement audit log. Enforcement is a TLS connection policy, matched per SNI before any path is known, so it applies to every route on the hostname - see [POST_QUANTUM.md](docs/POST_QUANTUM.md#connection-policies-are-merged-per-sni-and-the-strictest-wins).
 - **L4 TCP/UDP streams**: SNI routing, configurable log retention.
+- **Preshared keys on both WireGuard planes**: the panel-node mesh and customer tunnels each mix a PSK into every handshake. WireGuard has no hybrid post-quantum mode, so this is what protects it against harvest-now-decrypt-later. See [POST_QUANTUM.md](docs/POST_QUANTUM.md).
+- **Post-quantum-only TLS per host**: opt-in, `x25519mlkem768` with `protocol_min: tls1.3`. See [POST_QUANTUM.md](docs/POST_QUANTUM.md).
 - **Installation profiles**: homelab / smallteam / advanced / provider modes with guided wizard.
 - **Instance sync**: master/slave HPG config replication for HA setups.
 - **Multi-provider CAPTCHA**: Turnstile, hCaptcha, reCAPTCHA v3 per-settings toggle.
@@ -165,7 +167,7 @@ This table says what to trust with customer traffic today.
 | Multi-node placement, node groups | **Beta** | Capacity claims are atomic; cross-replica coordination is still single-writer per process. |
 | Automatic failover, DNS steering | **Beta** | Exercised in tests, not yet across a long-running fleet. |
 | WAF, L4 streams, GeoIP, HTTP cache | **Beta** | Each needs a custom Caddy module on every node; flipping the gate before the fleet is upgraded takes nodes offline. |
-| Manual TLS certs, mTLS + path RBAC | **Beta** | |
+| Manual TLS certs, mTLS (per-hostname enforcement) | **Beta** | |
 | NPM import, instance sync | **Experimental** | Import has a dry run that reports exactly what it would create and what needs manual work. Review it before committing. |
 | AI assistant | **Experimental** | Optional; off by default. Not on any path that serves traffic. |
 | Backup/restore | **Beta** | Restore is drilled by CLI; practice it on your own data before relying on it. |
