@@ -86,12 +86,13 @@
     border-radius: 10px;
     font-size: .875rem;
     font-weight: 600;
-    background: rgb(var(--accent));
+    /* accent-strong not accent: plain accent fails WCAG 1.4.3 (~3.7:1) with white text - HPG-027 */
+    background: rgb(var(--accent-strong));
     color: rgb(var(--accent-text-on));
-    transition: background 150ms ease;
+    transition: filter 150ms ease;
     border: none;
   }
-  .r-btn-primary:hover { background: rgb(var(--accent-strong)); }
+  .r-btn-primary:hover { filter: brightness(0.9); }
 
   .r-btn-secondary {
     @apply inline-flex items-center justify-center gap-2 cursor-pointer;
