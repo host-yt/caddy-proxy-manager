@@ -11,12 +11,19 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// openTestDB opens a real DB using TEST_DB_DSN or skips.
-// Only runs when the test environment has a live MariaDB.
+// openTestDB opens a real MariaDB/MySQL DB using TEST_DB_DSN, or skips.
+// Skipping here is a silent no-op for these fail-closed security tests, so
+// CI sets TEST_DB_REQUIRE_MYSQL=1 alongside a provisioned DB service to turn
+// a missing/unreachable DSN into a hard failure instead of a quiet skip -
+// a security gate must be visibly red, not silently absent.
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
+	required := os.Getenv("TEST_DB_REQUIRE_MYSQL") != ""
 	dsn := os.Getenv("TEST_DB_DSN")
 	if dsn == "" {
+		if required {
+			t.Fatal("TEST_DB_DSN not set but TEST_DB_REQUIRE_MYSQL=1 - this job must provision a DB, not skip")
+		}
 		t.Skip("TEST_DB_DSN not set - skipping DB-backed test")
 	}
 	db, err := sql.Open("mysql", dsn)
@@ -26,6 +33,9 @@ func openTestDB(t *testing.T) *sql.DB {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if err := db.PingContext(ctx); err != nil {
+		if required {
+			t.Fatalf("TEST_DB_REQUIRE_MYSQL=1 but DB not reachable: %v", err)
+		}
 		t.Skipf("DB not reachable: %v", err)
 	}
 	return db
