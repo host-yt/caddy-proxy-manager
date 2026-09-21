@@ -26,9 +26,9 @@
 # key which was supposed to be removed fails the run: `wg syncconf` cannot
 # remove a PresharedKey, so the file is never evidence - only the interface.
 #
-# BUG-1 (the panel image never creates /app/wg, so the wg_config volume is
-# root-owned and the nonroot app cannot write wg0.conf) is worked around by
-# the wg-perm init service in the compose file, not here.
+# The stack deliberately carries no permission workaround: /app/wg ownership
+# is fixed in the panel image itself, so this harness exercises the same
+# initialisation path a real install gets.
 #
 # Usage: deploy/integration/e2e_psk.sh          (tears the stack down)
 #        KEEP=1 deploy/integration/e2e_psk.sh   (leaves it up for poking)
