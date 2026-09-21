@@ -65,7 +65,11 @@ peer lists from the manager and writes the local `wg0.conf`.
 
 ### `cmd/rotate-secret/`
 CLI tool for rotating `APP_SECRET` - re-encrypts all AES-256-GCM blobs in
-the DB under the new key.
+the DB under the new key. Staged behind a preflight (decrypt-check every
+store under the old key, zero writes); on `--apply` it commits the DB first,
+then writes a recovery journal (`<state>.rotate-journal`) before the state
+file, so a crash between those two steps is resumed by re-running the same
+command instead of leaving the DB and file on different keys.
 
 ### `cmd/restore/`
 CLI tool to restore a DB backup from a configured destination (S3/SFTP/FTP).
@@ -231,8 +235,14 @@ a safe HTTP client that blocks RFC-1918/loopback targets.
 
 ### `internal/backup/`
 Scheduled database backups. Supports S3 (minio-go), SFTP (pkg/sftp), and
-FTP (jlaffaye/ftp) destinations. Backup content is a MariaDB dump; files
-are AES-256-GCM encrypted before upload. Scheduler is leader-gated.
+FTP (jlaffaye/ftp) destinations. Backup content is a MariaDB dump run inside
+one consistent read-only snapshot transaction (capped at 15 minutes) and
+streamed through a temp file rather than held in memory; files are
+AES-256-GCM encrypted before upload. The archive manifest records each
+component (`dump.sql`, `install_state.json`, `wg/*`) as required or optional
+and ok/skipped - a required component that can't be read, or an archive that
+fails to close, fails the job instead of reporting success. Scheduler is
+leader-gated and sweeps orphaned temp files on every tick.
 
 ### `internal/oidc/`
 Wraps `coreos/go-oidc/v3` for OIDC login (Authentik, Microsoft, generic
@@ -266,6 +276,14 @@ crash but can take up to ~5 minutes to reach a node, and ordering between two
 changes to different nodes is not guaranteed. Email sends and webhook
 deliveries are the work that can be lost outright; webhooks retry on a 30s
 dispatcher, mail does not.
+
+`drift`'s comparison is a canonical manifest of every managed config
+subtree - `apps/http/servers/srv0`, `apps/tls/automation/policies`,
+`apps/layer4` - hashed on both sides, not just the HTTP route array. A hand
+edit made directly on a node inside one of those paths is reverted on the
+next sweep; `admin.listen`/top-level logging, `apps.cache`, and
+`apps.tls.certificates` (Caddy-populated) are deliberately excluded and stay
+unmanaged.
 
 ### `internal/i18n/`
 Cookie-based language selection; templates carry translated strings.

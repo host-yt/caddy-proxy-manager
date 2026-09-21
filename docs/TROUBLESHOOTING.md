@@ -213,6 +213,22 @@ See [SECURITY.md](SECURITY.md#l4-stream-target-screening).
 
 ---
 
+## 3d. A route shows `active` but is not being served
+
+**Symptom:** the route's health pill on **Admin -> Hosts** reads `active`, but requests to it fail or don't reach the expected backend.
+
+**Cause:** a second pill under Health tracks the last real compile/push outcome for the route, separately from route status - it can legitimately contradict Health, that's the point. Hover the pill for the stored reason.
+
+- **`quarantined`** - custom handler chain or a stored placeholder failed validation. See §3b above. Re-save the host to re-sanitize.
+- **`rejected`** - access-portal or mTLS client-cert enforcement could not be emitted (no group/user granted, verifier not configured, or a cert-enforcement gap). Fix the portal/mTLS setting on the host and save.
+- **`target rejected`** - a backend/upstream dial target failed the same infrastructure deny-set screen used for L4 streams (§3c above). Point the backend at a destination that passes screening and save.
+- **`not emitted`** - the external upstream host is not allow-listed, or its stored secret can't be decrypted. Fix the external-upstream allow-list entry or re-enter the secret.
+- **`unchecked`** - never compiled since this check shipped. Not evidence the route is fine, just unknown yet - save the host, or wait for the next push, to get a real status.
+
+`published` means the last compile succeeded; no action needed.
+
+---
+
 ## 4. Caddy node shows offline
 
 ### WireGuard not connected (remote nodes)
@@ -388,6 +404,24 @@ docker compose -f /opt/hostyt-node/docker-compose.yml logs caddy --tail=30
 
 ---
 
+## 4a. A manual edit on a node keeps getting reverted
+
+**Symptom:** you change something directly on a Caddy node (its admin API, or the node's config on disk) and it disappears on the next resync.
+
+**Cause:** the drift reconciler (§10 "Force a Caddy config resync"; also runs automatically every ~5 minutes) hashes and compares the node's live config against the DB on every managed config subtree, not just the HTTP route array:
+
+- `apps/http/servers/srv0` - HTTP routes and match logic
+- `apps/tls/automation/policies` - wildcard cert (DNS-01) policies
+- `apps/layer4` - L4 stream configuration
+
+Any hand edit inside one of those paths is DB-derived state and gets treated as drift - it is silently overwritten on the next sweep. This isn't new clobbering, just faster/more complete detection of it than before.
+
+Deliberately **not** compared, so these are safe to leave hand-edited: `admin.listen` and top-level logging (operator infra bind, not DB state), `apps.cache` (static per-install block), `apps.tls.certificates` (Caddy populates this itself from ACME/manual issuance - it's never byte-equal to anything the panel sends, so comparing it would flag permanent drift).
+
+**Fix:** make the change through the panel (host edit, node settings, DNS-01 policy, L4 stream) instead of on the node directly, so it becomes the desired state instead of being reverted.
+
+---
+
 ## 5. Node join fails
 
 ### Token expired
@@ -483,6 +517,18 @@ docker exec $(docker ps -qf name=mariadb) \
   -- After manually applying the migration:
   INSERT INTO goose_db_version (version_id, is_applied) VALUES (31, 1);
   ```
+
+### Reseller migration guard: "manual repair required"
+
+**Symptom:** startup stops on migration `00124_resellers.sql` or `00126_reseller_plans.sql` with an error such as:
+```
+migration 00124: resellers table exists with an unexpected shape - manual repair required
+```
+or a variant naming a different table/column (`resellers.reseller_plan_id`, `reseller_plan_node_groups`, `reseller_plan_features`, ...) with "unexpected shape" or "unexpected type".
+
+**Cause:** these two migrations are the ones an interrupted upgrade is most likely to land on. Every DDL step checks `information_schema` first; if the table or column already exists, it verifies the shape (column count, `DATA_TYPE`) before building on it, and hard-stops instead of continuing when it doesn't match.
+
+**Do not just restart the container in a loop.** A blind retry re-runs the same guard and fails again - the schema genuinely doesn't match either a clean pre-migration state or a correctly-applied one (an earlier interrupted attempt, a manual edit, or a restore from a backup taken mid-migration). Inspect the named table/column by hand and compare it against the `CREATE TABLE`/column definition in `migrations/00124_resellers.sql` or `migrations/00126_reseller_plans.sql`, then either fix the object to match or drop it and let the migration recreate it before restarting.
 
 ---
 
@@ -695,3 +741,57 @@ comments in the script for the precise, load-bearing detail on each):
 If you hit a real product bug (not a harness issue) while iterating on this
 script, do not fix it in the same branch - report it and, if the fix is
 trivial, work around it in the harness only.
+
+---
+
+## 12. A previously-working backup starts failing
+
+**Symptom:** a scheduled or manual job in **Admin -> Backups** that used to succeed now reports failed.
+
+**Cause:** a backup now fails the whole job instead of reporting success when a required component can't be read or the archive can't be closed cleanly. A newly-failing backup is therefore a real signal, not noise - check the job's error text on the page first; it names the failing step (dump, a specific file read, or the archive close).
+
+**Check disk space.** The DB dump streams through a temp file instead of being held in memory (`hpg-dump-*.sql`), and the finished archive is also assembled in a temp file (`hpg-backup-*.tgz`) before upload - both in the container's OS temp directory, so a full disk fails the job partway through. The `app` image is distroless (no shell, no `df` inside it - see §10), so check the host disk backing the container's writable layer instead:
+```bash
+df -h "$(docker info -f '{{.DockerRootDir}}')"
+```
+A scheduler sweep removes orphaned temp files matching those two patterns once they're older than 2 hours, on every scheduler tick (even if scheduled backups are disabled) - it won't free space fast enough to save a run that's failing right now.
+
+**Dump timeout.** The DB dump runs inside one consistent read-only snapshot capped at 15 minutes. On a database large enough that the dump used to finish just under that, a newly-timing-out dump usually means the DB grew, not that anything broke.
+
+### Reading the manifest
+
+Each archive's `manifest.json` lists every component instead of a flat file list:
+```json
+{"name": "dump.sql", "required": true, "status": "ok"}
+```
+- `required: true` (`dump.sql`, `install_state.json`) - a failure here fails the whole job, so seeing one of these with anything other than `status: "ok"` should not happen; report it.
+- `required: false` (`wg/*`) - `status: "ok"` means the WireGuard config directory existed and was archived; `status: "skipped"` with `detail: "directory absent"` means this install doesn't use WireGuard - not a problem.
+
+---
+
+## 13. Secret rotation blocked or interrupted
+
+`cmd/rotate-secret` (see [`SECURITY.md` § Rotating APP_SECRET](SECURITY.md#rotating-app_secret)) stages a rotation as DB first (one atomic transaction), then a recovery journal, then the state file - so a crash between those last two steps is resumable instead of leaving the DB and state file on different keys.
+
+### Telling what state you're in
+
+A journal file next to the state file (`<state path>.rotate-journal`, e.g. `./data/install_state.json.rotate-journal`) means a previous `--apply` run did not finish. If it's there, the DB has already committed to the new secret; the state file has not.
+
+### Resuming an interrupted rotation
+
+Re-run the exact same command (same `--state`, `--old-secret`, `--new-secret`, `--apply`). The tool detects its own journal and logs:
+```
+[resume] journal <path>: DB already rotated - verifying and finishing the state file step
+```
+It will not attempt to re-decrypt the DB under `--old-secret` (which would now fail, since the DB is already on `--new-secret`) - it only finishes the state file step. On success the journal is removed automatically.
+
+### A journal blocks a new rotation
+
+Trying to start a *different* rotation (different `--old-secret`/`--new-secret`) while a journal from an unfinished one is present fails with:
+```
+incomplete rotation journal at <path> belongs to a different --old-secret/--new-secret pair; finish that rotation
+with its original secrets, or remove the journal only after confirming the DB and state file already match
+```
+Do not delete the journal to work around this without doing what it says first: finish the original rotation with its own secrets, or manually confirm the DB and `install_state.json` are already consistent with each other (both on the same key) before removing `<state path>.rotate-journal`. Removing it without that check risks leaving the DB and state file on different keys with nothing left to detect it.
+
+If the process ever reports it committed the DB but could not write the journal, the message says so explicitly and warns not to retry against `--old-secret` - follow the printed instructions rather than re-running blind.
