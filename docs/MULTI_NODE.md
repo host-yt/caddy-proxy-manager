@@ -254,6 +254,7 @@ Writes `/etc/wireguard/wg0.conf`:
 ```ini
 [Interface]
 Address    = 10.66.0.3/24
+ListenPort = 51820
 PrivateKey = <node private key>
 
 [Peer]
@@ -265,6 +266,15 @@ PersistentKeepalive = 25
 
 `AllowedIPs = 10.66.0.1/32` routes only the manager's WG IP through the
 tunnel; all other traffic (public) goes via the default route.
+
+`ListenPort` is not optional. Without it the kernel picks a random source
+port and picks a *new* one on every `wg syncconf` (the PSK rekey runs one),
+which invalidates the endpoint the manager learned from the last handshake -
+manager -> node packets are then blackholed until the node's next
+`PersistentKeepalive`. 51820 is the mesh port on both ends; the customer
+tunnel lives on a different interface (`wg-tun0`, 51821) and wstunnel uses
+51822/51823, so nothing on a node collides with it. Pass
+`--wg-listen-port` to `node-join.sh` if something else already owns it.
 
 If the manager returned a mesh preshared key (it does whenever the panel has
 mesh preshared keys available), the script validates it and appends a
@@ -352,6 +362,7 @@ mkdir -p /etc/wireguard && chmod 700 /etc/wireguard
 cat > /etc/wireguard/wg0.conf <<EOF
 [Interface]
 Address    = <wireguard.interface_address>
+ListenPort = 51820
 PrivateKey = <wireguard.private_key>
 
 [Peer]
@@ -461,7 +472,7 @@ the manager connects to it over WebSocket-over-TLS (port configurable via
 UDP entirely (strict corporate firewalls, some cloud providers).
 
 The node-agent image (`deploy/node-agent/Dockerfile`) bundles `wstunnel`
-(version 10.5.5, pinned sha256 per arch). It is enabled via environment
+(version 11.0.0, pinned sha256 per arch). It is enabled via environment
 variable:
 
 ```yaml
@@ -623,11 +634,18 @@ The manager-side sidecar logs to Docker. Check:
 docker logs <wg-sidecar-container-name>
 ```
 
-If it reports `syncconf failed, will retry next tick`, check that the config
-file is not empty (the app writes atomically via temp-file + rename; a partial
-write cannot cause a corrupt file but a missing keypair can cause the render to
-fail). Confirm WireGuard settings are saved: **Settings -> WireGuard** should
-show a public key.
+If it reports `ERR reload of mtime ... failed, keeping the applied marker`,
+check that the config file is not empty (the app writes atomically via
+temp-file + rename; a partial write cannot cause a corrupt file but a missing
+keypair can cause the render to fail). Confirm WireGuard settings are saved:
+**Settings -> WireGuard** should show a public key. The sidecar retries the
+whole reload every 10 s until it succeeds, so the message repeats.
+
+A reload also fails when a preshared key that the config no longer carries
+cannot be removed from the live interface - logged as
+`ERR SECURITY the preshared key of peer <pubkey> is STILL LIVE`. That key is
+still in use even though the panel considers it gone; clear it by hand with
+the command the log line prints, or restart the sidecar.
 
 ### Peer stats not updating
 
@@ -906,8 +924,12 @@ The node list shows a green `PSK` pill once the key is active, and
 
   ```bash
   sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
-  wg syncconf wg0 <(wg-quick strip wg0)
+  wg set wg0 peer $(wg show wg0 peers) preshared-key /dev/null
   ```
+
+  `wg syncconf` cannot remove a preshared key - an absent line means "keep
+  the current one" - so the `wg set` is what actually clears the running
+  interface, and the `sed` is what keeps it gone after a restart.
 
   This requires shell access to the node - if the panel is only reachable
   *through* the mesh on your install, that is the only way back.

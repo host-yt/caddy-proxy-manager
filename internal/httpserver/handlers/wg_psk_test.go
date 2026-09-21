@@ -4,12 +4,14 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -98,18 +100,67 @@ func TestNodePeersPullGatesPresharedKey(t *testing.T) {
 		t.Fatalf("supported agent body = %s, want preshared_key", body)
 	}
 
-	_, oldToken := insertPSKNode(t, db, 0)
-	if body := pullBody(t, h, oldToken); strings.Contains(body, "preshared_key") {
-		t.Fatalf("old agent body = %s, want no preshared_key", body)
-	}
-
 	// A stored key that no longer decodes drops the whole peer: serving it
 	// PSK-less would just fail the handshake with no signal.
 	if _, err := db.Exec("UPDATE customer_wg_peer SET psk_enc='garbage' WHERE node_id=?", okNode); err != nil {
 		t.Fatalf("corrupt psk: %v", err)
 	}
-	if body := pullBody(t, h, okToken); body != `{"peers":[]}` {
+	if body := pullBody(t, h, okToken); body != `{"psk_managed":true,"peers":[]}` {
 		t.Fatalf("peer with unusable PSK body = %s, want no peers", body)
+	}
+}
+
+// An agent upgraded after a rollback pulls with the capability header while
+// the stored flag is still 0. The flag must be raised before the peer lookup
+// reads it, or the agent gets a keyless peer set and wipes every live key.
+func TestNodePeersPullRestoresCapabilityOnUpgrade(t *testing.T) {
+	db := openTestDBHandlers(t)
+	defer db.Close()
+	h := pskTestHandler(db)
+	nodeID, token := insertPSKNode(t, db, 0) // rolled back earlier, never reported since
+
+	body := pullBody(t, h, token)
+	if !strings.Contains(body, `"preshared_key":"`+testPSKValue+`"`) {
+		t.Fatalf("upgraded agent body = %s, want the peer's preshared_key back", body)
+	}
+	if !strings.Contains(body, `"psk_managed":true`) {
+		t.Fatalf("body = %s, want psk_managed so the agent knows omissions are intentional", body)
+	}
+	var agentPSK int
+	if err := db.QueryRow("SELECT agent_psk FROM caddy_nodes WHERE id = ?", nodeID).Scan(&agentPSK); err != nil {
+		t.Fatal(err)
+	}
+	if agentPSK != 1 {
+		t.Error("capability declared on the pull was not persisted")
+	}
+}
+
+// A peer set served without a recorded capability is the bug itself, so a
+// failed capability write must produce no peers at all.
+func TestNodePeersPullFailsClosedWhenCapabilityWriteFails(t *testing.T) {
+	db := openTestDBHandlers(t)
+	defer db.Close()
+	h := pskTestHandler(db)
+	nodeID, token := insertPSKNode(t, db, 0)
+
+	// Hold the node row so the capability UPDATE cannot land: the handler's
+	// 3s context expires on it while the reads around it still work.
+	tx, err := db.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback()
+	var pin int64
+	if err := tx.QueryRow("SELECT id FROM caddy_nodes WHERE id = ? FOR UPDATE", nodeID).Scan(&pin); err != nil {
+		t.Fatal(err)
+	}
+
+	rec := pullRec(h, token, true)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500 - no peer set without a recorded capability", rec.Code)
+	}
+	if strings.Contains(rec.Body.String(), "peers") {
+		t.Errorf("served a peer set anyway: %s", rec.Body.String())
 	}
 }
 
@@ -232,5 +283,87 @@ func TestNodeStatsPSKSupportedCapability(t *testing.T) {
 	}
 	if n := auditRows(); n != 2 {
 		t.Fatalf("audit rows after an explicit false = %d, want 2", n)
+	}
+}
+
+// ---- deterministic interleavings (SQLite + statement hook) ---------------
+//
+// The MySQL-backed tests above cover the steady states. The two below pin an
+// exact statement order, which needs the hook driver from
+// admin_hosts_mtls_tls_test.go rather than a timing race.
+
+// pskHookDB is the migrated SQLite fixture with node 1 turned into a tunnel
+// node the agent can authenticate to, plus one active peer carrying a PSK.
+func pskHookDB(t *testing.T, agentPSK int) (*sql.DB, string) {
+	t.Helper()
+	db := mtlsTLSEditDB(t)
+	const token = "hook-node-token"
+	for _, s := range []string{
+		`UPDATE caddy_nodes SET agent_token_hash = SHA2('` + token + `', 256), agent_psk = ` + fmt.Sprint(agentPSK) + ` WHERE id = 1`,
+		`INSERT INTO customer_wg_peer (client_id, node_id, name, pubkey, assigned_ip, status, psk_enc)
+		   VALUES (1, 1, 'p', 'PUBKEY', '100.96.9.5', 'active', '` + testPSKValue + `')`,
+	} {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("seed %q: %v", s, err)
+		}
+	}
+	return db, token
+}
+
+// The window round 4 found: the pull has recorded "supports PSK" and is
+// about to read the peers when a stats report from an older agent lands and
+// clears the stored flag. The response must not claim to be the
+// authoritative key set while carrying no keys - the agent would then wipe
+// every live key on the node. Keys and claim have to come from one decision.
+func TestNodePeersPull_CapabilityFlippedBetweenWriteAndPeerQuery(t *testing.T) {
+	db, token := pskHookDB(t, 0)
+	h := pskTestHandler(db)
+	var once sync.Once
+	setMTLSSQLHook(t, func(exec func(string) error, query string) error {
+		if strings.HasPrefix(query, "SELECT p.pubkey") {
+			once.Do(func() {
+				// What NodePeerStatsReport does for a report without psk_supported.
+				if err := exec("UPDATE caddy_nodes SET agent_psk = 0 WHERE id = 1"); err != nil {
+					t.Errorf("interleaved stats report failed: %v", err)
+				}
+			})
+		}
+		return nil
+	})
+
+	rec := pullRec(h, token, true)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", rec.Code, rec.Body.String())
+	}
+	body := rec.Body.String()
+	managed := strings.Contains(body, `"psk_managed":true`)
+	keyed := strings.Contains(body, `"preshared_key":"`+testPSKValue+`"`)
+	if managed != keyed {
+		t.Fatalf("snapshot is self-contradictory (psk_managed=%v, carries key=%v): %s", managed, keyed, body)
+	}
+	if !managed {
+		t.Fatalf("agent declared PSK support and must be served the keys: %s", body)
+	}
+}
+
+// The downgrade branch asks how many peers would lose their key. A failed
+// count is not "none": serving a pre-PSK agent on that answer is the exact
+// syncconf that drops every such tunnel.
+func TestNodePeersPull_RefusesWhenPSKPeerCountFails(t *testing.T) {
+	db, token := pskHookDB(t, 1)
+	h := pskTestHandler(db)
+	setMTLSSQLHook(t, func(_ func(string) error, query string) error {
+		if strings.HasPrefix(query, "SELECT COUNT(*) FROM customer_wg_peer WHERE node_id") {
+			return errors.New("injected count failure")
+		}
+		return nil
+	})
+
+	rec := pullRec(h, token, false)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status %d, want 500; body %s", rec.Code, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), `"peers"`) {
+		t.Errorf("served a peer set on a failed count: %s", rec.Body.String())
 	}
 }

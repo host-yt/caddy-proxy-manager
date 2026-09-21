@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -84,8 +85,23 @@ func TestNodesPSKClearSucceeds(t *testing.T) {
 	rec := httptest.NewRecorder()
 	h.NodesPSKClear(rec, clearReq(id))
 
-	if loc := rec.Header().Get("Location"); !strings.Contains(loc, "flash=") || strings.Contains(loc, "err=") {
+	loc := rec.Header().Get("Location")
+	if !strings.Contains(loc, "flash=") || strings.Contains(loc, "err=") {
 		t.Errorf("expected a success flash, got: %s", loc)
+	}
+	// The node-side command must be one that works: `wg syncconf` cannot
+	// REMOVE a preshared key, so a flash telling the operator to run it
+	// promises a clear that never happens on the live interface.
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	flash := u.Query().Get("flash")
+	if !strings.Contains(flash, "preshared-key /dev/null") {
+		t.Errorf("flash does not tell the operator how to clear the live interface: %s", flash)
+	}
+	if strings.Contains(flash, "syncconf") {
+		t.Errorf("flash still recommends syncconf, which cannot remove a key: %s", flash)
 	}
 	var active, pending, tokenHash sql.NullString
 	if err := db.QueryRowContext(context.Background(),

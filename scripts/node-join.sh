@@ -9,6 +9,7 @@
 #     --public-hostname fra.proxy.example.com
 #     --public-ip       203.0.113.10
 #     --install-dir     /opt/hostyt-node
+#     --wg-listen-port  51820   (only if something already owns that UDP port)
 #
 # Requires: bash, curl, jq, sudo (root), apt-get (or compatible distro).
 
@@ -19,6 +20,12 @@ MANAGER=""
 TOKEN=""
 PUBLIC_HOSTNAME=""
 PUBLIC_IP=""
+# Mesh wg0 must have a FIXED source port: without ListenPort the kernel picks a
+# fresh random one on every `wg syncconf`, the panel's learned peer endpoint
+# goes stale, and panel->node packets are blackholed until the node's next
+# PersistentKeepalive (<=25 s). 51820 is the mesh port on both ends; the
+# customer tunnel is a different interface on 51821, wstunnel uses 51822/51823.
+WG_LISTEN_PORT="51820"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -27,8 +34,9 @@ while [[ $# -gt 0 ]]; do
     --public-hostname) PUBLIC_HOSTNAME="$2"; shift 2 ;;
     --public-ip)       PUBLIC_IP="$2"; shift 2 ;;
     --install-dir)     INSTALL_DIR="$2"; shift 2 ;;
+    --wg-listen-port)  WG_LISTEN_PORT="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,15p' "$0"
+      sed -n '2,16p' "$0"
       exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -37,6 +45,10 @@ done
 [[ -z "$MANAGER" || -z "$TOKEN" ]] && {
   echo "missing --manager or --token" >&2
   echo "usage: $0 --manager https://panel --token hpg_join_..." >&2
+  exit 2
+}
+[[ "$WG_LISTEN_PORT" =~ ^[0-9]{1,5}$ ]] && [[ "$WG_LISTEN_PORT" -ge 1 ]] && [[ "$WG_LISTEN_PORT" -le 65535 ]] || {
+  echo "invalid --wg-listen-port: $WG_LISTEN_PORT" >&2
   exit 2
 }
 [[ "$(id -u)" -ne 0 ]] && {
@@ -112,6 +124,7 @@ umask 077
 cat > /etc/wireguard/wg0.conf <<EOF
 [Interface]
 Address    = ${wg_addr}
+ListenPort = ${WG_LISTEN_PORT}
 PrivateKey = ${wg_priv}
 # This node listens for its own keepalive only; no inbound clients on WG.
 

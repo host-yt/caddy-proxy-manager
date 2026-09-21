@@ -77,8 +77,17 @@ RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" \
       -o /out/hpg-restore ./cmd/restore
 
-# Prepare runtime data dir with correct ownership (distroless has no RUN).
-RUN mkdir -p /out/data && chown -R 65532:65532 /out/data
+# Prepare runtime dirs with correct ownership (distroless has no RUN).
+# Docker stamps a fresh named volume with the ownership of the image
+# directory it is mounted over, but ONLY when that directory has content -
+# an empty one is skipped and the mountpoint stays root:root, which the
+# nonroot app (65532) cannot write. Hence the .keep markers: without them
+# wg_config lands root-owned and mesh WireGuard is dead on a fresh install
+# ("write tmp: /app/wg/wg0.conf.tmp: permission denied"), and app_data the
+# same for a SQLite install.
+RUN mkdir -p /out/data /out/wg \
+ && touch /out/data/.keep /out/wg/.keep \
+ && chown -R 65532:65532 /out/data /out/wg
 
 # ---- Stage 2: runtime --------------------------------------------------
 FROM gcr.io/distroless/static-debian12:nonroot
@@ -91,6 +100,7 @@ COPY --from=build /src/web /app/web
 COPY --from=tailwind /out/tailwind.css /app/web/static/css/tailwind.css
 COPY --from=build /src/migrations /app/migrations
 COPY --from=build --chown=65532:65532 /out/data /app/data
+COPY --from=build --chown=65532:65532 /out/wg /app/wg
 
 USER nonroot:nonroot
 EXPOSE 8080

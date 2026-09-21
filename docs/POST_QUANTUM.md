@@ -28,7 +28,7 @@ and per-host PQ-only enforcement.
 | TLS from the panel (Go 1.26) | hybrid, on by default | Go 1.24+ offers X25519MLKEM768 first; no `CurvePreferences` anywhere in non-test code (CI-guarded) |
 | Panel -> node mesh (WireGuard) | preshared key | automatic on new joins, one-time rekey script for older nodes |
 | Customer tunnels (WireGuard) | per-peer preshared key | automatic once the node's `node-agent` reports support |
-| WSS transport (wstunnel 10.5.5) | hybrid, on by default | its rustls/aws-lc-rs build already offers X25519MLKEM768 on the outer WSS layer; the inner WireGuard adds the PSK |
+| WSS transport (wstunnel 11.0.0) | hybrid, on by default | its rustls/aws-lc-rs build already offers X25519MLKEM768 on the outer WSS layer; the inner WireGuard adds the PSK |
 | Secrets at rest, passwords, tokens | already quantum-resistant | AES-256-GCM + HKDF-SHA256, Argon2id, HMAC-SHA256 - symmetric primitives lose at most half their bit strength |
 | Certificates and other signatures | not available | see [Not covered](#not-covered-upstream-blocked) |
 
@@ -159,6 +159,43 @@ What that costs:
 - **Visitor traffic is unaffected.** The node keeps serving whatever config it
   already has; the mesh is a control plane, not a data path.
 
+### The real rekey exposure was the node's source port, not the 120 s window
+
+That 120 s window is what a *mismatch* costs. It is not what a *successful*
+rekey costs, and for a long time this section was the only answer to "does the
+mesh drop during a rekey?" - which was the wrong answer.
+
+`node-join.sh` used to write no `ListenPort` into the node's `[Interface]`
+block. WireGuard then picks a random source port, and picks a **new** one on
+every `wg syncconf` - which is exactly what the rekey runs. An e2e run against
+real kernel WireGuard measured three consecutive syncconfs on one node moving
+the port 59168 -> 54445 -> 41263. The panel's peer blocks carry no `Endpoint`
+(it learns each node's endpoint from the incoming handshake), so after every
+one of those the panel was still sending to the previous port: **panel -> node
+was blackholed until the node's next `PersistentKeepalive` re-taught the
+endpoint**, up to 25 s, 12 s in one measured run. Node -> panel kept working
+throughout, which is why it stayed invisible for so long.
+
+The fix is one line: `node-join.sh` now writes `ListenPort = 51820` (override
+with `--wg-listen-port`; the customer tunnel is a separate interface on 51821
+and wstunnel uses 51822/51823, so nothing on a node collides). The port is now
+stable across any number of syncconfs and the blackhole is gone. The panel side
+never had the problem - `internal/wireguard/configfile.go` has always rendered
+`ListenPort` into its own `[Interface]`.
+
+**Nodes that joined before this release** keep their portless config, and stay
+exposed to the same churn on their next `wg syncconf`. There is no migration
+job for that: `node-psk.sh` adds the missing `ListenPort` line itself when it
+rewrites `wg0.conf`, so the first rekey on such a node heals it in the same
+`syncconf` that installs the key. A node that never rekeys never runs a
+syncconf on `wg0` either, so it is not affected in the first place. To pin it
+by hand anyway:
+
+```bash
+sed -i "0,/^\[Interface\]/s//[Interface]\nListenPort = 51820/" /etc/wireguard/wg0.conf
+wg syncconf wg0 <(wg-quick strip wg0)
+```
+
 ### Multi-replica: the 60 s mesh reconcile
 
 Every replica re-renders `wg0.conf` from the database **every 60 s**, and this
@@ -186,12 +223,17 @@ Two things keep the loop cheap:
 
 **Clear PSK** drops `wg_psk_enc`, the pending key and the token on the *panel
 side only*. The node still has its `PresharedKey` line, so the mesh stays down
-until you remove it there too:
+until you remove it there too (`<panel-public-key>` is the panel's WireGuard
+public key, which the flash message fills in for you):
 
 ```bash
 sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
-wg syncconf wg0 <(wg-quick strip wg0)
+wg set wg0 peer <panel-public-key> preshared-key /dev/null
 ```
+
+Both halves are needed: the `sed` is what survives the next `wg-quick up`, the
+`wg set` is what changes the running interface. **`wg syncconf` cannot remove
+a preshared key** - see below.
 
 The flash message on the node page repeats that command verbatim - but **only
 when the panel's own config really changed**. If `wg0.conf` cannot be written,
@@ -203,6 +245,33 @@ log if it keeps failing.
 
 If that restore also fails, the database and the panel's config disagree about
 this node - logged at ERROR and audited as `node.psk.clear.failed`.
+
+### `wg syncconf` cannot remove a preshared key
+
+A peer block with no `PresharedKey` line means *"leave the current key
+alone"*, not *"clear it"* - for `wg syncconf` and `wg setconf` alike. The only
+thing that removes one from a running interface is:
+
+```bash
+wg set <iface> peer <peer-public-key> preshared-key /dev/null
+```
+
+So every place that has to *remove* a key issues that explicitly after writing
+the file:
+
+- the WireGuard sidecar (`deploy/wireguard/entrypoint.sh`) compares the peers
+  that carry a `PresharedKey` in the freshly rendered config against the live
+  interface and clears the difference after each `wg syncconf` - that is what
+  makes **Clear PSK** take effect on the panel's own side;
+- `node-psk.sh` clears the staged key when it rolls back to a backup with no
+  `PresharedKey` line (a *first-time* enable), falls back to
+  `wg-quick down && wg-quick up`, and failing both prints the exact recovery
+  command and exits non-zero instead of reporting a rollback it did not do;
+- `node-agent` clears the key of any peer the panel stopped sending one for
+  (a rotation onto a node that no longer reports PSK support).
+
+Before this, all three silently kept the old key live: the file said one thing,
+the kernel another, and the mesh split at the next restart.
 
 ### Endpoints and audit trail
 
@@ -276,10 +345,25 @@ down. The agent logs the 409 body and changes nothing.
   degrades rather than fails](#rotation-degrades-rather-than-fails)), after
   which the pull succeeds again with a PSK-less peer set.
 
-One asymmetry worth knowing during an upgrade: the header only corrects the
-stored flag **downwards**. An upgraded agent gets `agent_psk` back to 1 from its
-next `POST /api/node/wg/stats` report (~30 s), so PSKs start flowing one report
-cycle after the upgrade, not on its first pull.
+The header corrects the stored flag in **both** directions, and it is written
+before the peer lookup reads it back: an agent upgraded after a rollback gets
+its PSKs on its very first pull, not one stats cycle later. If that write
+fails the pull answers `500` and serves nothing - a peer set built on a
+capability the panel could not record is what wiped live keys before.
+
+### `psk_managed`: removal is stated, never inferred
+
+A `200` answered to a PSK-capable agent carries `"psk_managed": true` next to
+`peers`. It means "this is the whole key set", which is what lets the agent
+clear a live `PresharedKey` that the peer list no longer carries - `wg
+syncconf` cannot remove one, only overwrite it, so a dropped PSK otherwise
+lingers on the interface and fails every handshake.
+
+Without that flag an absent `preshared_key` carries no intent and the agent
+touches nothing. Both directions stay safe: an older panel never sends it, so
+a current agent keeps the keys it has (a genuinely dropped PSK then lingers
+until the interface restarts, as it did before the flag existed); an older
+agent ignores the unknown field.
 
 ### When a node loses PSK support
 
@@ -504,7 +588,6 @@ time it is verified* - so they are tracked, not worked around.
 | ACME account keys | same: ECDSA/RSA only, defined by the ACME ecosystem |
 | OIDC token signatures | determined by the identity provider, not by HPG |
 | Container image signatures (cosign) | keyless Sigstore signing is ECDSA/P-256 |
-| wstunnel 11 | deferred; still pinned to 10.5.5. Not urgent: its rustls build already offers X25519MLKEM768 on the outer WSS layer, so the bump is maintenance, not a PQ gap |
 
 SSH is not used by the control plane, and Redis/MySQL traffic stays inside the
 compose network (an unencrypted-transport question, not a post-quantum one).

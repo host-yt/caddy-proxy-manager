@@ -1,0 +1,115 @@
+# Mesh WireGuard preshared-key e2e harness (see deploy/integration/e2e_psk.sh).
+#
+# Real kernel WireGuard on both ends:
+#   * panel + wg-panel share one network namespace (network_mode:
+#     service:panel), which is what puts wg0 where the panel process can
+#     dial 10.66.0.x - the prod compose gets the same effect with
+#     network_mode: host.
+#   * node-a is a plain Debian box with wireguard-tools; node-join.sh runs
+#     on it for real.
+#
+# Everything here is throwaway: fixed dev-only secrets, high host ports so
+# nothing collides with the other harnesses in this directory.
+
+services:
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: pskrootpw
+      MARIADB_DATABASE: hpg_psk
+      MARIADB_USER: hpg
+      MARIADB_PASSWORD: hpgpskpw
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [psk]
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 10
+    networks: [psk]
+
+  panel:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    depends_on:
+      mariadb:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      APP_ENV: production
+      APP_URL: http://panel:8080
+      APP_BIND: 0.0.0.0:8080
+      APP_SECRET: psk-fixed-dev-secret-not-for-prod-32ch
+      APP_INTERNAL_HOST: panel
+      APP_INTERNAL_PORT: "8080"
+      INSTALL_TOKEN: psk-install-token
+      LOG_LEVEL: debug
+      DB_HOST: mariadb
+      DB_PORT: "3306"
+      DB_NAME: hpg_psk
+      DB_USER: hpg
+      DB_PASSWORD: hpgpskpw
+      REDIS_ADDR: redis:6379
+      SESSION_COOKIE_SECURE: "false"
+      CADDY_ACME_EMAIL: bootstrap@invalid.local
+      CACHE_HANDLER_AVAILABLE: "0"
+      LAYER4_AVAILABLE: "0"
+      WEIGHTED_LB_AVAILABLE: "0"
+      RATE_LIMIT_AVAILABLE: "0"
+      WAF_MODULE_AVAILABLE: "0"
+      DNS01_AVAILABLE: "0"
+      GEOIP_AVAILABLE: "0"
+    volumes:
+      - wg_config:/app/wg
+    ports:
+      - "127.0.0.1:19080:8080"
+    networks: [psk]
+
+  # The panel's WireGuard sidecar, in the panel's own netns so wg0 is
+  # reachable from the panel process (prod uses network_mode: host).
+  wg-panel:
+    build:
+      context: ../wireguard
+      dockerfile: Dockerfile
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    volumes:
+      - wg_config:/config
+      - /lib/modules:/lib/modules:ro
+    network_mode: "service:panel"
+    depends_on:
+      panel:
+        condition: service_started
+
+  node-a:
+    build:
+      context: ./psk/node
+      dockerfile: Dockerfile
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    volumes:
+      - /lib/modules:/lib/modules:ro
+    networks: [psk]
+
+  # Second node, used for the "joined with a pre-PSK node-join.sh" scenario.
+  node-b:
+    build:
+      context: ./psk/node
+      dockerfile: Dockerfile
+    cap_add: [NET_ADMIN, SYS_MODULE]
+    volumes:
+      - /lib/modules:/lib/modules:ro
+    networks: [psk]
+
+volumes:
+  wg_config:
+
+networks:
+  psk:
+    driver: bridge

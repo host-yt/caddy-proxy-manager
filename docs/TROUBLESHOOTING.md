@@ -283,6 +283,9 @@ side.
    ```bash
    cp /etc/wireguard/wg0.conf.bak.<epoch> /etc/wireguard/wg0.conf
    wg syncconf wg0 <(wg-quick strip wg0)
+   # only if the backup has NO PresharedKey line - syncconf cannot remove one
+   grep -q '^PresharedKey' /etc/wireguard/wg0.conf ||
+     wg set wg0 peer $(wg show wg0 peers) preshared-key /dev/null
    ```
 
 3. **Emergency exit.** Click **Clear PSK** in the panel (panel side only), then
@@ -290,8 +293,12 @@ side.
 
    ```bash
    sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
-   wg syncconf wg0 <(wg-quick strip wg0)
+   wg set wg0 peer $(wg show wg0 peers) preshared-key /dev/null
    ```
+
+   `wg syncconf` cannot remove a preshared key - an absent line means "keep
+   the current one" - so the `wg set` is the half that clears the running
+   interface.
 
    The mesh comes back without a PSK; re-enable it later.
 
@@ -356,7 +363,7 @@ so once the directory is writable again, finish the clear on the node as well:
 
 ```bash
 sed -i '/^PresharedKey/d' /etc/wireguard/wg0.conf
-wg syncconf wg0 <(wg-quick strip wg0)
+wg set wg0 peer $(wg show wg0 peers) preshared-key /dev/null
 ```
 
 ### Caddy Admin API unreachable

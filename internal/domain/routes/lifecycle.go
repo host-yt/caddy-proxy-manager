@@ -188,6 +188,29 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		}
 	}
 
+	// mTLS: enforcement without TLS or without a usable anchor emits no
+	// client-auth policy, so the host would come up either open (fail_open)
+	// or as a blanket deny. Refuse here - the one choke point every create
+	// path goes through, and the point where in.SSL has settled: the external
+	// force-on and the plan gate above are the only writers of it.
+	mtlsCAID := in.MTLSCAID
+	if !in.RequireClientCert {
+		mtlsCAID = 0 // an anchor with no enforcement is dead state
+	} else {
+		if !in.SSL {
+			return 0, ErrMTLSNeedsTLS
+		}
+		// The node redirects :80 for an enforced host regardless (BuildRoute
+		// derives it); store the same so the row reads as what is served.
+		in.ForceHTTPS = true
+		var usable int
+		if err := s.DB.QueryRowContext(ctx,
+			`SELECT COUNT(*) FROM mtls_cas WHERE id = ? AND status = 'active' AND COALESCE(cert_pem,'') <> ''`,
+			mtlsCAID).Scan(&usable); err != nil || usable == 0 {
+			return 0, ErrMTLSCAUnusable
+		}
+	}
+
 	// Pick node(s) based on group mode: single / active_active / failover.
 	// Primary slot lands in routes.caddy_node_id; for fan-out modes the
 	// other nodes get rows in route_node_assignments after insert.
@@ -333,14 +356,16 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		   backend_ip_override, upstream_external, upstream_host_header, proxy_secret_enc,
 		   wildcard_enabled, wildcard_zone, group_id, custom_fields,
 		   via_wg_peer_id, dns_resolver_via_wg_peer_id,
+		   require_client_cert, mtls_ca_id,
 		   domain_verified, verify_token)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, ?)`,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?)`,
 		in.ServiceID, nodeID, domain, pathPrefix, in.UpstreamPort, scheme,
 		in.SSL, in.WebSocket, in.ForceHTTPS,
 		kind, redirURL, redirCode, tagVal,
 		backendOverride, extFlag, hostHeader, secretEnc,
 		wildFlag, wildZone, in.GroupID, in.CustomFields,
 		viaPeer, dnsResolverPeer,
+		in.RequireClientCert, mtlsCAID,
 		verified, verifyToken)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {

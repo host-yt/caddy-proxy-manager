@@ -44,6 +44,10 @@ func newAPIKeyTestDB(t *testing.T) *sql.DB {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	// SQLite is single-writer: one connection, as internal/store does, so a
+	// pooled second conn can never turn a verify into SQLITE_BUSY.
+	db.SetMaxOpenConns(1)
+	db.SetMaxIdleConns(1)
 	t.Cleanup(func() { db.Close() })
 	if _, err := db.Exec(apiKeyTestSchema); err != nil {
 		t.Fatalf("schema: %v", err)

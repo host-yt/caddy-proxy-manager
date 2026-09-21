@@ -168,3 +168,101 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// cleartextBranch walks a built route's handler chain and returns the
+// force-HTTPS subroute's two branches: the one matched for protocol=http and
+// the fall-through that carries the real handlers. ok=false when the route
+// has no such wrapper at all.
+func cleartextBranch(t *testing.T, route map[string]any) (httpBranch, rest map[string]any, ok bool) {
+	t.Helper()
+	handle := route["handle"].([]any)
+	if len(handle) != 1 {
+		return nil, nil, false
+	}
+	sub, _ := handle[0].(map[string]any)
+	if sub["handler"] != "subroute" {
+		return nil, nil, false
+	}
+	routes := sub["routes"].([]any)
+	if len(routes) != 2 {
+		return nil, nil, false
+	}
+	first := routes[0].(map[string]any)
+	m, _ := first["match"].([]any)
+	if len(m) != 1 || m[0].(map[string]any)["protocol"] != "http" {
+		return nil, nil, false
+	}
+	return first, routes[1].(map[string]any), true
+}
+
+// TestBuildRoute_MTLSNeverProxiesPlaintext is the invariant itself, asserted
+// on the emitted config rather than on a write path: srv0 also listens on
+// :80, where no TLS connection policy applies, so an mTLS host whose stored
+// force_https is 0 would hand its backend to anyone over plain HTTP. The
+// redirect must be derived from the enforcement flag - for every shape of
+// route that can carry a reverse_proxy.
+func TestBuildRoute_MTLSNeverProxiesPlaintext(t *testing.T) {
+	ca := testCAPEM(t)
+	base := Route{
+		ID: "7", Hosts: []string{"secure.example.com", "alias.example.com"},
+		UpstreamIP: "10.0.0.9", UpstreamPort: 8443,
+		RequireClientCert: true, MTLSCACertPEM: ca,
+		ForceHTTPS: false, // the stored flag is what round 4 bypassed
+	}
+	maint := base
+	maint.MaintenanceMode = true
+	maint.MaintenanceAllow = []string{"192.0.2.0/24"} // allow-listed IPs still reach the backend
+	for name, r := range map[string]Route{"proxy": base, "maintenance allow-list": maint} {
+		t.Run(name, func(t *testing.T) {
+			route := BuildRoute(r)
+			httpBranch, rest, ok := cleartextBranch(t, route)
+			if !ok {
+				b, _ := json.Marshal(route)
+				t.Fatalf("mTLS route is served as-is on :80 (no protocol=http redirect wrapper)\n%s", b)
+			}
+			hb, _ := json.Marshal(httpBranch)
+			if contains(string(hb), "reverse_proxy") || !contains(string(hb), `"status_code":308`) {
+				t.Errorf("cleartext branch must be a redirect, got %s", hb)
+			}
+			if hosts, _ := json.Marshal(httpBranch["match"]); !contains(string(hosts), `"alias.example.com"`) {
+				t.Errorf("redirect must cover every hostname of the route, got %s", hosts)
+			}
+			rb, _ := json.Marshal(rest)
+			if !contains(string(rb), `"dial":"10.0.0.9:8443"`) {
+				t.Errorf("backend must still be reachable behind the redirect, got %s", rb)
+			}
+		})
+	}
+}
+
+// A route the operator did not lock keeps honouring its own force_https.
+func TestBuildRoute_ForceHTTPSStillOptionalWithoutMTLS(t *testing.T) {
+	route := BuildRoute(Route{ID: "8", Hosts: []string{"open.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 80})
+	if _, _, ok := cleartextBranch(t, route); ok {
+		t.Error("a plain route must not gain a forced redirect")
+	}
+}
+
+// Connection policies match on SNI while routes match on Host, so a client
+// can handshake under an unprotected SNI and name the mTLS host in the Host
+// header. Caddy closes that by default whenever client auth is configured;
+// the config pins it so the guarantee is ours, not a default's.
+func TestBuildNodeConfig_MTLSPinsStrictSNIHost(t *testing.T) {
+	srv := func(routes []Route) map[string]any {
+		cfg := BuildNodeConfig(routes, NodeSettings{ACMEEmail: "a@b.c"})
+		return cfg["apps"].(map[string]any)["http"].(map[string]any)["servers"].(map[string]any)["srv0"].(map[string]any)
+	}
+	locked := srv([]Route{{
+		ID: "1", Hosts: []string{"m.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 443,
+		RequireClientCert: true, MTLSCACertPEM: testCAPEM(t),
+	}})
+	if locked["strict_sni_host"] != true {
+		t.Error("node with an mTLS host must set strict_sni_host")
+	}
+	// PQ-only alone is a policy without client auth: no Host/SNI binding needed,
+	// and existing nodes must keep byte-identical JSON.
+	pq := srv([]Route{{ID: "2", Hosts: []string{"pq.example.com"}, UpstreamIP: "10.0.0.1", UpstreamPort: 443, TLSPQOnly: true}})
+	if _, has := pq["strict_sni_host"]; has {
+		t.Error("strict_sni_host must only appear alongside client authentication")
+	}
+}

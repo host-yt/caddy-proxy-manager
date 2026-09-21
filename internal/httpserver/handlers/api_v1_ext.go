@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -284,7 +285,11 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		args = append(args, *in.WebSocket)
 	}
 	if in.ForceHTTPS != nil {
-		parts = append(parts, "force_https=?")
+		// An mTLS host is HTTPS-only whatever is asked: the node derives the
+		// redirect from require_client_cert, so the row must read the same.
+		// Derived inside the statement so a concurrent "enable mTLS" cannot
+		// slip between a check and this write.
+		parts = append(parts, "force_https=(? OR COALESCE(require_client_cert,0))")
 		args = append(args, *in.ForceHTTPS)
 	}
 	if in.PathPrefix != nil {
@@ -301,14 +306,38 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 	if !h.routeInScope(ctx, w, r, id) {
 		return
 	}
+	// mTLS rides on the route's TLS connection policy: dropping SSL on an
+	// enforced host leaves it either wide open or permanently 503, while the
+	// panel still reports it as requiring client certificates. The guard is
+	// part of the UPDATE's own WHERE, not a read before it: a separate SELECT
+	// can be overtaken by a concurrent "enable mTLS" and, if it fails, tells
+	// us nothing at all.
+	where := "id=?"
+	if in.SSLEnabled != nil && !*in.SSLEnabled {
+		where += " AND COALESCE(require_client_cert, 0) = 0"
+	}
 	res, err := h.DB().ExecContext(ctx,
-		"UPDATE routes SET "+strings.Join(parts, ", ")+" WHERE id=?", args...)
+		"UPDATE routes SET "+strings.Join(parts, ", ")+" WHERE "+where, args...)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "update failed")
 		return
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
-		apiErr(w, http.StatusNotFound, "not found")
+		// Nothing was written: either the route is gone or the mTLS guard held
+		// it back. This read only picks the status code, and a read that fails
+		// still rejects.
+		var enforced int
+		switch err := h.DB().QueryRowContext(ctx,
+			"SELECT COALESCE(require_client_cert, 0) FROM routes WHERE id = ?", id).Scan(&enforced); {
+		case errors.Is(err, sql.ErrNoRows):
+			apiErr(w, http.StatusNotFound, "not found")
+		case err != nil:
+			apiErr(w, http.StatusInternalServerError, "update failed")
+		case enforced != 0 && in.SSLEnabled != nil && !*in.SSLEnabled:
+			apiErr(w, http.StatusBadRequest, "cannot disable ssl_enabled while require_client_cert is set")
+		default:
+			apiErr(w, http.StatusNotFound, "not found")
+		}
 		return
 	}
 	uid := apiCallerID(r)

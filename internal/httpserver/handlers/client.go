@@ -34,6 +34,10 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
+// handlerTimeout bounds the DB + crypto work of one interactive request. A var,
+// not a const, so tests can widen it: -race slows Argon2id past this budget.
+var handlerTimeout = 8 * time.Second
+
 type ClientHandlers struct {
 	DB        func() *sql.DB
 	Sessions  *auth.Manager
@@ -687,7 +691,7 @@ func (h *ClientHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 	serviceID, _ := strconv.ParseInt(r.FormValue("service_id"), 10, 64)
 	port, _ := strconv.Atoi(r.FormValue("upstream_port"))
 
-	ctx, cancel := context.WithTimeout(r.Context(), 8_000_000_000)
+	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 	clientID, err := clientIDFor(ctx, db, sess.UserID)
 	if err != nil {
@@ -730,7 +734,7 @@ func (h *ClientHandlers) RouteDelete(w http.ResponseWriter, r *http.Request) {
 	}
 	db := h.DB()
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
-	ctx, cancel := context.WithTimeout(r.Context(), 8_000_000_000)
+	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 	clientID, err := clientIDFor(ctx, db, sess.UserID)
 	if err != nil {
@@ -1071,7 +1075,8 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if _, err := db.ExecContext(ctx,
-			`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?, force_https=?,
+			`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?,
+			        force_https=(? OR COALESCE(require_client_cert,0)),
 			        domain_verified=0, verify_token=?, status='pending_dns', ssl_issued_at=NULL,
 			        last_error='domain ownership not verified', updated_at=NOW() WHERE id=?`,
 			newDomain, newPath, newPort, newWS, newFH, verifyToken, id,
@@ -1080,7 +1085,8 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	} else if _, err := db.ExecContext(ctx,
-		`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?, force_https=?, updated_at=NOW() WHERE id=?`,
+		`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?,
+		        force_https=(? OR COALESCE(require_client_cert,0)), updated_at=NOW() WHERE id=?`,
 		newDomain, newPath, newPort, newWS, newFH, id,
 	); err != nil {
 		redirectWithFlash(w, r, editURL, "", "update failed")
@@ -1231,7 +1237,7 @@ func (h *ClientHandlers) TwoFAConfirm(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = r.ParseForm()
 	code := strings.TrimSpace(r.FormValue("code"))
-	ctx, cancel := context.WithTimeout(r.Context(), 8_000_000_000)
+	ctx, cancel := context.WithTimeout(r.Context(), handlerTimeout)
 	defer cancel()
 	// Read secret from DB stash written by TwoFAStart; never from the form body.
 	var pendingSecret sql.NullString

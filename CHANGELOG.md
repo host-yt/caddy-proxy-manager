@@ -14,6 +14,30 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
 
 ### Security
 
+- **A host could require client certificates while serving without TLS.** The
+  client-authentication policy is part of the route's TLS connection policy,
+  so with SSL off nothing is emitted: the host answered every request with a
+  permanent 503 under the default fail-closed mode, or served everyone with no
+  client-cert check at all under fail-open - while the panel listed it as
+  locked. All three ways into that state are now refused: creating a host
+  (checked after the plan gate settles SSL, so a plan without SSL cannot force
+  it), saving the host edit page (checked after the external-upstream branch,
+  the last thing that can turn SSL back on), and `PATCH /api/v1/routes/{id}`
+  clearing `ssl_enabled` on an enforced route. The add form and the edit page
+  now state the dependency, and a host already in this state is shown as
+  "mTLS saved - SSL off, not enforced" instead of "mTLS enforced".
+
+- **"Require a client certificate" was silently discarded when adding a host.**
+  The create handler validated `require_client_cert` and the chosen CA, then
+  never wrote either column, and the add-host form had no such inputs - so the
+  check guarded a value that was thrown away. An operator who expected a new
+  host to demand client certificates got one that accepted anyone, with no
+  error and no warning. The add form now offers mTLS whenever an active CA
+  exists, the flag and its trust anchor are persisted in the same INSERT as the
+  route (so the host is enforced on its very first config push, never briefly
+  open), and a create that asks for enforcement without a usable CA is refused
+  instead of quietly downgraded. Existing hosts are unaffected.
+
 - **Enabling mTLS on one host broke the TLS handshake for every other host on
   the same node.** Caddy only supplies a default connection policy when the
   policy list is `nil`; with any per-SNI policy present, an unmatched
@@ -33,6 +57,15 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
   instead of failing the run, so a newer image can rotate an older database.
 
 ### Added
+
+- **wstunnel bumped 10.5.5 -> 11.0.0 on both pins.** The WSS tunnel binary is
+  pinned twice - in the node-agent image and in the customer install script -
+  and a bump that lands on one side only leaves half the tunnel behind, so a
+  CI gate now fails when the two version or sha256 pins disagree. Upstream
+  calls v11 non-breaking; verified locally with a real WireGuard handshake and
+  traffic over WSS through Caddy, in all four client/server version
+  combinations, plus `--restrict-to` still rejecting a non-WireGuard
+  destination.
 
 - **Preshared keys on the panel-node WireGuard mesh.** The mesh carries Caddy
   config pushes, manual-certificate private keys included, so a recorded
@@ -116,6 +149,64 @@ commands and rollout order in [`docs/POST_QUANTUM.md`](docs/POST_QUANTUM.md).
 
 ### Fixed
 
+- **Every `wg syncconf` on a node re-randomised its WireGuard source port and
+  blackholed panel -> node traffic for up to 25 s.** `node-join.sh` wrote no
+  `ListenPort` into the node's `[Interface]`, so the kernel picked a random
+  source port - and a new one on every `syncconf`. The panel's peer blocks
+  carry no `Endpoint` (it learns each node's from the incoming handshake), so
+  after every syncconf it kept sending to the dead port until the node's next
+  `PersistentKeepalive` re-taught it. An e2e run against real kernel WireGuard
+  measured one node walking 54347 -> 51615 -> 38703 -> 46495 across three
+  syncconfs, with the panel unable to reach it in between; node -> panel
+  recovered on its own, which is why this went unnoticed. `node-join.sh` now
+  pins `ListenPort = 51820` (override with `--wg-listen-port`), and
+  `node-psk.sh` adds the line to a config that lacks it, so an
+  already-joined node heals on its first rekey. Predates preshared keys - it
+  affected any syncconf on a node - but the PSK rekey is the first flow that
+  runs one routinely. The panel's own sidecar was never affected: it has
+  always rendered `ListenPort`.
+
+- **Removing a mesh preshared key never took effect - both ends kept using it
+  and the mesh split at the next restart.** `wg syncconf` cannot remove a
+  `PresharedKey`: a peer block without the line means "leave the current key
+  alone", not "clear it". Every path that removes a key relied on it, so all
+  three were silent no-ops. **Clear PSK** rewrote the panel's `wg0.conf` and
+  reported success while the key stayed live on the interface; the node-side
+  command it printed (and the one in the docs) did nothing either; and a
+  rejected confirm during a *first-time* Enable PSK told the operator "the old
+  key is back in place" while the node kept the staged key, dropped off the
+  mesh ~180 s later and left nothing on either side to explain it. The sidecar
+  now clears the key of any peer the rendered config no longer gives one,
+  `node-psk.sh` clears the staged key when it rolls back to a config that has
+  none (falling back to an interface restart, and failing loudly with the exact
+  recovery command rather than claiming a rollback it could not perform), the
+  node-agent does the same for customer peers whose key the panel dropped, and
+  the panel's flash message and the docs now print
+  `wg set wg0 peer <panel-public-key> preshared-key /dev/null`. Found by a new
+  end-to-end harness (`make e2e-psk`) that drives real kernel WireGuard and now
+  asserts the live interface, not the config file.
+- **Upgrading a node-agent could clear the preshared key of every customer
+  tunnel on that node.** The peer pull negotiates preshared-key support on the
+  request header, but only ever wrote the stored capability *downwards*: a node
+  rolled back and then upgraded again pulled with `X-HPG-Agent-PSK: 1` while
+  `caddy_nodes.agent_psk` was still 0, so it was served a keyless peer set and
+  read that as "the panel dropped every key". The pull now records the
+  capability the request declares before it looks the peers up, and refuses
+  with `500` if that write fails; and removal is no longer inferred from an
+  omitted field at all - the answer carries `psk_managed` when the panel is
+  really stating the whole key set, and the agent clears nothing without it.
+- **A preshared-key removal the sidecar could not apply was reported as
+  success and then never retried.** The removal loop lost a failing `wg show`
+  through a process substitution (whose exit status never reaches the caller)
+  and turned a failing `wg set` into a log line, so the reload always looked
+  complete and the watch loop advanced its mtime marker. An unchanged render
+  keeps that mtime forever, so the retry never came: the manager could keep
+  serving a key the panel considered cleared until someone restarted the
+  sidecar - and if the operator cleared it on the node side meanwhile, the
+  control-plane mesh split. Both failures now abort the reload, the marker
+  only moves once syncconf and every removal succeeded (so the next 10 s tick
+  retries), and a key that is still live is logged as such by peer public key
+  on every tick. `make e2e-psk` injects both faults against real WireGuard.
 - **The WireGuard sidecar was told to `wg syncconf` on every unrelated admin
   action.** The rendered `wg0.conf` carried a generated-at timestamp in its
   header, so every render produced a different file and the sidecar, which
@@ -317,7 +408,6 @@ plane, and the release process that could publish an untested image.
 - README gains a maturity table (stable / beta / experimental per area,
   including the single-writer caveat on the config push) and no longer states a
   migration count that had drifted.
-=======
 ## [1.4.7] - 2026-08-07
 
 Three bugs reported against 1.4.6, all in the Caddy configuration the panel generates.

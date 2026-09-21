@@ -86,10 +86,20 @@ func postConfirm(h *ClientHandlers, uid int64, formSecret, code string) {
 	h.TwoFAConfirm(httptest.NewRecorder(), r)
 }
 
+// widenHandlerTimeout lifts the per-request budget for the confirm path: it
+// hashes 8 recovery codes with Argon2id, which -race slows past the 8s default.
+func widenHandlerTimeout(t *testing.T) {
+	t.Helper()
+	orig := handlerTimeout
+	handlerTimeout = 2 * time.Minute
+	t.Cleanup(func() { handlerTimeout = orig })
+}
+
 // TestTwoFAConfirmUsesStashNotForm proves the confirm step validates the code
 // against the server-side DB stash, never against a `secret` from the POST body.
 // Catches reintroduction of r.FormValue("secret").
 func TestTwoFAConfirmUsesStashNotForm(t *testing.T) {
+	widenHandlerTimeout(t)
 	db := openTestDBHandlers(t)
 	defer db.Close()
 	ctx := context.Background()
@@ -104,21 +114,18 @@ func TestTwoFAConfirmUsesStashNotForm(t *testing.T) {
 		uid, cleanup := insertPendingTOTPUser(t, db, stashSecret)
 		defer cleanup()
 
+		code, err := totp.GenerateCode(stashSecret, time.Now())
+		if err != nil {
+			t.Fatalf("gen code: %v", err)
+		}
+		postConfirm(h, uid, "GARBAGEFORMSECRET", code)
+
 		var enabled bool
 		var pending sql.NullString
-		// Retry once with a fresh code: under full-suite load the POST can
-		// straddle a TOTP period and expire an otherwise valid code.
-		for attempt := 0; attempt < 2 && !enabled; attempt++ {
-			code, err := totp.GenerateCode(stashSecret, time.Now())
-			if err != nil {
-				t.Fatalf("gen code: %v", err)
-			}
-			postConfirm(h, uid, "GARBAGEFORMSECRET", code)
-			if err := db.QueryRowContext(ctx,
-				"SELECT totp_enabled, totp_pending_secret FROM users WHERE id = ?", uid,
-			).Scan(&enabled, &pending); err != nil {
-				t.Fatalf("read user: %v", err)
-			}
+		if err := db.QueryRowContext(ctx,
+			"SELECT totp_enabled, totp_pending_secret FROM users WHERE id = ?", uid,
+		).Scan(&enabled, &pending); err != nil {
+			t.Fatalf("read user: %v", err)
 		}
 		if !enabled {
 			t.Error("2FA not enabled - confirm rejected a valid stash code")

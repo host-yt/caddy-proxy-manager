@@ -370,7 +370,10 @@ func (s *Service) Redeem(ctx context.Context, req JoinRequest, askEndpointURL, a
 			// the operator notices something went sideways with WG sync.
 			resp.ManagerNote = "Node registered, but the manager-side WG sidecar didn't refresh automatically: " + err.Error() + ". Run the 'Apply WG config' button in the admin Nodes page."
 		} else {
-			resp.ManagerNote = "Node registered. The manager WG sidecar will pick up the new peer within ~10 s; no manual step needed."
+			// The peer is rendered only once an admin approves the node
+			// (configfile.go filters on approved_at + is_enabled), so the
+			// mesh stays down until then - say so instead of promising ~10 s.
+			resp.ManagerNote = "Node registered, pending approval. Approve it in the admin Nodes page; the manager WG sidecar then picks up the peer within ~10 s. No manual step on the manager."
 		}
 	} else {
 		// Sidecar not enabled — fall back to the manual block.

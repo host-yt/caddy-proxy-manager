@@ -57,6 +57,7 @@ func TestHostsNewTemplateExecutes(t *testing.T) {
 		"SSL": true, "WebSocket": true, "RedirectURL": "", "RedirectCode": "308",
 		"Tag": "", "External": false, "ExternalHost": "", "UpstreamHostHeader": "",
 		"WildcardEnabled": false, "WildcardZone": "",
+		"RequireClientCert": false, "MTLSCAID": int64(0),
 	}
 	withGroups := map[string]any{
 		"CSRF": "x", "CSPNonce": "n", "Form": form,
@@ -67,6 +68,7 @@ func TestHostsNewTemplateExecutes(t *testing.T) {
 			}},
 		},
 		"Groups": []map[string]any{}, "CFViews": nil,
+		"MTLSCAs": []map[string]any{{"ID": int64(7), "Label": "corp-ca"}},
 	}
 	var sb strings.Builder
 	if err := at.t.ExecuteTemplate(&sb, "hosts_new", withGroups); err != nil {
@@ -76,6 +78,17 @@ func TestHostsNewTemplateExecutes(t *testing.T) {
 	if !strings.Contains(out, "node_group_id") || !strings.Contains(out, "active_active") {
 		t.Fatalf("group select not rendered")
 	}
+	// mTLS is validated on create, so the form must actually offer it -
+	// otherwise the check guards a value no operator can send.
+	if !strings.Contains(out, `name="require_client_cert"`) ||
+		!strings.Contains(out, `name="mtls_ca_id"`) || !strings.Contains(out, "corp-ca") {
+		t.Fatalf("mTLS block not rendered despite an active CA")
+	}
+	// The dependency is a hard create-time rejection, so say so in the form
+	// rather than letting the operator discover it as a failed submit.
+	if !strings.Contains(out, "Client certificates require SSL") {
+		t.Fatalf("mTLS block does not state the SSL dependency")
+	}
 
 	empty := map[string]any{"CSRF": "x", "CSPNonce": "n", "Form": form, "NodeGroups": nil}
 	sb.Reset()
@@ -84,5 +97,16 @@ func TestHostsNewTemplateExecutes(t *testing.T) {
 	}
 	if !strings.Contains(sb.String(), "No Caddy nodes are ready yet") {
 		t.Fatalf("first-run wizard not rendered")
+	}
+
+	// No active CA: the control must be hidden rather than offered and refused.
+	noCA := map[string]any{"CSRF": "x", "CSPNonce": "n", "Form": form,
+		"NodeGroups": withGroups["NodeGroups"], "Groups": []map[string]any{}}
+	sb.Reset()
+	if err := at.t.ExecuteTemplate(&sb, "hosts_new", noCA); err != nil {
+		t.Fatalf("execute hosts_new without CAs: %v", err)
+	}
+	if strings.Contains(sb.String(), `name="require_client_cert"`) {
+		t.Fatalf("mTLS block rendered with no active CA to select")
 	}
 }
