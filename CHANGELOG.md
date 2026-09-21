@@ -46,8 +46,11 @@ deployment, treat this as a priority upgrade.
 
 - **High: external SSO did not cover every request.** Protection depended in
   part on a value the client itself supplies, and did not apply uniformly
-  across request methods. New routes are created in strict mode; existing
-  routes keep their current setting and should be moved to strict.
+  across request methods. Strict mode is now the default for new routes and
+  every existing SSO route is moved to it by the upgrade. Permissive
+  (document-only) mode remains available as a per-route opt-out, is labelled
+  with what it does and does not cover, is never re-entered by a save that
+  does not ask for it, and is written to the audit log when chosen.
 
 - **High: tenant-supplied values could be expanded by the proxy** before being
   sent to an origin the tenant controls. All such values are now screened on
@@ -87,6 +90,8 @@ deployment, treat this as a priority upgrade.
 
 ### Added
 
+- `server doctor` lists every SSO route that gates page loads only, so the
+  routes the 1.6.0 upgrade switches to strict can be reviewed before it runs.
 - `server healthcheck` subcommand, and Compose healthchecks for the app and
   Caddy - the runtime image is distroless, so there is no shell for a `curl`
   probe. Start periods are sized for a long migration or certificate issuance.
@@ -151,7 +156,12 @@ deployment, treat this as a priority upgrade.
 6. Operators running large `active_active` groups should check their ACME
    rate-limit headroom against nodes x hosts - certificates have always been
    issued per node, the documentation just said otherwise.
-7. Backend hostnames are resolved by the panel and pushed to nodes as
+7. Every SSO-protected route is switched to strict mode. An application that
+   relied on unauthenticated POST/PUT/PATCH/DELETE or XHR passing through the
+   gateway will start seeing 401. Run `server doctor` against the existing
+   database before upgrading: it lists every route the backfill will change.
+   Permissive mode can be turned back on per route on the SSO tab afterwards.
+8. Backend hostnames are resolved by the panel and pushed to nodes as
    addresses. A backend with several A records is pinned to one of them, so
    DNS round-robin across backends no longer spreads traffic - use several
    upstreams on the route instead. A backend whose address changes is picked

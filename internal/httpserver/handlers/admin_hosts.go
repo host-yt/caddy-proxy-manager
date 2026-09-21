@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -3490,7 +3491,6 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	ssoPaths := sanitizePathList(r.FormValue("sso_paths"))
 	ssoHosts := sanitizeHostList(r.FormValue("sso_hosts"))
 	ssoViaPeerID, _ := strconv.ParseInt(r.FormValue("sso_via_wg_peer_id"), 10, 64)
-	ssoStrictMode := r.FormValue("sso_strict_mode") == "1"
 	// Built-in portal toggle + selected group IDs.
 	portalProtect := r.FormValue("portal_protect") == "1"
 	var portalGroupIDs []int64
@@ -3852,15 +3852,19 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	var prevOverride sql.NullString
 	var prevRequireClientCert bool
 	var prevDNSSteeringEnabled bool
+	var prevSSOStrict bool
 	if err := h.DB().QueryRowContext(ctx,
 		`SELECT r.caddy_node_id, r.service_id, s.backend_ip, r.backend_ip_override,
-		        COALESCE(r.require_client_cert, 0), COALESCE(r.dns_steering_enabled, 0)
+		        COALESCE(r.require_client_cert, 0), COALESCE(r.dns_steering_enabled, 0),
+		        COALESCE(r.sso_strict_mode, 0)
 		 FROM routes r JOIN services s ON s.id = r.service_id
 		 WHERE r.id = ?`, id,
-	).Scan(&nodeID, &serviceID, &currentBackendIP, &prevOverride, &prevRequireClientCert, &prevDNSSteeringEnabled); err != nil {
+	).Scan(&nodeID, &serviceID, &currentBackendIP, &prevOverride, &prevRequireClientCert, &prevDNSSteeringEnabled,
+		&prevSSOStrict); err != nil {
 		redirectWithFlash(w, r, "/admin/hosts", "", "route not found")
 		return
 	}
+	ssoStrictMode := ssoStrictFromForm(r.Form, prevSSOStrict)
 
 	// Backend edits are PER-ROUTE via routes.backend_ip_override so editing
 	// one route does NOT cascade to siblings sharing the same service.
@@ -4220,6 +4224,15 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("host update: commit", "id", id, "err", cerr)
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
 		return
+	}
+	// Permissive SSO is a deliberate, named exception: record who chose it,
+	// because the gate then covers only document loads.
+	if prevSSOStrict && !ssoStrictMode && strings.TrimSpace(ssoProviderURL) != "" {
+		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+			UserID: actorUserID(sess), Action: "host.sso_permissive_enabled", Entity: "route",
+			EntityID: itoa64(id),
+			Meta:     map[string]any{"domain": domain},
+		})
 	}
 	// Audit mTLS enforcement toggle when require_client_cert changed.
 	if prevRequireClientCert != requireClientCert {
@@ -5006,6 +5019,17 @@ func unresolvedHint(err error, fallback string) string {
 			"\"backend is resolved on the node\" if only the node can resolve this name"
 	}
 	return fallback
+}
+
+// ssoStrictFromForm resolves the posted SSO gate against the stored one.
+// A save that does not carry the field leaves the gate alone, so permissive
+// mode can only ever be re-entered by an operator choosing it.
+func ssoStrictFromForm(form url.Values, stored bool) bool {
+	vals, ok := form["sso_strict_mode"]
+	if !ok {
+		return stored
+	}
+	return slices.Contains(vals, "1")
 }
 
 func isValidUpstreamHost(h string) bool {

@@ -70,10 +70,49 @@ func runDoctor() int {
 	checks = append(checks, doctorRedis(ctx, rawCfg)...)
 	checks = append(checks, doctorPorts(rawCfg)...)
 	checks = append(checks, doctorNodes(ctx, db, rawCfg)...)
+	checks = append(checks, doctorSSORoutes(ctx, db)...)
 	checks = append(checks, doctorWireGuardHost()...)
 
 	printChecks(checks)
 	return summarize(checks)
+}
+
+// doctorSSORoutes names every SSO route that gates page loads only. Run
+// before the upgrade it is the list of routes the backfill will switch to
+// strict; run after it, the list of deliberate opt-outs left to review.
+func doctorSSORoutes(ctx context.Context, db *sql.DB) []check {
+	if db == nil {
+		return nil
+	}
+	qCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	rows, err := db.QueryContext(qCtx,
+		`SELECT id, domain FROM routes
+		  WHERE COALESCE(sso_provider_url,'') <> '' AND COALESCE(sso_strict_mode,0) = 0
+		  ORDER BY id`)
+	if err != nil {
+		return nil // pre-install, or a schema older than the SSO columns
+	}
+	defer rows.Close()
+	var names []string
+	for rows.Next() {
+		var id int64
+		var domain string
+		if err := rows.Scan(&id, &domain); err == nil {
+			names = append(names, fmt.Sprintf("#%d %s", id, domain))
+		}
+	}
+	if len(names) == 0 {
+		return []check{{"routes: SSO strict mode", statusPass,
+			"no SSO route runs in permissive (document-only) mode"}}
+	}
+	shown := names
+	if len(shown) > 10 {
+		shown = append(shown[:10:10], fmt.Sprintf("and %d more", len(names)-10))
+	}
+	return []check{{"routes: SSO strict mode", statusWarn, fmt.Sprintf(
+		"%d SSO route(s) gate GET/HEAD only: %s - upgrading moves them to strict, so requests with other methods will need authentication. Review these applications first; strict can be turned off per route afterwards",
+		len(names), strings.Join(shown, ", "))}}
 }
 
 func doctorConfigCheck(err error) check {
