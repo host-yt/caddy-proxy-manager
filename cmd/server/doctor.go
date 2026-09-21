@@ -8,6 +8,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -217,21 +218,32 @@ func doctorPorts(cfg *config.Config) []check {
 	return []check{{"port: panel bind (APP_BIND)", statusPass, addr + " is bindable"}}
 }
 
-// doctorNodeClient builds the admin client doctor probes with: authenticated
-// when the node carries an admin-proxy key, direct otherwise. A key that cannot
-// be decrypted (wrong APP_SECRET) falls back to a direct probe, which then
-// reports the 401 - that is the useful diagnostic.
-func doctorNodeClient(apiURL string, keyEnc sql.NullString, rawCfg *config.Config) *caddyapi.Client {
-	if !keyEnc.Valid || keyEnc.String == "" || rawCfg == nil || rawCfg.App.Secret == "" {
+// doctorNodeClient mirrors routes.NodeClient. It must refuse exactly what the
+// push path refuses, or doctor reports a node "reachable" that the control
+// plane will not talk to - a diagnostic that reads as reassurance.
+func doctorNodeClient(apiURL string, keyEnc sql.NullString, allowPlain bool, rawCfg *config.Config) *caddyapi.Client {
+	blockedOrPlain := func(err error) *caddyapi.Client {
+		if security.UnauthenticatedNodeAdminURL(apiURL) && !allowPlain {
+			return caddyapi.NewBlocked(apiURL, err)
+		}
 		return caddyapi.New(apiURL)
+	}
+	if !keyEnc.Valid || keyEnc.String == "" {
+		return blockedOrPlain(fmt.Errorf("node has no admin-proxy key and %s is not an authenticated admin endpoint", apiURL))
+	}
+	if rawCfg == nil || rawCfg.App.Secret == "" {
+		return blockedOrPlain(errors.New("node has an admin-proxy key but APP_SECRET is unavailable here"))
 	}
 	state, err := installstate.New(stateDir, rawCfg.App.Secret)
 	if err != nil {
-		return caddyapi.New(apiURL)
+		return caddyapi.NewBlocked(apiURL, fmt.Errorf("install state unreadable: %w", err))
 	}
 	key, err := state.Decrypt(keyEnc.String)
 	if err != nil || key == "" {
-		return caddyapi.New(apiURL)
+		// A key that will not decrypt is never downgraded to a direct probe:
+		// that is the degrade-to-unauthenticated shape SEC-002 names.
+		return caddyapi.NewBlocked(apiURL, fmt.Errorf(
+			"admin-proxy key could not be decrypted (wrong APP_SECRET or a corrupted row): %w", err))
 	}
 	return caddyapi.NewAuthed(apiURL, key)
 }
@@ -249,7 +261,7 @@ func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check
 	rows, err := db.QueryContext(qCtx, `
 		SELECT id, name, api_url, has_waf, has_l4, has_dns_module, has_rate_limit, has_geoip,
 		       caddy_version, modules_probed_at, tunnel_enabled, tunnel_transport, tunnel_wstunnel_healthy,
-		       admin_proxy_key_enc
+		       admin_proxy_key_enc, COALESCE(allow_unauthenticated_admin, 0)
 		FROM caddy_nodes WHERE is_enabled = 1 ORDER BY id`)
 	if err != nil {
 		return []check{{"caddy nodes", statusWarn,
@@ -269,13 +281,14 @@ func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check
 		tunnelTransport       string
 		tunnelWstunnelHealthy sql.NullBool
 		adminProxyKeyEnc      sql.NullString
+		allowPlainAdmin       bool
 	}
 	var nodes []node
 	for rows.Next() {
 		var n node
 		if err := rows.Scan(&n.id, &n.name, &n.apiURL, &n.hasWAF, &n.hasL4, &n.hasDNS, &n.hasRateLimit, &n.hasGeoIP,
 			&n.caddyVersion, &n.modulesProbedAt, &n.tunnelEnabled, &n.tunnelTransport, &n.tunnelWstunnelHealthy,
-			&n.adminProxyKeyEnc); err == nil {
+			&n.adminProxyKeyEnc, &n.allowPlainAdmin); err == nil {
 			nodes = append(nodes, n)
 		}
 	}
@@ -291,14 +304,14 @@ func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check
 		// unauthenticated probe, so use the same key the panel does - else
 		// doctor reports a healthy node as unreachable.
 		probeCtx, pcancel := context.WithTimeout(ctx, 3*time.Second)
-		_, admErr := doctorNodeClient(n.apiURL, n.adminProxyKeyEnc, rawCfg).GetRaw(probeCtx, "/config/")
+		_, admErr := doctorNodeClient(n.apiURL, n.adminProxyKeyEnc, n.allowPlainAdmin, rawCfg).GetRaw(probeCtx, "/config/")
 		pcancel()
 		if admErr != nil {
 			checks = append(checks, check{label + ": admin API", statusFail,
 				admErr.Error() + " - verify the node's Caddy container is up and reachable at " + n.apiURL})
 		} else {
 			checks = append(checks, check{label + ": admin API", statusPass, n.apiURL + " reachable"})
-			checks = append(checks, doctorNodeAdminBind(ctx, doctorNodeClient(n.apiURL, n.adminProxyKeyEnc, rawCfg), label))
+			checks = append(checks, doctorNodeAdminBind(ctx, doctorNodeClient(n.apiURL, n.adminProxyKeyEnc, n.allowPlainAdmin, rawCfg), label))
 		}
 
 		// SEC-002: Caddy's admin API authenticates nothing. A node addressed at
@@ -309,6 +322,11 @@ func doctorNodes(ctx context.Context, db *sql.DB, rawCfg *config.Config) []check
 					"admin proxy and repoint api_url at http://<wg-ip>:2021 (docs/MULTI_NODE.md)"})
 		} else if n.adminProxyKeyEnc.Valid && n.adminProxyKeyEnc.String != "" {
 			checks = append(checks, check{label + ": admin API auth", statusPass, "agent admin proxy, bearer key issued"})
+		}
+		if n.allowPlainAdmin {
+			checks = append(checks, check{label + ": admin API auth", statusWarn,
+				"allow_unauthenticated_admin=1 - a migration-window allowance for this node. " +
+					"It clears itself on the first push where the node's key decrypts"})
 		}
 
 		if !n.modulesProbedAt.Valid {
