@@ -41,16 +41,16 @@ func (s *Service) screenHTTPTargets(ctx context.Context, built []caddyapi.Route,
 			s.Logger.Warn("unsafe HTTP target dropped from config",
 				"part", d.part, "route_id", d.route.ID, "reason", d.cause.Error())
 		}
-		if d.part != "primary backend" {
+		if d.part != "primary backend" && d.part != "sso provider" {
 			continue
 		}
-		// A dropped primary means the host stops being served: audit it.
+		// A dropped primary or SSO gate means the host stops being served: audit it.
 		audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
 			ActorType: audit.ActorSystem,
 			Action:    "route.blocked_target",
 			Entity:    "route",
 			EntityID:  d.route.ID,
-			Meta:      map[string]any{"reason": d.cause.Error(), "backend": d.route.UpstreamIP},
+			Meta:      map[string]any{"reason": d.cause.Error(), "backend": d.route.UpstreamIP, "part": d.part},
 		})
 	}
 	return outRoutes, outIDs, nil
@@ -162,6 +162,20 @@ func screenHTTPSet(infra *streamguard.InfraTargets, built []caddyapi.Route, ids 
 			continue
 		}
 		r.UpstreamIP, r.PinnedSNI = addr, sni
+		// The SSO gate is a proxy dial too. It keeps its name (the IdP needs
+		// it for Host and TLS) but is resolved and screened, and a route whose
+		// gate fails is dropped whole: serving it without the gate would open it.
+		if r.SSOProviderURL != "" {
+			host, port, ok := caddyapi.SSODialTarget(r.SSOProviderURL)
+			if !ok {
+				drops = append(drops, httpDrop{r, "sso provider", errors.New("sso provider URL names no host:port")})
+				continue
+			}
+			if _, _, err := screen(host, port, modeScreen); err != nil {
+				drops = append(drops, httpDrop{r, "sso provider", err})
+				continue
+			}
+		}
 		ups := r.Upstreams[:0:0]
 		poolSNI, poolMode := "", modePin
 		if !poolPinnable(r) {

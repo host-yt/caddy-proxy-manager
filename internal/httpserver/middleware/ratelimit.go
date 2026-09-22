@@ -22,6 +22,10 @@ type RateLimitConfig struct {
 	SkipFn func(*http.Request) bool
 }
 
+// pending2FAKeyPrefix mirrors handlers.pending2FAKeyPrefix (the Redis key of a
+// live mid-login 2FA ticket); middleware cannot import handlers.
+const pending2FAKeyPrefix = "hpg:2fa2:"
+
 // RateLimit returns a middleware that 429s any source IP exceeding the
 // configured threshold within a rolling 60s window. Implementation: an atomic
 // INCR + first-use EXPIRE on hpg:rl:<prefix>:<ip>, fail-open if Redis is
@@ -95,9 +99,17 @@ func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Hand
 				return true
 			}
 			// Mid-2FA ticket: no session yet, but per-ticket OTP cap bounds it.
-			for _, c := range r.Cookies() {
-				if c.Name == "hpg_2fa_pending" && c.Value != "" {
-					return true
+			// Only the 2FA endpoints, and only for a ticket that is live in
+			// Redis - a cookie is client-supplied, and any value used to switch
+			// the limiter off for every anonymous POST.
+			if strings.HasPrefix(r.URL.Path, "/auth/2fa") {
+				if c, err := r.Cookie("hpg_2fa_pending"); err == nil && c.Value != "" && len(c.Value) <= 128 {
+					ctx, cancel := context.WithTimeout(r.Context(), 200*time.Millisecond)
+					n, err := rdb.Exists(ctx, pending2FAKeyPrefix+c.Value).Result()
+					cancel()
+					if err == nil && n == 1 {
+						return true
+					}
 				}
 			}
 			return false

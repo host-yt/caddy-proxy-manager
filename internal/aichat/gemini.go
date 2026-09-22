@@ -12,7 +12,7 @@ import (
 
 const (
 	geminiBase         = "https://generativelanguage.googleapis.com/v1beta/models/"
-	geminiDefaultModel = "gemini-1.5-flash"
+	geminiDefaultModel = "gemini-2.5-flash"
 )
 
 // geminiClient talks to the Gemini generateContent API. Streaming uses
@@ -71,12 +71,13 @@ func (c *geminiClient) buildBody(msgs []Message, opts Options) geminiReq {
 	return body
 }
 
-// endpoint builds the model URL. The API key goes in the ?key= query param;
-// it is never logged by this package.
+// endpoint builds the model URL. The API key is NOT part of it: it travels in
+// the x-goog-api-key header, because net/http puts the full URL into
+// transport errors and those are logged.
 func (c *geminiClient) endpoint(model, method, extraQuery string) string {
-	u := geminiBase + url.PathEscape(model) + ":" + method + "?key=" + url.QueryEscape(c.apiKey)
+	u := geminiBase + url.PathEscape(model) + ":" + method
 	if extraQuery != "" {
-		u += "&" + extraQuery
+		u += "?" + extraQuery
 	}
 	return u
 }
@@ -91,6 +92,7 @@ func (c *geminiClient) newRequest(ctx context.Context, urlStr string, body gemin
 		return nil, err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("x-goog-api-key", c.apiKey)
 	return req, nil
 }
 
@@ -131,9 +133,9 @@ type geminiModelsResp struct {
 
 func (c *geminiClient) ListModels(ctx context.Context) ([]string, error) {
 	var resp geminiModelsResp
-	// Key in query param; pageSize maxes out so we get the full catalog in one call.
-	u := "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000&key=" + url.QueryEscape(c.apiKey)
-	if err := doGETJSON(ctx, u, nil, &resp); err != nil {
+	// Key in a header (see endpoint); pageSize maxes out so we get the full catalog in one call.
+	u := "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000"
+	if err := doGETJSON(ctx, u, map[string]string{"x-goog-api-key": c.apiKey}, &resp); err != nil {
 		return nil, err
 	}
 	ids := make([]string, 0, len(resp.Models))

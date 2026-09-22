@@ -9,9 +9,12 @@ import (
 )
 
 const (
-	anthropicURL          = "https://api.anthropic.com/v1/messages"
-	anthropicVersion      = "2023-06-01"
-	anthropicDefaultModel = "claude-3-5-haiku-latest"
+	anthropicURL     = "https://api.anthropic.com/v1/messages"
+	anthropicVersion = "2023-06-01"
+	// Used when no model is picked in Settings -> AI. Haiku 4.5 is the cheap
+	// tier and does not think unless asked, which suits the 1024-token default
+	// and the tool loop below. claude-3-5-haiku-* was retired on 2026-02-19.
+	anthropicDefaultModel = "claude-haiku-4-5"
 )
 
 // anthropicClient talks to the Anthropic Messages API (streaming SSE). model is
