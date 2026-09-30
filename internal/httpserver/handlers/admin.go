@@ -4169,7 +4169,7 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 			// Computed default - surfaces in the placeholder so admin can
 			// copy-paste into the IdP redirect URIs field without guessing.
 			DefaultRedirect:       strings.TrimRight(d.AppURL, "/") + "/auth/oidc/callback",
-			DefaultRole:           defaultStr(kv["oidc.default_role"], "support"),
+			DefaultRole:           defaultStr(kv["oidc.default_role"], "client"),
 			AutoProvision:         kv["oidc.auto_provision"] == "1",
 			Scopes:                defaultStr(kv["oidc.scopes"], "openid email profile"),
 			PasswordLoginDisabled: kv["oidc.password_login_disabled"] == "1",
@@ -5307,7 +5307,7 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if defaultRole != "support" && defaultRole != "admin" && defaultRole != "client" {
-		defaultRole = "support"
+		defaultRole = "client"
 	}
 	// Refuse the dangerous combo: auto-provision new users straight into the
 	// admin role. Any unknown email at the IdP would otherwise become an

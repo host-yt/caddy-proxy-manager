@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
 
@@ -119,6 +120,14 @@ func (h *ClientHandlers) GeoBlockUpdate(w http.ResponseWriter, r *http.Request) 
 	for _, u := range []string{redirectURL, logoURL} {
 		if u != "" && !isHTTPURL(u) {
 			clientRedirectFlash(w, r, "/app/account", "", "URLs must be http(s)://")
+			return
+		}
+	}
+	// All of these reach a static_response body or Location header, which the
+	// node's Caddy expands: env/file placeholders would read the node itself.
+	for _, v := range []string{redirectURL, title, message, logoURL} {
+		if err := caddyapi.ScreenReplacerValue(v); err != nil {
+			clientRedirectFlash(w, r, "/app/account", "", "block page: "+err.Error())
 			return
 		}
 	}
