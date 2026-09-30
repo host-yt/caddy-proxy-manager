@@ -3473,6 +3473,14 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "error logo URL must be http(s)://")
 		return
 	}
+	// These values reach a static_response body or Location header, which
+	// Caddy expands; env/file placeholders there would read the node.
+	for _, v := range []string{maintenanceMsg, errHTML, errLogoURL, errBrand, errBgColor} {
+		if err := caddyapi.ScreenReplacerValue(v); err != nil {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "error/maintenance page: "+err.Error())
+			return
+		}
+	}
 	if errBgColor != "" && !isSafeCSSColor(errBgColor) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "error background must be #RGB / #RRGGBB / #RRGGBBAA or rgb()/rgba()")
 		return
@@ -3548,6 +3556,25 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 				redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "sso trusted proxies must be IPs or CIDRs")
 				return
 			}
+		}
+	}
+	// The SSO gate is dialed by the node like a backend, so it gets the same
+	// screen; copy-header names become header keys and placeholder names.
+	if ssoProviderURL != "" {
+		ssoHost, ssoPort, ok := caddyapi.SSODialTarget(ssoProviderURL)
+		if !ok {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "sso provider URL must name a host")
+			return
+		}
+		if err := screenBackendHost(r.Context(), h.DB(), ssoHost, ssoPort); err != nil {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "sso provider URL: "+err.Error())
+			return
+		}
+	}
+	for _, hn := range strings.FieldsFunc(ssoCopyHeaders, func(c rune) bool { return c == '\n' || c == '\r' || c == ',' }) {
+		if hn = strings.TrimSpace(hn); hn != "" && !caddyapi.ValidHeaderName(hn) {
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "sso copy headers must be header names")
+			return
 		}
 	}
 	var ssoProviderURLVal, ssoCopyHeadersVal, ssoTrustedProxiesVal sql.NullString
@@ -3835,6 +3862,10 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	if kind == "redirect" && redirectURL == "" {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "redirect URL required for redirect route")
+		return
+	}
+	if err := caddyapi.ScreenReplacerValue(redirectURL); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "redirect URL: "+err.Error())
 		return
 	}
 	if kind == "redirect" {

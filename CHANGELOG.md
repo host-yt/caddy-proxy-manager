@@ -23,29 +23,56 @@ is deliberately left as published.
 
 ## [Unreleased]
 
-### Added
+## [1.7.2] - 2026-09-30
 
-- **Caddy admin endpoint can run on a unix socket.** A node's admin endpoint
-  can be bound to a filesystem socket instead of a TCP port
-  (`HPG_CADDY_ADMIN_LISTEN=unix//sockets/caddy-admin.sock|0666`), so it has no
-  network address at all. The panel reaches it over a shared volume, a remote
-  node through its node-agent, which prefers the socket whenever it is live and
-  falls back to `HPG_CADDY_ADMIN_URL` otherwise. Opt-in per node with
-  `HPG_CADDY_ADMIN_LISTEN_NODES`; an upgrade that changes nothing else keeps
-  the current TCP bind. `server doctor` now prints each node's actual admin
-  bind, read back from the node, and `hpg-node-agent doctor` reports which
-  transport it is using - check both before removing a published port. Rollout
-  order and rollback:
-  [MULTI_NODE.md](docs/MULTI_NODE.md#moving-a-node-off-the-tcp-admin-port).
-- **A node's Admin API URL is editable** in `/admin/nodes` → node → edit.
-  Previously it could only be set when the node was registered, so a node could
-  not be repointed at a different admin endpoint without re-adding it.
+Security release: closes the findings of an internal review of 1.7.1. Only
+the panel image changes behaviour; nodes pick up the corrected configuration
+on the next push. Mechanism details are withheld until operators have had
+time to upgrade.
 
 ### Security
 
-- Upstream proxy targets are checked to be plain `host:port`
-  (`caddyapi.ScreenDialTarget`): Caddy also accepts socket and
-  file-descriptor upstream forms, which no address-based screen covers.
+- **Critical: tenant-controlled page text could read data from the node.**
+  Block, maintenance and error page text and redirect targets set by clients
+  and scoped admins were not covered by the screening added in 1.6.0. They are
+  now checked on save and neutralised again when the configuration is built.
+  Mechanism details are withheld until operators have had time to upgrade;
+  multi-tenant deployments should treat this as a priority upgrade.
+- **High: a second login factor the user never enrolled was accepted.** 2FA now
+  completes only with a method enabled on that account.
+- **High: social-login auto-provisioning defaulted to a role that can read
+  every tenant.** Accounts created by Google/GitHub/OIDC sign-in now default to
+  `client`, and social-login provider settings require super_admin.
+- The login rate limit could be skipped by the client; it is now exempted only
+  for a live 2FA ticket on the 2FA endpoints.
+- A route's SSO provider address is screened like any other proxy target, on
+  save and at build. A route whose SSO provider fails the screen is not
+  served, rather than served without its gate. SSO copy-header names must be
+  valid header names.
+- The Gemini API key is sent in a header instead of the URL, so it no longer
+  appears in logged transport errors.
+
+### Fixed
+
+- AI assistant: the default Anthropic model was `claude-3-5-haiku-latest`,
+  which Anthropic retired on 2026-02-19, so chat failed on every install that
+  had not picked a model. The default is now `claude-haiku-4-5`. The Gemini
+  default moves from the retired `gemini-1.5-flash` to `gemini-2.5-flash`.
+
+### Upgrade notes
+
+No manual step is required; check these where they apply.
+
+1. Social-login providers already saved with default role `support` keep it.
+   If auto-provisioning is on for a public provider (Google, GitHub), review
+   that choice in Settings - anyone with an account there gets that role.
+2. Routes whose SSO provider URL points at control-plane infrastructure
+   (loopback, the WireGuard mesh, a node admin port) stop being served on the
+   next push and are recorded in the audit log as `route.blocked_target`.
+3. Pages or redirects containing Caddy `{env.*}`, `{file.*}` or `{system.*}`
+   placeholders can no longer be saved. Existing ones are neutralised at build:
+   a redirect answers 503, and custom maintenance HTML falls back to the branded
+   page.
 
 ## [1.7.1] - 2026-09-21
 

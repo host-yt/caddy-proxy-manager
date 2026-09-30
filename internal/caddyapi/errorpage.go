@@ -14,7 +14,9 @@ import (
 // msg:    operator-supplied detail (escaped before splicing).
 func renderErrorPage(status int, title, msg string, b ErrorBranding) string {
 	bg := b.BgColor
-	if bg == "" {
+	// bg is spliced into CSS unescaped; savers validate it as a colour, and a
+	// brace here could only be a replacer placeholder, so drop to the default.
+	if bg == "" || strings.ContainsAny(bg, "{}") {
 		bg = "#1f2937" // slate-800 deep gray
 	}
 	brand := b.Brand
@@ -77,9 +79,10 @@ func routeErrorBranding(r Route) ErrorBranding {
 
 // routeMaintenanceBody renders a route's maintenance 503 body: a verbatim
 // admin-supplied HTML page when provided, else the branded shell. The HTML is
-// admin-scoped and capped at save time, so it is emitted as-is (not templated).
+// emitted as-is (not templated), so it can reach Caddy's replacer: a page that
+// fails ScreenReplacerValue falls back to the branded shell instead.
 func routeMaintenanceBody(r Route, msg string) string {
-	if r.CustomErrorOverride && strings.TrimSpace(r.CustomErrorHTML) != "" {
+	if r.CustomErrorOverride && strings.TrimSpace(r.CustomErrorHTML) != "" && ScreenReplacerValue(r.CustomErrorHTML) == nil {
 		return r.CustomErrorHTML
 	}
 	return maintenanceBody(msg, routeErrorBranding(r))

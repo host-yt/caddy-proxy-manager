@@ -74,9 +74,9 @@ func TestGeminiListModels(t *testing.T) {
 	if !equalIDs(got, want) {
 		t.Fatalf("got %v want %v", got, want)
 	}
-	// Key travels in the query param, not a header.
-	if !strings.Contains(ct.url, "key=k") {
-		t.Fatalf("url = %s", ct.url)
+	// Key travels in a header, never the URL (transport errors log the URL).
+	if strings.Contains(ct.url, "key=") || ct.header.Get("x-goog-api-key") != "k" {
+		t.Fatalf("url = %s, header = %v", ct.url, ct.header)
 	}
 }
 
