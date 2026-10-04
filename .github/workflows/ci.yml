@@ -136,7 +136,7 @@ jobs:
       # means something is actually broken.
       - name: Test
         env:
-          TEST_DB_DSN: "root:hpg_ci@tcp(127.0.0.1:3306)/hpg_ci?parseTime=true"
+          TEST_DB_DSN: "root:hpg_ci@tcp(127.0.0.1:3306)/hpg_ci?parseTime=true&multiStatements=true"
           TEST_DB_REQUIRE_MYSQL: "1"
         run: go test -race -count=1 ./...
 
