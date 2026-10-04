@@ -23,6 +23,17 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-10-05
+
+Closes the remaining findings of the September system review and the 1.7.1
+audit, and folds in the security fixes merged after 1.7.1 that were never
+tagged as 1.7.2. **Upgrade promptly**, especially on shared or multi-tenant
+installs: several fixes harden tenant-controlled settings on the node. Also
+new: ephemeral external routes over API v1, per-node applied-config state,
+a durable push outbox, and a per-node GeoIP gate so one node without the
+database no longer rejects its whole config. Read the upgrade notes before
+updating; migrations 00159-00164 run on start.
+
 ### Added
 
 - **Per-node publish state on the hosts list.** The publish pill used to show
