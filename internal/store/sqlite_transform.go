@@ -44,14 +44,14 @@ func TransformForSQLite(input string) string {
 }
 
 var (
-	reOnUpdate              = regexp.MustCompile(`(?i)\s+ON\s+UPDATE\s+CURRENT_TIMESTAMP`)
-	reEnum                  = regexp.MustCompile(`(?i)ENUM\s*\([^)]+\)`)
+	reOnUpdate = regexp.MustCompile(`(?i)\s+ON\s+UPDATE\s+CURRENT_TIMESTAMP`)
+	reEnum     = regexp.MustCompile(`(?i)ENUM\s*\([^)]+\)`)
 	// Leading group keeps a qualified call like Go's time.Now() in a comment intact.
-	reMySQLNow              = regexp.MustCompile(`(?i)(^|[^.\w])(?:NOW|UTC_TIMESTAMP)\s*\(\s*\)`)
-	reInsertInto            = regexp.MustCompile(`(?i)^(\s*)INSERT\s+INTO\s+`)
+	reMySQLNow   = regexp.MustCompile(`(?i)(^|[^.\w])(?:NOW|UTC_TIMESTAMP)\s*\(\s*\)`)
+	reInsertInto = regexp.MustCompile(`(?i)^(\s*)INSERT\s+INTO\s+`)
 	// SQLite doesn't support precision args: DATETIME(3) → DATETIME, CURRENT_TIMESTAMP(3) → CURRENT_TIMESTAMP.
-	reDatetimePrecision     = regexp.MustCompile(`(?i)\b(DATETIME|TIMESTAMP|TIME|DATE)\s*\(\d+\)`)
-	reCurrentTimestampPrec  = regexp.MustCompile(`(?i)\bCURRENT_TIMESTAMP\s*\(\d+\)`)
+	reDatetimePrecision    = regexp.MustCompile(`(?i)\b(DATETIME|TIMESTAMP|TIME|DATE)\s*\(\d+\)`)
+	reCurrentTimestampPrec = regexp.MustCompile(`(?i)\bCURRENT_TIMESTAMP\s*\(\d+\)`)
 )
 
 // stripSQLComments removes `--` comments, keeping the "-- +goose" annotations
@@ -230,7 +230,7 @@ func convertCreateTableIndexes(input string) string {
 var (
 	// Anchored at clause start, so a column named e.g. "pubkey VARCHAR(64)"
 	// can never read as a KEY definition.
-	reKeyClause = regexp.MustCompile("(?is)^(UNIQUE\\s+)?(?:KEY|INDEX)\\s+([^\\s(]+)\\s*\\((.+)\\)$")
+	reKeyClause   = regexp.MustCompile("(?is)^(UNIQUE\\s+)?(?:KEY|INDEX)\\s+([^\\s(]+)\\s*\\((.+)\\)$")
 	reLineComment = regexp.MustCompile(`(?m)--[^\n]*`)
 	reTableName   = regexp.MustCompile("(?i)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?[`\"]?(\\w+)[`\"]?\\s*\\(")
 )
@@ -326,17 +326,17 @@ func convertValuesToExcluded(updateClause string) string {
 
 var (
 	// reAutoPK matches inline AUTO_INCREMENT PRIMARY KEY in various forms.
-	reAutoPK        = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)(?:\s+UNSIGNED)?(?:\s+NOT\s+NULL)?\s+AUTO_INCREMENT\s+(PRIMARY\s+KEY)`)
-	reAutoPK2       = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)\s+AUTO_INCREMENT\s+(PRIMARY\s+KEY)`)
+	reAutoPK         = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)(?:\s+UNSIGNED)?(?:\s+NOT\s+NULL)?\s+AUTO_INCREMENT\s+(PRIMARY\s+KEY)`)
+	reAutoPK2        = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)\s+AUTO_INCREMENT\s+(PRIMARY\s+KEY)`)
 	reAutoPKReversed = regexp.MustCompile(`(?i)(?:BIGINT|INT|SMALLINT|MEDIUMINT|TINYINT)(?:\s+UNSIGNED)?\s+(PRIMARY\s+KEY)\s+AUTO_INCREMENT`)
-	reColName       = regexp.MustCompile(`^\s*\x60?(\w+)\x60?\s+`)
-	reUnsigned      = regexp.MustCompile(`(?i)\s+UNSIGNED\b`)
-	reAutoInc       = regexp.MustCompile(`(?i)\s+AUTO_INCREMENT\b`)
-	reAlterStmt   = regexp.MustCompile(`(?is)ALTER\s+TABLE\s+(\x60?\w+\x60?)\s+(.*?);`)
-	reAddUniqueKey = regexp.MustCompile(`(?i)ADD\s+UNIQUE\s+(?:KEY|INDEX)\s+(\x60?\w+\x60?)\s*\(([^)]+)\)`)
-	reAddKey       = regexp.MustCompile(`(?i)ADD\s+(?:KEY|INDEX)\s+(\x60?\w+\x60?)\s*\(([^)]+)\)`)
-	reDropKey      = regexp.MustCompile(`(?i)DROP\s+(?:KEY|INDEX)\s+(\x60?\w+\x60?)`)
-	reAfterClause  = regexp.MustCompile(`(?i)\s+AFTER\s+\x60?\w+\x60?`)
+	reColName        = regexp.MustCompile(`^\s*\x60?(\w+)\x60?\s+`)
+	reUnsigned       = regexp.MustCompile(`(?i)\s+UNSIGNED\b`)
+	reAutoInc        = regexp.MustCompile(`(?i)\s+AUTO_INCREMENT\b`)
+	reAlterStmt      = regexp.MustCompile(`(?is)ALTER\s+TABLE\s+(\x60?\w+\x60?)\s+(.*?);`)
+	reAddUniqueKey   = regexp.MustCompile(`(?i)ADD\s+UNIQUE\s+(?:KEY|INDEX)\s+(\x60?\w+\x60?)\s*\(([^)]+)\)`)
+	reAddKey         = regexp.MustCompile(`(?i)ADD\s+(?:KEY|INDEX)\s+(\x60?\w+\x60?)\s*\(([^)]+)\)`)
+	reDropKey        = regexp.MustCompile(`(?i)DROP\s+(?:KEY|INDEX)\s+(\x60?\w+\x60?)`)
+	reAfterClause    = regexp.MustCompile(`(?i)\s+AFTER\s+\x60?\w+\x60?`)
 )
 
 // fixAutoIncrementPK converts MySQL AUTO_INCREMENT primary keys to SQLite INTEGER PRIMARY KEY

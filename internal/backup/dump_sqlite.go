@@ -177,7 +177,7 @@ func writeValueSQLite(w io.Writer, v any) error {
 
 // SplitSQLStatements splits a SQLite dump into executable statements. Naive
 // splitting on ";" breaks on values containing semicolons or newlines, so this
-// walks the text tracking single-quoted literals (with '' doubling) and `--`
+// walks the text tracking single-quoted literals (with ” doubling) and `--`
 // comments. Exported for the restore drill.
 func SplitSQLStatements(dump string) []string {
 	var (
