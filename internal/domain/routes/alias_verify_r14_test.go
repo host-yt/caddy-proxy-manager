@@ -4,13 +4,13 @@ import (
 	"context"
 	"database/sql"
 	"log/slog"
-	"path/filepath"
 	"strings"
 	"testing"
 
-	proxygateway "github.com/host-yt/caddy-proxy-manager"
-	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	_ "modernc.org/sqlite"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
+	"github.com/host-yt/caddy-proxy-manager/internal/store/sqlitetest"
 )
 
 // FINDING 1 (r14): migration 00138 drops the 00136 backfill, so the panel has
@@ -39,14 +39,11 @@ func migratedSQLite(t *testing.T) *sql.DB {
 	prev := store.Driver()
 	store.SetDriver("sqlite3")
 	t.Cleanup(func() { store.SetDriver(prev) })
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "r14.db"))
+	db, err := sql.Open("sqlite", sqlitetest.MigratedCopy(t, "r14.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := store.RunMigrations(context.Background(), db, proxygateway.MigrationsFS, "migrations"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	return db
 }
 

@@ -8,14 +8,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	proxygateway "github.com/host-yt/caddy-proxy-manager"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
+	"github.com/host-yt/caddy-proxy-manager/internal/store/sqlitetest"
 )
 
 // newPushTestDB brings up a real migrated SQLite schema, the same path a
@@ -28,15 +27,12 @@ func newPushTestDB(t *testing.T) *sql.DB {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	dsn := filepath.Join(t.TempDir(), "hpg.db")
+	dsn := sqlitetest.MigratedCopy(t, "hpg.db")
 	db, err := store.Open(ctx, "sqlite3", dsn, 10*time.Second)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := store.RunMigrations(ctx, db, proxygateway.MigrationsFS, "migrations"); err != nil {
-		t.Fatalf("migrations: %v", err)
-	}
 	return db
 }
 

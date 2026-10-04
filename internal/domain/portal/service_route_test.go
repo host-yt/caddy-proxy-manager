@@ -4,12 +4,12 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"path/filepath"
 	"testing"
 
-	proxygateway "github.com/host-yt/caddy-proxy-manager"
-	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	_ "modernc.org/sqlite"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
+	"github.com/host-yt/caddy-proxy-manager/internal/store/sqlitetest"
 )
 
 // migratedSQLite gives the test the real schema without needing TEST_DB_DSN.
@@ -18,14 +18,11 @@ func migratedSQLite(t *testing.T) *sql.DB {
 	prev := store.Driver()
 	store.SetDriver("sqlite3")
 	t.Cleanup(func() { store.SetDriver(prev) })
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "portal.db"))
+	db, err := sql.Open("sqlite", sqlitetest.MigratedCopy(t, "portal.db"))
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { db.Close() })
-	if err := store.RunMigrations(context.Background(), db, proxygateway.MigrationsFS, "migrations"); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
 	return db
 }
 

@@ -1,17 +1,16 @@
 package handlers
 
 import (
-	"context"
 	"database/sql"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 
-	proxygateway "github.com/host-yt/caddy-proxy-manager"
+	_ "modernc.org/sqlite"
+
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/portal"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
-	_ "modernc.org/sqlite"
+	"github.com/host-yt/caddy-proxy-manager/internal/store/sqlitetest"
 )
 
 // portalVerifyDB seeds one host serving a public catch-all plus a protected
@@ -21,14 +20,11 @@ func portalVerifyDB(t *testing.T) *sql.DB {
 	prev := store.Driver()
 	store.SetDriver("sqlite3")
 	t.Cleanup(func() { store.SetDriver(prev) })
-	db, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "verify.db"))
+	db, err := sql.Open("sqlite", sqlitetest.MigratedCopy(t, "verify.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
-	if err := store.RunMigrations(context.Background(), db, proxygateway.MigrationsFS, "migrations"); err != nil {
-		t.Fatalf("migrations: %v", err)
-	}
 	for _, s := range []string{
 		`INSERT INTO node_groups (id, name) VALUES (1, 'g1')`,
 		`INSERT INTO caddy_nodes (id, name, api_url, is_enabled, node_group_id) VALUES (1, 'edge1', 'http://n1:2019', 1, 1)`,

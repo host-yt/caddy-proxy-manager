@@ -11,19 +11,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/go-chi/chi/v5"
 
-	proxygateway "github.com/host-yt/caddy-proxy-manager"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
+	"github.com/host-yt/caddy-proxy-manager/internal/store/sqlitetest"
 	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
@@ -36,21 +34,16 @@ func mtlsTLSEditDB(t *testing.T) *sql.DB {
 	store.SetDriver("sqlite3")
 	t.Cleanup(func() { store.SetDriver(prev) })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-	defer cancel()
 	// Opened through the hook driver (a transparent pass-through unless a test
 	// installs a hook) so statement-level interleavings can be made exact.
 	// Same pool shape store.Open gives SQLite: one connection.
-	db, err := sql.Open(registerMTLSHookDriver(t), filepath.Join(t.TempDir(), "hpg.db"))
+	db, err := sql.Open(registerMTLSHookDriver(t), sqlitetest.MigratedCopy(t, "hpg.db"))
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(1)
 	t.Cleanup(func() { _ = db.Close() })
-	if err := store.RunMigrations(ctx, db, proxygateway.MigrationsFS, "migrations"); err != nil {
-		t.Fatalf("migrations: %v", err)
-	}
 	for _, s := range []string{
 		`INSERT INTO users (id, email, password_hash, role) VALUES (1, 'a@b.c', 'x', 'client')`,
 		`INSERT INTO clients (id, user_id, display_name) VALUES (1, 1, 'acme')`,
