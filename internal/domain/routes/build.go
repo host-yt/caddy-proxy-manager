@@ -527,8 +527,12 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		// if either fails - an emitted route without its gate is an open relay.
 		external := upstreamExternal
 		proxySecret := ""
+		externalWild := false
 		if external {
-			if !s.externalHostAllowed(ip) {
+			exact, wild := s.externalHostMatch(ip)
+			// A wildcard-only hit is pinned and re-screened public at emission.
+			externalWild = !exact && wild
+			if !exact && (!wild || !validDomain(strings.ToLower(ip))) {
 				s.Logger.Warn("external route host not allowlisted, skipping", "route_id", id, "host", ip)
 				notes[id] = compileNote{compileNotEmitted, "external upstream host is not allow-listed"}
 				continue
@@ -644,6 +648,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			// External HTTPS upstream: SNI + Host both use the stored header
 			// (falls back to the FQDN in the builder); ProxySecret gates inbound.
 			External:                external,
+			ExternalWildcard:        externalWild,
 			UpstreamSNI:             upstreamHostHeader,
 			UpstreamHostHeader:      upstreamHostHeader,
 			ProxySecret:             proxySecret,

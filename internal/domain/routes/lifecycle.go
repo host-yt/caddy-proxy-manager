@@ -16,6 +16,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
+	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
 // Create inserts a route, picks a node, runs DNS pre-check synchronously
@@ -95,21 +96,22 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 			return 0, ErrExternalNotInPlan
 		}
 		externalHost = strings.ToLower(strings.TrimSpace(in.ExternalHost))
-		exact, wild := s.externalHostMatch(externalHost)
-		if !exact && (!wild || !validDomain(externalHost)) {
-			return 0, ErrExternalHostNotAllowed
-		}
-		// An exact entry is the operator's explicit consent; a wildcard is not.
-		if wild {
-			if err := screenExternalHost(ctx, externalHost); err != nil {
-				return 0, fmt.Errorf("%w: %v", ErrExternalHostUnsafe, err)
-			}
+		if err := s.CheckExternalHost(ctx, externalHost); err != nil {
+			return 0, err
 		}
 		in.Kind = "proxy"
 		in.UpstreamScheme = "https"
 		in.SSL = true
 		if in.UpstreamPort == 0 {
 			in.UpstreamPort = 443
+		}
+		// Every caller (API included) gets the same deny set as the UI save:
+		// control plane, managed nodes, reserved ports.
+		if err := screenExternalTarget(ctx, s.DB, externalHost, in.UpstreamPort); err != nil {
+			if errors.Is(err, errScreenUnavailable) {
+				return 0, err
+			}
+			return 0, fmt.Errorf("%w: %v", ErrExternalTargetDenied, err)
 		}
 		if in.ProxySecretPlain != "" {
 			if s.EncryptSecret == nil {
@@ -940,6 +942,18 @@ func (s *Service) Reconcile(ctx context.Context) {
 // screenExternalHost resolves a wildcard-allowlisted host and refuses private
 // targets. Var so tests can stub DNS.
 var screenExternalHost = security.ValidateOutboundHost
+
+var errScreenUnavailable = errors.New("destination screening unavailable")
+
+// screenExternalTarget applies the HTTP backend deny set to an external
+// origin. Var so tests can stub DNS.
+var screenExternalTarget = func(ctx context.Context, db *sql.DB, host string, port int) error {
+	infra, err := streamguard.LoadInfraTargets(ctx, db)
+	if err != nil {
+		return fmt.Errorf("%w: %v", errScreenUnavailable, err)
+	}
+	return infra.ScreenHTTPBackend(ctx, host, port)
+}
 
 // maxRouteTTL caps ephemeral routes; long-lived ones should not use ttl.
 const maxRouteTTL = 24 * 60 * 60

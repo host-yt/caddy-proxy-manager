@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -146,6 +147,9 @@ type Route struct {
 	// verifies the upstream cert (never skip-verify), and - with ProxySecret -
 	// prepends an inbound bearer gate. Not for internal/customer backends.
 	External bool
+	// ExternalWildcard: External allowed only via a "*.zone" entry. Panel-side
+	// policy, never emitted: the panel pins its dial to a screened public address.
+	ExternalWildcard bool
 	// UpstreamSNI / UpstreamHostHeader: the SNI sent on the upstream TLS
 	// handshake and the Host header sent upstream. Empty falls back to
 	// UpstreamIP (the external FQDN).
@@ -416,6 +420,10 @@ func BuildRoute(r Route) map[string]any {
 	match := map[string]any{"host": r.Hosts}
 	if r.PathPrefix != "" {
 		match["path"] = []string{r.PathPrefix + "*"}
+		// A stripped prefix must end on a segment boundary: /tok never /tokX.
+		if p := strings.TrimSuffix(r.PathPrefix, "/"); r.External && r.StripPathPrefix && p != "" {
+			match["path"] = []string{p, p + "/*"}
+		}
 	}
 
 	// Fail closed: a stored custom chain the allow-list rejects may have been
@@ -631,7 +639,7 @@ func BuildRoute(r Route) map[string]any {
 			if r.External {
 				// External origins MUST validate against the public CA; only
 				// pin SNI so the upstream serves the right cert.
-				if sni := firstNonEmpty(r.UpstreamSNI, r.UpstreamHostHeader, r.UpstreamIP); sni != "" {
+				if sni := firstNonEmpty(r.UpstreamSNI, r.UpstreamHostHeader, r.PinnedSNI, r.UpstreamIP); sni != "" {
 					tlsBlock["server_name"] = sni
 				}
 			} else {
@@ -661,7 +669,7 @@ func BuildRoute(r Route) map[string]any {
 			set[k] = []string{v}
 		}
 		if r.External {
-			if host := firstNonEmpty(r.UpstreamHostHeader, r.UpstreamIP); host != "" {
+			if host := firstNonEmpty(r.UpstreamHostHeader, r.PinnedSNI, r.UpstreamIP); host != "" {
 				set["Host"] = []string{host}
 			}
 		}
@@ -1181,12 +1189,14 @@ func BuildRoute(r Route) map[string]any {
 		})
 	}
 
+	// Location rules match the client's path; only the fallback to the
+	// external origin gets the rewrite.
+	rewrites := pathRewriteHandlers(r)
 	if len(r.LocationRules) > 0 && r.Kind != "redirect" && !r.MaintenanceMode {
-		primary = buildLocationSubroute(r, primary)
+		primary = buildLocationSubroute(r, primary, rewrites)
+		rewrites = nil
 	}
-	if r.Kind != "redirect" {
-		handlers = append(handlers, pathRewriteHandlers(r)...)
-	}
+	handlers = append(handlers, rewrites...)
 	handlers = append(handlers, primary)
 
 	// Access list. Three modes:
@@ -1644,7 +1654,7 @@ func buildEarlyLocationSubroute(r Route) map[string]any {
 	return map[string]any{"handler": "subroute", "routes": routes}
 }
 
-func buildLocationSubroute(r Route, defaultPrimary map[string]any) map[string]any {
+func buildLocationSubroute(r Route, defaultPrimary map[string]any, fallbackPre []any) map[string]any {
 	routes := make([]any, 0, len(r.LocationRules)+1)
 	for _, rule := range r.LocationRules {
 		switch rule.Action {
@@ -1657,11 +1667,11 @@ func buildLocationSubroute(r Route, defaultPrimary map[string]any) map[string]an
 			routes = append(routes, entry)
 		}
 	}
-	if len(routes) == 0 {
+	if len(routes) == 0 && len(fallbackPre) == 0 {
 		return defaultPrimary
 	}
 	routes = append(routes, map[string]any{
-		"handle":   []any{defaultPrimary},
+		"handle":   append(append([]any{}, fallbackPre...), defaultPrimary),
 		"terminal": true,
 	})
 	return map[string]any{
@@ -2340,16 +2350,24 @@ func panelDial(rawURL string) string {
 	return net.JoinHostPort(host, port)
 }
 
-// pathRewriteHandlers maps /<PathPrefix>/rest to /<UpstreamPathPrefix>/rest.
-// Both values are validated at write time (no placeholders, no "..").
+// pathRewriteHandlers maps /<PathPrefix>/rest to /<UpstreamPathPrefix>/rest
+// for External routes only. Both values are validated at write time.
 func pathRewriteHandlers(r Route) []any {
-	var out []any
-	if r.StripPathPrefix && r.PathPrefix != "" && r.PathPrefix != "/" {
-		out = append(out, map[string]any{"handler": "rewrite", "strip_path_prefix": strings.TrimSuffix(r.PathPrefix, "/")})
+	if !r.External || r.Kind == "redirect" {
+		return nil
 	}
-	if up := strings.TrimSuffix(r.UpstreamPathPrefix, "/"); up != "" {
+	up := strings.TrimSuffix(r.UpstreamPathPrefix, "/")
+	if p := strings.TrimSuffix(r.PathPrefix, "/"); r.StripPathPrefix && p != "" {
+		// Case-insensitive like Caddy's path matcher; the result always starts
+		// with "/" (bare /tok becomes up+"/"). "$" escaped for regexp expansion.
+		return []any{map[string]any{"handler": "rewrite", "path_regexp": []any{map[string]any{
+			"find":    "(?i)^" + regexp.QuoteMeta(p) + "(?:/|$)",
+			"replace": strings.ReplaceAll(up, "$", "$$") + "/",
+		}}}}
+	}
+	if up != "" {
 		// No "?" in uri: Caddy keeps the original query string.
-		out = append(out, map[string]any{"handler": "rewrite", "uri": up + "{http.request.uri.path}"})
+		return []any{map[string]any{"handler": "rewrite", "uri": up + "{http.request.uri.path}"}}
 	}
-	return out
+	return nil
 }

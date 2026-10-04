@@ -13,6 +13,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
@@ -232,6 +233,10 @@ func screenerFor(infra *streamguard.InfraTargets, r caddyapi.Route, pin pinFunc)
 			return host, "", screenEmitted(infra, host, port)
 		}
 		addr, err := pin(host, port)
+		if err == nil && r.ExternalWildcard {
+			// The deny set allows RFC1918; a wildcard origin must stay public.
+			err = security.ValidateOutboundHost(context.Background(), addr)
+		}
 		if err != nil || mode == modeScreen || addr == host {
 			return host, "", err
 		}
@@ -266,7 +271,10 @@ func screenSSO(r *caddyapi.Route, screen func(string, int, screenMode) (string, 
 // behind this route's names. Nothing screens what DNS answers then, so it is
 // an operator decision (super_admin waiver / allow-listed external origin) -
 // a tunnel, a bound peer or a custom resolver must never grant it by itself.
-func nodeResolves(r caddyapi.Route) bool { return r.ResolveNodeSide || r.External }
+// A wildcard-only external origin had no operator consent, so it is pinned.
+func nodeResolves(r caddyapi.Route) bool {
+	return r.ResolveNodeSide || (r.External && !r.ExternalWildcard)
+}
 
 // tunnelBackendDial returns the address a tunnel-bound route dials for its
 // backend: a name collapses to the peer address the panel already screened,

@@ -350,6 +350,9 @@ var (
 	// ErrExternalHostUnsafe: a wildcard-allowlisted host resolves to a
 	// private, loopback or link-local address (SSRF).
 	ErrExternalHostUnsafe = errors.New("external upstream host resolves to a non-public address")
+	// ErrExternalTargetDenied: the external origin is control-plane
+	// infrastructure, a managed node or a reserved port.
+	ErrExternalTargetDenied = errors.New("external upstream target is not allowed")
 	// ErrInvalidRewrite: upstream_path / strip / ttl input is malformed.
 	ErrInvalidRewrite = errors.New("invalid upstream_path, strip_path_prefix or ttl_seconds")
 	// ErrWildcardNoProvider: no enabled dns_providers row exists for the
@@ -371,17 +374,21 @@ var (
 	ErrMTLSNeedsTLS = errors.New("mTLS requires SSL enabled on the host")
 )
 
-// ExternalHostAllowed is the exported wrapper so handlers can validate an
-// external upstream FQDN against the allowlist (single source of truth).
-func (s *Service) ExternalHostAllowed(host string) bool { return s.externalHostAllowed(host) }
-
-// externalHostAllowed reports whether host is an exact (case-insensitive)
-// member of the external-upstream allowlist: the union of the env CSV
-// (ExternalUpstreamAllowlist, backward compat) and the DB-managed table
-// (external_upstream_allowlist). Empty union denies all.
-func (s *Service) externalHostAllowed(host string) bool {
+// CheckExternalHost is the single write-time gate for an external upstream
+// FQDN: allowlisted, and a wildcard-only hit must resolve to public addresses.
+func (s *Service) CheckExternalHost(ctx context.Context, host string) error {
+	host = strings.ToLower(strings.TrimSpace(host))
 	exact, wild := s.externalHostMatch(host)
-	return exact || wild
+	if !exact && (!wild || !validDomain(host)) {
+		return ErrExternalHostNotAllowed
+	}
+	// An exact entry is the operator's explicit consent; a wildcard is not.
+	if !exact {
+		if err := screenExternalHost(ctx, host); err != nil {
+			return fmt.Errorf("%w: %v", ErrExternalHostUnsafe, err)
+		}
+	}
+	return nil
 }
 
 // externalHostMatch reports an exact allowlist hit, or a hit via a "*.zone"

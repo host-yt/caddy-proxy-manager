@@ -77,7 +77,7 @@ func mtlsTLSEditDB(t *testing.T) *sql.DB {
 }
 
 // postHostEdit drives POST /admin/hosts/7/edit and returns the Location header.
-func postHostEdit(t *testing.T, db *sql.DB, form url.Values) string {
+func postHostEdit(t *testing.T, db *sql.DB, form url.Values, extAllow ...string) string {
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	// A cancelled background context keeps the post-commit Caddy push from
@@ -87,7 +87,7 @@ func postHostEdit(t *testing.T, db *sql.DB, form url.Values) string {
 	h := &AdminHandlers{
 		DB:     func() *sql.DB { return db },
 		Logger: logger,
-		Routes: &routes.Service{DB: db, Logger: logger, BgCtx: bg},
+		Routes: &routes.Service{DB: db, Logger: logger, BgCtx: bg, ExternalUpstreamAllowlist: extAllow},
 	}
 	req := httptest.NewRequest(http.MethodPost, "/admin/hosts/7/edit", strings.NewReader(form.Encode()))
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")

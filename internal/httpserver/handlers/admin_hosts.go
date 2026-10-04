@@ -3859,9 +3859,12 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, editPath, "", "external upstream cannot also use a WG tunnel - clear 'Backend via'")
 			return
 		}
-		// Allowlist check (Service + build path re-check; defense in depth).
-		if !h.Routes.ExternalHostAllowed(externalHost) {
-			redirectWithFlash(w, r, editPath, "", "external host must be in EXTERNAL_UPSTREAM_ALLOWLIST")
+		// Allowlist + public-address check for wildcard hits, same as Create.
+		cctx, ccancel := context.WithTimeout(r.Context(), 10*time.Second)
+		cerr := h.Routes.CheckExternalHost(cctx, externalHost)
+		ccancel()
+		if cerr != nil {
+			redirectWithFlash(w, r, editPath, "", cerr.Error())
 			return
 		}
 		// Force the route shape (mirrors Create).
@@ -4442,6 +4445,16 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("host update: backend resolution flag", "id", id, "err", rerr)
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
 		return
+	}
+	// The path rewrite belongs to the external origin; it must not follow the
+	// route onto an internal backend.
+	if !external {
+		if _, rerr := tx.ExecContext(ctx,
+			"UPDATE routes SET strip_path_prefix = 0, upstream_path = NULL WHERE id = ?", id); rerr != nil {
+			h.Logger.Warn("host update: clear path rewrite", "id", id, "err", rerr)
+			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "update failed")
+			return
+		}
 	}
 	if resetVerification {
 		if _, rerr := tx.ExecContext(ctx,

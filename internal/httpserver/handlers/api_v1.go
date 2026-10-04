@@ -652,6 +652,8 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusBadRequest, "upstream host not in external allowlist")
 		case errors.Is(err, routes.ErrExternalHostUnsafe):
 			apiErr(w, http.StatusBadRequest, "upstream host resolves to a non-public address")
+		case errors.Is(err, routes.ErrExternalTargetDenied):
+			apiErr(w, http.StatusBadRequest, "upstream target is not allowed")
 		case errors.Is(err, routes.ErrExternalNotInPlan):
 			apiErr(w, http.StatusForbidden, "plan does not permit external upstreams")
 		case errors.Is(err, routes.ErrInvalidRewrite), errors.Is(err, routes.ErrUnsafePlaceholder):

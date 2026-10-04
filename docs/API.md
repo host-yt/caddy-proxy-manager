@@ -510,7 +510,7 @@ Create a route.
 | `websocket` | boolean | no | Default `false` |
 | `force_https` | boolean | no | Default `true` - redirect HTTP to HTTPS |
 | `upstream_url` | string | no | Admin keys only. External origin `https://host[:port][/path]` (no credentials, query or fragment). Replaces `upstream_port`; see [External and ephemeral routes](#external-and-ephemeral-routes) |
-| `strip_path_prefix` | boolean | no | Default `false`. Strip `path_prefix` before proxying. Requires `path_prefix` |
+| `strip_path_prefix` | boolean | no | Default `false`. Strip `path_prefix` before proxying; the route then matches only `path_prefix` and `path_prefix/...`. Requires `path_prefix` |
 | `ttl_seconds` | integer | no | `0` (default) = permanent. `1`-`86400`: the route is deleted automatically once it expires |
 
 ```json
@@ -574,7 +574,7 @@ web console), served under your own domain:
 
 | Code | Meaning |
 |------|---------|
-| 400 | Invalid domain or port outside allowed range; invalid `upstream_url`; host not allowlisted or resolving to a non-public address; invalid `strip_path_prefix` / `ttl_seconds`; path routing or websocket not in plan |
+| 400 | Invalid domain or port outside allowed range; invalid `upstream_url`; host not allowlisted, resolving to a non-public address, or naming control-plane infrastructure / a reserved port; invalid `strip_path_prefix` / `ttl_seconds`; path routing or websocket not in plan |
 | 401 | Auth required |
 | 403 | Service not yours; `upstream_url` sent with a client key; plan has no external upstreams |
 | 409 | Domain already mapped, no node available, or plan domain limit reached |
