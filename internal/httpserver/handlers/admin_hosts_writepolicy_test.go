@@ -169,3 +169,22 @@ func TestArbitrarySecLangIsSuperAdminOnly(t *testing.T) {
 		t.Error("super_admin must be unrestricted")
 	}
 }
+
+// Create and edit share these gates; a nil session must never pass.
+func TestSharedHostSaveGates(t *testing.T) {
+	if checkNodeSideResolve(nil, true) == nil || checkNodeSideResolve(&auth.Session{Role: "admin"}, true) == nil {
+		t.Fatal("node-side resolve must need super_admin")
+	}
+	if checkNodeSideResolve(&auth.Session{Role: "super_admin"}, true) != nil || checkNodeSideResolve(nil, false) != nil {
+		t.Fatal("node-side resolve gate too strict")
+	}
+	if err := screenTenantURLFields("https://x/{env.SECRET}", ""); err == nil || !strings.HasPrefix(err.Error(), "redirect URL: ") {
+		t.Fatalf("redirect URL placeholder not refused: %v", err)
+	}
+	if err := screenTenantURLFields("", "{file./etc/passwd}"); err == nil || !strings.HasPrefix(err.Error(), "upstream host header: ") {
+		t.Fatalf("host header placeholder not refused: %v", err)
+	}
+	if err := screenTenantURLFields("https://example.com/{http.request.uri}", "example.com"); err != nil {
+		t.Fatalf("allowed placeholder refused: %v", err)
+	}
+}

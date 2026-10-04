@@ -12,6 +12,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
@@ -108,12 +109,35 @@ func screenBackendWith(ctx context.Context, infra *streamguard.InfraTargets, hos
 	return err
 }
 
-// unresolvedHint turns a panel-side resolution failure into the one action
-// that actually unblocks the operator, instead of a dead end.
 // canWaivePanelResolution gates the "backend is resolved on the node" switch.
 // Waiving panel-side resolution means no resolved address is ever screened, so
 // it stays with the unrestricted role rather than any scoped admin.
 func canWaivePanelResolution(role string) bool { return role == "super_admin" }
+
+var errNodeSideResolveRole = errors.New("resolving the backend on the node requires super_admin")
+
+// checkNodeSideResolve is the save-time gate for the node-side-resolution opt-in,
+// shared by create and edit.
+func checkNodeSideResolve(sess *auth.Session, requested bool) error {
+	if requested && !canWaivePanelResolution(sessRole(sess)) {
+		return errNodeSideResolveRole
+	}
+	return nil
+}
+
+// screenTenantURLFields applies the strict placeholder policy to the redirect
+// URL and upstream Host header (emitted as Host and SNI), shared by create and edit.
+func screenTenantURLFields(redirectURL, upstreamHostHeader string) error {
+	for _, f := range []struct{ name, val string }{
+		{"redirect URL", redirectURL},
+		{"upstream host header", upstreamHostHeader},
+	} {
+		if err := routes.ScreenTenantString(f.val); err != nil {
+			return fmt.Errorf("%s: %s", f.name, sanitizeErr(err))
+		}
+	}
+	return nil
+}
 
 // sessRole is the caller's role, or "" when there is no session - an absent
 // session must never read as a privileged one.
@@ -172,6 +196,8 @@ func resolverForSave(role, ip string, peerID int64, kind, backendIP string, viaP
 	return "", 0, false, nil
 }
 
+// unresolvedHint turns a panel-side resolution failure into the one action
+// that actually unblocks the operator, instead of a dead end.
 func unresolvedHint(err error, fallback string) string {
 	if errors.Is(err, streamguard.ErrUnresolved) {
 		return "backend hostname does not resolve from the panel - fix DNS, or tick " +

@@ -469,24 +469,19 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	// HPG-001: Caddy expands placeholders in a static_response body and in the
 	// Location header, so a tenant string landing there is screened at write
 	// time, not only before emission. Fail closed.
-	for _, f := range []struct {
-		name, val string
-		strict    bool // HTML and free text carry legitimate braces; URLs never do
-	}{
-		{"custom error HTML", errHTML, false},
-		{"maintenance message", maintenanceMsg, false},
-		{"redirect URL", redirectURL, true},
-		// Emitted as both the upstream Host header and the upstream SNI.
-		{"upstream host header", extHostHeader, true},
+	// HTML and free text carry legitimate braces; URLs never do.
+	for _, f := range []struct{ name, val string }{
+		{"custom error HTML", errHTML},
+		{"maintenance message", maintenanceMsg},
 	} {
-		screen := routes.ScreenTenantText
-		if f.strict {
-			screen = routes.ScreenTenantString
-		}
-		if err := screen(f.val); err != nil {
+		if err := routes.ScreenTenantText(f.val); err != nil {
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", f.name+": "+sanitizeErr(err))
 			return
 		}
+	}
+	if err := screenTenantURLFields(redirectURL, extHostHeader); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", err.Error())
+		return
 	}
 	cacheVary := sanitizeHeaderList(r.FormValue("cache_vary"))
 	accessAllow, err1 := sanitizeCIDRList(r.FormValue("access_allow"))
@@ -686,9 +681,9 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	viaPeerID, _ := strconv.ParseInt(r.FormValue("via_wg_peer_id"), 10, 64)
 	resolveNodeSide := r.FormValue("backend_resolve_node_side") == "1"
-	if resolveNodeSide && (sess == nil || !canWaivePanelResolution(sess.Role)) {
+	if err := checkNodeSideResolve(sess, resolveNodeSide); err != nil {
 		editPath := "/admin/hosts/" + strconv.FormatInt(id, 10) + "/edit"
-		redirectWithFlash(w, r, editPath, "", "resolving the backend on the node requires super_admin")
+		redirectWithFlash(w, r, editPath, "", err.Error())
 		return
 	}
 	if external {

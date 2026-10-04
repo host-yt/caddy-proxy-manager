@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
-	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/customfields"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
@@ -148,26 +147,21 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		WildcardEnabled:    r.FormValue("wildcard_enabled") == "1",
 		WildcardZone:       strings.ToLower(strings.TrimSpace(r.FormValue("wildcard_zone"))),
 		ViaWGPeerID:        strings.TrimSpace(r.FormValue("via_wg_peer_id")),
-		ResolveNodeSide:    r.FormValue("backend_resolve_node_side") == "1" && canWaivePanelResolution(sess.Role),
+		ResolveNodeSide:    r.FormValue("backend_resolve_node_side") == "1",
 		RequireClientCert:  r.FormValue("require_client_cert") == "1",
 	}
 	// Waiving panel-side resolution means the target is never screened against
 	// a resolved address, so it stays with the unrestricted role.
-	if r.FormValue("backend_resolve_node_side") == "1" && !canWaivePanelResolution(sess.Role) {
-		h.renderHostsNewErr(w, r, form, "resolving the backend on the node requires super_admin")
+	if err := checkNodeSideResolve(sess, form.ResolveNodeSide); err != nil {
+		form.ResolveNodeSide = false
+		h.renderHostsNewErr(w, r, form, err.Error())
 		return
 	}
-	// Same placeholder policy the edit path and emission apply. Stopgap: the
-	// other routes.Create callers (import, billing API, client panel) need the
-	// screen inside routes.Create itself.
-	for _, f := range []struct{ name, val string }{
-		{"redirect URL", form.RedirectURL},
-		{"upstream host header", form.UpstreamHostHeader},
-	} {
-		if err := caddyapi.ScreenTenantTemplate(f.val); err != nil {
-			h.renderHostsNewErr(w, r, form, f.name+": "+sanitizeErr(err))
-			return
-		}
+	// Same placeholder policy as the edit path; routes.Create re-checks, this
+	// only keeps the form error next to the submitted values.
+	if err := screenTenantURLFields(form.RedirectURL, form.UpstreamHostHeader); err != nil {
+		h.renderHostsNewErr(w, r, form, err.Error())
+		return
 	}
 	form.MTLSCAID, _ = strconv.ParseInt(r.FormValue("mtls_ca_id"), 10, 64)
 	if !form.RequireClientCert {
