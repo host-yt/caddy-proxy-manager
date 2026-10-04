@@ -161,6 +161,9 @@ is deliberately left as published.
   Nodes without a reporting agent keep the old panel-side check. Migration
   00162 adds a nullable `caddy_nodes.geoip_db_present`; update the node-agent
   to get the per-node gate.
+- A host with a fixed or random outbound IP emitted `transport.local_addr`,
+  which Caddy does not know, so the node rejected the whole config load. It is
+  now `local_address`.
 - The config compiler could block until its context deadline on SQLite, because
   it wrote audit rows while still holding the only pooled connection.
 - Drift detection compared a different, smaller artifact than the one being

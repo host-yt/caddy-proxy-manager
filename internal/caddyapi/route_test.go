@@ -46,6 +46,14 @@ func TestRouteMaintenanceCustomErrorOverride(t *testing.T) {
 	}
 }
 
+func TestBuildRouteOutboundIPKey(t *testing.T) {
+	b, _ := json.Marshal(BuildRoute(Route{ID: "1", Hosts: []string{"a.example.com"}, UpstreamIP: "10.0.0.5",
+		UpstreamPort: 80, OutboundIPMode: "fixed", OutboundIP: "203.0.113.7"}))
+	if s := string(b); !strings.Contains(s, `"local_address":"203.0.113.7"`) || strings.Contains(s, `"local_addr"`) {
+		t.Errorf("transport must bind via local_address, got %s", s)
+	}
+}
+
 func TestBuildRouteExternalHTTPS(t *testing.T) {
 	r := Route{
 		ID:                 "42",

@@ -285,7 +285,7 @@ type Route struct {
 	GeoBlockBranding ErrorBranding // logo + bg + brand for the "page" action
 
 	// OutboundIPMode: "default" = OS picks; "fixed"/"random" = bind transport
-	// local_addr to OutboundIP so the connection leaves via a specific NIC IP.
+	// local_address to OutboundIP so the connection leaves via a specific NIC IP.
 	OutboundIPMode string
 	OutboundIP     string // bare IP present on the node NIC
 
@@ -636,7 +636,8 @@ func BuildRoute(r Route) map[string]any {
 		// "random" is resolved to a concrete IP at build time (static Caddy config
 		// cannot do true per-request random; we pin one node IP per route).
 		if (r.OutboundIPMode == "fixed" || r.OutboundIPMode == "random") && r.OutboundIP != "" {
-			transport["local_addr"] = r.OutboundIP
+			// Caddy's field is local_address; strict unmarshal rejects the whole /load on any other key.
+			transport["local_address"] = r.OutboundIP
 		}
 		primary["transport"] = transport
 		// Request headers: user-supplied Headers, plus a Host rewrite for
