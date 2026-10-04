@@ -225,7 +225,10 @@ See [SECURITY.md](SECURITY.md#l4-stream-target-screening).
 - **`not emitted`** - the external upstream host is not allow-listed, or its stored secret can't be decrypted. Fix the external-upstream allow-list entry or re-enter the secret.
 - **`unchecked`** - never compiled since this check shipped. Not evidence the route is fine, just unknown yet - save the host, or wait for the next push, to get a real status.
 
-`published` means the last compile succeeded; no action needed.
+- **`push failed N/M`** - the route compiled, but a serving node rejected or never received its last `/load`; that node keeps its previous config. Hover for the node and its error, fix the node (reachability, admin auth, Caddy modules), then **Resync** it.
+- **`pending N/M`** - a push is scheduled and has not finished yet; it normally clears within seconds.
+
+`published N/M` means the route compiled and every serving node accepted its last `/load`; no action needed.
 
 ---
 

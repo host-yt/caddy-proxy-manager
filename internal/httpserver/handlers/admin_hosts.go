@@ -129,6 +129,12 @@ type hostRow struct {
 	CompileStatus string // "" | "ok" | "quarantined" | "denied" | "target_rejected" | "not_emitted"
 	CompileReason string
 	CompileAt     time.Time
+
+	// Per-node apply state: what the serving nodes actually loaded, worst first.
+	ApplyState   string // "" (no enabled node) | "applied" | "unknown" | "pending" | "failed"
+	ApplyOK      int    // nodes whose last /load holds the current config
+	ApplyTotal   int
+	ApplyDetails string // per-node tooltip
 }
 
 type hostsData struct {
@@ -399,7 +405,44 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if h.Routes != nil && len(d.Hosts) > 0 {
+		ids := make([]int64, len(d.Hosts))
+		for i, hr := range d.Hosts {
+			ids[i] = hr.RouteID
+		}
+		states, err := h.Routes.NodeApplyStates(ctx, ids)
+		if err != nil {
+			h.Logger.Error("hosts list node apply states", "err", err)
+		}
+		for i := range d.Hosts {
+			fillApplyState(&d.Hosts[i], states[d.Hosts[i].RouteID])
+		}
+	}
+
 	h.render(w, "hosts", d)
+}
+
+// applyRank orders per-node states so the row shows the worst one.
+var applyRank = map[string]int{routes.ApplyApplied: 1, routes.ApplyUnknown: 2, routes.ApplyPending: 3, routes.ApplyFailed: 4}
+
+// fillApplyState folds per-node apply states into the row's badge fields.
+func fillApplyState(hr *hostRow, nodes []routes.NodeApply) {
+	parts := make([]string, 0, len(nodes))
+	for _, n := range nodes {
+		hr.ApplyTotal++
+		if n.State == routes.ApplyApplied {
+			hr.ApplyOK++
+		}
+		if applyRank[n.State] > applyRank[hr.ApplyState] {
+			hr.ApplyState = n.State
+		}
+		p := n.NodeName + ": " + n.State
+		if n.Error != "" {
+			p += " (" + n.Error + ")"
+		}
+		parts = append(parts, p)
+	}
+	hr.ApplyDetails = strings.Join(parts, "; ")
 }
 
 // HostsExport streams GET /admin/hosts/export.csv: all routes matching filters as CSV.

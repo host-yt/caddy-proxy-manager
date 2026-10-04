@@ -591,6 +591,7 @@ func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush
 			if s.Metrics != nil {
 				s.Metrics.CaddyPushFail()
 			}
+			s.recordNodeApply(ctx, nodeID, "", err)
 			return err
 		}
 		np = recovered
@@ -599,6 +600,7 @@ func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush
 		s.Metrics.CaddyPushOK()
 	}
 	pushHash := hashRoutes(np.built)
+	s.recordNodeApply(ctx, nodeID, pushHash, nil)
 	if err := s.markRoutesPushed(ctx, np.routeIDs, pushHash); err != nil {
 		// The /load already succeeded - the config IS live. This bookkeeping
 		// failure only means last_pushed_at/hash may now lag reality, so log

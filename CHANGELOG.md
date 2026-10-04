@@ -25,6 +25,14 @@ is deliberately left as published.
 
 ### Added
 
+- **Per-node publish state on the hosts list.** The publish pill used to show
+  only the last compile result, so with several nodes it could read
+  `published` while a node had refused its `/load`. Each node now records the
+  hash and time of its last accepted `/load` and its last push error, and the
+  pill reports what the serving nodes actually hold: `published 3/3`,
+  `pending 2/3`, `push failed 2/3` (hover for the node and error). Migration
+  00163 adds four nullable `caddy_nodes` columns. See
+  [ROUTES.md](docs/ROUTES.md#11-route-publish-state).
 - **Ephemeral external routes over API v1.** `POST /api/v1/routes` accepts
   `upstream_url` (admin keys, allowlisted https origin, verified TLS, Host/SNI
   set to the origin), `strip_path_prefix` and `ttl_seconds`; expired routes

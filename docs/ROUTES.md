@@ -509,14 +509,21 @@ really being served:
 
 | Publish state | Meaning |
 |---|---|
-| `published` | Emitted to the node normally. |
+| `published N/M` | Compiled cleanly and the last `/load` on all M serving nodes succeeded. |
+| `pending N/M` | Compiled cleanly; a push to at least one node is scheduled but has not run yet. |
+| `push failed N/M` | Compiled cleanly, but at least one node refused or could not be reached on its last `/load`; that node still serves its previous config. |
+| `unconfirmed N/M` | Compiled cleanly; at least one node has no recorded `/load` since the upgrade that added this tracking. |
+| `compiled` | Compiled cleanly, but no enabled node serves the route. |
 | `quarantined` | The stored config no longer passes validation - a custom Caddy JSON chain (see above) or a tenant string using a placeholder outside the [allow-list](#12-tenant-placeholder-allow-list). Served as a terminal `503`. |
 | `rejected` | An auth gate the operator turned on cannot be emitted - most often a portal with no group granted, or an mTLS route whose CA cannot be read. Served as a terminal `503`. |
 | `target rejected` | A backend or extra upstream failed the infrastructure/SSRF screen at emission time; that target is dropped. |
 | `not emitted` | An external upstream host is not allow-listed, or its proxy secret cannot be decrypted. The route produces no Caddy route at all. |
 | `unchecked` | No compile outcome has been recorded yet - a new install, or a route not yet re-published since the upgrade that added this tracking. Not the same as "fine". |
 
-Hover the pill for the stored reason. A route reading `active` health next
+N counts the serving nodes (anchor node plus fan-out peers) whose last `/load`
+holds the current config; the pill shows the worst node. Hover it for each
+node's state and its last push error. Pending is tracked by the panel process
+that schedules the push. Hover the other pills for the stored reason. A route reading `active` health next
 to a `quarantined` or `rejected` publish state is not a bug to chase down -
 both are accurate at once, and the publish state is the one to act on.
 
