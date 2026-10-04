@@ -113,7 +113,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: app-build
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: app-digest-*
@@ -221,7 +221,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: caddy-build
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: caddy-digest-*
@@ -360,7 +360,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: wireguard-build
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: wireguard-digest-*
@@ -465,7 +465,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: node-agent-build
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: /tmp/digests
           pattern: node-agent-digest-*
