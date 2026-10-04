@@ -22,10 +22,12 @@ func TestBuildRoutesForNodeIncludesFanOutPeers(t *testing.T) {
 
 	_, _ = db.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0")
 	// buildRoutesForNode INNER JOINs services, so the service row must exist.
+	// Backend 198.51.100.9 is not a node IP: other packages' nodes use 10.9.9.9,
+	// which the managed-address screen rejects (flaky under a shared DB).
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO services (client_id, name, backend_ip, allowed_port_start,
 		   allowed_port_end, plan_id, node_group_id)
-		 VALUES (9999, 'fanout-build-test', '10.9.9.9', 1, 65535, 9999, 9999)`)
+		 VALUES (9999, 'fanout-build-test', '198.51.100.9', 1, 65535, 9999, 9999)`)
 	if err != nil {
 		t.Fatalf("insert service: %v", err)
 	}

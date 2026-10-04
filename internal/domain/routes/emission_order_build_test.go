@@ -16,7 +16,7 @@ func insertOrderRoute(t *testing.T, db *sql.DB, ctx context.Context, nodeID int6
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO services (client_id, name, backend_ip, allowed_port_start,
 		   allowed_port_end, plan_id, node_group_id)
-		 VALUES (9999, ?, '10.9.9.9', 1, 65535, 9999, 9999)`,
+		 VALUES (9999, ?, '198.51.100.9', 1, 65535, 9999, 9999)`,
 		fmt.Sprintf("order-%d", time.Now().UnixNano()))
 	if err != nil {
 		t.Fatalf("insert service: %v", err)

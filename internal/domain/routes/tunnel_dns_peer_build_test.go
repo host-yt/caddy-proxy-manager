@@ -41,7 +41,7 @@ func TestBuildRoutesDNSResolverIsNodeScoped(t *testing.T) {
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO services (client_id, name, backend_ip, allowed_port_start,
 		   allowed_port_end, plan_id, node_group_id)
-		 VALUES (9999, 'dnspeer-test', '10.9.9.9', 1, 65535, 9999, 9999)`)
+		 VALUES (9999, 'dnspeer-test', '198.51.100.9', 1, 65535, 9999, 9999)`)
 	if err != nil {
 		t.Fatalf("insert service: %v", err)
 	}
