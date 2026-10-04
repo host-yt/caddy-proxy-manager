@@ -97,7 +97,7 @@ jobs:
             echo "::error::wstunnel sha256 pins disagree between deploy/node-agent/Dockerfile and wg_bootstrap.go"; fail=1; fi
           exit $fail
 
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache: true
@@ -144,7 +144,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache: true

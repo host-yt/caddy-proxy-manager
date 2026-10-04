@@ -250,7 +250,7 @@ jobs:
       # runner without publishing edge/latest/semver first: a failure here must
       # leave nothing pullable, not merely unsigned.
       - uses: actions/checkout@v5
-      - uses: actions/setup-go@v6
+      - uses: actions/setup-go@v7
         with:
           go-version: "1.26"
           cache: true
