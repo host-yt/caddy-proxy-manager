@@ -274,17 +274,23 @@ idempotent, so the outbox is one coalescing row per node in
   marker commits or rolls back with the change. Writes without a transaction
   upsert right after their commit; a crash in that gap (between commit and the
   next statement) is the residual window, covered by `drift`.
-- The immediate push stays the fast path. A successful `/load` deletes the
-  marker only up to the `seq` it read before building the snapshot, so a
-  request that lands during the push survives it. A failed `/load` bumps
-  `attempts`, stores `last_error` and backs `next_attempt_at` off
-  (30s doubling, 15 min cap; it never gives up).
+- The immediate push stays the fast path. The row is never deleted: `seq`
+  only grows (one increment per request, node ids locked in ascending order),
+  and a successful `/load` sets `pushed_seq` to the `seq` it read before
+  building the snapshot, so a request that lands during the push stays
+  pending (`seq > pushed_seq`). A failed build or `/load` bumps `attempts`,
+  stores `last_error` and backs `next_attempt_at` off (30s doubling, 15 min
+  cap; it never gives up).
+- A new request is due only after debounce + 45s, longer than the push
+  timeout, so the drain catches crashes and failures instead of racing another
+  replica's in-flight push.
 - The leader drains due markers every 30s (`push-drain`); followers never do.
-  The boot push 10s after the leader starts clears markers too.
-- Visibility: the hosts list shows a node with a marker as `pending`, with
-  `[retry N]` and the last push error once a retry has failed.
+  The boot push 10s after the leader starts settles markers too. Node delete
+  removes the row explicitly (SQLite runs without `foreign_keys`).
+- Visibility: the hosts list shows a node with a pending marker as `pending`,
+  with `[retry N]` and the last push error once a retry has failed.
 
-Incremental per-route pushes (route delete, activation) do not clear the
+Incremental per-route pushes (route delete, activation) do not settle the
 marker; the drain follows up with one redundant, harmless full `/load`.
 `reconcile` every 60s still picks up routes left in a stuck DNS/SSL state and
 `drift` every 5 minutes still reverts a node whose live config no longer

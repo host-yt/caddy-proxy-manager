@@ -1,10 +1,12 @@
 -- +goose Up
 -- +goose StatementBegin
 -- Durable "node X needs a push" marker, written with the config change so a
--- crash between commit and push is repaired by the leader's drain.
+-- crash between commit and push is repaired by the leader's drain. Pending =
+-- seq > pushed_seq; the row is never deleted so seq stays monotonic.
 CREATE TABLE IF NOT EXISTS node_push_pending (
   node_id         BIGINT UNSIGNED NOT NULL,
   seq             BIGINT NOT NULL DEFAULT 1,
+  pushed_seq      BIGINT NOT NULL DEFAULT 0,
   requested_at    DATETIME NOT NULL,
   attempts        INT NOT NULL DEFAULT 0,
   last_error      TEXT NULL,

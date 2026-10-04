@@ -1302,6 +1302,7 @@ func (h *AdminHandlers) NodesDelete(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/nodes", "", "delete failed")
 		return
 	}
+	routes.DropPushMarker(ctx, db, id)
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.delete", Entity: "node", EntityID: fmt.Sprintf("%d", id),
@@ -1466,6 +1467,7 @@ func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request
 		redirectWithFlash(w, r, "/admin/nodes", "", "delete failed after route move: "+sanitizeErr(err))
 		return
 	}
+	routes.DropPushMarker(ctx, db, id)
 	if h.WriteWGConfig != nil {
 		_ = h.WriteWGConfig(ctx)
 	}

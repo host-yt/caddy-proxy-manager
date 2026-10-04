@@ -691,6 +691,7 @@ func (s *Service) pushNodeConfig(ctx context.Context, nodeID int64) error {
 		seq := s.pendingSeq(ctx, nodeID)
 		np, err := s.buildNodePush(ctx, nodeID)
 		if err != nil {
+			s.settlePending(ctx, nodeID, seq, err)
 			return err
 		}
 		np.pendingSeq = seq
@@ -721,6 +722,7 @@ func (s *Service) pushNodeConfigLocked(ctx context.Context, nodeID int64) error 
 	seq := s.pendingSeq(ctx, nodeID)
 	np, err := s.buildNodePush(ctx, nodeID)
 	if err != nil {
+		s.settlePending(ctx, nodeID, seq, err)
 		return err
 	}
 	np.pendingSeq = seq

@@ -24,7 +24,7 @@ type NodeApply struct {
 	Hash     string
 	At       time.Time
 	Error    string
-	// Attempts is the failed drain count of a durable push marker; -1 = none.
+	// Attempts counts failed pushes of a pending durable marker; -1 = nothing pending.
 	Attempts int
 }
 
@@ -71,7 +71,7 @@ func (s *Service) NodeApplyStates(ctx context.Context, ids []int64) (map[int64][
 		args = append(args, id)
 	}
 	args = append(args, args...)
-	cols := `n.id, n.name, COALESCE(n.config_applied_hash,''), n.config_applied_at, COALESCE(n.config_apply_error,''), COALESCE(p.attempts,-1)`
+	cols := `n.id, n.name, COALESCE(n.config_applied_hash,''), n.config_applied_at, COALESCE(n.config_apply_error,''), CASE WHEN p.seq > p.pushed_seq THEN p.attempts ELSE -1 END`
 	pj := ` LEFT JOIN node_push_pending p ON p.node_id = n.id`
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT r.id, `+cols+` FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id`+pj+`

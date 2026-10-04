@@ -1422,6 +1422,7 @@ func (h *APIHandlers) NodeDelete(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusNotFound, "not found")
 		return
 	}
+	routes.DropPushMarker(ctx, h.DB(), id)
 	uid := apiCallerID(r)
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &uid, ActorType: audit.ActorAPI, Action: "node.deleted", Entity: "node",

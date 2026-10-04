@@ -21,15 +21,24 @@ type pendingRow struct {
 func readPending(t *testing.T, db *sql.DB, nodeID int64) (pendingRow, bool) {
 	t.Helper()
 	var r pendingRow
-	err := db.QueryRow(`SELECT seq, attempts, last_error, next_attempt_at FROM node_push_pending WHERE node_id = ?`, nodeID).
-		Scan(&r.seq, &r.attempts, &r.lastErr, &r.next)
+	var pushed int64
+	err := db.QueryRow(`SELECT seq, pushed_seq, attempts, last_error, next_attempt_at FROM node_push_pending WHERE node_id = ?`, nodeID).
+		Scan(&r.seq, &pushed, &r.attempts, &r.lastErr, &r.next)
 	if err == sql.ErrNoRows {
 		return r, false
 	}
 	if err != nil {
 		t.Fatal(err)
 	}
-	return r, true
+	return r, r.seq > pushed
+}
+
+// makeDue skips the grace period that keeps the drain off the fast path.
+func makeDue(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if _, err := db.Exec(`UPDATE node_push_pending SET next_attempt_at = ?`, time.Now().UTC().Add(-time.Second)); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func outboxSvc(db *sql.DB) *Service {
@@ -71,11 +80,23 @@ func TestOutbox_CrashThenDrain(t *testing.T) {
 
 	restarted := outboxSvc(db)
 	restarted.DrainPendingPushes(ctx)
+	if loads.Load() != 0 {
+		t.Fatal("fresh marker drained inside the fast-path grace window")
+	}
+	makeDue(t, db)
+	restarted.DrainPendingPushes(ctx)
 	if loads.Load() != 1 {
 		t.Fatalf("loads after drain = %d, want 1", loads.Load())
 	}
-	if _, ok := readPending(t, db, nodeID); ok {
-		t.Fatal("marker not cleared after successful push")
+	done, ok := readPending(t, db, nodeID)
+	if ok {
+		t.Fatal("marker still pending after successful push")
+	}
+
+	// The row is kept, so seq keeps climbing instead of restarting.
+	restarted.SchedulePush(nodeID)
+	if r, ok := readPending(t, db, nodeID); !ok || r.seq != done.seq+1 {
+		t.Fatalf("re-request: pending=%v seq=%d, want %d", ok, r.seq, done.seq+1)
 	}
 }
 
@@ -89,12 +110,15 @@ func TestOutbox_DuplicateRequestsCoalesce(t *testing.T) {
 	svc.SchedulePush(nodeID)
 	first, _ := readPending(t, db, nodeID)
 	svc.SchedulePush(nodeID)
-	svc.SchedulePush(nodeID)
+	if err := svc.markPushPending(ctx, db, nodeID, 0, nodeID); err != nil { // deduped
+		t.Fatal(err)
+	}
 	var n int
 	_ = db.QueryRow(`SELECT COUNT(*) FROM node_push_pending`).Scan(&n)
 	if r, _ := readPending(t, db, nodeID); n != 1 || r.seq != first.seq+2 {
 		t.Fatalf("rows=%d seq=%d first=%d", n, r.seq, first.seq)
 	}
+	makeDue(t, db)
 	svc.DrainPendingPushes(ctx)
 	if loads.Load() != 1 {
 		t.Fatalf("loads = %d, want 1", loads.Load())
@@ -143,6 +167,7 @@ func TestOutbox_FailureBacksOff(t *testing.T) {
 	nodeID := seedNodeAndRoute(t, db, srv.URL, "fail.example")
 	svc := outboxSvc(db)
 	svc.SchedulePush(nodeID)
+	makeDue(t, db)
 
 	svc.DrainPendingPushes(ctx)
 	r, ok := readPending(t, db, nodeID)
@@ -159,9 +184,7 @@ func TestOutbox_FailureBacksOff(t *testing.T) {
 	}
 
 	// Due again: the second failure doubles the delay.
-	if _, err := db.Exec(`UPDATE node_push_pending SET next_attempt_at = ?`, time.Now().UTC().Add(-time.Second)); err != nil {
-		t.Fatal(err)
-	}
+	makeDue(t, db)
 	svc.DrainPendingPushes(ctx)
 	r, _ = readPending(t, db, nodeID)
 	if r.attempts != 2 || !r.next.After(time.Now().Add(50*time.Second)) {
@@ -177,6 +200,7 @@ func TestOutbox_FollowerDoesNotDrain(t *testing.T) {
 	svc := outboxSvc(db)
 	svc.IsLeader = func() bool { return false }
 	svc.SchedulePush(nodeID)
+	makeDue(t, db)
 
 	svc.DrainPendingPushes(ctx)
 	if loads.Load() != 0 {
@@ -184,5 +208,29 @@ func TestOutbox_FollowerDoesNotDrain(t *testing.T) {
 	}
 	if _, ok := readPending(t, db, nodeID); !ok {
 		t.Fatal("follower touched the marker")
+	}
+}
+
+// A snapshot that cannot even be built must back off too, not be rebuilt by
+// every drain tick.
+func TestOutbox_BuildErrorBacksOff(t *testing.T) {
+	db := newPushTestDB(t)
+	ctx := context.Background()
+	srv, loads := countingNode(t, http.StatusOK)
+	nodeID := seedNodeAndRoute(t, db, srv.URL, "build.example")
+	svc := outboxSvc(db)
+	svc.SchedulePush(nodeID)
+	makeDue(t, db)
+	if _, err := db.Exec(`ALTER TABLE routes RENAME TO routes_gone`); err != nil {
+		t.Fatal(err)
+	}
+
+	svc.DrainPendingPushes(ctx)
+	r, ok := readPending(t, db, nodeID)
+	if !ok || r.attempts != 1 || !r.lastErr.Valid || !r.next.After(time.Now().Add(20*time.Second)) {
+		t.Fatalf("after build error: ok=%v %+v", ok, r)
+	}
+	if loads.Load() != 0 {
+		t.Fatal("loaded despite build error")
 	}
 }
