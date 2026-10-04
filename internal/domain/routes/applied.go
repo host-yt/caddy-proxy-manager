@@ -24,6 +24,8 @@ type NodeApply struct {
 	Hash     string
 	At       time.Time
 	Error    string
+	// Attempts is the failed drain count of a durable push marker; -1 = none.
+	Attempts int
 }
 
 // maxApplyErrLen bounds the stored push error; Caddy can echo large bodies.
@@ -69,12 +71,13 @@ func (s *Service) NodeApplyStates(ctx context.Context, ids []int64) (map[int64][
 		args = append(args, id)
 	}
 	args = append(args, args...)
-	cols := `n.id, n.name, COALESCE(n.config_applied_hash,''), n.config_applied_at, COALESCE(n.config_apply_error,'')`
+	cols := `n.id, n.name, COALESCE(n.config_applied_hash,''), n.config_applied_at, COALESCE(n.config_apply_error,''), COALESCE(p.attempts,-1)`
+	pj := ` LEFT JOIN node_push_pending p ON p.node_id = n.id`
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT r.id, `+cols+` FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id
+		`SELECT r.id, `+cols+` FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id`+pj+`
 		  WHERE r.id IN (`+ph+`) AND n.is_enabled = 1
 		 UNION
-		 SELECT a.route_id, `+cols+` FROM route_node_assignments a JOIN caddy_nodes n ON n.id = a.node_id
+		 SELECT a.route_id, `+cols+` FROM route_node_assignments a JOIN caddy_nodes n ON n.id = a.node_id`+pj+`
 		  WHERE a.route_id IN (`+ph+`) AND n.is_enabled = 1`, args...)
 	if err != nil {
 		return nil, err
@@ -84,15 +87,14 @@ func (s *Service) NodeApplyStates(ctx context.Context, ids []int64) (map[int64][
 		var rid int64
 		var na NodeApply
 		var at sql.NullTime
-		if err := rows.Scan(&rid, &na.NodeID, &na.NodeName, &na.Hash, &at, &na.Error); err != nil {
+		if err := rows.Scan(&rid, &na.NodeID, &na.NodeName, &na.Hash, &at, &na.Error, &na.Attempts); err != nil {
 			return nil, err
 		}
 		na.At = at.Time
 		switch {
 		case na.Error != "":
 			na.State = ApplyFailed
-		// ponytail: desired generation is in-memory, so pending is per panel process.
-		case s.currentGen(na.NodeID) > s.AppliedGeneration(na.NodeID):
+		case na.Attempts >= 0 || s.currentGen(na.NodeID) > s.AppliedGeneration(na.NodeID):
 			na.State = ApplyPending
 		case !at.Valid:
 			na.State = ApplyUnknown

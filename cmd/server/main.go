@@ -679,6 +679,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// probe, backup scheduler). Single-replica deploys always lead.
 	leaderElec := leader.New(rdb)
 	go leaderElec.Run(rootCtx)
+	routesSvc.IsLeader = leaderElec.IsLeader
 
 	// Bind before anything can advertise this generation: a port conflict or a
 	// bad bind address must kill this process, not fence the healthy older
@@ -741,6 +742,9 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 	// Alias ownership re-check — leader-only. Re-proves aliases that lost their
 	// backfilled proof in migration 00138 without any operator action.
 	go runTicker(rootCtx, 10*time.Minute, leaderElec, guard(logger, "alias-recheck", routesSvc.RecheckPendingAliases))
+
+	// Durable push markers (node_push_pending) left by a crash or a failed push - leader-only.
+	go runTicker(rootCtx, 30*time.Second, leaderElec, guard(logger, "push-drain", routesSvc.DrainPendingPushes))
 
 	// Background drift probe — leader-only, 5 min cadence.
 	go runTicker(rootCtx, 5*time.Minute, leaderElec, guard(logger, "drift", routesSvc.ReconcileDrift))

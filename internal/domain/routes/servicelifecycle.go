@@ -114,6 +114,9 @@ func (s *Service) setServiceState(ctx context.Context, serviceID int64, target s
 		}
 	}
 
+	if err := s.markPushPending(ctx, tx, nodes...); err != nil {
+		return fmt.Errorf("push marker: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}

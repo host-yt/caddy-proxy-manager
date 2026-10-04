@@ -161,6 +161,9 @@ type Service struct {
 	// Env: HPG_PUSH_DEBOUNCE_MS (default 500).
 	PushDebounceMs int
 
+	// IsLeader gates DrainPendingPushes in multi-replica deploys; nil = single replica.
+	IsLeader func() bool
+
 	nodeMu sync.Mutex
 	locks  map[int64]*sync.Mutex // per-node serialization for Caddy /load
 

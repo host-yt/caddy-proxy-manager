@@ -70,6 +70,14 @@ func (s *Service) AppliedGeneration(nodeID int64) uint64 {
 // Falls back to an immediate goroutine push when debouncing is disabled (0).
 func (s *Service) schedulePush(nodeID int64) {
 	s.bumpDesiredGen(nodeID)
+	if s.DB != nil {
+		// Durable before the in-memory timer: a crash now leaves the marker for the drain.
+		mctx, mcancel := context.WithTimeout(s.BackgroundCtx(), 5*time.Second)
+		if err := s.markPushPending(mctx, s.DB, nodeID); err != nil && s.Logger != nil {
+			s.Logger.Warn("push marker not written; relying on drift reconcile", "node_id", nodeID, "err", err)
+		}
+		mcancel()
+	}
 	window := time.Duration(s.PushDebounceMs) * time.Millisecond
 	if window <= 0 {
 		go func() {
@@ -116,17 +124,26 @@ func (s *Service) SchedulePushAllNodes(ctx context.Context) {
 	if s.DB == nil {
 		return
 	}
-	rows, err := s.DB.QueryContext(ctx,
-		`SELECT DISTINCT caddy_node_id FROM routes WHERE caddy_node_id IS NOT NULL`)
+	s.scheduleQueried(ctx, `SELECT DISTINCT caddy_node_id FROM routes WHERE caddy_node_id IS NOT NULL`)
+}
+
+// scheduleQueried schedules every node id the query returns. Rows are drained
+// first: schedulePush writes, and SQLite has a single connection.
+func (s *Service) scheduleQueried(ctx context.Context, q string, args ...any) {
+	rows, err := s.DB.QueryContext(ctx, q, args...)
 	if err != nil {
 		return
 	}
-	defer rows.Close()
+	var ids []int64
 	for rows.Next() {
 		var nid int64
 		if rows.Scan(&nid) == nil && nid != 0 {
-			s.schedulePush(nid)
+			ids = append(ids, nid)
 		}
+	}
+	rows.Close()
+	for _, nid := range ids {
+		s.schedulePush(nid)
 	}
 }
 
@@ -137,20 +154,9 @@ func (s *Service) SchedulePushForClient(ctx context.Context, clientID int64) {
 	if s.DB == nil || clientID == 0 {
 		return
 	}
-	rows, err := s.DB.QueryContext(ctx,
-		`SELECT DISTINCT r.caddy_node_id FROM routes r
+	s.scheduleQueried(ctx, `SELECT DISTINCT r.caddy_node_id FROM routes r
 		   JOIN services sv ON sv.id = r.service_id
 		  WHERE sv.client_id = ? AND r.caddy_node_id IS NOT NULL`, clientID)
-	if err != nil {
-		return
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var nid int64
-		if rows.Scan(&nid) == nil && nid != 0 {
-			s.schedulePush(nid)
-		}
-	}
 }
 
 // SchedulePushForRoute re-pushes every node serving the given route (its direct
@@ -191,12 +197,16 @@ func (s *Service) SchedulePushForRoute(ctx context.Context, routeID int64) {
 		}
 		return
 	}
-	defer rows.Close()
+	var peers []int64
 	for rows.Next() {
 		var nid int64
 		if rows.Scan(&nid) == nil {
-			sched(nid)
+			peers = append(peers, nid)
 		}
+	}
+	rows.Close()
+	for _, nid := range peers {
+		sched(nid)
 	}
 }
 
@@ -433,6 +443,8 @@ type nodePush struct {
 	// settings is kept so the node config can be re-rendered from a modified
 	// route set without a second DB pass (see isolateWAFFailure).
 	settings caddyapi.NodeSettings
+	// pendingSeq is the push marker's seq read before the build (outbox.go).
+	pendingSeq int64
 }
 
 // render re-renders this node's config from a modified route set.
@@ -582,6 +594,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 // loadNodeConfig POSTs the full config (/load) and records the per-route drift
 // fingerprint. The caller MUST hold the per-node lock.
 func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush) error {
+	seq := np.pendingSeq
 	client := s.NodeClient(ctx, nodeID, np.apiURL)
 	if err := client.Load(ctx, np.cfg); err != nil {
 		// One tenant's custom SecLang must not hold a whole node's config
@@ -593,6 +606,7 @@ func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush
 				s.Metrics.CaddyPushFail()
 			}
 			s.recordNodeApply(ctx, nodeID, "", err)
+			s.settlePending(ctx, nodeID, seq, err)
 			return err
 		}
 		np = recovered
@@ -602,6 +616,7 @@ func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush
 	}
 	pushHash := hashRoutes(np.built)
 	s.recordNodeApply(ctx, nodeID, pushHash, nil)
+	s.settlePending(ctx, nodeID, seq, nil)
 	if err := s.markRoutesPushed(ctx, np.routeIDs, pushHash); err != nil {
 		// The /load already succeeded - the config IS live. This bookkeeping
 		// failure only means last_pushed_at/hash may now lag reality, so log
@@ -673,10 +688,12 @@ func (s *Service) pushNodeConfig(ctx context.Context, nodeID int64) error {
 
 	for attempt := 0; attempt < maxPushGenerations; attempt++ {
 		gen := s.currentGen(nodeID)
+		seq := s.pendingSeq(ctx, nodeID)
 		np, err := s.buildNodePush(ctx, nodeID)
 		if err != nil {
 			return err
 		}
+		np.pendingSeq = seq
 		if err := s.loadNodeConfig(ctx, nodeID, np); err != nil {
 			return err
 		}
@@ -701,10 +718,12 @@ func (s *Service) pushNodeConfig(ctx context.Context, nodeID int64) error {
 // the per-node lock (pushRouteIncremental). Builds under the held lock; the
 // minor cost only applies on the rare incremental-fallback path.
 func (s *Service) pushNodeConfigLocked(ctx context.Context, nodeID int64) error {
+	seq := s.pendingSeq(ctx, nodeID)
 	np, err := s.buildNodePush(ctx, nodeID)
 	if err != nil {
 		return err
 	}
+	np.pendingSeq = seq
 	return s.loadNodeConfig(ctx, nodeID, np)
 }
 

@@ -468,6 +468,9 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 			}
 		}
 	}
+	if err := s.markPushPending(ctx, tx, append([]int64{nodeID}, assignedNodes...)...); err != nil {
+		return 0, fmt.Errorf("push marker: %w", err)
+	}
 	if err := tx.Commit(); err != nil {
 		return 0, err
 	}
@@ -768,6 +771,9 @@ func (s *Service) Delete(ctx context.Context, clientID, routeID int64) error {
 			"DELETE FROM route_node_assignments WHERE route_id = ?", routeID); err != nil {
 			return err
 		}
+	}
+	if err := s.markPushPending(ctx, tx, append([]int64{nodeID}, fanOutNodes...)...); err != nil {
+		return err
 	}
 	if err := tx.Commit(); err != nil {
 		return err

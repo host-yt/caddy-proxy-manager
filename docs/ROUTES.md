@@ -522,8 +522,9 @@ really being served:
 
 N counts the serving nodes (anchor node plus fan-out peers) whose last `/load`
 holds the current config; the pill shows the worst node. Hover it for each
-node's state and its last push error. Pending is tracked by the panel process
-that schedules the push. Hover the other pills for the stored reason. A route reading `active` health next
+node's state and its last push error. Pending comes from the durable push
+marker (`node_push_pending`), so every panel replica sees it; `[retry N]` is the
+number of failed retries. Hover the other pills for the stored reason. A route reading `active` health next
 to a `quarantined` or `rejected` publish state is not a bug to chase down -
 both are accurate at once, and the publish state is the one to act on.
 

@@ -170,6 +170,13 @@ is deliberately left as published.
 
 ### Fixed
 
+- **A panel crash between saving a change and pushing it no longer leaves a
+  node stale for up to 5 minutes.** Pending pushes are now recorded durably
+  (one row per node, written with the change itself where the write is
+  transactional) and the leader retries them every 30s with backoff until the
+  node accepts its config; the hosts list shows the retry count. Migration
+  00164 adds the `node_push_pending` table. See
+  [ARCHITECTURE.md](docs/ARCHITECTURE.md#async-jobs).
 - **A remote node without the GeoIP database no longer rejects its whole
   config.** The geo matcher was gated on the panel's own copy of the mmdb, so a
   node missing the `/data/geoip` mount still got it and Caddy refused the

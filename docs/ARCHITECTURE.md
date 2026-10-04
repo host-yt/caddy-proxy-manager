@@ -259,23 +259,37 @@ Prometheus metrics (`obs.Metrics`) and a structured health handler
 (`obs.Health`). Exposes `/metrics` (CIDR-gated) and `/healthz` / `/readyz`.
 
 ### Async jobs
-There is no job queue. Deferred work - DNS verify, SSL retry, route
-propagation, email sends - runs in bounded goroutines started by the request
-handler, plus leader-elected tickers (`internal/leader`, `internal/jobs`) for
-the periodic sweeps: health probe, drift resync, alias re-check, backups.
-A Redis-backed queue is a candidate for the work that today survives only as
-long as the process does; it is not implemented.
+There is no job queue. Deferred work - DNS verify, SSL retry, email sends -
+runs in bounded goroutines started by the request handler, plus leader-elected
+tickers (`internal/leader`, `internal/jobs`) for the periodic sweeps: health
+probe, drift resync, alias re-check, backups.
 
-**What that costs, honestly.** A crash between the DB commit and the push
-loses only the immediate attempt - the row is already durable, and a later
-sweep re-pushes it. The recovery window is bounded by those sweeps, not by a
-queue: boot push runs 10s after the leader starts, `reconcile` every 60s picks
-up routes left in a stuck state, and `drift` re-pushes a node whose live
-config no longer matches the DB every 5 minutes. So a route change survives a
-crash but can take up to ~5 minutes to reach a node, and ordering between two
-changes to different nodes is not guaranteed. Email sends and webhook
-deliveries are the work that can be lost outright; webhooks retry on a 30s
-dispatcher, mail does not.
+**Config propagation has a durable outbox.** Pushes are full-config and
+idempotent, so the outbox is one coalescing row per node in
+`node_push_pending` ("this node needs a push"), not an event log:
+
+- Every scheduled push (`schedulePush`) upserts the node's marker before the
+  in-memory debounced push is armed. Route create/delete and service
+  suspend/resume/terminate also write it inside their own transaction, so the
+  marker commits or rolls back with the change. Writes without a transaction
+  upsert right after their commit; a crash in that gap (between commit and the
+  next statement) is the residual window, covered by `drift`.
+- The immediate push stays the fast path. A successful `/load` deletes the
+  marker only up to the `seq` it read before building the snapshot, so a
+  request that lands during the push survives it. A failed `/load` bumps
+  `attempts`, stores `last_error` and backs `next_attempt_at` off
+  (30s doubling, 15 min cap; it never gives up).
+- The leader drains due markers every 30s (`push-drain`); followers never do.
+  The boot push 10s after the leader starts clears markers too.
+- Visibility: the hosts list shows a node with a marker as `pending`, with
+  `[retry N]` and the last push error once a retry has failed.
+
+Incremental per-route pushes (route delete, activation) do not clear the
+marker; the drain follows up with one redundant, harmless full `/load`.
+`reconcile` every 60s still picks up routes left in a stuck DNS/SSL state and
+`drift` every 5 minutes still reverts a node whose live config no longer
+matches the DB. Email sends and webhook deliveries are the work that can be
+lost outright; webhooks retry on a 30s dispatcher, mail does not.
 
 `drift`'s comparison is a canonical manifest of every managed config
 subtree - `apps/http/servers/srv0`, `apps/tls/automation/policies`,

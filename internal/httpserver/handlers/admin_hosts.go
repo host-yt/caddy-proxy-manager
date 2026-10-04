@@ -440,6 +440,9 @@ func fillApplyState(hr *hostRow, nodes []routes.NodeApply) {
 		if n.Error != "" {
 			p += " (" + n.Error + ")"
 		}
+		if n.Attempts > 0 {
+			p += fmt.Sprintf(" [retry %d]", n.Attempts)
+		}
 		parts = append(parts, p)
 	}
 	hr.ApplyDetails = strings.Join(parts, "; ")
