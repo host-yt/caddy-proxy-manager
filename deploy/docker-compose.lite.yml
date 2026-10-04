@@ -89,7 +89,7 @@ services:
 
   # Bundled MariaDB - comment out if using an external managed DB.
   mariadb:
-    image: mariadb:11
+    image: mariadb:11@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -109,7 +109,7 @@ services:
       retries: 10
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -129,7 +129,7 @@ services:
   # STOCK Caddy - no custom modules. The panel drives it via the admin API;
   # the mounted Caddyfile only configures the admin listener + on-demand-TLS ask.
   caddy:
-    image: caddy:2.11.4
+    image: caddy:2.11.4@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     # Real request against the admin API either way - a leftover socket file

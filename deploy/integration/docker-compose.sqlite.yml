@@ -10,7 +10,7 @@
 
 services:
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -21,7 +21,7 @@ services:
   # the harness's fictional test domains. Shared fixture with the multinode
   # harness - see multinode/coredns/Corefile.
   dns-fake:
-    image: coredns/coredns:1.11.3
+    image: coredns/coredns:1.11.3@sha256:9caabbf6238b189a65d0d6e6ac138de60d6a1c419e5a341fbbb7c78382559c6e
     command: ["-conf", "/etc/coredns/Corefile"]
     volumes:
       - ./multinode/coredns:/etc/coredns:ro
@@ -29,11 +29,11 @@ services:
 
   # Tiny static upstream the test route proxies to.
   whoami:
-    image: traefik/whoami:v1.10
+    image: traefik/whoami:v1.10@sha256:1699d99cb4b9acc17f74ca670b3d8d0b7ba27c948b3445f0593b58ebece92f04
     networks: [e2e]
 
   caddy-a:
-    image: caddy:2.11.4
+    image: caddy:2.11.4@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
     volumes:
       - ./multinode/Caddyfile:/etc/caddy/Caddyfile:ro
     ports:

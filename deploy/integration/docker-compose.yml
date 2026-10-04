@@ -19,7 +19,7 @@
 
 services:
   pebble:
-    image: ghcr.io/letsencrypt/pebble:latest
+    image: ghcr.io/letsencrypt/pebble:latest@sha256:ddf230642b1a584f519f32e347de1b05a6e4c1f6c35c1863b33effeab5f78199
     command: ["-config", "/test/config/pebble-config.json"]
     environment:
       PEBBLE_VA_NOSLEEP: "1"
@@ -36,7 +36,7 @@ services:
       timeout: 3s
 
   mailpit:
-    image: axllent/mailpit:latest
+    image: axllent/mailpit:latest@sha256:b68349e3a014b90c5610bfb26b2ae36f3892d7b8cf25ee140c6c71c98d2fcf48
     ports:
       - "11025:1025"    # SMTP
       - "18025:8025"    # web UI + REST
@@ -46,7 +46,7 @@ services:
       retries: 10
 
   dex:
-    image: dexidp/dex:latest
+    image: dexidp/dex:latest@sha256:94cdbc50f9b7758e704a076752965b2f71a1a2e34fb632084e4c2ecb326bcce9
     command: ["dex", "serve", "/etc/dex/config.yaml"]
     ports:
       - "15556:5556"
@@ -58,7 +58,7 @@ services:
       retries: 10
 
   sftp:
-    image: atmoz/sftp:latest
+    image: atmoz/sftp:latest@sha256:0960390462a4441dbb63698d7c185b76a41ffcee7b78ff4adf275f3e66f9c475
     command: testuser:testpass:::backups
     ports:
       - "12222:22"
@@ -68,7 +68,7 @@ services:
       retries: 10
 
   mariadb-it:
-    image: mariadb:11
+    image: mariadb:11@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15
     environment:
       MARIADB_ROOT_PASSWORD: itroot
       MARIADB_DATABASE: hpg_it
@@ -82,7 +82,7 @@ services:
       retries: 10
 
   redis-it:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     ports:
       - "16380:6379"
     healthcheck:

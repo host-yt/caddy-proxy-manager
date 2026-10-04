@@ -60,6 +60,9 @@ is deliberately left as published.
 
 ### Security
 
+- Third-party images in the `deploy/` compose files (mariadb, redis, busybox,
+  caddy, coredns, whoami, integration-test images) are pinned by multi-arch
+  digest (`tag@sha256:...`), so a moved tag cannot change what you pull.
 - Upstream proxy targets are checked to be plain `host:port`
   (`caddyapi.ScreenDialTarget`): Caddy also accepts socket and
   file-descriptor upstream forms, which no address-based screen covers.

@@ -13,7 +13,7 @@
 
 services:
   mariadb:
-    image: mariadb:11
+    image: mariadb:11@sha256:6422478cb8e159f080fb1d8ccf65101e26fe51385787fde7d16c3b165a331f15
     environment:
       MARIADB_ROOT_PASSWORD: pskrootpw
       MARIADB_DATABASE: hpg_psk
@@ -27,7 +27,7 @@ services:
     networks: [psk]
 
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
