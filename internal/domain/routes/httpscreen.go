@@ -41,16 +41,16 @@ func (s *Service) screenHTTPTargets(ctx context.Context, built []caddyapi.Route,
 			s.Logger.Warn("unsafe HTTP target dropped from config",
 				"part", d.part, "route_id", d.route.ID, "reason", d.cause.Error())
 		}
-		if d.part != "primary backend" {
+		if d.part != "primary backend" && d.part != "sso provider" {
 			continue
 		}
-		// A dropped primary means the host stops being served: audit it.
+		// A dropped primary or SSO gate means the host stops being served: audit it.
 		audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
 			ActorType: audit.ActorSystem,
 			Action:    "route.blocked_target",
 			Entity:    "route",
 			EntityID:  d.route.ID,
-			Meta:      map[string]any{"reason": d.cause.Error(), "backend": d.route.UpstreamIP},
+			Meta:      map[string]any{"reason": d.cause.Error(), "backend": d.route.UpstreamIP, "part": d.part},
 		})
 	}
 	return outRoutes, outIDs, drops, nil

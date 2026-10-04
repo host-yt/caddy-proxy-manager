@@ -123,12 +123,14 @@ func (h *ClientHandlers) GeoBlockUpdate(w http.ResponseWriter, r *http.Request) 
 			return
 		}
 	}
-	// isHTTPURL parses the URL but says nothing about placeholders, and this one
-	// is emitted into the node config - an unscreened value quarantines every
-	// route of this client at the next push.
-	if err := caddyapi.ScreenTenantTemplate(redirectURL); err != nil {
-		clientRedirectFlash(w, r, "/app/account", "", "redirect URL: "+sanitizeErr(err))
-		return
+	// All of these reach a static_response body or Location header, which the
+	// node's Caddy expands (an unscreened redirect quarantines every route of
+	// this client at the next push), so refuse them here with feedback.
+	for _, v := range []string{redirectURL, title, message, logoURL} {
+		if err := caddyapi.ScreenTenantTemplate(v); err != nil {
+			clientRedirectFlash(w, r, "/app/account", "", "block page: "+sanitizeErr(err))
+			return
+		}
 	}
 	if bgColor != "" && !isSafeCSSColor(bgColor) {
 		clientRedirectFlash(w, r, "/app/account", "", "background colour must be #RGB / #RRGGBB / #RRGGBBAA or rgb()/rgba()")

@@ -530,6 +530,19 @@ func BuildRoute(r Route) map[string]any {
 				"Location": []string{r.RedirectURL},
 			},
 		}
+		// Location is expanded by Caddy's replacer; a target carrying an
+		// placeholder outside the tenant allow-list is never emitted (fail closed).
+		if ScreenTenantTemplate(r.RedirectURL) != nil {
+			primary = map[string]any{
+				"handler":     "static_response",
+				"status_code": 503,
+				"headers": map[string]any{
+					"Content-Type":  []string{"text/plain; charset=utf-8"},
+					"Cache-Control": []string{"no-store"},
+				},
+				"body": "Service unavailable: redirect target rejected.\n",
+			}
+		}
 	default:
 		primary = map[string]any{"handler": "reverse_proxy"}
 		// flush_interval -1 disables response buffering so SSE / chunked /
@@ -1493,6 +1506,14 @@ func htmlEscape(s string) string {
 			out = append(out, []byte("&quot;")...)
 		case '\'':
 			out = append(out, []byte("&#39;")...)
+		// Braces become entities: the result lands in a static_response body,
+		// which Caddy runs through its replacer, and a literal {env.*} or
+		// {file.*} there would be expanded on the node. Browsers render the
+		// entities as the same characters.
+		case '{':
+			out = append(out, []byte("&#123;")...)
+		case '}':
+			out = append(out, []byte("&#125;")...)
 		default:
 			out = append(out, s[i])
 		}
@@ -1573,6 +1594,25 @@ func SSODialTarget(r Route) (host string, port int, ok bool) {
 	return h, n, true
 }
 
+// ValidHeaderName reports whether s is an RFC 9110 field-name token. Copy
+// header names are emitted as header keys and inside a replacer placeholder,
+// so anything else (braces included) is dropped.
+func ValidHeaderName(s string) bool {
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9':
+		case strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0:
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // isHTTPSProvider returns true when the SSO URL starts with https://.
 // Used to gate the transport.tls block on forward_auth + outpost subroute
 // reverse_proxy emissions - without it Caddy speaks plain HTTP to port
@@ -1645,7 +1685,7 @@ func buildLocationRuleRoute(rule LocationRule, defaultPrimary map[string]any) (m
 			"body":        "Forbidden\n",
 		}}
 	case "redirect":
-		if strings.TrimSpace(rule.RedirectURL) == "" {
+		if strings.TrimSpace(rule.RedirectURL) == "" || ScreenTenantTemplate(rule.RedirectURL) != nil {
 			return nil, false
 		}
 		code := rule.RedirectCode
@@ -1779,7 +1819,9 @@ func geoBlockResponse(r Route) map[string]any {
 	action := strings.ToLower(strings.TrimSpace(r.GeoBlockAction))
 
 	// Redirect: send blocked visitors to another URL instead of an error.
-	if action == "redirect" && strings.TrimSpace(r.GeoRedirectURL) != "" {
+	// A target that fails the replacer screen falls through to the plain block
+	// below rather than reaching the Location header, which Caddy expands.
+	if action == "redirect" && strings.TrimSpace(r.GeoRedirectURL) != "" && ScreenTenantTemplate(r.GeoRedirectURL) == nil {
 		return map[string]any{
 			"handler":     "static_response",
 			"status_code": 302,
@@ -2054,7 +2096,7 @@ func ssoCopyHeadersHandle(hdrs []string) []any {
 	set := map[string]any{}
 	for _, h := range hdrs {
 		k := strings.TrimSpace(h)
-		if k == "" {
+		if !ValidHeaderName(k) {
 			continue
 		}
 		set[k] = []string{"{http.reverse_proxy.header." + k + "}"}

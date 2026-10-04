@@ -36,20 +36,18 @@ func safeAssetURL(u string) string {
 // title:  short headline (e.g. "Service under maintenance").
 // msg:    operator-supplied detail (escaped before splicing).
 func renderErrorPage(status int, title, msg string, b ErrorBranding) string {
-	// Caddy expands static_response bodies through the replacer, so every
-	// tenant-supplied fragment spliced in here is neutralized first (HPG-001).
-	title = NeutralizeTenantTemplate(title)
-	msg = NeutralizeTenantTemplate(msg)
+	// Every tenant fragment below goes through htmlEscape, which turns braces
+	// into entities, so nothing spliced here reaches Caddy's replacer (HPG-001).
 	bg := strings.TrimSpace(b.BgColor)
 	if !cssColorSafe.MatchString(bg) {
 		bg = "#1f2937" // slate-800 deep gray
 	}
-	brand := NeutralizeTenantTemplate(b.Brand)
+	brand := b.Brand
 	if brand == "" {
 		brand = "Hostyt"
 	}
-	logoURL := NeutralizeTenantTemplate(safeAssetURL(b.LogoURL))
-	logoLink := NeutralizeTenantTemplate(safeAssetURL(b.LogoLink))
+	logoURL := safeAssetURL(b.LogoURL)
+	logoLink := safeAssetURL(b.LogoLink)
 	logoHTML := ""
 	switch {
 	case logoURL != "" && logoLink != "":
@@ -106,10 +104,10 @@ func routeErrorBranding(r Route) ErrorBranding {
 
 // routeMaintenanceBody renders a route's maintenance 503 body: the tenant's own
 // HTML page when provided, else the branded shell. Caddy expands the body
-// through its replacer, so the page is neutralized rather than emitted verbatim
-// - CSS braces survive, {file.*}/{env.*} become literal text (HPG-001).
+// through its replacer, so the page is neutralized (CSS braces survive as
+// literals, HPG-001); a page naming env/file/system at all gets the shell.
 func routeMaintenanceBody(r Route, msg string) string {
-	if r.CustomErrorOverride && strings.TrimSpace(r.CustomErrorHTML) != "" {
+	if r.CustomErrorOverride && strings.TrimSpace(r.CustomErrorHTML) != "" && ScreenReplacerValue(r.CustomErrorHTML) == nil {
 		return NeutralizeTenantTemplate(r.CustomErrorHTML)
 	}
 	return maintenanceBody(msg, routeErrorBranding(r))

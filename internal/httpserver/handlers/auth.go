@@ -564,6 +564,22 @@ type totpViewData struct {
 	DefaultMethod string
 }
 
+// twoFAMethodEnrolled reports whether method may complete a 2FA login for a
+// user with the given enrolments. Recovery codes are checked when used, and an
+// unknown method is left to the caller's own rejection.
+func twoFAMethodEnrolled(method string, hasTOTP, hasSMS, hasEmail bool) bool {
+	switch method {
+	case "totp":
+		return hasTOTP
+	case "sms":
+		return hasSMS
+	case "email":
+		return hasEmail
+	default:
+		return true
+	}
+}
+
 // twoFAOptions reports which second-factor methods the given user has
 // available + the default-pick following the app→email→sms preference.
 func (h *AuthHandlers) twoFAOptions(ctx context.Context, userID int64) (hasTOTP, hasSMS, hasEmail, hasRecovery bool, defaultMethod string) {
@@ -669,10 +685,20 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	success := false
+	hasTOTP, hasSMS, hasEmail, _, defaultMethod := h.twoFAOptions(ctx, pend.UserID)
+	if method == "" {
+		method = defaultMethod
+		if method == "" {
+			method = "totp"
+		}
+	}
 	mfaTag := method
-	if mfaTag == "" {
-		method = "totp"
-		mfaTag = "totp"
+	// Only a factor the user enrolled may complete the login. Without this an
+	// email or SMS code stood in for an authenticator the user relies on, so a
+	// mailbox alone was enough to pass 2FA.
+	if !twoFAMethodEnrolled(method, hasTOTP, hasSMS, hasEmail) {
+		h.renderTOTPRetry(w, r, http.StatusBadRequest, "That method is not enabled for this account.")
+		return
 	}
 
 	switch method {
@@ -776,6 +802,12 @@ func (h *AuthHandlers) TwoFASend(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	if db == nil {
 		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	_, hasSMS, hasEmail, _, _ := h.twoFAOptions(ctx, pend.UserID)
+	if (method == "sms" && !hasSMS) || (method == "email" && !hasEmail) {
+		http.Error(w, "method not enabled for this account", http.StatusBadRequest)
 		return
 	}
 
@@ -1763,9 +1795,11 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		raw := make([]byte, 32)
 		_, _ = rand.Read(raw)
 		dummy, _ := auth.HashPassword(base64.RawURLEncoding.EncodeToString(raw))
+		// Unset or unexpected -> client, the least-privileged role. The
+		// settings save already refuses admin with auto-provision.
 		role = cfg.DefaultRole
-		if role == "" {
-			role = "support"
+		if role != "support" && role != "client" {
+			role = "client"
 		}
 		full := info.Name
 		if full == "" {

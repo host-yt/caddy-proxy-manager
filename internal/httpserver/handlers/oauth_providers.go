@@ -238,9 +238,12 @@ func (h *AuthHandlers) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		}
 		// Refuse auto-provisioning straight into a privileged role - mirror the
 		// OIDC settings guard so a provider-side signup cannot mint an admin.
+		// Only the two roles the settings form offers are honoured; anything
+		// else (unset included) lands in client, the least-privileged role.
+		// support reads every tenant, so it has to be chosen explicitly.
 		role = cfg.DefaultRole
-		if role == "" || role == "admin" || role == "super_admin" || role == "reseller" {
-			role = "support"
+		if role != "support" && role != "client" {
+			role = "client"
 		}
 		raw := make([]byte, 32)
 		if _, rerr := rand.Read(raw); rerr != nil {
@@ -440,7 +443,7 @@ func (h *AdminHandlers) loadOAuthProviderViews(ctx context.Context, db *sql.DB, 
 		v.Provider = p
 		v.Label = FormatProviderLabel(p)
 		if v.DefaultRole == "" {
-			v.DefaultRole = "support"
+			v.DefaultRole = "client"
 		}
 		v.DefaultRedirect = base + "/auth/" + p + "/callback"
 		out = append(out, v)
@@ -454,6 +457,12 @@ func (h *AdminHandlers) loadOAuthProviderViews(ctx context.Context, db *sql.DB, 
 // secret is encrypted at rest with the SAME crypto helper used for the OIDC
 // secret (installstate AES-GCM); it is never logged and never echoed back.
 func (h *AdminHandlers) SettingsOAuthProvider(w http.ResponseWriter, r *http.Request) {
+	// Same bar as SettingsOIDC: this decides who may create an account and
+	// with which role, so it is not a plain-admin setting.
+	if sess := middleware.SessionFromContext(r.Context()); sess == nil || sess.Role != "super_admin" {
+		http.Error(w, "super_admin role required", http.StatusForbidden)
+		return
+	}
 	db := h.DB()
 	if db == nil {
 		http.Error(w, "no db", http.StatusServiceUnavailable)
@@ -479,7 +488,7 @@ func (h *AdminHandlers) SettingsOAuthProvider(w http.ResponseWriter, r *http.Req
 	}
 	if defaultRole != "support" && defaultRole != "client" {
 		// Never auto-provision into admin via a social provider.
-		defaultRole = "support"
+		defaultRole = "client"
 	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
