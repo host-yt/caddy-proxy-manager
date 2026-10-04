@@ -14,6 +14,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/dns"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
@@ -45,6 +46,11 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		return 0, err
 	}
 
+	upstreamPath, err := cleanRewrite(in, pathPrefix)
+	if err != nil {
+		return 0, err
+	}
+
 	// Verify service ownership + read port range + node_group + plan.
 	var (
 		backendIP    string
@@ -59,7 +65,7 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		planWild     bool
 		planExtProxy bool
 	)
-	err := s.DB.QueryRowContext(ctx,
+	err = s.DB.QueryRowContext(ctx,
 		`SELECT s.client_id, s.backend_ip, s.allowed_port_start, s.allowed_port_end, s.node_group_id,
 		        p.ssl_enabled, p.websocket_enabled, p.path_routing_enabled, p.max_domains, p.wildcard_enabled,
 		        p.external_proxy_enabled
@@ -89,8 +95,15 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 			return 0, ErrExternalNotInPlan
 		}
 		externalHost = strings.ToLower(strings.TrimSpace(in.ExternalHost))
-		if !s.externalHostAllowed(externalHost) {
+		exact, wild := s.externalHostMatch(externalHost)
+		if !exact && (!wild || !validDomain(externalHost)) {
 			return 0, ErrExternalHostNotAllowed
+		}
+		// An exact entry is the operator's explicit consent; a wildcard is not.
+		if wild {
+			if err := screenExternalHost(ctx, externalHost); err != nil {
+				return 0, fmt.Errorf("%w: %v", ErrExternalHostUnsafe, err)
+			}
 		}
 		in.Kind = "proxy"
 		in.UpstreamScheme = "https"
@@ -365,8 +378,10 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		   wildcard_enabled, wildcard_zone, group_id, custom_fields,
 		   via_wg_peer_id, dns_resolver_via_wg_peer_id,
 		   require_client_cert, mtls_ca_id,
-		   domain_verified, verify_token, sso_strict_mode, backend_resolve_node_side)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?, 1, ?)`,
+		   domain_verified, verify_token, sso_strict_mode, backend_resolve_node_side,
+		   strip_path_prefix, upstream_path, expires_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?, 1, ?,
+		   ?, NULLIF(?, ''), CASE WHEN ? > 0 THEN `+store.DateAddSecondsParam()+` END)`,
 		in.ServiceID, nodeID, domain, pathPrefix, in.UpstreamPort, scheme,
 		in.SSL, in.WebSocket, in.ForceHTTPS,
 		kind, redirURL, redirCode, tagVal,
@@ -374,7 +389,8 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		wildFlag, wildZone, in.GroupID, in.CustomFields,
 		viaPeer, dnsResolverPeer,
 		in.RequireClientCert, mtlsCAID,
-		verified, verifyToken, in.BackendResolveNodeSide)
+		verified, verifyToken, in.BackendResolveNodeSide,
+		in.StripPathPrefix, upstreamPath, in.TTLSeconds, in.TTLSeconds)
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			return 0, ErrDomainTaken
@@ -919,4 +935,58 @@ func (s *Service) Reconcile(ctx context.Context) {
 		})
 	}
 	_ = g.Wait()
+}
+
+// screenExternalHost resolves a wildcard-allowlisted host and refuses private
+// targets. Var so tests can stub DNS.
+var screenExternalHost = security.ValidateOutboundHost
+
+// maxRouteTTL caps ephemeral routes; long-lived ones should not use ttl.
+const maxRouteTTL = 24 * 60 * 60
+
+// cleanRewrite validates the rewrite + ttl inputs and returns the normalized
+// upstream path ("" when unset).
+func cleanRewrite(in CreateInput, pathPrefix string) (string, error) {
+	if in.TTLSeconds < 0 || in.TTLSeconds > maxRouteTTL {
+		return "", ErrInvalidRewrite
+	}
+	if in.StripPathPrefix && pathPrefix == "" {
+		return "", ErrInvalidRewrite
+	}
+	up := strings.TrimSpace(in.UpstreamPath)
+	if up == "" {
+		return "", nil
+	}
+	if !in.External || len(up) > 512 || !strings.HasPrefix(up, "/") || strings.Contains(up, "..") ||
+		strings.ContainsAny(up, "{}?#\\ \t\r\n") || ScreenTenantString(up) != nil {
+		return "", ErrInvalidRewrite
+	}
+	return up, nil
+}
+
+// DeleteExpired removes ephemeral routes whose expires_at has passed. Leader
+// ticker; each delete goes through Delete so node counters and Caddy follow.
+func (s *Service) DeleteExpired(ctx context.Context) {
+	if s.DB == nil {
+		return
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT id FROM routes WHERE expires_at IS NOT NULL AND expires_at <= `+store.Now()+` LIMIT 200`)
+	if err != nil {
+		s.Logger.Warn("route expiry: list", "err", err)
+		return
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if rows.Scan(&id) == nil {
+			ids = append(ids, id)
+		}
+	}
+	rows.Close()
+	for _, id := range ids {
+		if err := s.Delete(ctx, 0, id); err != nil {
+			s.Logger.Warn("route expiry: delete", "route_id", id, "err", err)
+		}
+	}
 }

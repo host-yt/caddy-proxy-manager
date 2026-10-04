@@ -788,7 +788,10 @@
                   "path_prefix": { "type": "string", "example": "/api", "description": "Optional — enables sub-path routing on a shared domain" },
                   "ssl": { "type": "boolean", "default": true, "description": "Enable automatic HTTPS via Caddy On-Demand TLS" },
                   "websocket": { "type": "boolean", "default": false },
-                  "force_https": { "type": "boolean", "default": true }
+                  "force_https": { "type": "boolean", "default": true },
+                  "upstream_url": { "type": "string", "example": "https://console.example.net/base", "description": "Admin only. External https origin (allowlisted host). Overrides upstream_port; its path is prepended upstream; Host and SNI are set to its host." },
+                  "strip_path_prefix": { "type": "boolean", "default": false, "description": "Strip path_prefix before proxying. Requires path_prefix." },
+                  "ttl_seconds": { "type": "integer", "minimum": 0, "maximum": 86400, "description": "0 = permanent. Otherwise the route is deleted automatically after this many seconds." }
                 }
               }
             }

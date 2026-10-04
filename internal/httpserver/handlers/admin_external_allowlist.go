@@ -74,8 +74,10 @@ func (h *AdminHandlers) ExternalAllowlistCreate(w http.ResponseWriter, r *http.R
 	if len(note) > 255 {
 		note = note[:255]
 	}
-	if host == "" || !isHostname(host) {
-		redirectWithFlash(w, r, page, "", "host must be a valid FQDN (e.g. adm.tools)")
+	// "*.zone" allows every subdomain of zone (not the zone itself).
+	bare, wild := strings.CutPrefix(host, "*.")
+	if bare == "" || !isHostname(bare) || (wild && !strings.Contains(bare, ".")) {
+		redirectWithFlash(w, r, page, "", "host must be a valid FQDN (e.g. adm.tools) or *.zone")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)

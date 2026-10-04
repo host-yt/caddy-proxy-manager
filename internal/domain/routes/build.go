@@ -15,6 +15,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // validTunnelHostname accepts only DNS-hostname / IPv4 characters. Rejects
@@ -253,6 +254,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	        EXISTS(SELECT 1 FROM route_access_grants rag WHERE rag.route_id=r.id),
 	        COALESCE(r.portal_public_paths,''),
 	        COALESCE(r.upstream_external, 0), COALESCE(r.upstream_host_header, ''), COALESCE(r.proxy_secret_enc, ''),
+	        COALESCE(r.strip_path_prefix, 0), COALESCE(r.upstream_path, ''),
 	        COALESCE(r.compress_disabled, 0),
 	        COALESCE(r.lb_policy,''),
 	        COALESCE(r.lb_header_field,''), COALESCE(r.lb_cookie_name,''), COALESCE(r.lb_cookie_secret,''),
@@ -318,7 +320,9 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		   -- Defence in depth: only advanceRoute should be able to put a route
 		   -- in a serving status, and it refuses unverified ones. A status set
 		   -- by any other path must still not emit an unproven host matcher.
-		   AND COALESCE(r.domain_verified, 0) = 1`+serviceActiveSQL+`
+		   AND COALESCE(r.domain_verified, 0) = 1
+		   -- An expired ephemeral route never re-emits, even before the sweep.
+		   AND (r.expires_at IS NULL OR r.expires_at > `+store.Now()+`)`+serviceActiveSQL+`
 		 ORDER BY r.id ASC`, nodeID, nodeID, nodeID, nodeID)
 	if err != nil {
 		return nil, nil, err
@@ -372,6 +376,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var portalPublicPathsRaw string
 		var upstreamExternal bool
 		var upstreamHostHeader, proxySecretEnc string
+		var stripPathPrefix bool
+		var upstreamPath string
 		var compressDisabled bool
 		var lbPolicy string
 		var lbHeaderField, lbCookieName, lbCookieSecret string
@@ -413,6 +419,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			&ssoResolverIP,
 			&portalProtect, &portalHasGrants, &portalPublicPathsRaw,
 			&upstreamExternal, &upstreamHostHeader, &proxySecretEnc,
+			&stripPathPrefix, &upstreamPath,
 			&compressDisabled,
 			&lbPolicy,
 			&lbHeaderField, &lbCookieName, &lbCookieSecret,
@@ -639,6 +646,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			UpstreamSNI:             upstreamHostHeader,
 			UpstreamHostHeader:      upstreamHostHeader,
 			ProxySecret:             proxySecret,
+			StripPathPrefix:         stripPathPrefix,
+			UpstreamPathPrefix:      upstreamPath,
 			CompressDisabled:        compressDisabled,
 			LBPolicy:                lbPolicy,
 			LBHeaderField:           lbHeaderField,

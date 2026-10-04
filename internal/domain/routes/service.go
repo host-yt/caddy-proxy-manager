@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"runtime/debug"
 	"sort"
 	"strings"
@@ -294,6 +295,13 @@ type CreateInput struct {
 	UpstreamHostHeader string
 	ProxySecretPlain   string
 
+	// StripPathPrefix / UpstreamPath rewrite /<PathPrefix>/rest to
+	// /<UpstreamPath>/rest on the way upstream. TTLSeconds > 0 makes the
+	// route ephemeral: the leader deletes it once expires_at passes.
+	StripPathPrefix bool
+	UpstreamPath    string
+	TTLSeconds      int
+
 	// WildcardEnabled marks this route's domain as served by a *.WildcardZone
 	// cert obtained via ACME DNS-01. Requires an enabled dns_providers row for
 	// the zone and the domain to be the zone or a subdomain of it. Admin-only.
@@ -339,6 +347,11 @@ var (
 	ErrExternalHostNotAllowed = errors.New("external upstream host not in allowlist")
 	// ErrExternalNotInPlan: the owning plan does not have external_proxy_enabled.
 	ErrExternalNotInPlan = errors.New("plan does not permit external HTTPS upstream routes")
+	// ErrExternalHostUnsafe: a wildcard-allowlisted host resolves to a
+	// private, loopback or link-local address (SSRF).
+	ErrExternalHostUnsafe = errors.New("external upstream host resolves to a non-public address")
+	// ErrInvalidRewrite: upstream_path / strip / ttl input is malformed.
+	ErrInvalidRewrite = errors.New("invalid upstream_path, strip_path_prefix or ttl_seconds")
 	// ErrWildcardNoProvider: no enabled dns_providers row exists for the
 	// requested wildcard_zone, so the DNS-01 cert could never be issued.
 	ErrWildcardNoProvider = errors.New("no DNS provider configured for wildcard zone")
@@ -367,17 +380,39 @@ func (s *Service) ExternalHostAllowed(host string) bool { return s.externalHostA
 // (ExternalUpstreamAllowlist, backward compat) and the DB-managed table
 // (external_upstream_allowlist). Empty union denies all.
 func (s *Service) externalHostAllowed(host string) bool {
+	exact, wild := s.externalHostMatch(host)
+	return exact || wild
+}
+
+// externalHostMatch reports an exact allowlist hit, or a hit via a "*.zone"
+// entry. A wildcard covers subdomains only, never the zone itself or an IP
+// literal; callers screen wildcard hits for private addresses (SSRF).
+func (s *Service) externalHostMatch(host string) (exact, wild bool) {
 	host = strings.ToLower(strings.TrimSpace(host))
 	if host == "" {
-		return false
+		return false, false
 	}
+	entries := make([]string, 0, len(s.ExternalUpstreamAllowlist))
 	for _, a := range s.ExternalUpstreamAllowlist {
-		if strings.ToLower(strings.TrimSpace(a)) == host {
-			return true
+		entries = append(entries, strings.ToLower(strings.TrimSpace(a)))
+	}
+	for a := range s.dbAllowlist() {
+		entries = append(entries, a)
+	}
+	for _, a := range entries {
+		if a == host {
+			return true, false
 		}
 	}
-	_, ok := s.dbAllowlist()[host]
-	return ok
+	if net.ParseIP(host) != nil {
+		return false, false
+	}
+	for _, a := range entries {
+		if zone, ok := strings.CutPrefix(a, "*."); ok && zone != "" && strings.HasSuffix(host, "."+zone) {
+			return false, true
+		}
+	}
+	return false, false
 }
 
 // dbAllowlist returns the cached set of DB-managed allowlist hosts (lowercased),

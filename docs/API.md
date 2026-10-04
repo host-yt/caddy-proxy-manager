@@ -509,6 +509,9 @@ Create a route.
 | `ssl` | boolean | no | Default `true` - enables automatic HTTPS |
 | `websocket` | boolean | no | Default `false` |
 | `force_https` | boolean | no | Default `true` - redirect HTTP to HTTPS |
+| `upstream_url` | string | no | Admin keys only. External origin `https://host[:port][/path]` (no credentials, query or fragment). Replaces `upstream_port`; see [External and ephemeral routes](#external-and-ephemeral-routes) |
+| `strip_path_prefix` | boolean | no | Default `false`. Strip `path_prefix` before proxying. Requires `path_prefix` |
+| `ttl_seconds` | integer | no | `0` (default) = permanent. `1`-`86400`: the route is deleted automatically once it expires |
 
 ```json
 {
@@ -530,13 +533,50 @@ Create a route.
 
 Caddy config is pushed in the background. Poll `GET /api/v1/services/{id}/routes` and watch `status` for SSL provisioning progress.
 
+##### External and ephemeral routes
+
+A short-lived proxy to a third-party HTTPS origin (e.g. a provider's
+web console), served under your own domain:
+
+```json
+{
+  "service_id": 7,
+  "domain": "console.example.com",
+  "path_prefix": "/console/3f9c...e1",
+  "upstream_url": "https://kvm.provider.example/base",
+  "strip_path_prefix": true,
+  "websocket": true,
+  "ssl": true,
+  "force_https": true,
+  "ttl_seconds": 900
+}
+```
+
+- A request for `/console/3f9c...e1/vnc.html?x=1` reaches
+  `https://kvm.provider.example/base/vnc.html?x=1`. The query string is kept.
+- TLS to the origin is always verified; SNI and the `Host` header are the
+  origin's host name. The inbound `Authorization` header is not forwarded.
+- `websocket: true` passes upgrades through (noVNC / HTML5 KVM consoles). On
+  external routes a live stream survives config reloads for up to 15 minutes
+  (`stream_close_delay`), so pushing another route does not cut a session.
+- The origin host must be on the external upstream allowlist
+  (`Admin -> System -> External allowlist` or `EXTERNAL_UPSTREAM_ALLOWLIST`).
+  An entry `*.zone` allows every subdomain of `zone`; a host matched only by
+  a wildcard must resolve to public addresses (no loopback, RFC1918, CGNAT,
+  link-local), and an IP literal must be listed exactly.
+- The service's plan needs `external_proxy_enabled`, path routing and
+  websocket; set `max_domains` to `0`, since each route counts.
+- With `ttl_seconds`, the route stops being emitted the moment it expires and
+  the leader deletes it within about 30 seconds. `DELETE /api/v1/routes/{id}`
+  removes it earlier.
+
 **Errors**
 
 | Code | Meaning |
 |------|---------|
-| 400 | Invalid domain or port outside allowed range |
+| 400 | Invalid domain or port outside allowed range; invalid `upstream_url`; host not allowlisted or resolving to a non-public address; invalid `strip_path_prefix` / `ttl_seconds`; path routing or websocket not in plan |
 | 401 | Auth required |
-| 403 | Service not yours |
+| 403 | Service not yours; `upstream_url` sent with a client key; plan has no external upstreams |
 | 409 | Domain already mapped, no node available, or plan domain limit reached |
 | 429 | Rate limit exceeded |
 | 500 | Internal error |

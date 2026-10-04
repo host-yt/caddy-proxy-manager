@@ -565,10 +565,23 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		SSL          bool   `json:"ssl"`
 		WebSocket    bool   `json:"websocket"`
 		ForceHTTPS   bool   `json:"force_https"`
+		// External https origin (admin only), its path is prepended upstream.
+		UpstreamURL     string `json:"upstream_url"`
+		StripPathPrefix bool   `json:"strip_path_prefix"`
+		TTLSeconds      int    `json:"ttl_seconds"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		apiErr(w, http.StatusBadRequest, "invalid json")
 		return
+	}
+	var ext *url.URL
+	if strings.TrimSpace(in.UpstreamURL) != "" {
+		u, perr := parseExternalUpstreamURL(in.UpstreamURL)
+		if perr != nil {
+			apiErr(w, http.StatusBadRequest, perr.Error())
+			return
+		}
+		ext = u
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
@@ -582,6 +595,10 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if c.Role == "client" {
+		if ext != nil {
+			apiErr(w, http.StatusForbidden, "upstream_url requires an admin key")
+			return
+		}
 		cid, lerr := clientIDForUserStrict(ctx, h.DB(), c.UserID)
 		if lerr != nil {
 			apiErr(w, http.StatusForbidden, "client scope unresolved")
@@ -605,17 +622,42 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		clientID = svcClient
 	}
-	id, err := h.Routes.Create(ctx, clientID, routes.CreateInput{
-		ServiceID:    in.ServiceID,
-		UpstreamPort: in.UpstreamPort,
-		Domain:       in.Domain,
-		PathPrefix:   in.PathPrefix,
-		SSL:          in.SSL,
-		WebSocket:    in.WebSocket,
-		ForceHTTPS:   in.ForceHTTPS,
-	})
+	ci := routes.CreateInput{
+		ServiceID:       in.ServiceID,
+		UpstreamPort:    in.UpstreamPort,
+		Domain:          in.Domain,
+		PathPrefix:      in.PathPrefix,
+		SSL:             in.SSL,
+		WebSocket:       in.WebSocket,
+		ForceHTTPS:      in.ForceHTTPS,
+		StripPathPrefix: in.StripPathPrefix,
+		TTLSeconds:      in.TTLSeconds,
+	}
+	if ext != nil {
+		ci.External = true
+		ci.ExternalHost = ext.Hostname()
+		ci.UpstreamHostHeader = ext.Hostname()
+		ci.UpstreamPort = 443
+		if p := ext.Port(); p != "" {
+			ci.UpstreamPort, _ = strconv.Atoi(p)
+		}
+		if ext.Path != "/" {
+			ci.UpstreamPath = ext.Path
+		}
+	}
+	id, err := h.Routes.Create(ctx, clientID, ci)
 	if err != nil {
 		switch {
+		case errors.Is(err, routes.ErrExternalHostNotAllowed):
+			apiErr(w, http.StatusBadRequest, "upstream host not in external allowlist")
+		case errors.Is(err, routes.ErrExternalHostUnsafe):
+			apiErr(w, http.StatusBadRequest, "upstream host resolves to a non-public address")
+		case errors.Is(err, routes.ErrExternalNotInPlan):
+			apiErr(w, http.StatusForbidden, "plan does not permit external upstreams")
+		case errors.Is(err, routes.ErrInvalidRewrite), errors.Is(err, routes.ErrUnsafePlaceholder):
+			apiErr(w, http.StatusBadRequest, "invalid upstream_url path, strip_path_prefix or ttl_seconds")
+		case errors.Is(err, routes.ErrPathNotInPlan), errors.Is(err, routes.ErrWebSocketNotInPlan):
+			apiErr(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, routes.ErrServiceNotYours):
 			apiErr(w, http.StatusForbidden, "service not yours")
 		case errors.Is(err, routes.ErrPortOutOfRange):
@@ -867,4 +909,23 @@ func (h *APIHandlers) NodeResync(w http.ResponseWriter, r *http.Request) {
 		EntityID: strconv.FormatInt(id, 10),
 	})
 	apiJSON(w, http.StatusOK, map[string]any{"id": id, "resynced": true})
+}
+
+// parseExternalUpstreamURL accepts only https://host[:port][/path], no
+// credentials, query or fragment. Allowlist and SSRF checks run in Create.
+func parseExternalUpstreamURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Scheme != "https" || u.Host == "" || u.Hostname() == "" || u.User != nil ||
+		u.RawQuery != "" || u.ForceQuery || u.Fragment != "" || u.Opaque != "" {
+		return nil, errors.New("upstream_url must be https://host[:port][/path] without credentials, query or fragment")
+	}
+	if p := u.Port(); p != "" {
+		if n, perr := strconv.Atoi(p); perr != nil || n < 1 || n > 65535 {
+			return nil, errors.New("upstream_url port out of range")
+		}
+	}
+	if u.RawPath != "" {
+		return nil, errors.New("upstream_url path must not be percent-encoded")
+	}
+	return u, nil
 }

@@ -25,6 +25,14 @@ is deliberately left as published.
 
 ### Added
 
+- **Ephemeral external routes over API v1.** `POST /api/v1/routes` accepts
+  `upstream_url` (admin keys, allowlisted https origin, verified TLS, Host/SNI
+  set to the origin), `strip_path_prefix` and `ttl_seconds`; expired routes
+  stop being emitted at once and are deleted by the leader within ~30 s. The
+  external allowlist accepts `*.zone` entries; a wildcard-only match must
+  resolve to public addresses. Built for proxying provider web consoles
+  (noVNC/KVM) under your own domain. Migration 00161 adds three nullable
+  `routes` columns. See [API.md](docs/API.md#external-and-ephemeral-routes).
 - **Caddy admin endpoint can run on a unix socket.** A node's admin endpoint
   can be bound to a filesystem socket instead of a TCP port
   (`HPG_CADDY_ADMIN_LISTEN=unix//sockets/caddy-admin.sock|0666`), so it has no

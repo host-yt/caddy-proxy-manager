@@ -197,6 +197,11 @@ type Route struct {
 	// compresses or streams binary that must not be buffered.
 	CompressDisabled bool
 
+	// StripPathPrefix drops PathPrefix from the request path before proxying;
+	// UpstreamPathPrefix is then prepended (e.g. the origin's own base path).
+	StripPathPrefix    bool
+	UpstreamPathPrefix string
+
 	// Upstreams, when len>0, OVERRIDES the single UpstreamIP/UpstreamPort dial
 	// for plain internal proxy routes (one {"dial":"host:port"} per element,
 	// in order). Ignored for External and BackendResolver routes.
@@ -531,6 +536,11 @@ func BuildRoute(r Route) map[string]any {
 		// streaming / long-poll upstreams reach the client immediately
 		// instead of appearing to hang until Caddy's buffer fills.
 		primary["flush_interval"] = -1
+		// External consoles (noVNC/KVM): a config reload for another route must
+		// not cut a live session. Caddy >= 2.7.
+		if r.External && r.WebSocket {
+			primary["stream_close_delay"] = "15m"
+		}
 		// dnsResolver picks the effective resolver IP: direct IP beats peer IP.
 		dnsResolver := firstNonEmpty(r.DNSResolverIP, r.DNSResolverViaWGPeerIP)
 		if r.BackendResolver != "" {
@@ -1159,6 +1169,9 @@ func BuildRoute(r Route) map[string]any {
 
 	if len(r.LocationRules) > 0 && r.Kind != "redirect" && !r.MaintenanceMode {
 		primary = buildLocationSubroute(r, primary)
+	}
+	if r.Kind != "redirect" {
+		handlers = append(handlers, pathRewriteHandlers(r)...)
 	}
 	handlers = append(handlers, primary)
 
@@ -2282,4 +2295,18 @@ func panelDial(rawURL string) string {
 		}
 	}
 	return net.JoinHostPort(host, port)
+}
+
+// pathRewriteHandlers maps /<PathPrefix>/rest to /<UpstreamPathPrefix>/rest.
+// Both values are validated at write time (no placeholders, no "..").
+func pathRewriteHandlers(r Route) []any {
+	var out []any
+	if r.StripPathPrefix && r.PathPrefix != "" && r.PathPrefix != "/" {
+		out = append(out, map[string]any{"handler": "rewrite", "strip_path_prefix": strings.TrimSuffix(r.PathPrefix, "/")})
+	}
+	if up := strings.TrimSuffix(r.UpstreamPathPrefix, "/"); up != "" {
+		// No "?" in uri: Caddy keeps the original query string.
+		out = append(out, map[string]any{"handler": "rewrite", "uri": up + "{http.request.uri.path}"})
+	}
+	return out
 }

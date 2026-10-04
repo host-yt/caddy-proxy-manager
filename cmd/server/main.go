@@ -773,6 +773,9 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		}
 	}()
 
+	// Ephemeral routes (ttl_seconds) - leader-only sweep; build skips them anyway.
+	go runTicker(rootCtx, 30*time.Second, leaderElec, guard(logger, "route-expiry", routesSvc.DeleteExpired))
+
 	// Webhook dispatcher — leader-only, 30s cadence.
 	go runTicker(rootCtx, 30*time.Second, leaderElec, guard(logger, "webhooks", whSvc.Dispatch))
 	// Alert evaluator - leader-only, 60s cadence; deduped via alert_log.

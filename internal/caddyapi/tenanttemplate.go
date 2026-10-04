@@ -112,6 +112,7 @@ func TenantTemplateQuarantine(r Route) string {
 		{"geo_redirect_url", r.GeoRedirectURL},
 		{"upstream_host_header", r.UpstreamHostHeader},
 		{"upstream_sni", r.UpstreamSNI},
+		{"upstream_path", r.UpstreamPathPrefix},
 	} {
 		if reason := check(c.what, c.v); reason != "" {
 			return reason
