@@ -1754,6 +1754,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		  WHEN r.waf_enabled=1     AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?)=0 THEN 'WAF'
 		  WHEN r.geo_mode!='off'   AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?)=0 THEN 'GeoIP'
 		  WHEN r.rate_enabled=1    AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?)=0 THEN 'rate_limit'
+		  WHEN r.geo_mode!='off'   AND n.geoip_db_present=0 THEN 'GeoIP DB'
 		END AS missing
 		FROM routes r
 		JOIN caddy_nodes n ON n.id = r.caddy_node_id
@@ -1762,6 +1763,7 @@ func (h *AdminHandlers) NodeDetail(w http.ResponseWriter, r *http.Request) {
 		        (r.waf_enabled=1     AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?)=0)
 		     OR (r.geo_mode!='off'   AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?)=0)
 		     OR (r.rate_enabled=1    AND COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?)=0)
+		     OR (r.geo_mode!='off'   AND n.geoip_db_present=0)
 		  )
 		ORDER BY r.domain LIMIT 50`,
 		b2i(envWAF), b2i(envGeo), b2i(envRate), id, b2i(envWAF), b2i(envGeo), b2i(envRate))
@@ -2640,6 +2642,9 @@ type hostEditData struct {
 	NodeHasL4        bool
 	NodeHasGeoIP     bool
 	NodeHasRateLimit bool
+	// NodeGeoIPDBMissing: the node's agent reported no GeoIP mmdb, so geo
+	// rules are skipped on push for this host until the DB lands.
+	NodeGeoIPDBMissing bool
 	// NodeCaddyVersion is the operator-declared version of the anchor node;
 	// NodePQCapable says whether EVERY node serving the host understands
 	// x25519mlkem768 (Caddy 2.10+), fan-out peers included. Both drive the
@@ -2871,6 +2876,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_waf        END, ?), COALESCE(n.has_l4,0),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_geoip      END, ?),
 		        COALESCE(CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_rate_limit END, ?),
+		        COALESCE(n.geoip_db_present,1)=0,
 		        COALESCE(r.dial_timeout_ms,0), COALESCE(r.response_header_timeout_ms,0),
 		        COALESCE(r.group_id,0)
 		 FROM routes r
@@ -2913,7 +2919,7 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.DNSResolverIP, &d.DNSResolverViaWGID, &d.DNSAddressFamily,
 		&d.RequireClientCert, &d.MTLSCAID, &d.TLSPQOnly,
 		&d.NodeCaddyVersion,
-		&d.NodeHasWAF, &d.NodeHasL4, &d.NodeHasGeoIP, &d.NodeHasRateLimit,
+		&d.NodeHasWAF, &d.NodeHasL4, &d.NodeHasGeoIP, &d.NodeHasRateLimit, &d.NodeGeoIPDBMissing,
 		&d.DialTimeoutMs, &d.ResponseHeaderTimeoutMs,
 		&d.GroupID.Int64)
 	if d.GroupID.Int64 > 0 {

@@ -954,6 +954,14 @@ X-Authentik-Meta-Version</pre>
         </div>
       </div>
       {{end}}
+      {{if and (ne .GeoMode "off") .NodeGeoIPDBMissing}}
+      <div class="r-card bg-[rgb(var(--danger-weak),0.15)] ring-danger/30 t-caption text-danger">
+        <div class="flex items-start gap-2">
+          <svg class="w-4 h-4 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+          <span><strong>GeoIP database missing on node.</strong> The node agent reports no <code>/data/geoip/GeoLite2-Country.mmdb</code>, so geo rules are <strong>not enforced</strong> on this host until it lands. Mount <code>/data/geoip</code> as a volume shared with the caddy container (the agent's <code>doctor</code> check shows the gap).</span>
+        </div>
+      </div>
+      {{end}}
       <div>
         <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-geo_mode">Mode</label>
         <select id="f-geo_mode" name="geo_mode" class="r-select w-full cursor-pointer">

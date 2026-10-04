@@ -57,12 +57,13 @@ func (s *Service) buildOneRoute(ctx context.Context, nodeID, routeID int64) (cad
 		}
 		return global
 	}
-	var nHasWAF, nHasGeoIP, nHasRate sql.NullBool
+	var nHasWAF, nHasGeoIP, nHasRate, nGeoDB sql.NullBool
 	_ = s.DB.QueryRowContext(ctx,
 		`SELECT CASE WHEN modules_probed_at IS NOT NULL THEN has_waf        END,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip      END,
-		        CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit END
-		   FROM caddy_nodes WHERE id = ?`, nodeID).Scan(&nHasWAF, &nHasGeoIP, &nHasRate)
+		        CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit END,
+		        geoip_db_present
+		   FROM caddy_nodes WHERE id = ?`, nodeID).Scan(&nHasWAF, &nHasGeoIP, &nHasRate, &nGeoDB)
 	for i, id := range ids {
 		if id == routeID {
 			r := built[i]
@@ -72,7 +73,7 @@ func (s *Service) buildOneRoute(ctx context.Context, nodeID, routeID int64) (cad
 			r.CacheModuleAvailable = s.CacheModuleAvailable
 			r.RateLimitModuleAvailable = probedOr(nHasRate, s.RateLimitModuleAvailable)
 			r.WAFModuleAvailable = probedOr(nHasWAF, s.WAFModuleAvailable)
-			r.GeoModuleAvailable = probedOr(nHasGeoIP, s.GeoModuleAvailable) && geoip.HasCountryDB()
+			r.GeoModuleAvailable = probedOr(nHasGeoIP, s.GeoModuleAvailable) && geoip.NodeHasCountryDB(nGeoDB)
 			return r, true, nil
 		}
 	}

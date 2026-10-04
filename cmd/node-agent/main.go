@@ -93,6 +93,9 @@ type forwardHealth struct {
 	// Pointer + omitempty only for symmetry with the rest; this build always
 	// sets it, and the panel treats a missing field as "old agent".
 	PSKSupported *bool `json:"psk_supported,omitempty"`
+	// GeoIPDBPresent: the panel emits the maxmind matcher per node only when
+	// this node has the mmdb, else Caddy rejects the node's whole /load.
+	GeoIPDBPresent *bool `json:"geoip_db_present,omitempty"`
 }
 
 // healthState holds the latest forwarding diagnostic + setup error string.
@@ -1746,6 +1749,8 @@ func reportStats(ctx context.Context, log *slog.Logger, c config) {
 	// panel may start provisioning PSKs for peers on this node.
 	pskOK := true
 	hh.PSKSupported = &pskOK
+	geoOK := doctorGeoIP().status == statusPass
+	hh.GeoIPDBPresent = &geoOK
 	// Report wstunnel liveness so the panel only advertises WSS when the node
 	// is actually serving it (nil on UDP nodes - not applicable).
 	if c.TunnelTransport != "udp" {

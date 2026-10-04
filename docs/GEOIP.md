@@ -87,6 +87,16 @@ all three ship in `deploy/remote-node/` + `deploy/node-agent/`:
    node's edit page (or set the fleet-wide `GEOIP_AVAILABLE=1`) only once the
    first two are true - see the never-flip-early note below.
 
+The agent also reports on every stats tick whether the mmdb is present on its
+node, and the panel gates the geo matcher per node on that report: a node
+whose agent says the file is missing gets **no geo rules** (the rest of its
+config still loads) instead of a rejected `/load`. That is fail-open on geo,
+chosen over taking every route on the node down; the host's Geo tab and the
+node's detail page show a `GeoIP DB` warning while it lasts, and the node is
+resynced as soon as the file lands. A node with no agent, or an agent older
+than this report, keeps the previous behaviour: the matcher is emitted when
+the panel itself has the DB.
+
 ## Per-node capability
 
 Admin → Caddy Nodes shows a `GeoIP` badge on nodes where the module was detected.

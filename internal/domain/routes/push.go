@@ -461,7 +461,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		proxyProtoAllow     string
 		proxyProtoTimeoutMs int
 	)
-	var nodeHasWAF, nodeHasL4, nodeHasGeoIP, nodeHasRateLimit, nodeHasDNS sql.NullBool
+	var nodeHasWAF, nodeHasL4, nodeHasGeoIP, nodeHasRateLimit, nodeHasDNS, nodeGeoDB sql.NullBool
 	var nodeCaddyVersion string
 	if err := s.DB.QueryRowContext(ctx,
 		`SELECT api_url, tunnel_transport, tunnel_wstunnel_port, tunnel_endpoint, tunnel_enabled,
@@ -472,12 +472,13 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_geoip     ELSE NULL END,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit ELSE NULL END,
 		        CASE WHEN modules_probed_at IS NOT NULL THEN has_dns_module ELSE NULL END,
+		        geoip_db_present,
 		        proxy_protocol_in, proxy_protocol_allow, proxy_protocol_timeout_ms,
 		        COALESCE(caddy_version,'')
 		   FROM caddy_nodes WHERE id = ?`,
 		nodeID).Scan(&apiURL, &transport, &wstunnelPort, &tunnelEndpoint, &tunnelEnabled,
 		&wstHealthy, &wstFresh,
-		&nodeHasWAF, &nodeHasL4, &nodeHasGeoIP, &nodeHasRateLimit, &nodeHasDNS,
+		&nodeHasWAF, &nodeHasL4, &nodeHasGeoIP, &nodeHasRateLimit, &nodeHasDNS, &nodeGeoDB,
 		&proxyProtoIn, &proxyProtoAllow, &proxyProtoTimeoutMs,
 		&nodeCaddyVersion); err != nil {
 		return nil, err
@@ -556,7 +557,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		Layer4ModuleAvailable:    probedOr(nodeHasL4, s.Layer4ModuleAvailable),
 		RateLimitModuleAvailable: probedOr(nodeHasRateLimit, s.RateLimitModuleAvailable),
 		WAFModuleAvailable:       probedOr(nodeHasWAF, s.WAFModuleAvailable),
-		GeoModuleAvailable:       probedOr(nodeHasGeoIP, s.GeoModuleAvailable) && geoip.HasCountryDB(),
+		GeoModuleAvailable:       probedOr(nodeHasGeoIP, s.GeoModuleAvailable) && geoip.NodeHasCountryDB(nodeGeoDB),
 		DNS01ModuleAvailable:     probedOr(nodeHasDNS, s.DNS01ModuleAvailable),
 		WildcardPolicies:         s.buildWildcardPolicies(ctx, nodeID),
 		StreamRoutes:             streams,

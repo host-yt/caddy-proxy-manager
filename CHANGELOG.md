@@ -148,6 +148,15 @@ is deliberately left as published.
 
 ### Fixed
 
+- **A remote node without the GeoIP database no longer rejects its whole
+  config.** The geo matcher was gated on the panel's own copy of the mmdb, so a
+  node missing the `/data/geoip` mount still got it and Caddy refused the
+  entire `/load`. The node-agent now reports whether the file is present and
+  the panel skips geo rules for that node only (fail-open on geo, never a
+  bricked node), with a warning on the host's Geo tab and the node's page.
+  Nodes without a reporting agent keep the old panel-side check. Migration
+  00162 adds a nullable `caddy_nodes.geoip_db_present`; update the node-agent
+  to get the per-node gate.
 - The config compiler could block until its context deadline on SQLite, because
   it wrote audit rows while still holding the only pooled connection.
 - Drift detection compared a different, smaller artifact than the one being

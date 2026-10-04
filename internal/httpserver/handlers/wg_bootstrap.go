@@ -47,7 +47,7 @@ type WGBootstrapHandler struct {
 	// OnWstunnelHealthy fires when a node's wstunnel_healthy flips in EITHER
 	// direction. The WSS /wg-tunnel route is health-gated AND ignored by drift,
 	// so this resync is the only thing that adds it (healthy) or removes the
-	// stale route (unhealthy).
+	// stale route (unhealthy). Also fired when geoip_db_present changes.
 	OnWstunnelHealthy func(nodeID int64)
 }
 
@@ -590,6 +590,9 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 			// preshared keys at all. Re-asserted on every report: absent
 			// (old agent, rolled-back agent) means "does not support".
 			PSKSupported bool `json:"psk_supported"`
+			// GeoIPDBPresent gates the per-node maxmind matcher; nil (old
+			// agent) leaves the column untouched so emission keeps the panel check.
+			GeoIPDBPresent *bool `json:"geoip_db_present"`
 		} `json:"node"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 64*1024)).Decode(&body); err != nil {
@@ -639,6 +642,19 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 			// Nothing else triggers this - drift ignores infra routes.
 			healthyBefore := was.Valid && was.Bool
 			if *n.WstunnelHealthy != healthyBefore && h.OnWstunnelHealthy != nil {
+				h.OnWstunnelHealthy(nodeID)
+			}
+		}
+		if n.GeoIPDBPresent != nil {
+			var was sql.NullBool
+			_ = db.QueryRowContext(ctx,
+				`SELECT geoip_db_present FROM caddy_nodes WHERE id = ?`, nodeID).Scan(&was)
+			_, _ = db.ExecContext(ctx,
+				`UPDATE caddy_nodes SET geoip_db_present = ? WHERE id = ?`,
+				boolPtrToNull(n.GeoIPDBPresent), nodeID)
+			// Geo matchers are gated on this flag; resync on change so they land
+			// (or drop) now instead of waiting for the next unrelated push.
+			if (!was.Valid || was.Bool != *n.GeoIPDBPresent) && h.OnWstunnelHealthy != nil {
 				h.OnWstunnelHealthy(nodeID)
 			}
 		}

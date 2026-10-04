@@ -8,6 +8,7 @@
 package geoip
 
 import (
+	"database/sql"
 	"os"
 	"sort"
 	"strings"
@@ -22,6 +23,16 @@ import (
 func HasCountryDB() bool {
 	info, err := os.Stat(DBPath)
 	return err == nil && !info.IsDir() && info.Size() > 0
+}
+
+// NodeHasCountryDB is the per-node gate: a node's agent-reported mmdb presence
+// wins, since the panel having the file says nothing about a remote node's
+// mount. Unreported (no/old agent) falls back to the panel's own copy.
+func NodeHasCountryDB(reported sql.NullBool) bool {
+	if reported.Valid {
+		return reported.Bool
+	}
+	return HasCountryDB()
 }
 
 // DBPath is where the GeoLite2-Country mmdb lives on each node (provisioned out
