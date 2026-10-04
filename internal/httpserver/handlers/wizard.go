@@ -801,6 +801,10 @@ func (w *Wizard) CaddySubmit(rw http.ResponseWriter, r *http.Request) {
 		w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Name must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric."))
 		return
 	}
+	if err := security.RejectSingleLabelNodeAdminURL(form.APIURL); err != nil {
+		w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, err.Error()))
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()

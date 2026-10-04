@@ -103,6 +103,9 @@ func ValidNodeAPIURL(apiURL string) bool {
 // remote Caddy admin API. Remote nodes must be reached through the node-agent
 // admin proxy, which authenticates the panel with a per-node key.
 func RejectUnauthenticatedNodeAdminURL(apiURL string) error {
+	if err := RejectSingleLabelNodeAdminURL(apiURL); err != nil {
+		return err
+	}
 	if !UnauthenticatedNodeAdminURL(apiURL) || os.Getenv(AllowUnauthenticatedNodeAdminEnv) == "1" {
 		return nil
 	}
@@ -115,4 +118,36 @@ func RejectUnauthenticatedNodeAdminURL(apiURL string) error {
 		"that node (HPG_ADMIN_PROXY_LISTEN/HPG_ADMIN_PROXY_KEY) and register http://%s:%s instead, or set "+
 		"%s=1 to keep registering the legacy shape while migrating (see docs/MULTI_NODE.md)",
 		host, caddyAdminPort, host, defaultAdminProxyPort, AllowUnauthenticatedNodeAdminEnv)
+}
+
+// bundledCaddyHosts are the single-label names that legitimately address the
+// manager's own Caddy (its compose bridge, or loopback).
+func bundledCaddyHosts() []string {
+	hosts := []string{"caddy", "localhost"}
+	if u, err := url.Parse(strings.TrimSpace(os.Getenv("CADDY_ADMIN_URL"))); err == nil && u.Hostname() != "" {
+		hosts = append(hosts, strings.ToLower(u.Hostname()))
+	}
+	return hosts
+}
+
+// RejectSingleLabelNodeAdminURL refuses a dotless hostname other than the
+// bundled Caddy: remoteAdminHost treats those as bridge-local, so a name that
+// resolves elsewhere (search domain, /etc/hosts) would skip the SEC-002 guard.
+func RejectSingleLabelNodeAdminURL(apiURL string) error {
+	u, err := url.Parse(strings.TrimSpace(apiURL))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" {
+		return nil
+	}
+	h := strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+	if net.ParseIP(h) != nil || strings.Contains(h, ".") {
+		return nil
+	}
+	for _, b := range bundledCaddyHosts() {
+		if h == b {
+			return nil
+		}
+	}
+	return fmt.Errorf("api_url host %q is a single-label name: only the manager's own Caddy (%s) is "+
+		"reached that way - register a remote node by FQDN or tunnel IP through the node-agent admin proxy "+
+		"(http://<host>:%s), or use a unix:// admin socket", h, strings.Join(bundledCaddyHosts(), ", "), defaultAdminProxyPort)
 }

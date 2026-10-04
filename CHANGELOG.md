@@ -71,6 +71,10 @@ is deliberately left as published.
 - Third-party images in the `deploy/` compose files (mariadb, redis, busybox,
   caddy, coredns, whoami, integration-test images) are pinned by multi-arch
   digest (`tag@sha256:...`), so a moved tag cannot change what you pull.
+- Node registration (admin UI, `POST /api/v1/nodes`, install wizard) refuses a
+  single-label API host such as `http://node2:2019`, other than the bundled
+  Caddy (`caddy`, `localhost`, the `CADDY_ADMIN_URL` host). Such names were
+  treated as bridge-local and skipped the unauthenticated-admin guard.
 - Upstream proxy targets are checked to be plain `host:port`
   (`caddyapi.ScreenDialTarget`): Caddy also accepts socket and
   file-descriptor upstream forms, which no address-based screen covers.

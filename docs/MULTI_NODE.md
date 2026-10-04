@@ -858,7 +858,11 @@ node's entire configuration - every tenant on it. See
 **This is now required for remote nodes.** `deploy/remote-node/docker-compose.yml`
 publishes Caddy's admin port on host loopback only, the node-agent example has
 the proxy switched on, and the panel refuses to register a node whose API URL is
-a raw remote `:2019` (`/admin/nodes` and `POST /api/v1/nodes`).
+a raw remote `:2019` (`/admin/nodes` and `POST /api/v1/nodes`). It also refuses
+a single-label host (`http://node2:2021`) other than the bundled Caddy
+(`caddy`, `localhost`, or the host in `CADDY_ADMIN_URL`), on every registration
+path including the install wizard - name a remote node by FQDN or tunnel IP.
+`HPG_ALLOW_UNAUTHENTICATED_NODE_ADMIN` does not lift this.
 
 Registration and pushing are two separate gates:
 

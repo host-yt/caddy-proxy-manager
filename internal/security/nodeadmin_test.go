@@ -60,3 +60,20 @@ func TestAdminProxyPortsEnv(t *testing.T) {
 		t.Error("an undeclared port must stay flagged")
 	}
 }
+
+func TestRejectSingleLabelNodeAdminURL(t *testing.T) {
+	t.Setenv("CADDY_ADMIN_URL", "http://proxy-caddy:2019")
+	t.Setenv(AllowUnauthenticatedNodeAdminEnv, "1") // escape hatch covers raw admin URLs, not this
+	for _, u := range []string{"http://node2:2019", "http://node2:2021", "https://node2.:2019"} {
+		if err := RejectUnauthenticatedNodeAdminURL(u); err == nil {
+			t.Errorf("%s must be refused at registration", u)
+		}
+	}
+	for _, u := range []string{"http://caddy:2019", "http://proxy-caddy:2019", "http://localhost:2019",
+		"http://10.66.0.2:2021", "http://[fd00::2]:2021", "https://node2.example.com:2021",
+		"unix:///sockets/caddy-admin.sock"} {
+		if err := RejectSingleLabelNodeAdminURL(u); err != nil {
+			t.Errorf("%s must be accepted: %v", u, err)
+		}
+	}
+}
