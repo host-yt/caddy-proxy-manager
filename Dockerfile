@@ -12,7 +12,7 @@
 # minified stylesheet shipped under /static/css/tailwind.css. Lets us
 # drop the CDN runtime script (Tailwind's own console nag + extra RTT)
 # without dragging Node into the build.
-FROM alpine:3.20@sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc AS tailwind
+FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS tailwind
 ARG TW_VERSION=v3.4.17
 ARG TARGETARCH
 # Pinned sha256 of the v3.4.17 release binaries - verified via `shasum -a 256`
@@ -43,7 +43,7 @@ RUN tailwindcss \
       --minify
 
 # ---- Stage 1: codegen + build ------------------------------------------
-FROM golang:1.26-alpine@sha256:51a7c389a5ddaf82f527191a1e9bff9928655130a44e4975dd1d7e0acf59f1ae AS build
+FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS build
 WORKDIR /src
 
 RUN apk add --no-cache git ca-certificates tzdata

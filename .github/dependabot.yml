@@ -1,4 +1,5 @@
 version: 2
+# One grouped PR per ecosystem: every PR and merge costs a full CI + release run.
 updates:
   # Rolls the @sha256 pins in Dockerfile forward when a base image updates
   # (HPG-031: pin without an update path just freezes today's CVEs).
@@ -6,11 +7,24 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    groups:
+      docker-root:
+        patterns: ["*"]
   - package-ecosystem: docker
     directory: /deploy/caddy
     schedule:
       interval: weekly
+    groups:
+      docker-caddy:
+        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+    ignore:
+      # cosign-installer v4 brings Cosign v3 (new signature bundle); move deliberately.
+      - dependency-name: sigstore/cosign-installer
+        update-types: ["version-update:semver-major"]
