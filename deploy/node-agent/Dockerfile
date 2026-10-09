@@ -21,7 +21,7 @@ ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath -ldflags="-s -w" -o /out/hpg-node-agent ./cmd/node-agent
 
-FROM alpine:3.20
+FROM alpine:3.24
 RUN apk add --no-cache wireguard-tools nftables iproute2 curl ca-certificates tar
 # wstunnel for the WSS-over-TLS tunnel transport (HPG_TUNNEL_TRANSPORT=wss|auto).
 # Version + per-arch sha256 PINNED (release checksums.txt). Bump together.
