@@ -290,7 +290,7 @@ func (h *AdminHandlers) TunnelsCreate(w http.ResponseWriter, r *http.Request) {
 		ClientID: clientID, NodeID: nodeID, Name: name,
 	})
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/tunnels", "", "create failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/tunnels", "", "create failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{

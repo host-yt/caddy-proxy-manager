@@ -15,4 +15,5 @@ RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
 COPY --from=caddybin /usr/bin/caddy /usr/bin/caddy
 COPY docker-shim /usr/local/bin/docker
 RUN chmod +x /usr/local/bin/docker
+# nosemgrep: dockerfile.security.missing-user.missing-user -- integration test container
 CMD ["sleep", "infinity"]

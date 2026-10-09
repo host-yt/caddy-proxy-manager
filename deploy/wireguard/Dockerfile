@@ -9,4 +9,5 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # Sidecar runs in the host network namespace (set in compose).
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint -- wg-quick needs root
 ENTRYPOINT ["/entrypoint.sh"]

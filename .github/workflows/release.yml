@@ -19,9 +19,6 @@ concurrency:
 
 permissions:
   contents: read
-  packages: write
-  # Keyless cosign signing of published manifests (Sigstore OIDC).
-  id-token: write
 
 # Forces docker/* JS actions (still on Node 20 in their latest releases)
 # to use the runner's Node 24, silencing the deprecation warning.
@@ -34,6 +31,7 @@ env:
 # (was ~30 min per image on amd64-only runners, now ~5-8 min total).
 # Native arm64 runner `ubuntu-24.04-arm` is free for public repos and
 # cheaper-per-build for private (12x faster than QEMU offsets 2x rate).
+# Public repo: GitHub-hosted runners only, never the self-hosted pool.
 
 jobs:
   # Every publish waits on the same checks a pull request must pass. Without
@@ -45,6 +43,9 @@ jobs:
   # ---------------- app ----------------------------------------------------
   app-build:
     needs: gate
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -55,15 +56,17 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
       - id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: Dockerfile
@@ -102,7 +105,7 @@ jobs:
           mkdir -p /tmp/digests
           echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/$(echo '${{ matrix.platform }}' | tr '/' '-')"
       - name: Upload digest
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: app-digest-${{ strategy.job-index }}
           path: /tmp/digests/*
@@ -111,20 +114,24 @@ jobs:
 
   app-merge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # keyless cosign signing (Sigstore OIDC)
     needs: app-build
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: /tmp/digests
           pattern: app-digest-*
           merge-multiple: true
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v6
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager
@@ -150,7 +157,7 @@ jobs:
           echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
       # Keyless signature over the merged index, so a consumer can verify the
       # image came from this workflow in this repository.
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
       - name: Sign manifest
         env:
           COSIGN_YES: "true"
@@ -159,6 +166,9 @@ jobs:
   # ---------------- caddy --------------------------------------------------
   caddy-build:
     needs: gate
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -169,15 +179,17 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
       - id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: deploy/caddy
           platforms: ${{ matrix.platform }}
@@ -210,7 +222,7 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/$(echo '${{ matrix.platform }}' | tr '/' '-')"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: caddy-digest-${{ strategy.job-index }}
           path: /tmp/digests/*
@@ -219,20 +231,24 @@ jobs:
 
   caddy-merge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # keyless cosign signing (Sigstore OIDC)
     needs: caddy-build
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: /tmp/digests
           pattern: caddy-digest-*
           merge-multiple: true
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v6
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-edge
@@ -249,31 +265,36 @@ jobs:
       # the registry addressed by digest, so the amd64 one can be run on this
       # runner without publishing edge/latest/semver first: a failure here must
       # leave nothing pullable, not merely unsigned.
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: "1.27"
-          cache: true
+          cache: false  # release job: no cache poisoning
       - name: Post-quantum handshake smoke test
         env:
           IMAGE_REF: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-edge@${{ steps.candidate.outputs.digest }}
         run: |
           set -euo pipefail
-          cat > /tmp/pq.Caddyfile <<'EOF'
+          # RUNNER_TEMP: the docker daemon is the host's, so the bind source
+          # must be a host-visible path. Dynamic port: runners share the host network.
+          cat > "$RUNNER_TEMP/pq.Caddyfile" <<'EOF'
           localhost {
             tls internal
             respond "ok"
           }
           EOF
-          cid=$(docker run -d -p 8443:443 -v /tmp/pq.Caddyfile:/etc/caddy/Caddyfile:ro "$IMAGE_REF")
+          cid=$(docker run -d -p 127.0.0.1::443 -v "$RUNNER_TEMP/pq.Caddyfile:/etc/caddy/Caddyfile:ro" "$IMAGE_REF")
           trap 'docker logs "$cid" || true; docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          addr=$(docker port "$cid" 443/tcp | head -1)
           for _ in $(seq 1 30); do
-            if openssl s_client -connect 127.0.0.1:8443 -servername localhost </dev/null >/dev/null 2>&1; then
+            if openssl s_client -connect "$addr" -servername localhost </dev/null >/dev/null 2>&1; then
               break
             fi
             sleep 2
           done
-          HPG_TEST_EDGE_ADDR=127.0.0.1:8443 HPG_TEST_EDGE_SNI=localhost \
+          HPG_TEST_EDGE_ADDR="$addr" HPG_TEST_EDGE_SNI=localhost \
             go test -tags integration -count=1 -run TestEdgePQHandshake ./internal/integration/
       # Only now do edge/latest/semver start pointing at this build.
       - name: Create + push manifest
@@ -289,7 +310,7 @@ jobs:
           echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
       # Keyless signature over the merged index, so a consumer can verify the
       # image came from this workflow in this repository.
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
       - name: Sign manifest
         env:
           COSIGN_YES: "true"
@@ -298,6 +319,9 @@ jobs:
   # ---------------- wireguard ---------------------------------------------
   wireguard-build:
     needs: gate
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -308,15 +332,17 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
       - id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: deploy/wireguard
           platforms: ${{ matrix.platform }}
@@ -349,7 +375,7 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/$(echo '${{ matrix.platform }}' | tr '/' '-')"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: wireguard-digest-${{ strategy.job-index }}
           path: /tmp/digests/*
@@ -358,20 +384,24 @@ jobs:
 
   wireguard-merge:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write  # keyless cosign signing (Sigstore OIDC)
     needs: wireguard-build
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: /tmp/digests
           pattern: wireguard-digest-*
           merge-multiple: true
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v6
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-wg
@@ -393,7 +423,7 @@ jobs:
           echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
       # Keyless signature over the merged index, so a consumer can verify the
       # image came from this workflow in this repository.
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
       - name: Sign manifest
         env:
           COSIGN_YES: "true"
@@ -412,15 +442,17 @@ jobs:
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
       - id: build
-        uses: docker/build-push-action@v7
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           file: deploy/node-agent/Dockerfile
@@ -454,7 +486,7 @@ jobs:
         run: |
           mkdir -p /tmp/digests
           echo "${{ steps.build.outputs.digest }}" > "/tmp/digests/$(echo '${{ matrix.platform }}' | tr '/' '-')"
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: node-agent-digest-${{ strategy.job-index }}
           path: /tmp/digests/*
@@ -465,18 +497,18 @@ jobs:
     runs-on: ubuntu-latest
     needs: node-agent-build
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           path: /tmp/digests
           pattern: node-agent-digest-*
           merge-multiple: true
-      - uses: docker/setup-buildx-action@v4
-      - uses: docker/login-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GHCR_TOKEN || secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v6
+      - uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
         id: meta
         with:
           images: ${{ env.REGISTRY }}/${{ github.repository_owner }}/caddy-proxy-manager-node-agent
@@ -498,7 +530,7 @@ jobs:
           echo "ref=${image}@${digest}" >> "$GITHUB_OUTPUT"
       # Keyless signature over the merged index, so a consumer can verify the
       # image came from this workflow in this repository.
-      - uses: sigstore/cosign-installer@v3
+      - uses: sigstore/cosign-installer@7e8b541eb2e61bf99390e1afd4be13a184e9ebc5 # v3.10.1
       - name: Sign manifest
         env:
           COSIGN_YES: "true"

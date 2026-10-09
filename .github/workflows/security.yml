@@ -1,0 +1,77 @@
+# copy of host-yt/.github security.yml; public repos can't call the private shared workflows.
+# Fails on: committed secrets (gitleaks), fixable HIGH/CRITICAL dependency vulns
+# (trivy), semgrep ERROR findings, workflow/dependabot config issues (zizmor).
+# Scanners are digest-pinned containers; Dependabot can't see them, bump by hand.
+name: Security
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  gitleaks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0  # scans the pushed/PR commit range
+          persist-credentials: false
+      - name: gitleaks
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          range="$BASE..$GITHUB_SHA"
+          git cat-file -e "$BASE^{commit}" 2>/dev/null || range="$GITHUB_SHA~1..$GITHUB_SHA"
+          docker run --rm -v "$PWD:/repo" -w /repo \
+            zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f \
+            git . --redact --no-banner -v --log-opts="$range"
+
+  trivy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: trivy (dependencies)
+        run: |
+          docker run --rm -v "$PWD:/src" \
+            aquasec/trivy:0.75.0@sha256:af6acf9a6b85dfe389a1941505c0ce9efef52a4719635e1a962f022a3d855daa \
+            fs --scanners vuln --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 /src
+
+  semgrep:
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep:1.180.0@sha256:529ee8a277ec8adc5b534d7c74eea0a47e9de21d62852b6ba7ac6ba9566845c3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # ERROR only: a WARNING gate on an untriaged codebase ends up disabled.
+      - name: semgrep
+        env:
+          EXTRA: p/golang p/dockerfile
+        run: |
+          args=""
+          for c in p/security-audit p/secrets p/owasp-top-ten $EXTRA; do args="$args --config $c"; done
+          semgrep scan --error --severity ERROR --timeout 300 $args
+
+  zizmor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+      - name: zizmor
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          uvx zizmor@1.30.1 --min-severity medium .github

@@ -33,7 +33,7 @@ func (h *AdminHandlers) HostGroupCreate(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	_, err := db.ExecContext(ctx, "INSERT INTO host_groups (name, color) VALUES (?, ?)", name, color)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/hosts", "", "create failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/hosts", "", "create failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	redirectWithFlash(w, r, "/admin/hosts", "Group created", "")
@@ -68,7 +68,7 @@ func (h *AdminHandlers) HostGroupUpdate(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	_, err = db.ExecContext(ctx, "UPDATE host_groups SET name=?, color=? WHERE id=?", name, color, id)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/hosts", "", "update failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/hosts", "", "update failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	redirectWithFlash(w, r, "/admin/hosts", "Group updated", "")

@@ -55,7 +55,7 @@ func (h *AdminHandlers) MTLSRoleCreate(w http.ResponseWriter, r *http.Request) {
 	_, err = db.ExecContext(ctx,
 		store.InsertOrIgnore()+" INTO mtls_roles (ca_id, name) VALUES (?, ?)", caID, name)
 	if err != nil {
-		redirectWithFlash(w, r, page, "", "create role failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, page, "", "create role failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	redirectWithFlash(w, r, page, "Role created.", "")
@@ -198,7 +198,7 @@ func (h *AdminHandlers) MTLSPathRuleCreate(w http.ResponseWriter, r *http.Reques
 		"INSERT INTO mtls_path_rules (route_id, path_pattern, required_role_id) VALUES (?, ?, ?)",
 		id, pattern, roleID)
 	if err != nil {
-		redirectWithFlash(w, r, page, "", "create rule failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, page, "", "create rule failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	redirectWithFlash(w, r, page, "Path rule added.", "")

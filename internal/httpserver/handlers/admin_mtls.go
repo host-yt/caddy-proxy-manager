@@ -226,7 +226,7 @@ func (h *AdminHandlers) MTLSCreateCA(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	id, err := svc.CreateCA(ctx, in)
 	if err != nil {
-		redirectWithFlash(w, r, page, "", "create CA failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, page, "", "create CA failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	sess := middleware.SessionFromContext(r.Context())

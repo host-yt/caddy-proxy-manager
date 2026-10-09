@@ -413,7 +413,7 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		h.Logger.Warn("stream insert", "err", err)
-		redirectWithFlash(w, r, "/admin/streams", "", "create failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/streams", "", "create failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	streamID, _ := res.LastInsertId()

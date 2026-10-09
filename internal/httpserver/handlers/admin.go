@@ -1052,7 +1052,7 @@ func (h *AdminHandlers) NodesUpdate(w http.ResponseWriter, r *http.Request) {
 		 WHERE id = ?`,
 		outboundIPsVal, apiURL, hasWAF, hasL4, hasDNSModule, hasRateLimit, hasGeoIP, caddyVersion,
 		proxyProtocolIn, proxyProtocolAllow, proxyProtocolTimeoutMs, allowUnauthAdmin, id); err != nil {
-		redirectWithFlash(w, r, editPath, "", "update failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, editPath, "", "update failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	// Every flag above feeds the generated config - WAF and GeoIP handlers,
@@ -1760,7 +1760,7 @@ func (h *AdminHandlers) NodeGroupCreate(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	_, err := db.ExecContext(ctx, "INSERT INTO node_groups (name, mode) VALUES (?, ?)", name, mode)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/node-groups", "", "insert failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/node-groups", "", "insert failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	redirectWithFlash(w, r, "/admin/node-groups", "Node group created", "")
@@ -1790,7 +1790,7 @@ func (h *AdminHandlers) NodeGroupUpdate(w http.ResponseWriter, r *http.Request) 
 	defer cancel()
 	_, err = db.ExecContext(ctx, "UPDATE node_groups SET name=?, mode=? WHERE id=?", name, mode, id)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/node-groups", "", "update failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/node-groups", "", "update failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	redirectWithFlash(w, r, "/admin/node-groups", "Node group updated", "")
@@ -2248,6 +2248,7 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 		for i := range ph {
 			ph[i] = "?"
 		}
+		// nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- only "?" placeholders and a constant date expr are concatenated
 		bwSQL := `SELECT s.client_id, COALESCE(SUM(lr.bytes_resp), 0)
 		 FROM log_rollups lr
 		 JOIN routes r ON r.id = lr.route_id
@@ -2826,7 +2827,7 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 		clientID, name, backendIP, portStart, portEnd, planID, nodeGroupID, extRef, notesVal)
 	if err != nil {
 		h.Logger.Error("service create", "err", err)
-		redirectWithFlash(w, r, "/admin/services", "", "insert failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/services", "", "insert failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	id, _ := res.LastInsertId()
@@ -2923,7 +2924,7 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 		   allowed_port_end = ?, plan_id = ?, node_group_id = ?, external_reference = ?, notes = ? WHERE id = ?`,
 		clientID, name, backendIP, portStart, portEnd, planID, nodeGroupID, extRef, notesVal, id); err != nil {
 		h.Logger.Error("service update", "err", err)
-		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
