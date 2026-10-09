@@ -28,7 +28,10 @@ func newArchiveTestService(t *testing.T, statePath, wgDir string) (*Service, con
 	db := openRoundTripDB(t, ctx, filepath.Join(dir, "src.db"))
 	seedRoundTripData(t, db)
 
-	return &Service{DB: func() *sql.DB { return db }, StateFilePath: statePath, WGConfigDir: wgDir}, ctx
+	// fixed clock: same input, byte-identical archive (the close-error test relies on it)
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	return &Service{DB: func() *sql.DB { return db }, StateFilePath: statePath, WGConfigDir: wgDir,
+		Now: func() time.Time { return now }}, ctx
 }
 
 // HPG-013: a required component that exists but cannot be read (here,

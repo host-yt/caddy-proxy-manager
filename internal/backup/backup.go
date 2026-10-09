@@ -43,6 +43,16 @@ type Service struct {
 
 	// Webhooks is optional; when set, success/failure events fire on run.
 	Webhooks WebhookEmitter
+
+	// Now stamps archive entries; nil means time.Now. Tests pin it.
+	Now func() time.Time
+}
+
+func (s *Service) now() time.Time {
+	if s.Now != nil {
+		return s.Now().UTC()
+	}
+	return time.Now().UTC()
 }
 
 // WebhookEmitter is the minimal surface backup needs from internal/webhook.
@@ -451,7 +461,7 @@ func (s *Service) writeArchive(ctx context.Context, w io.Writer) (err error) {
 		_ = dumpFile.Close()
 		return fmt.Errorf("dump seek: %w", derr)
 	}
-	dumpHdr := &tar.Header{Name: "dump.sql", Mode: 0o600, Size: dumpSize, ModTime: time.Now().UTC()}
+	dumpHdr := &tar.Header{Name: "dump.sql", Mode: 0o600, Size: dumpSize, ModTime: s.now()}
 	if err := tw.WriteHeader(dumpHdr); err != nil {
 		_ = dumpFile.Close()
 		return err
@@ -471,7 +481,7 @@ func (s *Service) writeArchive(ctx context.Context, w io.Writer) (err error) {
 		if rerr != nil {
 			return fmt.Errorf("read install_state.json: %w", rerr)
 		}
-		h := &tar.Header{Name: "install_state.json", Mode: 0o600, Size: int64(len(data)), ModTime: time.Now().UTC()}
+		h := &tar.Header{Name: "install_state.json", Mode: 0o600, Size: int64(len(data)), ModTime: s.now()}
 		if err := tw.WriteHeader(h); err != nil {
 			return err
 		}
@@ -499,7 +509,7 @@ func (s *Service) writeArchive(ctx context.Context, w io.Writer) (err error) {
 				if rerr != nil {
 					return fmt.Errorf("read wg config %s: %w", e.Name(), rerr)
 				}
-				h := &tar.Header{Name: "wg/" + e.Name(), Mode: 0o600, Size: int64(len(data)), ModTime: time.Now().UTC()}
+				h := &tar.Header{Name: "wg/" + e.Name(), Mode: 0o600, Size: int64(len(data)), ModTime: s.now()}
 				if err := tw.WriteHeader(h); err != nil {
 					return err
 				}
@@ -519,12 +529,12 @@ func (s *Service) writeArchive(ctx context.Context, w io.Writer) (err error) {
 	// operator (or the restore drill) can tell "succeeded, wg/* skipped
 	// because unused" from "succeeded, but something silently didn't make it in".
 	manifest, _ := json.Marshal(map[string]any{
-		"created_at":    time.Now().UTC().Format(time.RFC3339),
+		"created_at":    s.now().Format(time.RFC3339),
 		"hpg_version":   "1",
 		"components":    components,
 		"db_dump_bytes": dumpSize,
 	})
-	h := &tar.Header{Name: "manifest.json", Mode: 0o600, Size: int64(len(manifest)), ModTime: time.Now().UTC()}
+	h := &tar.Header{Name: "manifest.json", Mode: 0o600, Size: int64(len(manifest)), ModTime: s.now()}
 	if err := tw.WriteHeader(h); err != nil {
 		return err
 	}
