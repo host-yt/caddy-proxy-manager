@@ -408,7 +408,7 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		h.Logger.Warn("admin hosts: route create", "err", err)
-		h.renderHostsNewErr(w, r, form, "create failed: "+sanitizeErr(err))
+		h.renderHostsNewErr(w, r, form, "create failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 
