@@ -1,30 +1,37 @@
+# host-yt standard (host-yt/.github templates/dependabot.yml): weekly, cooldown,
+# no groups; PR bot auto-merges minor/patch and Codex-checked majors.
+# docker-compose files are not tracked here: CI requires one caddy/hpg pin
+# across them, bump those with `make pin-version`.
 version: 2
-# One grouped PR per ecosystem: every PR and merge costs a full CI + release run.
 updates:
-  # Rolls the @sha256 pins in Dockerfile forward when a base image updates
-  # (HPG-031: pin without an update path just freezes today's CVEs).
-  - package-ecosystem: docker
-    directory: /
-    schedule:
-      interval: weekly
-    groups:
-      docker-root:
-        patterns: ["*"]
-  - package-ecosystem: docker
-    directory: /deploy/caddy
-    schedule:
-      interval: weekly
-    groups:
-      docker-caddy:
-        patterns: ["*"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
-    groups:
-      actions:
-        patterns: ["*"]
+    cooldown:
+      default-days: 7
     ignore:
       # cosign-installer v4 brings Cosign v3 (new signature bundle); move deliberately.
       - dependency-name: sigstore/cosign-installer
         update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: gomod
+    directories: [/, /terraform-provider-hpg]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+
+  # Rolls the @sha256 pins in Dockerfiles forward when a base image updates
+  # (HPG-031: pin without an update path just freezes today's CVEs).
+  - package-ecosystem: docker
+    directories:
+      - /
+      - /deploy/caddy
+      - /deploy/node-agent
+      - /deploy/wireguard
+      - /deploy/integration/psk/node
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
