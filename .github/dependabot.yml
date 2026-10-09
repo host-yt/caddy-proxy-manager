@@ -1,5 +1,5 @@
 # host-yt standard (host-yt/.github templates/dependabot.yml): weekly, cooldown,
-# no groups; PR bot auto-merges minor/patch and Codex-checked majors.
+# no groups; automerge.yml merges minor/patch, majors are left for a human.
 # docker-compose files are not tracked here: CI requires one caddy/hpg pin
 # across them, bump those with `make pin-version`.
 version: 2

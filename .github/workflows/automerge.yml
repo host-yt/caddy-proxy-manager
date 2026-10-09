@@ -1,0 +1,65 @@
+# copy of host-yt/.github pr-bot.yml (dependabot + merge jobs only); public repo
+# can't call the private shared workflows; no Codex review/judge on a public repo
+# (fork PR text would be prompt input next to the ChatGPT login).
+# Minor/patch Dependabot PRs merge once CI and every other check pass; majors stay
+# open for a human. Merges use AUTOMERGE_TOKEN (a PAT) so main CI runs after.
+name: Dependabot automerge
+
+on:
+  workflow_run:  # zizmor: ignore[dangerous-triggers] only merges bot PRs whose checks all passed; never runs PR code with secrets
+    workflows: [CI]
+    types: [completed]
+
+concurrency:
+  group: automerge-${{ github.workflow }}-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+  dependabot:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: read
+    outputs:
+      pr: ${{ steps.meta.outputs.pr }}
+      major: ${{ steps.meta.outputs.major }}
+    steps:
+      - id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          pr=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$BRANCH" --json number,headRefOid \
+            --jq ".[] | select(.headRefOid == \"$SHA\") | .number")
+          [ -n "$pr" ] || { echo "PR closed or has newer commits, skipping"; exit 0; }
+          # every other check on the PR must pass too, not just the CI workflow
+          gh pr checks "$pr" -R "$GITHUB_REPOSITORY" --watch -i 20
+          msg=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA" --jq .commit.message)
+          # no update-type (unknown update) counts as major
+          major=true
+          grep -q 'update-type: version-update:semver-\(minor\|patch\)' <<<"$msg" &&
+            ! grep -q 'update-type: version-update:semver-major' <<<"$msg" && major=false
+          echo "pr=$pr" >>"$GITHUB_OUTPUT"
+          echo "major=$major" >>"$GITHUB_OUTPUT"
+          echo "PR #$pr major=$major"
+
+  merge:
+    needs: dependabot
+    if: needs.dependabot.outputs.pr != '' && needs.dependabot.outputs.major == 'false'
+    runs-on: ubuntu-latest
+    steps:
+      - env:
+          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
+          PR: ${{ needs.dependabot.outputs.pr }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --squash --delete-branch --match-head-commit "$SHA"
