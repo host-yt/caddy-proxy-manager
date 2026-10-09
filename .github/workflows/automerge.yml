@@ -2,7 +2,7 @@
 # can't call the private shared workflows; no Codex review/judge on a public repo
 # (fork PR text would be prompt input next to the ChatGPT login).
 # Dependabot PRs merge once CI and every other check pass: minor/patch, GitHub
-# Actions majors and dev-only majors; runtime majors stay open for a human. Merges use AUTOMERGE_TOKEN (a PAT) so main CI runs after.
+# Actions majors and dev-only majors; runtime majors stay open for a human. Merges use the host-yt GitHub App token so main CI runs after.
 name: Dependabot automerge
 
 on:
@@ -77,8 +77,16 @@ jobs:
     if: needs.dependabot.outputs.pr != '' && needs.dependabot.outputs.auto == 'true'
     runs-on: ubuntu-latest
     steps:
+      - id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+          permission-pull-requests: write
+          permission-workflows: write  # Dependabot bumps workflow pins
       - env:
-          GH_TOKEN: ${{ secrets.AUTOMERGE_TOKEN }}
+          GH_TOKEN: ${{ steps.app.outputs.token }}
           PR: ${{ needs.dependabot.outputs.pr }}
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: gh pr merge "$PR" -R "$GITHUB_REPOSITORY" --squash --delete-branch --match-head-commit "$SHA"
