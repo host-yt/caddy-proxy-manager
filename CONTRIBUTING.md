@@ -2,7 +2,7 @@
 
 Thanks for your interest. **Pull requests are open to maintainers only**
 (repository setting). Found a bug or want a feature? Open an
-[issue](../../issues/new/choose) - a clear report with steps to reproduce
+[issue](https://github.com/host-yt/caddy-proxy-manager/issues/new/choose) - a clear report with steps to reproduce
 is the most useful contribution. Security problems: see [SECURITY.md](SECURITY.md).
 
 The rest of this document is how the project is built, for maintainers
