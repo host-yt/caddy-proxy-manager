@@ -836,7 +836,7 @@ func (w *Wizard) CaddySubmit(rw http.ResponseWriter, r *http.Request) {
 			w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Node name already exists."))
 			return
 		}
-		w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Insert node failed: "+sanitizeErr(err)))
+		w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Insert node failed: "+sanitizeErr(err))) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	newNodeID, _ := res.LastInsertId()

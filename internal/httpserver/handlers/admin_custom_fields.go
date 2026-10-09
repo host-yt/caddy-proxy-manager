@@ -133,7 +133,7 @@ func (h *AdminHandlers) CustomFieldCreate(w http.ResponseWriter, r *http.Request
 			redirectWithFlash(w, r, page, "", "field_key already exists for this entity")
 			return
 		}
-		redirectWithFlash(w, r, page, "", "create failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, page, "", "create failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 
@@ -202,7 +202,7 @@ func (h *AdminHandlers) CustomFieldUpdate(w http.ResponseWriter, r *http.Request
 		`UPDATE custom_field_defs SET label=?, field_type=?, options_json=?, required=? WHERE id=?`,
 		label, string(ft), optionsJSON, required, id)
 	if err != nil {
-		redirectWithFlash(w, r, page, "", "update failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, page, "", "update failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 

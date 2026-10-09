@@ -115,7 +115,7 @@ func (h *AdminHandlers) AccessGroupsCreate(w http.ResponseWriter, r *http.Reques
 	}
 	id, err := h.Portal.CreateGroup(ctx, name, desc, clientID)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/access-groups", "", "create failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/access-groups", "", "create failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{

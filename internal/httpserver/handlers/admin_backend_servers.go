@@ -151,7 +151,7 @@ func (h *AdminHandlers) ServersCreate(w http.ResponseWriter, r *http.Request) {
 		name, ip, externalRef, resellerCol, notes)
 	if err != nil {
 		h.Logger.Error("backend server create", "err", err)
-		redirectWithFlash(w, r, "/admin/servers", "", "insert failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/servers", "", "insert failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	id, _ := res.LastInsertId()
@@ -201,7 +201,7 @@ func (h *AdminHandlers) ServersUpdate(w http.ResponseWriter, r *http.Request) {
 		`UPDATE backend_servers SET name=?, ip=?, external_ref=?, notes=? WHERE id=?`,
 		name, ip, externalRef, notes, id); err != nil {
 		h.Logger.Error("backend server update", "err", err)
-		redirectWithFlash(w, r, "/admin/servers", "", "update failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/servers", "", "update failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
 		return
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{

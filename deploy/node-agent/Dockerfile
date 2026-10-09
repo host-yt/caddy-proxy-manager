@@ -41,4 +41,5 @@ RUN set -eux; \
     rm -rf /tmp/wst.tgz; \
     wstunnel --version
 COPY --from=build /out/hpg-node-agent /usr/local/bin/hpg-node-agent
+# nosemgrep: dockerfile.security.missing-user-entrypoint.missing-user-entrypoint -- manages WireGuard/nftables, needs root
 ENTRYPOINT ["/usr/local/bin/hpg-node-agent"]
