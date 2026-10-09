@@ -17,6 +17,7 @@ concurrency:
 permissions:
   contents: read
 
+jobs:
   dependabot:
     if: >-
       github.event_name == 'workflow_run' &&
