@@ -1,8 +1,8 @@
 # copy of host-yt/.github pr-bot.yml (dependabot + merge jobs only); public repo
 # can't call the private shared workflows; no Codex review/judge on a public repo
 # (fork PR text would be prompt input next to the ChatGPT login).
-# Minor/patch Dependabot PRs merge once CI and every other check pass; majors stay
-# open for a human. Merges use AUTOMERGE_TOKEN (a PAT) so main CI runs after.
+# Dependabot PRs merge once CI and every other check pass: minor/patch, GitHub
+# Actions majors and dev-only majors; runtime majors stay open for a human. Merges use AUTOMERGE_TOKEN (a PAT) so main CI runs after.
 name: Dependabot automerge
 
 on:
@@ -30,10 +30,10 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
-      statuses: read  # gh pr checks reads commit statuses from external apps
+      statuses: read  # external commit statuses count too
     outputs:
       pr: ${{ steps.meta.outputs.pr }}
-      major: ${{ steps.meta.outputs.major }}
+      auto: ${{ steps.meta.outputs.auto }}
     steps:
       - id: meta
         env:
@@ -44,20 +44,37 @@ jobs:
           pr=$(gh pr list -R "$GITHUB_REPOSITORY" --head "$BRANCH" --json number,headRefOid \
             --jq ".[] | select(.headRefOid == \"$SHA\") | .number")
           [ -n "$pr" ] || { echo "PR closed or has newer commits, skipping"; exit 0; }
-          # every other check on the PR must pass too, not just the CI workflow
-          gh pr checks "$pr" -R "$GITHUB_REPOSITORY" --watch -i 20
+          # every other check and status on the commit must pass too, not just CI.
+          # REST, not `gh pr checks`: that one needs actions:read on the caller.
+          while :; do
+            runs=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/check-runs?per_page=100" --jq .check_runs)
+            status=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA/status")
+            pending=$(jq '[.[] | select(.status != "completed")] | length' <<<"$runs")
+            bad=$(jq '[.[] | select(.status == "completed" and
+              (.conclusion | IN("success", "skipped", "neutral") | not))] | .[].name' <<<"$runs")
+            st=$(jq -r 'if .total_count == 0 then "success" else .state end' <<<"$status")
+            [ -z "$bad" ] && [ "$st" != failure ] && [ "$st" != error ] || {
+              echo "Not merging, failed: $bad $st"; exit 1; }
+            [ "$pending" = 0 ] && [ "$st" = success ] && break
+            sleep 20
+          done
           msg=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA" --jq .commit.message)
-          # no update-type (unknown update) counts as major
-          major=true
-          grep -q 'update-type: version-update:semver-\(minor\|patch\)' <<<"$msg" &&
-            ! grep -q 'update-type: version-update:semver-major' <<<"$msg" && major=false
+          # merge minor/patch; majors only for GitHub Actions or dev-only deps (CI covers them).
+          # Unknown update-type counts as major. Runtime majors wait for a human.
+          auto=false
+          if grep -q 'update-type: version-update:semver-\(minor\|patch\)' <<<"$msg" &&
+              ! grep -q 'update-type: version-update:semver-major' <<<"$msg"; then auto=true
+          elif [[ "$BRANCH" == dependabot/github_actions/* ]]; then auto=true
+          elif grep -q 'dependency-type: direct:development' <<<"$msg" &&
+              ! grep -q 'dependency-type: \(direct:production\|indirect\)' <<<"$msg"; then auto=true
+          fi
           echo "pr=$pr" >>"$GITHUB_OUTPUT"
-          echo "major=$major" >>"$GITHUB_OUTPUT"
-          echo "PR #$pr major=$major"
+          echo "auto=$auto" >>"$GITHUB_OUTPUT"
+          echo "PR #$pr auto=$auto"
 
   merge:
     needs: dependabot
-    if: needs.dependabot.outputs.pr != '' && needs.dependabot.outputs.major == 'false'
+    if: needs.dependabot.outputs.pr != '' && needs.dependabot.outputs.auto == 'true'
     runs-on: ubuntu-latest
     steps:
       - env:
