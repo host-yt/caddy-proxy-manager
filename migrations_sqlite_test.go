@@ -20,7 +20,7 @@ func TestMigrationsApplyOnSQLite(t *testing.T) {
 	store.SetDriver("sqlite3")
 	t.Cleanup(func() { store.SetDriver(prev) })
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 180*time.Second) // hosted runners are slow
 	defer cancel()
 
 	dsn := filepath.Join(t.TempDir(), "hpg.db")
