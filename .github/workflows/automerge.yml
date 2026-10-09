@@ -30,6 +30,7 @@ jobs:
       contents: read
       pull-requests: read
       checks: read
+      statuses: read  # gh pr checks reads commit statuses from external apps
     outputs:
       pr: ${{ steps.meta.outputs.pr }}
       major: ${{ steps.meta.outputs.major }}
