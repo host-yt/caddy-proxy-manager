@@ -104,11 +104,6 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Peer, string, err
 		return Peer{}, "", err
 	}
 
-	ip, err := s.allocateIP(ctx, in.NodeID, subnet)
-	if err != nil {
-		return Peer{}, "", err
-	}
-
 	kp, err := wireguard.GenerateKeypair()
 	if err != nil {
 		return Peer{}, "", fmt.Errorf("keygen: %w", err)
@@ -122,7 +117,18 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Peer, string, err
 		return Peer{}, "", err
 	}
 
-	res, err := s.DB.ExecContext(ctx,
+	// Allocation, insert and token commit together: a failure must not leave a
+	// pending peer holding an address.
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return Peer{}, "", err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	ip, err := allocateIP(ctx, tx, in.NodeID, subnet)
+	if err != nil {
+		return Peer{}, "", err
+	}
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO customer_wg_peer (client_id, node_id, name, pubkey, server_privkey_e2, psk_enc, assigned_ip, status)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending')`,
 		in.ClientID, in.NodeID, name, kp.PublicKey, []byte(encPriv), encPSK, ip)
@@ -131,8 +137,11 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (Peer, string, err
 	}
 	peerID, _ := res.LastInsertId()
 
-	token, err := s.issueBootstrap(ctx, peerID)
+	token, err := issueBootstrap(ctx, tx, peerID)
 	if err != nil {
+		return Peer{}, "", err
+	}
+	if err := tx.Commit(); err != nil {
 		return Peer{}, "", err
 	}
 
@@ -204,14 +213,25 @@ func (s *Service) CreateHA(ctx context.Context, in CreateHAInput) (string, []Pee
 		return "", nil, "", err
 	}
 
-	out := make([]Peer, 0, len(nodeIDs))
-	var firstPeerID int64
-	for _, nid := range nodeIDs {
-		subnet, _, err := s.nodeTunnelConfig(ctx, nid)
-		if err != nil {
+	// Validate every node before writing anything.
+	subnets := make([]string, len(nodeIDs))
+	for i, nid := range nodeIDs {
+		if subnets[i], _, err = s.nodeTunnelConfig(ctx, nid); err != nil {
 			return "", nil, "", fmt.Errorf("node %d: %w", nid, err)
 		}
-		ip, err := s.allocateIP(ctx, nid, subnet)
+	}
+	// One transaction for the whole group: a later node failing must not leave
+	// earlier peers pending with their addresses consumed.
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return "", nil, "", err
+	}
+	defer tx.Rollback() //nolint:errcheck
+
+	out := make([]Peer, 0, len(nodeIDs))
+	var firstPeerID int64
+	for i, nid := range nodeIDs {
+		ip, err := allocateIP(ctx, tx, nid, subnets[i])
 		if err != nil {
 			return "", nil, "", fmt.Errorf("node %d alloc: %w", nid, err)
 		}
@@ -221,7 +241,7 @@ func (s *Service) CreateHA(ctx context.Context, in CreateHAInput) (string, []Pee
 				return "", nil, "", err
 			}
 		}
-		res, err := s.DB.ExecContext(ctx,
+		res, err := tx.ExecContext(ctx,
 			`INSERT INTO customer_wg_peer (client_id, node_id, name, peer_group_id, pubkey, server_privkey_e2, psk_enc, assigned_ip, status)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
 			in.ClientID, nid, name, groupID, kp.PublicKey, []byte(encPriv), encPSK, ip)
@@ -244,8 +264,11 @@ func (s *Service) CreateHA(ctx context.Context, in CreateHAInput) (string, []Pee
 		})
 	}
 
-	token, err := s.issueBootstrap(ctx, firstPeerID)
+	token, err := issueBootstrap(ctx, tx, firstPeerID)
 	if err != nil {
+		return "", nil, "", err
+	}
+	if err := tx.Commit(); err != nil {
 		return "", nil, "", err
 	}
 	return groupID, out, token, nil
@@ -355,7 +378,7 @@ func (s *Service) RotateKey(ctx context.Context, peerID int64) (string, error) {
 	if err := tx.Commit(); err != nil {
 		return "", err
 	}
-	return s.issueBootstrap(ctx, peerID)
+	return issueBootstrap(ctx, s.DB, peerID)
 }
 
 // rotationTargets lists the peer rows one rotation must cover: the peer
@@ -763,10 +786,15 @@ func (s *Service) PeersForNode(ctx context.Context, nodeID int64, withPSK bool) 
 // .conf (e.g. after changes to RenderConfig defaults like MTU/MSS)
 // without breaking sibling HA peers or invalidating the keypair.
 func (s *Service) ReissueBootstrap(ctx context.Context, peerID int64) (string, error) {
-	return s.issueBootstrap(ctx, peerID)
+	return issueBootstrap(ctx, s.DB, peerID)
 }
 
-func (s *Service) issueBootstrap(ctx context.Context, peerID int64) (string, error) {
+// execer is *sql.DB or *sql.Tx, so a token can be issued inside a create.
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+func issueBootstrap(ctx context.Context, db execer, peerID int64) (string, error) {
 	// 96 bytes → 192 hex chars. Cryptographically 256-bit (64 hex) is
 	// already infeasible to brute-force; longer is operator preference.
 	// Schema mig 23 widened token column to VARCHAR(192).
@@ -781,7 +809,7 @@ func (s *Service) issueBootstrap(ctx context.Context, peerID int64) (string, err
 	// with MariaDB NOW() (server TZ) caused tokens to look already-expired
 	// the moment they were issued when the two containers had different TZ.
 	ttlSeconds := int(bootstrapTTL / time.Second)
-	_, err := s.DB.ExecContext(ctx,
+	_, err := db.ExecContext(ctx,
 		`INSERT INTO customer_wg_bootstrap (token, peer_id, expires_at)
 		 VALUES (?, ?, `+store.DateAddParam("SECOND")+`)`,
 		token, peerID, ttlSeconds)
@@ -808,17 +836,13 @@ func (s *Service) nodeTunnelConfig(ctx context.Context, nodeID int64) (string, i
 // allocateIP picks the next free /32 from the node's tunnel subnet.
 // Uses a row-locked counter on caddy_nodes.tunnel_next_octet so two
 // concurrent Creates can't collide. Scans for gaps if the simple
-// counter has wrapped/conflicts.
-func (s *Service) allocateIP(ctx context.Context, nodeID int64, subnet string) (string, error) {
+// counter has wrapped/conflicts. Runs in the caller's tx so the address is
+// only consumed if the peer insert commits.
+func allocateIP(ctx context.Context, tx *sql.Tx, nodeID int64, subnet string) (string, error) {
 	_, ipnet, err := net.ParseCIDR(subnet)
 	if err != nil {
 		return "", fmt.Errorf("subnet %q: %w", subnet, err)
 	}
-	tx, err := s.DB.BeginTx(ctx, nil)
-	if err != nil {
-		return "", err
-	}
-	defer tx.Rollback()
 
 	var next int
 	if err := tx.QueryRowContext(ctx,
@@ -849,9 +873,6 @@ func (s *Service) allocateIP(ctx context.Context, nodeID int64, subnet string) (
 		if taken == 0 {
 			if _, err := tx.ExecContext(ctx,
 				`UPDATE caddy_nodes SET tunnel_next_octet=? WHERE id=?`, next+1, nodeID); err != nil {
-				return "", err
-			}
-			if err := tx.Commit(); err != nil {
 				return "", err
 			}
 			return candidate.String(), nil
