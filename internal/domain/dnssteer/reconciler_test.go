@@ -354,3 +354,48 @@ func TestReconcile_FullLifecycle(t *testing.T) {
 		}
 	})
 }
+
+// newTestReconciler wires rc against db with fp as every route's provider.
+func newTestReconciler(db *sql.DB, fp *fakeProvider) *Reconciler {
+	return &Reconciler{
+		DB:            func() *sql.DB { return db },
+		Logger:        slog.Default(),
+		DecryptSecret: func(s string) (string, error) { return s, nil },
+		NewProvider:   func(slug string, fields map[string]string) (Provider, error) { return fp, nil },
+	}
+}
+
+func mustExec(t *testing.T, db *sql.DB, qs ...string) {
+	t.Helper()
+	for _, q := range qs {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatalf("exec %q: %v", q, err)
+		}
+	}
+}
+
+func TestReconcile_CursorReachesRoutesPastLimit(t *testing.T) {
+	old := routeLimit
+	routeLimit = 2
+	t.Cleanup(func() { routeLimit = old })
+
+	db := newTestDB(t)
+	mustExec(t, db,
+		`INSERT INTO caddy_nodes (id, public_ip, is_enabled, health_status) VALUES (1,'10.0.0.1',1,'healthy')`,
+		`INSERT INTO dns_providers (id, name, provider, api_token_enc) VALUES (1,'example.com','cloudflare','{"api_token":"tok"}')`,
+		`INSERT INTO routes (id, domain, caddy_node_id, dns_steering_enabled, dns_provider_id) VALUES
+			(1,'a.example.com',1,1,1), (2,'b.example.com',1,1,1), (3,'c.example.com',1,1,1)`)
+	fp := &fakeProvider{}
+	rc := newTestReconciler(db, fp)
+	rc.Reconcile(context.Background())
+	if len(fp.records) != 2 {
+		t.Fatalf("first pass: want 2 records, got %+v", fp.records)
+	}
+	rc.Reconcile(context.Background())
+	if len(fp.records) != 3 || fp.records[2].Name != "c.example.com" {
+		t.Fatalf("second pass must reach route 3, got %+v", fp.records)
+	}
+	if rc.cursor != 0 {
+		t.Fatalf("cursor must wrap after the tail batch, got %d", rc.cursor)
+	}
+}

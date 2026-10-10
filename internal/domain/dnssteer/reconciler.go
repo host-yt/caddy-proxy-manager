@@ -14,8 +14,8 @@ import (
 )
 
 // routeLimit bounds one reconcile pass so a large fleet can't starve the
-// leader's tick budget; any remainder is picked up on the next tick.
-const routeLimit = 500
+// leader's tick budget; Reconciler.cursor resumes the remainder next tick.
+var routeLimit = 500
 
 // perRouteTimeout bounds every provider call for a single route so one
 // slow/unreachable DNS API can't stall the whole reconcile loop.
@@ -35,6 +35,10 @@ type Reconciler struct {
 	// NewProvider builds a Provider for (slug, decrypted fields); overridable
 	// in tests to inject a fake. Defaults to the package-level NewProvider.
 	NewProvider func(slug string, fields map[string]string) (Provider, error)
+
+	// cursor is the last route id processed; in-memory is enough since a
+	// leader change just restarts the rotation from the lowest id.
+	cursor int64
 }
 
 func (rc *Reconciler) newProvider(slug string, fields map[string]string) (Provider, error) {
@@ -90,7 +94,8 @@ func (rc *Reconciler) Reconcile(ctx context.Context) {
 		  WHERE dns_steering_enabled = 1
 		    AND dns_provider_id IS NOT NULL
 		    AND status <> 'disabled'
-		  ORDER BY id ASC LIMIT ?`, routeLimit)
+		    AND id > ?
+		  ORDER BY id ASC LIMIT ?`, rc.cursor, routeLimit)
 	if err != nil {
 		rc.logger().Warn("dnssteer: list routes", "err", err)
 		return
@@ -113,6 +118,10 @@ func (rc *Reconciler) Reconcile(ctx context.Context) {
 		rctx, cancel := context.WithTimeout(ctx, perRouteTimeout)
 		rc.reconcileRoute(rctx, db, sr)
 		cancel()
+		rc.cursor = sr.id
+	}
+	if len(targets) < routeLimit {
+		rc.cursor = 0 // reached the end; wrap around next tick
 	}
 }
 
