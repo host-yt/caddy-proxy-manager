@@ -126,7 +126,11 @@ func (h *AuthHandlers) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 	_ = json.Unmarshal(stored, &s)
 	// Always clear the state cookie - flow is over either way.
 	clearCookie := func() {
-		http.SetCookie(w, &http.Cookie{Name: oauth2StateCookie(provider), Value: "", Path: "/", MaxAge: -1})
+		// Same flags as the set in OAuth2Start, so the deletion matches attribute-wise.
+		http.SetCookie(w, &http.Cookie{
+			Name: oauth2StateCookie(provider), Value: "", Path: "/", MaxAge: -1, HttpOnly: true,
+			Secure: h.Sessions.CookieSecure(), SameSite: http.SameSiteLaxMode,
+		})
 	}
 
 	info, err := h.OAuth2X.Exchange(ctx, provider, h.oauth2CallbackPath(provider), code, s.Verifier)
