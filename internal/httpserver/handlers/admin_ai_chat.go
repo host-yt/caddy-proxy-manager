@@ -177,6 +177,9 @@ func (h *AdminHandlers) AIChatDeleteSession(w http.ResponseWriter, r *http.Reque
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// aiStreamTimeout caps one assistant turn (tool loop or streamed reply).
+const aiStreamTimeout = 5 * time.Minute
+
 // AIChatSendMessage POST /admin/ai/chat/sessions/{id}/message streams the reply
 // over SSE. It verifies ownership, persists the user turn, replays bounded
 // history into the model, streams deltas, then persists the assistant turn.
@@ -263,7 +266,10 @@ func (h *AdminHandlers) AIChatSendMessage(w http.ResponseWriter, r *http.Request
 	}
 	_ = rc.SetWriteDeadline(time.Time{}) // long-lived stream; clear absolute deadline
 
-	streamCtx, streamCancel := context.WithCancel(r.Context())
+	// The router's 30s request timeout skips this stream, so bound the provider
+	// and tool calls here: same ceiling as the provider HTTP client, and still
+	// cancelled when the browser goes away.
+	streamCtx, streamCancel := context.WithTimeout(r.Context(), aiStreamTimeout)
 	defer streamCancel()
 
 	var reply string

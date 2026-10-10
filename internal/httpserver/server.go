@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -148,7 +149,7 @@ func (s *Server) routes() {
 		r.Use(s.deps.Metrics.Middleware)
 	}
 	r.Use(slogRequestLogger(s.deps.Logger))
-	r.Use(chimw.Timeout(30_000_000_000))
+	r.Use(requestTimeout(30 * time.Second))
 	r.Use(installRedirectMiddleware(s.deps.InstallState))
 	// Enforce the session-generation fence before any session is loaded, so a
 	// pre-existing connection cannot keep authenticating against this replica.
@@ -984,6 +985,33 @@ func (s *Server) routes() {
 		staticHandler = http.FileServer(http.Dir("web/static"))
 	}
 	r.Handle("/static/*", http.StripPrefix("/static/", staticCacheHeaders(noDirListing(staticHandler))))
+}
+
+// streamPaths are the SSE endpoints that outlive the request timeout: they
+// clear their write deadline, but chi's Timeout also puts a deadline on
+// r.Context(), which would still end them at 30s. They bound themselves
+// (client disconnect; the AI handler sets its own provider deadline).
+var streamPaths = []string{
+	"/admin/hosts/*/logs/stream",
+	"/admin/ai/chat/sessions/*/message",
+	"/app/ai/chat/sessions/*/message",
+}
+
+// requestTimeout is chi's Timeout for every request except streamPaths.
+func requestTimeout(d time.Duration) func(http.Handler) http.Handler {
+	timeout := chimw.Timeout(d)
+	return func(next http.Handler) http.Handler {
+		timed := timeout(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, p := range streamPaths {
+				if ok, _ := path.Match(p, r.URL.Path); ok {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			timed.ServeHTTP(w, r)
+		})
+	}
 }
 
 // staticCacheHeaders adds a modest cache window to static assets so repeat
