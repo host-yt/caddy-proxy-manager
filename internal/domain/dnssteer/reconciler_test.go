@@ -180,6 +180,16 @@ func newTestDB(t *testing.T) *sql.DB {
 			last_error TEXT NULL,
 			PRIMARY KEY (route_id, node_id)
 		)`,
+		`CREATE TABLE dns_steering_records (
+			route_id INTEGER NOT NULL,
+			node_id INTEGER NOT NULL,
+			dns_provider_id INTEGER NOT NULL,
+			record_name TEXT NOT NULL,
+			record_value TEXT NOT NULL,
+			record_id TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+			PRIMARY KEY (route_id, node_id, record_value)
+		)`,
 		`CREATE TABLE audit_log (
 			id INTEGER PRIMARY KEY,
 			user_id INTEGER,
@@ -397,5 +407,69 @@ func TestReconcile_CursorReachesRoutesPastLimit(t *testing.T) {
 	}
 	if rc.cursor != 0 {
 		t.Fatalf("cursor must wrap after the tail batch, got %d", rc.cursor)
+	}
+}
+
+func TestReconcile_CleansUpOrphanedRecords(t *testing.T) {
+	db := newTestDB(t)
+	mustExec(t, db,
+		`INSERT INTO caddy_nodes (id, public_ip, is_enabled, health_status) VALUES (1,'10.0.0.1',1,'healthy'), (2,'10.0.0.2',1,'healthy')`,
+		`INSERT INTO dns_providers (id, name, provider, api_token_enc) VALUES (1,'example.com','cloudflare','{"api_token":"tok"}')`,
+		`INSERT INTO routes (id, domain, caddy_node_id, dns_steering_enabled, dns_provider_id) VALUES
+			(1,'a.example.com',1,1,1), (2,'b.example.com',1,1,1)`,
+		`INSERT INTO route_node_assignments (route_id, node_id) VALUES (1,2)`)
+	// Operator-owned record at a steered name: never ours to delete.
+	fp := &fakeProvider{records: []Record{{ID: "foreign", Type: "A", Name: "b.example.com", Value: "10.9.9.9"}}}
+	rc := newTestReconciler(db, fp)
+	ctx := context.Background()
+	rc.Reconcile(ctx)
+	if len(fp.records) != 4 {
+		t.Fatalf("want 3 managed + 1 foreign record, got %+v", fp.records)
+	}
+
+	// Assignment removed, route 2 deleted: both leftovers must go.
+	mustExec(t, db, `DELETE FROM route_node_assignments`, `DELETE FROM routes WHERE id=2`)
+	rc.Reconcile(ctx)
+	if len(fp.records) != 2 {
+		t.Fatalf("want only a->node1 and foreign left, got %+v", fp.records)
+	}
+	for _, r := range fp.records {
+		if r.ID != "foreign" && (r.Name != "a.example.com" || r.Value != "10.0.0.1") {
+			t.Fatalf("unexpected surviving record %+v", r)
+		}
+	}
+
+	// Steering disabled: the last managed record goes too, ignoring fail-static.
+	mustExec(t, db, `UPDATE routes SET dns_steering_enabled=0 WHERE id=1`)
+	rc.Reconcile(ctx)
+	if len(fp.records) != 1 || fp.records[0].ID != "foreign" {
+		t.Fatalf("want only the foreign record, got %+v", fp.records)
+	}
+	var owned int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM dns_steering_records`).Scan(&owned); err != nil || owned != 0 {
+		t.Fatalf("ownership rows must be dropped after delete, got %d (%v)", owned, err)
+	}
+}
+
+func TestReconcile_CleanupKeepsOwnershipOnDeleteFailure(t *testing.T) {
+	db := newTestDB(t)
+	mustExec(t, db,
+		`INSERT INTO caddy_nodes (id, public_ip, is_enabled, health_status) VALUES (1,'10.0.0.1',1,'healthy')`,
+		`INSERT INTO dns_providers (id, name, provider, api_token_enc) VALUES (1,'example.com','cloudflare','{"api_token":"tok"}')`,
+		`INSERT INTO routes (id, domain, caddy_node_id, dns_steering_enabled, dns_provider_id) VALUES (1,'a.example.com',1,1,1)`)
+	fp := &fakeProvider{}
+	rc := newTestReconciler(db, fp)
+	rc.Reconcile(context.Background())
+	mustExec(t, db, `UPDATE routes SET status='disabled' WHERE id=1`)
+	fp.deleteErr = errors.New("rate limited")
+	rc.Reconcile(context.Background())
+	var owned int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM dns_steering_records`).Scan(&owned); err != nil || owned != 1 {
+		t.Fatalf("failed delete must keep ownership for retry, got %d (%v)", owned, err)
+	}
+	fp.deleteErr = nil
+	rc.Reconcile(context.Background())
+	if len(fp.records) != 0 {
+		t.Fatalf("retry must delete the record, got %+v", fp.records)
 	}
 }
