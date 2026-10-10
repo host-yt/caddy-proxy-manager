@@ -48,7 +48,7 @@ services:
     networks: [e2e]
 
   caddy-a:
-    image: caddy:2.11.4@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
+    image: caddy:2.11.7@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
     volumes:
       - ./multinode/Caddyfile:/etc/caddy/Caddyfile:ro
     ports:
@@ -57,7 +57,7 @@ services:
     networks: [e2e]
 
   caddy-b:
-    image: caddy:2.11.4@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
+    image: caddy:2.11.7@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
     volumes:
       - ./multinode/Caddyfile:/etc/caddy/Caddyfile:ro
     ports:
@@ -102,7 +102,7 @@ services:
       # the fake zone above instead of the real 1.1.1.1/8.8.8.8 default -
       # see multinode/coredns/Corefile for why this is required at all.
       HPG_DNS_RESOLVERS: dns-fake:53
-      # Stock caddy:2.11.4 has none of the xcaddy modules deploy/caddy/
+      # Stock caddy:2.11.7 has none of the xcaddy modules deploy/caddy/
       # bundles; every *_AVAILABLE flag must stay off (0 is also the
       # config.go default, listed here for clarity) or the panel will push
       # a config block stock Caddy rejects, taking the whole node offline.

@@ -33,7 +33,7 @@ services:
     networks: [e2e]
 
   caddy-a:
-    image: caddy:2.11.4@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
+    image: caddy:2.11.7@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
     volumes:
       - ./multinode/Caddyfile:/etc/caddy/Caddyfile:ro
     ports:
@@ -65,7 +65,7 @@ services:
       # See multinode/coredns/Corefile: internal/dns.Check dials these
       # resolvers directly, never Docker's embedded DNS.
       HPG_DNS_RESOLVERS: dns-fake:53
-      # Stock caddy:2.11.4 carries none of the xcaddy modules; every
+      # Stock caddy:2.11.7 carries none of the xcaddy modules; every
       # *_AVAILABLE flag must stay off or the pushed config takes the
       # node offline.
       CACHE_HANDLER_AVAILABLE: "0"
