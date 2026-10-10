@@ -95,6 +95,11 @@ reach. The check itself runs as a Caddy `forward_auth` subrequest against
 the panel; the request/token mechanics are documented in
 [SECURITY.md](SECURITY.md#mtls) under "Path RBAC checks".
 
+Roles belong to the exact certificate that was issued: the check identifies
+the presented leaf by serial and SHA-256 fingerprint, and that row must be
+active and unexpired. Two certificates issued with the same subject do not
+share roles.
+
 These rules are treated as a required part of the route's policy, not an
 optional extra: if they cannot be read while the panel is building a node's
 config, the push for that node is aborted entirely rather than publishing

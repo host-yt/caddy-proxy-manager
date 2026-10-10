@@ -16,7 +16,7 @@ import (
 
 // MTLSRBACCheck handles GET /internal/mtls-rbac/{route_id}.
 // Called by Caddy forward_auth on routes with mTLS path rules.
-// Reads cert subject from X-Mtls-Subject and original path from X-Forwarded-Uri.
+// Identifies the cert by X-Mtls-Serial + X-Mtls-Fingerprint; original path from X-Forwarded-Uri.
 // Returns 200 when the cert's roles satisfy the path rule, 403 otherwise.
 func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 	routeID, err := strconv.ParseInt(chi.URLParam(r, "route_id"), 10, 64)
@@ -24,12 +24,7 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad route", http.StatusBadRequest)
 		return
 	}
-	subject := r.Header.Get("X-Mtls-Subject")
 	origURI := r.Header.Get("X-Forwarded-Uri")
-	if subject == "" {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
 	if origURI == "" {
 		origURI = r.URL.Path
 	}
@@ -98,25 +93,37 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Resolve cert by route CA + subject.
 	var caID int64
 	if err := db.QueryRowContext(ctx, "SELECT COALESCE(mtls_ca_id,0) FROM routes WHERE id=?", routeID).Scan(&caID); err != nil || caID == 0 {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	// Check across ALL active certs with this subject (subject is not unique per CA).
-	// Any active cert carrying the required role grants access.
-	//
-	// Caddy sends the full DN ("CN=device-42"); issuance stores the bare common
-	// name. Match either, so rows written before this are found too.
-	cn := mtls.SubjectCN(subject)
+	// Identify the exact presented leaf (serial + DER fingerprint), never the
+	// subject: subjects are not unique, so a subject match could borrow roles.
+	serial := strings.TrimSpace(r.Header.Get("X-Mtls-Serial"))
+	fp := strings.ToLower(strings.TrimSpace(r.Header.Get("X-Mtls-Fingerprint")))
+	if serial == "" || fp == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	var certID int64
+	var certPEM string
+	if err := db.QueryRowContext(ctx, `
+		SELECT id, cert_pem FROM mtls_issued_certs
+		 WHERE ca_id = ? AND serial = ? AND status = 'active'`, caID, serial).Scan(&certID, &certPEM); err != nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	leaf, err := mtls.ParseCert(certPEM)
+	if err != nil || mtls.FingerprintOf(leaf) != fp || !time.Now().Before(leaf.NotAfter) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	var count int
 	_ = db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM mtls_issued_certs c
-		  JOIN mtls_cert_roles cr ON cr.cert_id = c.id
+		SELECT COUNT(*) FROM mtls_cert_roles cr
 		  JOIN mtls_roles ro ON ro.id = cr.role_id
-		 WHERE c.ca_id = ? AND c.subject IN (?, ?) AND c.status = 'active'
-		   AND ro.name = ?`, caID, subject, cn, requiredRole).Scan(&count)
+		 WHERE cr.cert_id = ? AND ro.name = ?`, certID, requiredRole).Scan(&count)
 	if count == 0 {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return

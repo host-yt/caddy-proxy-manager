@@ -315,8 +315,8 @@ extra module needed. When enabled on a route:
 ### Path RBAC checks (`/internal/mtls-rbac/{route_id}`)
 
 Routes with mTLS path rules run a Caddy `forward_auth` subrequest against the
-panel. The subrequest carries the client-certificate subject in a header the
-node sets, so the endpoint must be sure the caller is a node the route is
+panel. The subrequest carries the client certificate's serial and fingerprint
+in headers the node sets, so the endpoint must be sure the caller is a node the route is
 actually placed on - reaching it from somewhere inside the mesh CIDR or from a
 configured trusted proxy is not proof of that.
 

@@ -2243,11 +2243,13 @@ func itoa(n int) string {
 }
 
 // authHeaders builds the header set the forward_auth subrequest carries to the
-// panel: the client-cert subject plus, when the control plane issued one, the
+// panel: the client-cert identity (serial + fingerprint; subject is display only) plus, when the control plane issued one, the
 // (node, route) check token that proves this config came from the panel.
 func authHeaders(r Route, certSubjectPlaceholder string) map[string]any {
 	h := map[string]any{
 		"X-Mtls-Subject":     []string{certSubjectPlaceholder},
+		"X-Mtls-Serial":      []string{"{http.request.tls.client.serial}"},
+		"X-Mtls-Fingerprint": []string{"{http.request.tls.client.fingerprint}"},
 		"X-Forwarded-Uri":    []string{"{http.request.orig_uri}"},
 		"X-Forwarded-Method": []string{"{http.request.method}"},
 	}

@@ -17,9 +17,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"database/sql"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -427,6 +429,22 @@ func randSerial() (*big.Int, error) {
 		return nil, fmt.Errorf("rand serial: %w", err)
 	}
 	return n.Add(n, big.NewInt(1)), nil
+}
+
+// ParseCert decodes the first CERTIFICATE block of a PEM string.
+func ParseCert(certPEM string) (*x509.Certificate, error) {
+	b, _ := pem.Decode([]byte(certPEM))
+	if b == nil || b.Type != "CERTIFICATE" {
+		return nil, errors.New("invalid certificate PEM")
+	}
+	return x509.ParseCertificate(b.Bytes)
+}
+
+// FingerprintOf is the lowercase hex SHA-256 of the DER, matching Caddy's
+// {http.request.tls.client.fingerprint} placeholder.
+func FingerprintOf(c *x509.Certificate) string {
+	sum := sha256.Sum256(c.Raw)
+	return hex.EncodeToString(sum[:])
 }
 
 func pemEncode(typ string, der []byte) string {
