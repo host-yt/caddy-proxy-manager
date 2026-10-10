@@ -23,6 +23,12 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+### Documentation
+
+- Community health files: `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `CODEOWNERS`, release-note
+  categories; `SECURITY.md` now names the private advisory channel, supported
+  versions and response targets. Issue forms add `needs-triage`.
+
 ### Security
 
 - Caddy node image 2.11.4 -> 2.11.7 (builder on Go 1.27.2) with
