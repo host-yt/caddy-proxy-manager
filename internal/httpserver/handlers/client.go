@@ -1012,22 +1012,28 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 
 	// Load ownership + plan constraints + caddy node.
 	var ownerClientID, portStart, portEnd, serviceID int64
-	var planWebSocket bool
+	var planWebSocket, planPath bool
 	var caddyNodeID sql.NullInt64
 	var oldDomain, oldPath string
 	if err := db.QueryRowContext(ctx,
-		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket_enabled, r.caddy_node_id, s.id,
+		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket_enabled, p.path_routing_enabled,
+		        r.caddy_node_id, s.id,
 		        LOWER(r.domain), COALESCE(r.path_prefix,'')
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN plans p ON p.id = s.plan_id
 		 WHERE r.id = ?`, id,
-	).Scan(&ownerClientID, &portStart, &portEnd, &planWebSocket, &caddyNodeID, &serviceID, &oldDomain, &oldPath); err != nil {
+	).Scan(&ownerClientID, &portStart, &portEnd, &planWebSocket, &planPath, &caddyNodeID, &serviceID, &oldDomain, &oldPath); err != nil {
 		redirectWithFlash(w, r, "/app/routes", "", "route not found")
 		return
 	}
 	if ownerClientID != clientID {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	// Same plan gate the route service applies on create and API update.
+	if newPath != "" && !planPath {
+		redirectWithFlash(w, r, editURL, "", mapRouteErr(routes.ErrPathNotInPlan))
 		return
 	}
 	if int64(newPort) < portStart || int64(newPort) > portEnd {

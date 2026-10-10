@@ -547,3 +547,37 @@ func TestClientRouteEditSave_MTLSImpliesForceHTTPS(t *testing.T) {
 		t.Error("tenant edit cleared force_https on an mTLS-enforced route")
 	}
 }
+
+// A plan without path routing must not gain it through the tenant edit form.
+func TestClientRouteEditSave_PathNeedsPlan(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	post := func() string {
+		h := &ClientHandlers{DB: func() *sql.DB { return db }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		form := url.Values{"domain": {"locked.example"}, "upstream_port": {"10001"}, "path_prefix": {"api"}}
+		req := httptest.NewRequest(http.MethodPost, "/app/routes/7/edit", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "7")
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+		ctx = middleware.ContextWithSession(ctx, &auth.Session{UserID: 1, Role: "client"})
+		rec := httptest.NewRecorder()
+		h.RouteEditSave(rec, req.WithContext(ctx))
+		return rec.Header().Get("Location")
+	}
+	pathOf := func() (p string) {
+		_ = db.QueryRow("SELECT COALESCE(path_prefix,'') FROM routes WHERE id = 7").Scan(&p)
+		return p
+	}
+	if _, err := db.Exec("UPDATE plans SET path_routing_enabled = 0 WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if loc := post(); !strings.Contains(loc, "err=") || pathOf() != "" {
+		t.Fatalf("path saved without plan entitlement: %q path=%q", loc, pathOf())
+	}
+	if _, err := db.Exec("UPDATE plans SET path_routing_enabled = 1 WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if loc := post(); strings.Contains(loc, "err=") || pathOf() != "/api" {
+		t.Fatalf("entitled path edit rejected: %q path=%q", loc, pathOf())
+	}
+}
