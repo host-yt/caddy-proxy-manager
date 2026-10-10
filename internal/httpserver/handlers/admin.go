@@ -1558,9 +1558,7 @@ func (h *AdminHandlers) NodesApprove(w http.ResponseWriter, r *http.Request) {
 	// break the documented onboarding order, so this warns instead.
 	var joinURL string
 	_ = db.QueryRowContext(ctx, "SELECT api_url FROM caddy_nodes WHERE id = ?", id).Scan(&joinURL)
-	if _, err := db.ExecContext(ctx,
-		"UPDATE caddy_nodes SET is_enabled = 1, approved_at = NOW(), approved_by = ? WHERE id = ? AND approved_at IS NULL",
-		approvedBy, id); err != nil {
+	if _, err := approveNode(ctx, db, id, approvedBy); err != nil {
 		redirectWithFlash(w, r, "/admin/nodes", "", "approve failed")
 		return
 	}
@@ -1580,6 +1578,18 @@ func (h *AdminHandlers) NodesApprove(w http.ResponseWriter, r *http.Request) {
 			"edit page, config pushes to this node are refused"
 	}
 	redirectWithFlash(w, r, "/admin/nodes", msg, "")
+}
+
+// approveNode is the single approval operation: auto-joined nodes are inserted
+// disabled, so approval must enable them too. Returns rows affected.
+func approveNode(ctx context.Context, db *sql.DB, id int64, approvedBy sql.NullInt64) (int64, error) {
+	res, err := db.ExecContext(ctx,
+		"UPDATE caddy_nodes SET is_enabled = 1, approved_at = NOW(), approved_by = ? WHERE id = ? AND approved_at IS NULL",
+		approvedBy, id)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // NodesResync rebuilds the node's full Caddy config from DB and POSTs /load.
@@ -1629,11 +1639,18 @@ func (h *AdminHandlers) NodesBulk(w http.ResponseWriter, r *http.Request) {
 		}
 		switch action {
 		case "approve":
-			if _, derr := db.ExecContext(ctx,
-				"UPDATE caddy_nodes SET approved_at=NOW() WHERE id=? AND approved_at IS NULL", id); derr != nil {
+			var by sql.NullInt64
+			if sess != nil {
+				by = sql.NullInt64{Int64: sess.UserID, Valid: true}
+			}
+			if n, derr := approveNode(ctx, db, id, by); derr != nil || n == 0 {
 				fail++
 				continue
 			}
+			audit.Write(ctx, db, h.Logger, r, audit.Entry{
+				UserID: actorUserID(sess),
+				Action: "node.approve", Entity: "node", EntityID: fmt.Sprintf("%d", id),
+			})
 		case "resync":
 			if h.ResyncNode == nil {
 				fail++
