@@ -225,7 +225,10 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	// cannot be emitted is served open or denied. Loaded once per build.
 	mtlsFailOpen := s.loadMTLSFailOpen(ctx)
 	// Suppressed WAF rules are removed from every route's ruleset (#14).
-	wafSups := s.loadWAFSuppressions(ctx)
+	wafSups, err := s.loadWAFSuppressions(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT r.id, r.domain, COALESCE(r.aliases,''), COALESCE(r.aliases_verified,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
 		        r.websocket, r.force_https,

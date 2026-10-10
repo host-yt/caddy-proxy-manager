@@ -29,3 +29,11 @@ func TestAttachStreamUpstreamsPropagatesReadError(t *testing.T) {
 		t.Fatal("want error on upstream read failure")
 	}
 }
+
+// A failed suppression read must abort the build, not publish a ruleset without them.
+func TestLoadWAFSuppressionsPropagatesReadError(t *testing.T) {
+	s := &Service{DB: closedDB(t)}
+	if _, err := s.loadWAFSuppressions(context.Background()); err == nil {
+		t.Fatal("want error on suppression read failure")
+	}
+}

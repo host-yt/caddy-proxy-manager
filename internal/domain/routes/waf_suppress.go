@@ -3,6 +3,7 @@ package routes
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"regexp"
 	"strings"
 
@@ -14,16 +15,16 @@ import (
 var wafRuleIDRe = regexp.MustCompile(`^[0-9]{1,9}(-[0-9]{1,9})?$`)
 
 // loadWAFSuppressions returns the active suppressions once per build. A read
-// error degrades to "none" so a push never fails on this.
-func (s *Service) loadWAFSuppressions(ctx context.Context) []wafevents.Suppression {
+// error fails the build: pushing without them would re-enable suppressed rules.
+func (s *Service) loadWAFSuppressions(ctx context.Context) ([]wafevents.Suppression, error) {
 	if s.DB == nil {
-		return nil
+		return nil, nil
 	}
 	sups, err := wafevents.New(func() *sql.DB { return s.DB }).ListSuppressions(ctx, nil)
-	if err != nil && s.Logger != nil {
-		s.Logger.Warn("waf suppressions load", "err", err)
+	if err != nil {
+		return nil, fmt.Errorf("waf suppressions load: %w", err)
 	}
-	return sups
+	return sups, nil
 }
 
 // wafSuppressionDirectives renders SecRuleRemoveById lines for the suppressions

@@ -528,9 +528,11 @@ func (s *Store) ListSuppressions(ctx context.Context, routeIDs []int64) ([]Suppr
 	for rows.Next() {
 		var sup Suppression
 		if err := rows.Scan(&sup.ID, &sup.RuleID, &sup.RouteID, &sup.Reason,
-			&sup.CreatedBy, &sup.CreatedAt, &sup.ExpiresAt); err == nil {
-			out = append(out, sup)
+			&sup.CreatedBy, &sup.CreatedAt, &sup.ExpiresAt); err != nil {
+			// A partial set would silently re-enable rules on the node build.
+			return nil, err
 		}
+		out = append(out, sup)
 	}
 	return out, rows.Err()
 }
