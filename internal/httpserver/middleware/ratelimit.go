@@ -65,8 +65,8 @@ func RateLimit(cfg RateLimitConfig) func(http.Handler) http.Handler {
 
 // UnauthPostLimit is a convenience wrapper for the common pattern of
 // rate-limiting only non-authenticated POSTs (login, password reset,
-// public form submissions). Authenticated sessions are skipped via the
-// admin session cookie check.
+// public form submissions). Authenticated sessions are skipped, except on
+// public auth routes (see isPublicAuthPath).
 func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Handler {
 	return RateLimit(RateLimitConfig{
 		RDB:         rdb,
@@ -94,8 +94,10 @@ func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Hand
 				return true
 			}
 			// Skip authed sessions: check the PARSED session, not a cookie
-			// name - a forged hpg_session* must not buy a bypass.
-			if SessionFromContext(r.Context()) != nil {
+			// name - a forged hpg_session* must not buy a bypass. Never on
+			// public auth routes: any low-privilege session would otherwise
+			// flood /auth/forgot (reset mail), /auth/register, etc.
+			if SessionFromContext(r.Context()) != nil && !isPublicAuthPath(r.URL.Path) {
 				return true
 			}
 			// Mid-2FA ticket: no session yet, but per-ticket OTP cap bounds it.
@@ -115,4 +117,10 @@ func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Hand
 			return false
 		},
 	})
+}
+
+// isPublicAuthPath reports whether path is a pre-login auth surface (panel
+// /auth/* and the forward-auth portal) that stays throttled with a session.
+func isPublicAuthPath(path string) bool {
+	return strings.HasPrefix(path, "/auth/") || strings.HasPrefix(path, "/hpg-portal/")
 }
