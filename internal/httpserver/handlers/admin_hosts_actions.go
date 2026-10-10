@@ -252,7 +252,9 @@ func (h *AdminHandlers) HostsToggleMaintenance(w http.ResponseWriter, r *http.Re
 	}
 	go func() {
 		defer recoverBg(h.Logger, "maint-resync")
-		h.Routes.SchedulePush(nodeID)
+		bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
+		defer cancel()
+		h.Routes.SchedulePushForRoute(bg, id)
 	}()
 	onOff := "disabled"
 	if newMode == 1 {

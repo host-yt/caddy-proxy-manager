@@ -60,3 +60,18 @@ func TestBuildWildcardPolicies_FanoutPeer(t *testing.T) {
 		}
 	}
 }
+
+// A route update must reach every node serving the route, not just its anchor.
+func TestUpdateRoute_PushesFanoutPeers(t *testing.T) {
+	svc := quietService(seedFanoutRoute(t))
+	port := 8081
+	changed, err := svc.UpdateRoute(context.Background(), 0, 1, UpdateInput{UpstreamPort: &port})
+	if err != nil || !changed {
+		t.Fatalf("UpdateRoute: changed=%v err=%v", changed, err)
+	}
+	for _, node := range []int64{1, 2} {
+		if svc.currentGen(node) == 0 {
+			t.Errorf("node %d not scheduled after route update", node)
+		}
+	}
+}

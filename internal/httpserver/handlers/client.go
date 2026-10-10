@@ -479,7 +479,10 @@ func (h *ClientHandlers) ServiceEdit(w http.ResponseWriter, r *http.Request) {
 			bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
 			defer cancel()
 			rows, err := db.QueryContext(bg,
-				`SELECT DISTINCT caddy_node_id FROM routes WHERE service_id = ? AND caddy_node_id IS NOT NULL`, serviceID)
+				`SELECT caddy_node_id FROM routes WHERE service_id = ? AND caddy_node_id IS NOT NULL
+				 UNION
+				 SELECT rna.node_id FROM route_node_assignments rna
+				   JOIN routes r ON r.id = rna.route_id WHERE r.service_id = ?`, serviceID, serviceID)
 			if err != nil {
 				return
 			}
@@ -847,12 +850,7 @@ func (h *ClientHandlers) RouteMaintenance(w http.ResponseWriter, r *http.Request
 			defer recoverBg(h.Logger, "client-maintenance-resync")
 			bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
 			defer cancel()
-			var nid int64
-			if err := db.QueryRowContext(bg,
-				`SELECT caddy_node_id FROM routes WHERE id = ? AND caddy_node_id IS NOT NULL`, routeID,
-			).Scan(&nid); err == nil {
-				h.Routes.SchedulePush(nid)
-			}
+			h.Routes.SchedulePushForRoute(bg, routeID)
 		}(id)
 	}
 	redirectWithFlash(w, r, "/app/routes", msg, "")
@@ -1093,13 +1091,11 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 
 	// Re-push node so Caddy picks up changes quickly.
 	if h.Routes != nil && caddyNodeID.Valid {
-		nodeID := caddyNodeID.Int64
 		go func() {
 			defer recoverBg(h.Logger, "client-route-edit-resync")
 			bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
 			defer cancel()
-			_ = bg
-			h.Routes.SchedulePush(nodeID)
+			h.Routes.SchedulePushForRoute(bg, id)
 		}()
 	}
 

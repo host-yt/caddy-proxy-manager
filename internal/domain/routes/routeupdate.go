@@ -249,8 +249,6 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 		// exact state. Still a no-op success.
 		return false, nil
 	}
-	if nodeID != 0 {
-		s.SchedulePush(nodeID)
-	}
+	s.SchedulePushForRoute(ctx, routeID)
 	return true, nil
 }
