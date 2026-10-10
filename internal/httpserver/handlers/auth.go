@@ -1796,11 +1796,6 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/auth/login?flash=No+account+for+this+email.+Ask+an+admin+to+create+one.", http.StatusSeeOther)
 			return
 		}
-		// Random non-usable password (login still needs OIDC; reset flow
-		// can issue a real one later if user wants password sign-in too).
-		raw := make([]byte, 32)
-		_, _ = rand.Read(raw)
-		dummy, _ := auth.HashPassword(base64.RawURLEncoding.EncodeToString(raw))
 		// Unset or unexpected -> client, the least-privileged role. The
 		// settings save already refuses admin with auto-provision.
 		role = cfg.DefaultRole
@@ -1814,16 +1809,13 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		// email_verified=1: the IdP already vouched for this email (the
 		// verified-email gate above ran), so a fresh OIDC-provisioned row is
 		// trusted - unlike a self-registered local row.
-		res, ierr := db.ExecContext(ctx,
-			`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active, email_verified)
-			 VALUES (?, ?, 0, ?, ?, 1, 1)`,
-			email, dummy, role, full)
+		uid, ierr := provisionSSOUser(ctx, db, email, role, full, true, "oidc", info.Subject, info.Email, info.Issuer)
 		if ierr != nil {
 			h.Logger.Error("oidc auto-provision", "err", ierr)
 			http.Redirect(w, r, "/auth/login?flash=Provisioning+failed", http.StatusSeeOther)
 			return
 		}
-		userID, _ = res.LastInsertId()
+		userID = uid
 		isActive = true
 		audit.Write(ctx, db, h.Logger, r, audit.Entry{
 			UserID: &userID, Action: "oidc.user.provisioned", Entity: "user",

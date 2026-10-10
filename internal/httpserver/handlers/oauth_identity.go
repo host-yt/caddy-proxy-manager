@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
+	"encoding/base64"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -13,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
+	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
@@ -259,7 +262,7 @@ func (h *OAuthIdentityHandlers) LinkOIDC(w http.ResponseWriter, r *http.Request)
 // IF() only updates email when the existing row's user_id matches this caller,
 // so a foreign link attempt cannot mutate the real owner's stored email before
 // the ownership check below rejects it (cross-account data corruption).
-func SaveIdentity(ctx context.Context, db *sql.DB, userID int64, provider, subject, email, issuer string) error {
+func SaveIdentity(ctx context.Context, db identityDB, userID int64, provider, subject, email, issuer string) error {
 	var oauthIdentQ string
 	if store.Driver() == "sqlite3" {
 		oauthIdentQ = `INSERT INTO oauth_identities (user_id, provider, subject, email, issuer) VALUES (?, ?, ?, NULLIF(?, ''), ?) ON CONFLICT(provider, issuer, subject) DO UPDATE SET email=CASE WHEN user_id=excluded.user_id THEN COALESCE(excluded.email, email) ELSE email END`
@@ -313,4 +316,52 @@ func FormatProviderLabel(p string) string {
 		}
 		return fmt.Sprintf("%s%s", strings.ToUpper(p[:1]), p[1:])
 	}
+}
+
+// identityDB is satisfied by *sql.DB and *sql.Tx.
+type identityDB interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// provisionSSOUser creates an SSO-provisioned user, its client record when the
+// role is client, and the identity link in one transaction. A client without a
+// clients row has a session but no tenant, so a partial write must roll back.
+func provisionSSOUser(ctx context.Context, db *sql.DB, email, role, fullName string, emailVerified bool,
+	provider, subject, identEmail, issuer string) (int64, error) {
+	// Random unusable password: login stays SSO until a reset sets a real one.
+	raw := make([]byte, 32)
+	if _, err := rand.Read(raw); err != nil {
+		return 0, err
+	}
+	dummyHash, err := auth.HashPassword(base64.RawURLEncoding.EncodeToString(raw))
+	if err != nil {
+		return 0, err
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
+		`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active, email_verified)
+		 VALUES (?, ?, 0, ?, ?, 1, ?)`,
+		email, dummyHash, role, fullName, emailVerified)
+	if err != nil {
+		return 0, err
+	}
+	userID, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	if role == "client" {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO clients (user_id, display_name) VALUES (?, ?)", userID, fullName); err != nil {
+			return 0, err
+		}
+	}
+	if err := SaveIdentity(ctx, tx, userID, provider, subject, identEmail, issuer); err != nil {
+		return 0, err
+	}
+	return userID, tx.Commit()
 }

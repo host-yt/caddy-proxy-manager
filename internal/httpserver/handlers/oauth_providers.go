@@ -18,7 +18,6 @@ import (
 	xnorm "golang.org/x/text/unicode/norm"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
-	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/oauth2x"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -245,28 +244,18 @@ func (h *AuthHandlers) OAuth2Callback(w http.ResponseWriter, r *http.Request) {
 		if role != "support" && role != "client" {
 			role = "client"
 		}
-		raw := make([]byte, 32)
-		if _, rerr := rand.Read(raw); rerr != nil {
-			clearCookie()
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
-		}
-		dummy, _ := auth.HashPassword(base64.RawURLEncoding.EncodeToString(raw))
 		full := info.Name
 		if full == "" {
 			full = email
 		}
-		res, ierr := db.ExecContext(ctx,
-			`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active)
-			 VALUES (?, ?, 0, ?, ?, 1)`,
-			email, dummy, role, full)
+		uid, ierr := provisionSSOUser(ctx, db, email, role, full, false, provider, info.Subject, info.Email, issuer)
 		if ierr != nil {
 			clearCookie()
 			h.Logger.Error("oauth2 auto-provision", "provider", provider, "err", ierr)
 			http.Redirect(w, r, "/auth/login?flash=Provisioning+failed", http.StatusSeeOther)
 			return
 		}
-		userID, _ = res.LastInsertId()
+		userID = uid
 		isActive = true
 		audit.Write(ctx, db, h.Logger, r, audit.Entry{
 			UserID: &userID, Action: "oauth.user.provisioned", Entity: "user",
