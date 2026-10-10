@@ -32,6 +32,24 @@ is deliberately left as published.
 - API keys with an empty scope list no longer get full access; they now pass
   no scope check, and the admin key form rejects a key with no scope selected
   (#53).
+- Customer-issued API keys (`client:read`/`client:write`) can reach the
+  customer endpoints of API v1; admin access is not widened (#59).
+- A slave panel is read-only on every surface, not only `/admin`; register and
+  password reset work on the master only (#52).
+- Runtime 2FA enforcement fails closed when the policy can't be read (503 until
+  the database answers) and the admin grace window is issued once (#55, #56).
+- Public auth POSTs stay rate limited for logged-in sessions, and passkey login
+  challenges are throttled (#57, #58).
+- Malformed IP allow/trust lists deny instead of allowing everyone; bad entries
+  are logged as "invalid CIDR in IP allow/trust list" (#54).
+- Auto-failover reserves capacity per route so a single healthy node is not
+  overloaded, and plan/reseller domain quotas are checked inside the create
+  transaction (#49, #50).
+
+### Fixed
+
+- SSE log and AI chat streams are no longer cut off by the global 30s request
+  timeout (#51).
 
 ### Upgrade notes
 

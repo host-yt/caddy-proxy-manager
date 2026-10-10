@@ -67,7 +67,7 @@ type Deps struct {
 
 	// NodeWAFIngest receives WAF event batches POSTed by node-local Caddy WAF modules.
 	NodeWAFIngest *handlers.NodeWAFIngestHandler
-	// SlaveMode, when true, applies SlaveReadOnly middleware (blocks admin writes).
+	// SlaveMode, when true, applies SlaveReadOnly middleware (blocks every write outside its allowlist).
 	SlaveMode bool
 }
 
@@ -160,7 +160,7 @@ func (s *Server) routes() {
 	}
 	r.Use(mw.VerifyCSRF)
 	// Global anti-DDoS: cap unauthenticated POST traffic per source IP.
-	// Authenticated sessions are skipped (admin workflows hit their own
+	// Authenticated sessions are skipped outside /auth and /hpg-portal (admin workflows hit their own
 	// per-handler limits). 60/min/IP fits real users behind NAT (office,
 	// VPN, mobile carrier) while still throttling brute force; the
 	// per-(email,IP) lockout in handlers/auth.go does the targeted job.
