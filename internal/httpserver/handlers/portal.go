@@ -45,6 +45,9 @@ type PortalHandlers struct {
 	State    *installstate.Manager // for decrypting totp_secret_enc
 	OAuth2X  *oauth2x.Service      // social login for the portal; nil disables buttons
 	AppURL   string                // panel base URL, used to build OAuth callback URLs
+	// Auth supplies the panel's second-factor policy (methods, lockout, OTP
+	// delivery). nil fails closed: an MFA-enrolled user cannot finish.
+	Auth *AuthHandlers
 }
 
 // metricsLoginEmitter is the subset of obs.Metrics the portal touches; kept
@@ -307,10 +310,13 @@ func (h *PortalHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		isActive    bool
 		fullName    sql.NullString
 		totpEnabled bool
+		smsEnabled  bool
+		mailEnabled bool
 	)
 	err := db.QueryRowContext(ctx,
-		`SELECT id, password_hash, is_active, full_name, totp_enabled FROM users WHERE email = ? LIMIT 1`, email).
-		Scan(&userID, &hash, &isActive, &fullName, &totpEnabled)
+		`SELECT id, password_hash, is_active, full_name, totp_enabled, sms_otp_enabled, email_otp_enabled
+		   FROM users WHERE email = ? LIMIT 1`, email).
+		Scan(&userID, &hash, &isActive, &fullName, &totpEnabled, &smsEnabled, &mailEnabled)
 	if errors.Is(err, sql.ErrNoRows) {
 		// Equalize timing against account enumeration (same trick as panel login).
 		_ = auth.VerifyPassword(decoyPasswordHash(), password)
@@ -344,8 +350,8 @@ func (h *PortalHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	rememberMe := r.FormValue("remember_me") == "1"
 
-	// If 2FA enrolled, issue a short-lived challenge instead of a full session.
-	if totpEnabled {
+	// Any enrolled factor gates the session, same rule as the panel login.
+	if totpEnabled || smsEnabled || mailEnabled {
 		if err := h.startPortal2FA(ctx, w, r, userID, email, fullName.String, back, host, rememberMe); err != nil {
 			h.renderLogin(w, r, http.StatusInternalServerError, portalViewData{Error: "Could not start 2FA challenge.", Back: back, Host: host})
 			return
@@ -387,6 +393,9 @@ type portal2FAState struct {
 	RememberMe bool   `json:"r"`
 	Attempts   int    `json:"a,omitempty"`
 	ExpiresAt  int64  `json:"x,omitempty"` // unix seconds; do not extend TTL on bad code
+	// OTPMethod/OTPTicket bind a sent sms|email code to this challenge.
+	OTPMethod string `json:"om,omitempty"`
+	OTPTicket string `json:"ot,omitempty"`
 }
 
 func (h *PortalHandlers) startPortal2FA(ctx context.Context, w http.ResponseWriter, r *http.Request,
@@ -412,20 +421,160 @@ func (h *PortalHandlers) startPortal2FA(ctx context.Context, w http.ResponseWrit
 }
 
 type portal2FAViewData struct {
-	CSPNonce  string
-	Host      string
-	Error     string
-	CSRFToken string
+	CSPNonce    string
+	Host        string
+	Error       string
+	CSRFToken   string
+	Method      string // factor this form verifies
+	HasTOTP     bool
+	HasSMS      bool
+	HasEmail    bool
+	HasRecovery bool
+	Sent        bool // an sms|email code is out for Method
+}
+
+// loadPortal2FA reads the pending challenge without consuming it.
+func (h *PortalHandlers) loadPortal2FA(ctx context.Context, r *http.Request) (string, *portal2FAState) {
+	c, err := r.Cookie(portal2FACookie)
+	if err != nil || c.Value == "" || h.RDB == nil {
+		return "", nil
+	}
+	raw, err := h.RDB.Get(ctx, portal2FARedisPfx+c.Value).Bytes()
+	if err != nil {
+		return "", nil
+	}
+	var st portal2FAState
+	if json.Unmarshal(raw, &st) != nil {
+		return "", nil
+	}
+	return c.Value, &st
+}
+
+// portal2FAView fills the enrolled-factor picker for userID, selecting want
+// when it is enrolled and otherwise the panel's default factor.
+func (h *PortalHandlers) portal2FAView(ctx context.Context, userID int64, want string) portal2FAViewData {
+	d := portal2FAViewData{}
+	if h.Auth == nil {
+		return d
+	}
+	var def string
+	d.HasTOTP, d.HasSMS, d.HasEmail, d.HasRecovery, def = h.Auth.twoFAOptions(ctx, userID)
+	d.Method = def
+	switch want {
+	case "totp", "sms", "email":
+		if twoFAMethodEnrolled(want, d.HasTOTP, d.HasSMS, d.HasEmail) {
+			d.Method = want
+		}
+	case "recovery":
+		if d.HasRecovery {
+			d.Method = want
+		}
+	}
+	return d
 }
 
 func (h *PortalHandlers) Portal2FAPage(w http.ResponseWriter, r *http.Request) {
-	c, err := r.Cookie(portal2FACookie)
-	if err != nil || c.Value == "" {
+	_, st := h.loadPortal2FA(r.Context(), r)
+	if st == nil {
 		http.Redirect(w, r, "/hpg-portal/login", http.StatusSeeOther)
 		return
 	}
-	host := portalRequestHost(r)
-	h.render2FA(w, r, http.StatusOK, portal2FAViewData{Host: host})
+	d := h.portal2FAView(r.Context(), st.UserID, r.URL.Query().Get("m"))
+	d.Host = portalRequestHost(r)
+	d.Sent = st.OTPTicket != "" && st.OTPMethod == d.Method
+	h.render2FA(w, r, http.StatusOK, d)
+}
+
+// Portal2FASend delivers an sms|email code for the pending challenge and binds
+// its ticket to the challenge record, so only this challenge can redeem it.
+func (h *PortalHandlers) Portal2FASend(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+	nonce, st := h.loadPortal2FA(ctx, r)
+	if st == nil {
+		http.Redirect(w, r, "/hpg-portal/login", http.StatusSeeOther)
+		return
+	}
+	method := r.FormValue("method")
+	d := h.portal2FAView(ctx, st.UserID, method)
+	d.Host = portalRequestHost(r)
+	if !h.verifyPortalCSRF(r) {
+		d.Error = "Session expired. Please try again."
+		h.render2FA(w, r, http.StatusForbidden, d)
+		return
+	}
+	if h.Auth == nil || d.Method != method || (method != "sms" && method != "email") {
+		d.Error = "That method is not enabled for this account."
+		h.render2FA(w, r, http.StatusBadRequest, d)
+		return
+	}
+	ticket, err := h.Auth.sendLoginOTP(ctx, r, st.UserID, st.Email, method)
+	if err != nil {
+		d.Error = "Could not send a code. Try again later."
+		var se *otpSendError
+		if errors.As(err, &se) && se.status == http.StatusTooManyRequests {
+			d.Error = "Please wait before requesting another code."
+		}
+		h.render2FA(w, r, http.StatusOK, d)
+		return
+	}
+	st.OTPMethod, st.OTPTicket = method, ticket
+	b, _ := json.Marshal(st)
+	if err := h.RDB.Set(ctx, portal2FARedisPfx+nonce, b, redis.KeepTTL).Err(); err != nil {
+		d.Error = "Could not send a code. Try again later."
+		h.render2FA(w, r, http.StatusInternalServerError, d)
+		return
+	}
+	http.Redirect(w, r, "/hpg-portal/2fa?m="+method, http.StatusSeeOther)
+}
+
+// verifyPortal2FA checks code against an enrolled factor with the panel's
+// rules and returns the factor that matched ("" on failure).
+func (h *PortalHandlers) verifyPortal2FA(ctx context.Context, db *sql.DB, st *portal2FAState, method, code string) string {
+	a := h.Auth
+	if a == nil {
+		return ""
+	}
+	hasTOTP, hasSMS, hasEmail, _, def := a.twoFAOptions(ctx, st.UserID)
+	if method == "" {
+		method = def
+	}
+	if !twoFAMethodEnrolled(method, hasTOTP, hasSMS, hasEmail) {
+		return ""
+	}
+	switch method {
+	case "totp":
+		secret, ok, needsUpgrade := readTOTPSecret(ctx, db, h.State, st.UserID)
+		if ok && auth.ValidateTOTP(secret, code) == nil && a.markTOTPConsumed(ctx, st.UserID, code) {
+			if needsUpgrade {
+				upgradeTOTPSecret(ctx, db, h.State, st.UserID, secret)
+			}
+			return "totp"
+		}
+		if a.tryRecoveryCode(ctx, db, st.UserID, code) {
+			return "recovery"
+		}
+	case "recovery":
+		if a.tryRecoveryCode(ctx, db, st.UserID, code) {
+			return "recovery"
+		}
+	case "sms":
+		if st.OTPMethod == "sms" && st.OTPTicket != "" {
+			uid, err := auth.VerifySMSOTP(ctx, h.RDB, st.OTPTicket, strings.ReplaceAll(code, "-", ""))
+			if err == nil && uid == st.UserID {
+				return "sms"
+			}
+		}
+	case "email":
+		if st.OTPMethod == "email" && st.OTPTicket != "" {
+			uid, err := auth.VerifyEmailOTP(ctx, h.RDB, st.OTPTicket, code)
+			if err == nil && uid == st.UserID {
+				return "email"
+			}
+		}
+	}
+	return ""
 }
 
 func (h *PortalHandlers) Portal2FASubmit(w http.ResponseWriter, r *http.Request) {
@@ -460,31 +609,27 @@ func (h *PortalHandlers) Portal2FASubmit(w http.ResponseWriter, r *http.Request)
 	}
 
 	code := strings.TrimSpace(r.FormValue("code"))
+	method := strings.TrimSpace(r.FormValue("method"))
 	db := h.DB()
 	if db == nil {
 		h.render2FA(w, r, http.StatusServiceUnavailable, portal2FAViewData{Host: host, Error: "Service unavailable."})
 		return
 	}
-	secret, ok, needsUpgrade := readTOTPSecret(ctx, db, h.State, st.UserID)
-	if !ok {
-		// TOTP disabled or secret missing; fall through to session (edge case: disabled between steps).
+	// Per-user lock shared with the panel: a fresh password login must not
+	// reset the guessing budget.
+	if h.Auth == nil || h.Auth.twoFALocked(ctx, st.UserID) {
 		h.clearPortal2FACookie(w)
-		if err := h.createPortalSession(ctx, w, st.UserID, st.Email, st.Username, st.RememberMe); err != nil {
-			h.render2FA(w, r, http.StatusInternalServerError, portal2FAViewData{Host: host, Error: "Could not create session."})
-			return
-		}
-		http.Redirect(w, r, st.Back, http.StatusSeeOther)
+		http.Redirect(w, r, "/hpg-portal/login", http.StatusSeeOther)
 		return
 	}
-	if needsUpgrade {
-		upgradeTOTPSecret(ctx, db, h.State, st.UserID, secret)
-	}
 
-	if err := auth.ValidateTOTP(secret, code); err != nil {
+	mfa := h.verifyPortal2FA(ctx, db, &st, method, code)
+	if mfa == "" {
 		st.Attempts++
-		h.auditPortalLogin(ctx, r, &st.UserID, "portal.2fa.fail", st.Email, st.Host, "bad_totp")
+		h.Auth.record2FAFail(ctx, st.UserID)
+		h.auditPortalLogin(ctx, r, &st.UserID, "portal.2fa.fail", st.Email, st.Host, "bad_code")
 		if h.Metrics != nil {
-			h.Metrics.LoginEvent("fail", "portal", "totp")
+			h.Metrics.LoginEvent("fail", "portal", method)
 		}
 		if st.Attempts >= portal2FAMaxAttempts {
 			// Consumed by GetDel above; do not re-mint. Force re-login.
@@ -505,17 +650,22 @@ func (h *PortalHandlers) Portal2FASubmit(w http.ResponseWriter, r *http.Request)
 			Name: portal2FACookie, Value: nonce, Path: "/hpg-portal",
 			HttpOnly: true, Secure: h.Secure, SameSite: h.SameSite,
 		})
-		h.render2FA(w, r, http.StatusUnauthorized, portal2FAViewData{Host: host, Error: "Invalid code. Try again."})
+		d := h.portal2FAView(ctx, st.UserID, method)
+		d.Host, d.Error = host, "Invalid code. Try again."
+		d.Sent = st.OTPTicket != "" && st.OTPMethod == d.Method
+		h.render2FA(w, r, http.StatusUnauthorized, d)
 		return
 	}
 
+	h.Auth.clear2FAFails(ctx, st.UserID)
 	h.clearPortal2FACookie(w)
 	if err := h.createPortalSession(ctx, w, st.UserID, st.Email, st.Username, st.RememberMe); err != nil {
 		h.render2FA(w, r, http.StatusInternalServerError, portal2FAViewData{Host: host, Error: "Could not create session."})
 		return
 	}
+	h.auditPortalLogin(ctx, r, &st.UserID, "portal.login.success", st.Email, st.Host, "")
 	if h.Metrics != nil {
-		h.Metrics.LoginEvent("success", "portal", "totp")
+		h.Metrics.LoginEvent("success", "portal", mfa)
 	}
 	http.Redirect(w, r, st.Back, http.StatusSeeOther)
 }
@@ -554,17 +704,35 @@ var portal2FATmpl = template.Must(template.New("portal_2fa").Parse(`<!doctype ht
  button{margin-top:16px;width:100%;padding:10px;border:0;border-radius:10px;background:#4f46e5;color:#fff;font-size:14px;cursor:pointer}
  .err{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:10px;padding:8px 10px;font-size:13px;margin-bottom:8px}
  a{display:block;margin-top:14px;font-size:13px;color:#64748b;text-align:center;text-decoration:none}
+ button.alt{background:#fff;color:#4f46e5;border:1px solid #c7d2fe}
+ .alts a{margin-top:8px}
 </style></head><body>
 <div class="card">
  <h1>Two-factor authentication</h1>
  <p class="sub">{{.Host}}</p>
  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+ {{if or (eq .Method "sms") (eq .Method "email")}}
+ <form method="POST" action="/hpg-portal/2fa/send">
+  <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
+  <input type="hidden" name="method" value="{{.Method}}">
+  <button type="submit" class="alt">{{if .Sent}}Resend code{{else}}Send code by {{if eq .Method "sms"}}SMS{{else}}email{{end}}{{end}}</button>
+ </form>
+ {{end}}
+ {{if .Method}}
  <form method="POST" action="/hpg-portal/2fa">
   <input type="hidden" name="csrf_token" value="{{.CSRFToken}}">
-  <label for="code">Authenticator code</label>
-  <input id="code" name="code" type="text" inputmode="numeric" pattern="[0-9 ]*" autocomplete="one-time-code" autofocus required maxlength="10" placeholder="000 000">
+  <input type="hidden" name="method" value="{{.Method}}">
+  <label for="code">{{if eq .Method "totp"}}Authenticator code{{else if eq .Method "recovery"}}Recovery code{{else}}Code we sent you{{end}}</label>
+  <input id="code" name="code" type="text" autocomplete="one-time-code" autofocus required maxlength="32">
   <button type="submit">Verify</button>
  </form>
+ {{end}}
+ <div class="alts">
+  {{if and .HasTOTP (ne .Method "totp")}}<a href="/hpg-portal/2fa?m=totp">Use authenticator app</a>{{end}}
+  {{if and .HasSMS (ne .Method "sms")}}<a href="/hpg-portal/2fa?m=sms">Use SMS</a>{{end}}
+  {{if and .HasEmail (ne .Method "email")}}<a href="/hpg-portal/2fa?m=email">Use email</a>{{end}}
+  {{if and .HasRecovery (ne .Method "recovery")}}<a href="/hpg-portal/2fa?m=recovery">Use a recovery code</a>{{end}}
+ </div>
  <a href="/hpg-portal/login">Back to sign in</a>
 </div>
 </body></html>`))

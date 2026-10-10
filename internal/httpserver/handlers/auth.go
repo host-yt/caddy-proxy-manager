@@ -802,113 +802,116 @@ func (h *AuthHandlers) TwoFASend(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
+	otpTicket, err := h.sendLoginOTP(ctx, r, pend.UserID, pend.Email, method)
+	if err != nil {
+		var se *otpSendError
+		if !errors.As(err, &se) {
+			se = &otpSendError{status: http.StatusInternalServerError, msg: "server error"}
+		}
+		if se.retryAfter > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(se.retryAfter))
+		}
+		http.Error(w, se.msg, se.status)
+		return
+	}
+	name, ttl := "hpg_smsotp", time.Duration(auth.SMSOTPTTLSeconds)*time.Second
+	if method == "email" {
+		name, ttl = "hpg_emailotp", time.Duration(auth.EmailOTPTTLSeconds)*time.Second
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: name, Value: otpTicket, Path: "/", HttpOnly: true,
+		Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
+		Expires: time.Now().Add(ttl),
+	})
+	w.Header().Set("X-Resend-After", strconv.Itoa(int(otpResendCooldown.Seconds())))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// otpSendError is a login-OTP send failure with the status and text to show.
+type otpSendError struct {
+	status     int
+	msg        string
+	retryAfter int
+}
+
+func (e *otpSendError) Error() string { return e.msg }
+
+// sendLoginOTP delivers a login code over an ENROLLED sms|email factor and
+// returns the verification ticket. Shared by the panel and the portal so both
+// apply the same enrolment check, cooldown and daily cap.
+func (h *AuthHandlers) sendLoginOTP(ctx context.Context, r *http.Request, userID int64, email, method string) (string, error) {
 	db := h.DB()
 	if db == nil {
-		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
-		return
+		return "", &otpSendError{status: http.StatusServiceUnavailable, msg: "db unavailable"}
 	}
-
-	_, hasSMS, hasEmail, _, _ := h.twoFAOptions(ctx, pend.UserID)
+	_, hasSMS, hasEmail, _, _ := h.twoFAOptions(ctx, userID)
 	if (method == "sms" && !hasSMS) || (method == "email" && !hasEmail) {
-		http.Error(w, "method not enabled for this account", http.StatusBadRequest)
-		return
+		return "", &otpSendError{status: http.StatusBadRequest, msg: "method not enabled for this account"}
 	}
+	serverErr := &otpSendError{status: http.StatusInternalServerError, msg: "server error"}
 
 	switch method {
 	case "sms":
 		var phone sql.NullString
-		_ = db.QueryRowContext(ctx, "SELECT phone_e164 FROM users WHERE id = ?", pend.UserID).Scan(&phone)
+		_ = db.QueryRowContext(ctx, "SELECT phone_e164 FROM users WHERE id = ?", userID).Scan(&phone)
 		if !phone.Valid || phone.String == "" {
-			http.Error(w, "no phone on file", http.StatusBadRequest)
-			return
+			return "", &otpSendError{status: http.StatusBadRequest, msg: "no phone on file"}
 		}
 		if h.SMS == nil {
-			http.Error(w, "sms not configured", http.StatusServiceUnavailable)
-			return
+			return "", &otpSendError{status: http.StatusServiceUnavailable, msg: "sms not configured"}
 		}
-		if active, retry := h.checkResendCooldown(ctx, pend.UserID, "sms"); active {
-			w.Header().Set("Retry-After", strconv.Itoa(retry))
-			http.Error(w, fmt.Sprintf("wait %ds before resending", retry), http.StatusTooManyRequests)
-			return
+		if active, retry := h.checkResendCooldown(ctx, userID, "sms"); active {
+			return "", &otpSendError{status: http.StatusTooManyRequests, msg: fmt.Sprintf("wait %ds before resending", retry), retryAfter: retry}
 		}
-		sentN, over := h.checkDailyCap(ctx, pend.UserID, "sms")
+		sentN, over := h.checkDailyCap(ctx, userID, "sms")
 		if over {
-			http.Error(w, fmt.Sprintf("daily SMS limit (%d) reached", otpDailyCap), http.StatusTooManyRequests)
-			return
+			return "", &otpSendError{status: http.StatusTooManyRequests, msg: fmt.Sprintf("daily SMS limit (%d) reached", otpDailyCap)}
 		}
 		code, err := auth.GenerateSMSOTP()
 		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
+			return "", serverErr
 		}
-		otpTicket, err := auth.StoreSMSOTP(ctx, h.RDB, pend.UserID, code)
+		otpTicket, err := auth.StoreSMSOTP(ctx, h.RDB, userID, code)
 		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
+			return "", serverErr
 		}
 		body := fmt.Sprintf("Code #%d: %s", sentN, formatSMSCode(code))
 		if err := h.SMS.Send(ctx, phone.String, body); err != nil {
 			h.Logger.Warn("sms send", "err", err)
-			http.Error(w, "sms provider error", http.StatusBadGateway)
-			return
+			return "", &otpSendError{status: http.StatusBadGateway, msg: "sms provider error"}
 		}
-		http.SetCookie(w, &http.Cookie{
-			Name: "hpg_smsotp", Value: otpTicket, Path: "/", HttpOnly: true,
-			Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
-			Expires: time.Now().Add(auth.SMSOTPTTLSeconds * time.Second),
-		})
-		w.Header().Set("X-Resend-After", strconv.Itoa(int(otpResendCooldown.Seconds())))
-		w.WriteHeader(http.StatusNoContent)
+		return otpTicket, nil
 
 	case "email":
 		if h.Mailer == nil {
-			http.Error(w, "mailer not configured", http.StatusServiceUnavailable)
-			return
+			return "", &otpSendError{status: http.StatusServiceUnavailable, msg: "mailer not configured"}
 		}
-		if active, retry := h.checkResendCooldown(ctx, pend.UserID, "email"); active {
-			w.Header().Set("Retry-After", strconv.Itoa(retry))
-			http.Error(w, fmt.Sprintf("wait %ds before resending", retry), http.StatusTooManyRequests)
-			return
+		if active, retry := h.checkResendCooldown(ctx, userID, "email"); active {
+			return "", &otpSendError{status: http.StatusTooManyRequests, msg: fmt.Sprintf("wait %ds before resending", retry), retryAfter: retry}
 		}
-		if _, over := h.checkDailyCap(ctx, pend.UserID, "email"); over {
-			http.Error(w, fmt.Sprintf("daily email limit (%d) reached", otpDailyCap), http.StatusTooManyRequests)
-			return
+		if _, over := h.checkDailyCap(ctx, userID, "email"); over {
+			return "", &otpSendError{status: http.StatusTooManyRequests, msg: fmt.Sprintf("daily email limit (%d) reached", otpDailyCap)}
 		}
 		var fullName sql.NullString
-		_ = db.QueryRowContext(ctx, "SELECT full_name FROM users WHERE id = ?", pend.UserID).Scan(&fullName)
+		_ = db.QueryRowContext(ctx, "SELECT full_name FROM users WHERE id = ?", userID).Scan(&fullName)
 		code, err := auth.GenerateEmailOTP()
 		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
+			return "", serverErr
 		}
-		otpTicket, err := auth.StoreEmailOTP(ctx, h.RDB, pend.UserID, code)
+		otpTicket, err := auth.StoreEmailOTP(ctx, h.RDB, userID, code)
 		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
+			return "", serverErr
 		}
-		name := ""
-		if fullName.Valid {
-			name = fullName.String
-		}
-		if err := sendOTPEmail(ctx, h.Mailer, db, r, pend.Email, name, code,
+		if err := sendOTPEmail(ctx, h.Mailer, db, r, email, fullName.String, code,
 			"Sign-in verification code",
 			"Someone (hopefully you) is signing in to your account.",
 			int(auth.EmailOTPTTLSeconds/60)); err != nil {
 			h.Logger.Warn("email send", "err", err)
-			http.Error(w, "smtp send failed", http.StatusBadGateway)
-			return
+			return "", &otpSendError{status: http.StatusBadGateway, msg: "smtp send failed"}
 		}
-		http.SetCookie(w, &http.Cookie{
-			Name: "hpg_emailotp", Value: otpTicket, Path: "/", HttpOnly: true,
-			Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
-			Expires: time.Now().Add(auth.EmailOTPTTLSeconds * time.Second),
-		})
-		w.Header().Set("X-Resend-After", strconv.Itoa(int(otpResendCooldown.Seconds())))
-		w.WriteHeader(http.StatusNoContent)
-
-	default:
-		http.Error(w, "unknown method", http.StatusBadRequest)
+		return otpTicket, nil
 	}
+	return "", &otpSendError{status: http.StatusBadRequest, msg: "unknown method"}
 }
 
 // pendViaOrPassword returns the recorded via, defaulting to "password" for

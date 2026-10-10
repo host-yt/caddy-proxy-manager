@@ -338,6 +338,7 @@ func (s *Server) routes() {
 			r.Get("/logout", s.deps.Portal.LogoutConfirm)
 			r.Get("/2fa", s.deps.Portal.Portal2FAPage)
 			r.Post("/2fa", s.deps.Portal.Portal2FASubmit)
+			r.Post("/2fa/send", s.deps.Portal.Portal2FASend)
 			// OAuth2 social login for the portal (provider-agnostic).
 			r.Get("/oauth/{provider}", s.deps.Portal.PortalOAuthStart)
 			r.Get("/oauth/{provider}/callback", s.deps.Portal.PortalOAuthCallback)
