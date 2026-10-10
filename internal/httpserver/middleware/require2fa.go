@@ -3,10 +3,12 @@ package middleware
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -20,12 +22,14 @@ const graceTTL = 60 * 24 * time.Hour
 // enrolled to a setup interstitial. It bypasses itself on enrollment + logout
 // routes (no redirect loop) and during impersonation. graceHours > 0 gives an
 // existing admin a break-glass window after enforcement first applies to them,
-// so flipping the policy on doesn't instantly lock anyone out.
-func RequireAdmin2FA(db func() *sql.DB, rdb *redis.Client, enabled func() bool, graceHours int) func(http.Handler) http.Handler {
+// so flipping the policy on doesn't instantly lock anyone out. enabled
+// returning an error means the policy is unknown: the request gets a 503 and
+// no grace window is started.
+func RequireAdmin2FA(db func() *sql.DB, rdb *redis.Client, enabled func() (bool, error), graceHours int) func(http.Handler) http.Handler {
 	bypass := []string{"/admin/2fa", "/admin/passkeys", "/auth/logout"}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if enabled == nil || !enabled() {
+			if enabled == nil {
 				next.ServeHTTP(w, r)
 				return
 			}
@@ -42,6 +46,15 @@ func RequireAdmin2FA(db func() *sql.DB, rdb *redis.Client, enabled func() bool, 
 					return
 				}
 			}
+			on, err := enabled()
+			if err != nil {
+				http.Error(w, "2FA policy unavailable, retry shortly", http.StatusServiceUnavailable)
+				return
+			}
+			if !on {
+				next.ServeHTTP(w, r)
+				return
+			}
 			if admin2FAEnrolled(r.Context(), db(), rdb, sess.UserID) {
 				next.ServeHTTP(w, r)
 				return
@@ -55,6 +68,28 @@ func RequireAdmin2FA(db func() *sql.DB, rdb *redis.Client, enabled func() bool, 
 			}
 			http.Redirect(w, r, "/admin/2fa/required", http.StatusSeeOther)
 		})
+	}
+}
+
+// admin2FALastOn remembers the last successfully read runtime policy so a
+// transient DB error keeps enforcing once 2FA has been seen enabled.
+var admin2FALastOn atomic.Bool
+
+// Admin2FAPolicy turns the result of reading security.require_admin_2fa into
+// a decision. sql.ErrNoRows is the only "off" default; any other error fails
+// closed: enforce if the policy was last seen on, else report it as unknown.
+func Admin2FAPolicy(on bool, err error) (bool, error) {
+	switch {
+	case err == nil:
+		admin2FALastOn.Store(on)
+		return on, nil
+	case errors.Is(err, sql.ErrNoRows):
+		admin2FALastOn.Store(false)
+		return false, nil
+	case admin2FALastOn.Load():
+		return true, nil
+	default:
+		return false, fmt.Errorf("reading 2FA policy: %w", err)
 	}
 }
 

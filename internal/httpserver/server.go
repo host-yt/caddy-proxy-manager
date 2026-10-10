@@ -111,18 +111,18 @@ func New(d Deps) *Server {
 func (s *Server) Handler() http.Handler { return s.mux }
 
 // admin2FARequired reads the runtime DB toggle (security.require_admin_2fa) so
-// operators can flip 2FA enforcement without a restart. Best-effort: a missing
-// row or unavailable DB means "not required" (the env var still applies).
-func (s *Server) admin2FARequired() bool {
+// operators can flip 2FA enforcement without a restart. A missing row means
+// "not required"; a query error fails closed (see mw.Admin2FAPolicy).
+func (s *Server) admin2FARequired() (bool, error) {
 	db := s.deps.Wizard.DB()
 	if db == nil {
-		return false
+		return false, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	var v string
-	_ = db.QueryRowContext(ctx, "SELECT value FROM settings WHERE `key` = 'security.require_admin_2fa' LIMIT 1").Scan(&v)
-	return v == "1"
+	err := db.QueryRowContext(ctx, "SELECT value FROM settings WHERE `key` = 'security.require_admin_2fa' LIMIT 1").Scan(&v)
+	return mw.Admin2FAPolicy(v == "1", err)
 }
 
 func (s *Server) routes() {
@@ -419,7 +419,12 @@ func (s *Server) routes() {
 		r.Use(mw.RequireAdmin2FA(
 			s.deps.Wizard.DB,
 			s.deps.RDB,
-			func() bool { return s.deps.Config.Security.RequireAdmin2FA || s.admin2FARequired() },
+			func() (bool, error) {
+				if s.deps.Config.Security.RequireAdmin2FA {
+					return true, nil
+				}
+				return s.admin2FARequired()
+			},
 			s.deps.Config.Security.Admin2FAGraceHours,
 		))
 		r.Get("/2fa/required", s.deps.Admin.TwoFARequired)
