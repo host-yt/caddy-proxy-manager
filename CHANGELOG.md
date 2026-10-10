@@ -29,6 +29,17 @@ is deliberately left as published.
   `golang.org/x/net` forced to v0.60.0 via xcaddy `--replace` (Caddy resolves
   v0.59.0): CVE-2026-78667, CVE-2026-78669, CVE-2026-97031 (HIGH, DoS). All
   Caddy pins (compose, node-join, docs) moved together.
+- API keys with an empty scope list no longer get full access; they now pass
+  no scope check, and the admin key form rejects a key with no scope selected
+  (#53).
+
+### Upgrade notes
+
+- Migration 00165 gives every existing unscoped API key the explicit scopes it
+  effectively had: `client:read,client:write` for customer-owned keys,
+  `services,routes,nodes,admin:read,admin:write` for every other owner. Keys
+  keep working unchanged; review the migrated keys under Admin > API keys and
+  narrow any that should not carry the full set.
 
 ## [1.8.0] - 2026-10-05
 

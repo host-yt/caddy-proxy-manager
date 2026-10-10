@@ -45,3 +45,20 @@ func TestRequireCustomerResourceScope(t *testing.T) {
 		})
 	}
 }
+
+// Empty scopes grant nothing (#53); legacy keys were migrated to explicit sets.
+func TestEmptyScopesDenied(t *testing.T) {
+	for _, c := range []*APICaller{
+		{UserID: 1, Role: "super_admin"},
+		{UserID: 9, Role: "client", Scopes: []string{}},
+	} {
+		if c.HasScope("services", "admin:write", "client:read") {
+			t.Fatalf("empty scopes for role %q granted access", c.Role)
+		}
+		for _, mw := range []func(http.Handler) http.Handler{RequireScope("nodes"), RequireAdminScope(), RequireCustomerResourceScope("routes")} {
+			if got := scopeStatus(t, mw, c, http.MethodGet); got != http.StatusForbidden {
+				t.Fatalf("role %q: status = %d, want 403", c.Role, got)
+			}
+		}
+	}
+}

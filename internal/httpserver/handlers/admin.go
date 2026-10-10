@@ -4920,6 +4920,11 @@ func (h *AdminHandlers) APIKeysCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/api-keys", "", "name required")
 		return
 	}
+	// An empty scope set grants nothing, so such a key would be useless.
+	if scopes == "" {
+		redirectWithFlash(w, r, "/admin/api-keys", "", "select at least one scope")
+		return
+	}
 	if expiresDays < 0 || expiresDays > 3650 {
 		redirectWithFlash(w, r, "/admin/api-keys", "", "expires_days must be 0..3650 (0 = never)")
 		return

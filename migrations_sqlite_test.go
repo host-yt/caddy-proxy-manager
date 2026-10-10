@@ -168,3 +168,55 @@ func TestMigrationSSOStrictBackfill(t *testing.T) {
 		}
 	}
 }
+
+// 00165 gives legacy unscoped API keys an explicit scope set, because empty
+// scopes stop meaning full access (#53). Scoped keys must not move.
+func TestMigrationAPIKeyExplicitScopes(t *testing.T) {
+	prev := store.Driver()
+	store.SetDriver("sqlite3")
+	t.Cleanup(func() { store.SetDriver(prev) })
+
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	db, err := store.Open(ctx, "sqlite3", filepath.Join(t.TempDir(), "hpg.db"), 10*time.Second)
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	defer db.Close()
+
+	const backfill = 165
+	if err := store.MigrateUpTo(ctx, db, proxygateway.MigrationsFS, "migrations", backfill-1); err != nil {
+		t.Fatalf("migrate to %d: %v", backfill-1, err)
+	}
+	for _, q := range []string{
+		`INSERT INTO users (id, email, password_hash, role) VALUES (1, 'a@x', 'h', 'admin'), (2, 'c@x', 'h', 'client')`,
+		`INSERT INTO api_keys (id, user_id, name, key_prefix, key_hash, scopes) VALUES
+		   (1, 1, 'legacy-admin', 'aaaaaaaa', 'h', ''),
+		   (2, 2, 'legacy-client', 'bbbbbbbb', 'h', ' '),
+		   (3, 1, 'scoped', 'cccccccc', 'h', 'routes')`,
+	} {
+		if _, err := db.ExecContext(ctx, q); err != nil {
+			t.Fatalf("seed %q: %v", q, err)
+		}
+	}
+
+	if err := store.RunMigrations(ctx, db, proxygateway.MigrationsFS, "migrations"); err != nil {
+		t.Fatalf("upgrade failed: %v", err)
+	}
+
+	want := map[int64]string{
+		1: "services,routes,nodes,admin:read,admin:write",
+		2: "client:read,client:write",
+		3: "routes",
+	}
+	for id, scopes := range want {
+		var got string
+		if err := db.QueryRowContext(ctx, "SELECT scopes FROM api_keys WHERE id = ?", id).Scan(&got); err != nil {
+			t.Fatalf("read key %d: %v", id, err)
+		}
+		if got != scopes {
+			t.Errorf("key %d scopes = %q, want %q", id, got, scopes)
+		}
+	}
+}
