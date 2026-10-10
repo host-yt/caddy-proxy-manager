@@ -29,6 +29,10 @@ func TestPortalSafeBack(t *testing.T) {
 		{"relative no slash", "foo/bar", "/"},
 		{"root", "/", "/"},
 		{"deep path", "/a/b/c?x=1&y=2", "/a/b/c?x=1&y=2"},
+		// url.Parse decodes these into "//evil.com" and "/\\evil.com".
+		{"encoded slash", "/%2F/evil.com", "/"},
+		{"encoded slashes lowercase", "/%2f%2fevil.com/x", "/"},
+		{"encoded backslash", "/%5Cevil.com", "/"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

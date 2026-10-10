@@ -757,13 +757,8 @@ func portalRequestPath(r *http.Request) (string, bool) {
 // portalPathOf strips the query from an already-validated same-host "back"
 // target, giving the path the login-time authorization pre-check applies to.
 func portalPathOf(back string) string {
-	if i := strings.IndexByte(back, '?'); i >= 0 {
-		back = back[:i]
-	}
-	if !strings.HasPrefix(back, "/") {
-		return "/"
-	}
-	return back
+	path, _, _ := strings.Cut(back, "?")
+	return path
 }
 
 // portalOriginalURL reconstructs the user's originally-requested URL from the
@@ -812,7 +807,9 @@ func portalSafeBack(raw, host string) string {
 	if u.IsAbs() || u.Host != "" || u.Scheme != "" {
 		return "/"
 	}
-	if !strings.HasPrefix(u.Path, "/") {
+	// u.Path is decoded: "/%2F/evil.com" becomes "//evil.com", which browsers
+	// follow cross-origin, so re-check the decoded form.
+	if !strings.HasPrefix(u.Path, "/") || strings.HasPrefix(u.Path, "//") || strings.Contains(u.Path, "\\") {
 		return "/"
 	}
 	out := u.Path
