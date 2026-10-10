@@ -46,18 +46,23 @@ func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) ([]cadd
 			&r.ProxyProtoIn, &r.ProxyProtoOut,
 			&cidrAllow, &cidrDeny,
 		); err != nil {
-			continue
+			return nil, fmt.Errorf("stream route scan: %w", err)
 		}
 		r.MatchValues = splitCSV(matchValuesCSV)
 		r.CIDRAllow = splitCSV(cidrAllow)
 		r.CIDRDeny = splitCSV(cidrDeny)
 		out = append(out, r)
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	if len(out) == 0 {
 		return out, nil
 	}
 	// Attach multi-upstreams; routes without rows keep the legacy single-upstream.
-	s.attachStreamUpstreams(ctx, out)
+	if err := s.attachStreamUpstreams(ctx, out); err != nil {
+		return nil, err
+	}
 	return s.screenStreams(ctx, out)
 }
 
@@ -139,10 +144,11 @@ func (s *Service) quarantineStream(ctx context.Context, r caddyapi.StreamRoute, 
 
 // attachStreamUpstreams loads stream_upstreams rows and maps them onto the
 // built StreamRoute slice by ID. Routes without upstream rows use the
-// legacy UpstreamIP:UpstreamPort path.
-func (s *Service) attachStreamUpstreams(ctx context.Context, built []caddyapi.StreamRoute) {
+// legacy UpstreamIP:UpstreamPort path. A read error must abort the build:
+// empty Upstreams would silently fall back to the legacy single backend.
+func (s *Service) attachStreamUpstreams(ctx context.Context, built []caddyapi.StreamRoute) error {
 	if len(built) == 0 {
-		return
+		return nil
 	}
 	// Collect IDs for IN(...) query - avoids N+1.
 	ids := make([]int64, len(built))
@@ -166,18 +172,18 @@ func (s *Service) attachStreamUpstreams(ctx context.Context, built []caddyapi.St
 		 WHERE stream_route_id IN (`+placeholders+`)
 		 ORDER BY stream_route_id ASC, sort_order ASC, id ASC`, args...)
 	if err != nil {
-		s.Logger.Warn("stream_upstreams load failed; routes stay single-dial", "err", err)
-		return
+		return fmt.Errorf("stream_upstreams load: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var routeID int64
 		var u caddyapi.StreamUpstream
 		if err := rows.Scan(&routeID, &u.Address, &u.Weight); err != nil {
-			continue
+			return fmt.Errorf("stream_upstreams scan: %w", err)
 		}
 		if i, ok := idx[routeID]; ok {
 			built[i].Upstreams = append(built[i].Upstreams, u)
 		}
 	}
+	return rows.Err()
 }
