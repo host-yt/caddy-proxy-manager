@@ -91,17 +91,23 @@ func nodePlacement(ctx context.Context, db *sql.DB, groupID int64) (primary int6
 
 // claimNodeWithCapacity atomically takes one route slot on some enabled,
 // approved node in groupID other than skipID, and returns that node.
+// healthyOnly restricts it to nodes the prober reports healthy (failover must
+// not move routes onto another dead node).
 //
 // The conditional UPDATE is the claim: reading current_routes < max_routes and
 // then incrementing in two steps lets concurrent creates hand out the same last
 // slot, which is how a node ends up above its max_routes. Candidates are read
 // first only to get the preference order; a candidate that lost its slot in the
 // meantime simply fails its claim and the next one is tried.
-func claimNodeWithCapacity(ctx context.Context, tx *sql.Tx, groupID, skipID int64) (int64, bool) {
+func claimNodeWithCapacity(ctx context.Context, tx *sql.Tx, groupID, skipID int64, healthyOnly bool) (int64, bool) {
+	health := ""
+	if healthyOnly {
+		health = " AND health_status = 'healthy'"
+	}
 	rows, err := tx.QueryContext(ctx,
 		`SELECT id FROM caddy_nodes
 		  WHERE node_group_id = ? AND id <> ? AND is_enabled = 1 AND approved_at IS NOT NULL
-		    AND current_routes < max_routes
+		    AND current_routes < max_routes`+health+`
 		  ORDER BY (current_routes / GREATEST(max_routes,1)) ASC, priority DESC, id ASC
 		  LIMIT 8`, groupID, skipID)
 	if err != nil {

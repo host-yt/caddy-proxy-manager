@@ -157,3 +157,58 @@ func TestAutoFailover_LeavesTunneledRoutesInPlace(t *testing.T) {
 		t.Errorf("tunneled route moved to node %d; its WG interface only exists on node 1", nodeID)
 	}
 }
+
+// A peer with one free slot must take exactly one route: the rest stay on the
+// down node (counted there) instead of overloading the only healthy peer, and
+// neither counter drifts from the real route placement (#49).
+func TestAutoFailover_RespectsPeerCapacity(t *testing.T) {
+	db := newPushTestDB(t)
+	ctx := context.Background()
+	healthy := newRecordingNode(t)
+
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatalf("seed %q: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO users (id, email, password_hash, role) VALUES (1, 'a@b.c', 'x', 'client')`)
+	exec(`INSERT INTO clients (id, user_id, display_name) VALUES (1, 1, 'acme')`)
+	exec(`INSERT INTO node_groups (id, name, mode) VALUES (1, 'default', 'single')`)
+	exec(`INSERT INTO plans (id, name, node_group_id, max_domains) VALUES (1, 'basic', 1, 0)`)
+	exec(`INSERT INTO services (id, client_id, name, backend_ip, allowed_port_start, allowed_port_end, plan_id, node_group_id)
+	      VALUES (1, 1, 'svc', '10.9.9.9', 1, 65535, 1, 1)`)
+	exec(`INSERT INTO caddy_nodes (id, name, api_url, public_hostname, node_group_id, max_routes, current_routes,
+	        is_enabled, health_status, last_seen_at, approved_at)
+	      VALUES (1, 'edge-down', 'http://127.0.0.1:1', 'down.example', 1, 100, 3, 1, 'down',
+	              datetime('now', '-30 minutes'), CURRENT_TIMESTAMP)`)
+	exec(`INSERT INTO caddy_nodes (id, name, api_url, public_hostname, node_group_id, max_routes, current_routes,
+	        is_enabled, health_status, last_seen_at, approved_at)
+	      VALUES (2, 'edge-ok', ?, 'ok.example', 1, 5, 4, 1, 'healthy', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+		healthy.srv.URL)
+	for i, d := range []string{"a.example", "b.example", "c.example"} {
+		exec(`INSERT INTO routes (id, service_id, caddy_node_id, domain, path_prefix, upstream_port, ssl_enabled, status, domain_verified)
+		      VALUES (?, 1, 1, ?, '', ?, 0, 'active', 1)`, i+1, d, 8080+i)
+	}
+
+	svc := &Service{DB: db, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	svc.AutoFailover(ctx)
+
+	count := func(q string) int {
+		t.Helper()
+		var n int
+		if err := db.QueryRow(q).Scan(&n); err != nil {
+			t.Fatalf("%s: %v", q, err)
+		}
+		return n
+	}
+	if moved := count("SELECT COUNT(*) FROM routes WHERE caddy_node_id = 2"); moved != 1 {
+		t.Fatalf("%d routes moved onto a peer with 1 free slot, want 1", moved)
+	}
+	if got := count("SELECT current_routes FROM caddy_nodes WHERE id = 2"); got != 5 {
+		t.Errorf("healthy current_routes = %d, want 5 (its max)", got)
+	}
+	if got := count("SELECT current_routes FROM caddy_nodes WHERE id = 1"); got != 2 {
+		t.Errorf("down current_routes = %d, want 2 (routes not moved stay counted)", got)
+	}
+}

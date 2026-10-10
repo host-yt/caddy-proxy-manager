@@ -99,8 +99,7 @@ func CreateAPIKey(ctx context.Context, db *sql.DB, userID int64, name, scopes st
 // VerifyAPIKey parses, looks up, and verifies a bearer token.
 // clientIP is recorded in last_used_ip; pass "" to leave it unchanged.
 // On success returns the owning user id, role, and the key's comma-separated
-// scopes (empty string = unscoped / full access, for keys issued before scope
-// enforcement existed).
+// scopes. An empty string grants nothing (see middleware.APICaller.HasScope).
 func VerifyAPIKey(ctx context.Context, db *sql.DB, token, clientIP string) (userID, keyID int64, role, scopes string, err error) {
 	token = strings.TrimSpace(token)
 	if !strings.HasPrefix(token, "hpg_") {

@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -95,15 +96,25 @@ func ParseTrustHeaders(names []string) map[string]bool {
 	return out
 }
 
+// denyAll matches no address (Contains is false for a nil IP/mask). It keeps
+// a list non-empty so IPAllowList denies instead of falling open.
+var denyAll = &net.IPNet{}
+
 // ParseCIDRList parses a list of CIDR strings into []*net.IPNet. Invalid
-// entries are silently skipped (config-load logging is the caller's job).
+// entries are dropped and logged at error level - dropping only narrows an
+// allow/trust list. If entries were supplied but none parse, it returns a
+// deny-all list: a typo must never turn a configured allowlist into "open"
+// (#54). Only a genuinely empty setting yields an empty (unrestricted) list.
 func ParseCIDRList(in []string) []*net.IPNet {
 	out := make([]*net.IPNet, 0, len(in))
+	supplied := false
 	for _, s := range in {
 		s = strings.TrimSpace(s)
 		if s == "" {
 			continue
 		}
+		supplied = true
+		raw := s
 		// Allow bare IPs ("10.0.0.5") as /32 or /128.
 		if !strings.Contains(s, "/") {
 			if ip := net.ParseIP(s); ip != nil {
@@ -114,9 +125,16 @@ func ParseCIDRList(in []string) []*net.IPNet {
 				}
 			}
 		}
-		if _, ipn, err := net.ParseCIDR(s); err == nil {
-			out = append(out, ipn)
+		_, ipn, err := net.ParseCIDR(s)
+		if err != nil {
+			slog.Error("invalid CIDR in IP allow/trust list, entry ignored", "entry", raw, "err", err)
+			continue
 		}
+		out = append(out, ipn)
+	}
+	if supplied && len(out) == 0 {
+		slog.Error("IP allow/trust list has no valid entries, denying all addresses", "entries", in)
+		return []*net.IPNet{denyAll}
 	}
 	return out
 }

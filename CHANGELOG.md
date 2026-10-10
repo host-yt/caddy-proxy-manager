@@ -29,6 +29,35 @@ is deliberately left as published.
   `golang.org/x/net` forced to v0.60.0 via xcaddy `--replace` (Caddy resolves
   v0.59.0): CVE-2026-78667, CVE-2026-78669, CVE-2026-97031 (HIGH, DoS). All
   Caddy pins (compose, node-join, docs) moved together.
+- API keys with an empty scope list no longer get full access; they now pass
+  no scope check, and the admin key form rejects a key with no scope selected
+  (#53).
+- Customer-issued API keys (`client:read`/`client:write`) can reach the
+  customer endpoints of API v1; admin access is not widened (#59).
+- A slave panel is read-only on every surface, not only `/admin`; register and
+  password reset work on the master only (#52).
+- Runtime 2FA enforcement fails closed when the policy can't be read (503 until
+  the database answers) and the admin grace window is issued once (#55, #56).
+- Public auth POSTs stay rate limited for logged-in sessions, and passkey login
+  challenges are throttled (#57, #58).
+- Malformed IP allow/trust lists deny instead of allowing everyone; bad entries
+  are logged as "invalid CIDR in IP allow/trust list" (#54).
+- Auto-failover reserves capacity per route so a single healthy node is not
+  overloaded, and plan/reseller domain quotas are checked inside the create
+  transaction (#49, #50).
+
+### Fixed
+
+- SSE log and AI chat streams are no longer cut off by the global 30s request
+  timeout (#51).
+
+### Upgrade notes
+
+- Migration 00165 gives every existing unscoped API key the explicit scopes it
+  effectively had: `client:read,client:write` for customer-owned keys,
+  `services,routes,nodes,admin:read,admin:write` for every other owner. Keys
+  keep working unchanged; review the migrated keys under Admin > API keys and
+  narrow any that should not carry the full set.
 
 ## [1.8.0] - 2026-10-05
 

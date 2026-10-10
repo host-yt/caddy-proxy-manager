@@ -4,6 +4,8 @@ package routes
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"sync"
 	"time"
 
@@ -165,9 +167,6 @@ func (s *Service) AutoFailover(ctx context.Context) {
 		return
 	}
 
-	// Group-level dest cache so we don't re-pick the same dest for every
-	// route. Also avoids the worst-case N picks across the same group.
-	destByGroup := map[int64]int64{}
 	movedByDest := map[int64]int{}
 	for _, c := range cands {
 		select {
@@ -196,30 +195,9 @@ func (s *Service) AutoFailover(ctx context.Context) {
 			continue
 		}
 
-		dest, ok := destByGroup[c.groupID]
-		if !ok {
-			var d sql.NullInt64
-			err := s.DB.QueryRowContext(ctx,
-				`SELECT id FROM caddy_nodes
-				 WHERE node_group_id = ? AND id <> ?
-				   AND is_enabled = 1 AND approved_at IS NOT NULL
-				   AND health_status = 'healthy'
-				   AND current_routes < max_routes
-				 ORDER BY (current_routes / GREATEST(max_routes,1)) ASC, priority DESC, id ASC
-				 LIMIT 1`, c.groupID, c.fromNodeID).Scan(&d)
-			if err != nil || !d.Valid {
-				s.Logger.Warn("autofailover: no healthy peer in group", "group_id", c.groupID, "route_id", c.id)
-				continue
-			}
-			dest = d.Int64
-			destByGroup[c.groupID] = dest
-		}
-
-		_, err := s.DB.ExecContext(ctx,
-			`UPDATE routes SET caddy_node_id = ?, updated_at = NOW() WHERE id = ?`,
-			dest, c.id)
+		dest, err := s.failoverRoute(ctx, c.id, c.fromNodeID, c.groupID)
 		if err != nil {
-			s.Logger.Warn("autofailover: route update", "route_id", c.id, "err", err)
+			s.Logger.Warn("autofailover: route not moved", "route_id", c.id, "group_id", c.groupID, "err", err)
 			continue
 		}
 		movedByDest[dest]++
@@ -241,14 +219,14 @@ func (s *Service) AutoFailover(ctx context.Context) {
 	}
 
 	// One push per destination node, not per route - saves N-1 /load calls.
-	// Bounded concurrency so a slow dest node doesn't stall the others.
+	// Only nodes with committed moves are pushed; counters were settled in
+	// each move's transaction. Bounded concurrency so a slow dest node
+	// doesn't stall the others.
 	gf, gfctx := errgroup.WithContext(ctx)
 	gf.SetLimit(reconcileWorkers)
-	for destID, n := range movedByDest {
-		destID, n := destID, n
+	for destID := range movedByDest {
+		destID := destID
 		gf.Go(func() error {
-			_, _ = s.DB.ExecContext(gfctx,
-				`UPDATE caddy_nodes SET current_routes = current_routes + ? WHERE id = ?`, n, destID)
 			if err := s.pushNodeConfig(gfctx, destID); err != nil {
 				s.Logger.Warn("autofailover: push to new home failed", "node_id", destID, "err", err)
 			}
@@ -256,12 +234,79 @@ func (s *Service) AutoFailover(ctx context.Context) {
 		})
 	}
 	_ = gf.Wait()
-	// Best-effort: also bump down-node counters to reflect moves.
-	for _, c := range cands {
-		if c.viaPeerID.Valid {
-			continue
-		}
-		_, _ = s.DB.ExecContext(ctx,
-			`UPDATE caddy_nodes SET current_routes = GREATEST(0, current_routes - 1) WHERE id = ?`, c.fromNodeID)
+}
+
+var errNoFailoverPeer = errors.New("no healthy peer with capacity in group")
+
+// failoverRoute moves one route off fromNode in a single transaction and
+// returns its new node. The destination slot is claimed with a conditional
+// UPDATE per route: picking a node once and pouring every route onto it is how
+// a peer with one free slot used to receive hundreds. The source counter only
+// drops once the route row actually moved, so a failed move leaves both
+// counters as they were.
+func (s *Service) failoverRoute(ctx context.Context, routeID, fromNode, groupID int64) (int64, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
 	}
+	defer tx.Rollback() //nolint:errcheck
+
+	// A fan-out route may already have a copy on a healthy peer (the warm
+	// standby); that node holds its slot already, so it takes over without a
+	// new claim.
+	var dest int64
+	claimed := false
+	err = tx.QueryRowContext(ctx,
+		`SELECT a.node_id FROM route_node_assignments a
+		   JOIN caddy_nodes n ON n.id = a.node_id
+		  WHERE a.route_id = ? AND a.node_id <> ?
+		    AND n.is_enabled = 1 AND n.approved_at IS NOT NULL AND n.health_status = 'healthy'
+		  ORDER BY n.priority DESC, n.id ASC LIMIT 1`, routeID, fromNode).Scan(&dest)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		var ok bool
+		if dest, ok = claimNodeWithCapacity(ctx, tx, groupID, fromNode, true); !ok {
+			return 0, errNoFailoverPeer
+		}
+		claimed = true
+	case err != nil:
+		return 0, fmt.Errorf("standby lookup: %w", err)
+	}
+
+	// Conditional on the old node: a concurrent edit or drain that already
+	// moved the route must not be overwritten (rollback releases the claim).
+	res, err := tx.ExecContext(ctx,
+		`UPDATE routes SET caddy_node_id = ?, updated_at = NOW() WHERE id = ? AND caddy_node_id = ?`,
+		dest, routeID, fromNode)
+	if err != nil {
+		return 0, fmt.Errorf("route update: %w", err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return 0, errors.New("route already moved")
+	}
+	// Keep fan-out assignments in step: the dead node's copy goes, the new
+	// home gets one (a no-op for single-mode routes, which have no rows).
+	del, err := tx.ExecContext(ctx,
+		`DELETE FROM route_node_assignments WHERE route_id = ? AND node_id = ?`, routeID, fromNode)
+	if err != nil {
+		return 0, fmt.Errorf("drop assignment: %w", err)
+	}
+	if n, _ := del.RowsAffected(); n == 1 && claimed {
+		if _, err := tx.ExecContext(ctx,
+			store.InsertOrIgnore()+" INTO route_node_assignments (route_id, node_id) VALUES (?, ?)",
+			routeID, dest); err != nil {
+			return 0, fmt.Errorf("add assignment: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE caddy_nodes SET current_routes = GREATEST(0, current_routes - 1) WHERE id = ?`, fromNode); err != nil {
+		return 0, fmt.Errorf("source counter: %w", err)
+	}
+	if err := s.markPushPending(ctx, tx, dest); err != nil {
+		return 0, fmt.Errorf("push marker: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return dest, nil
 }

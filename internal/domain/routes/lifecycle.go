@@ -157,29 +157,15 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 	}, routePlan{portStart: portStart, portEnd: portEnd, ssl: planSSL, ws: planWS, path: planPath}); err != nil {
 		return 0, err
 	}
-	// Plan limit: max_domains counted across this service.
-	if planMaxDom > 0 {
-		var currentCount int
-		if err := s.DB.QueryRowContext(ctx,
-			"SELECT COUNT(*) FROM routes WHERE service_id = ?", in.ServiceID,
-		).Scan(&currentCount); err == nil && currentCount >= planMaxDom {
-			return 0, ErrMaxDomains
-		}
-	}
-	// Reseller aggregate quota. Single choke point: panel, client portal and
-	// API route creation all pass through here. Lookup errors log + allow
-	// (business limit, must not brick creates on a transient).
+	// Domain quotas (plan max_domains, reseller aggregate) are enforced inside
+	// the insert transaction below; only the owning reseller is resolved here.
+	var resellerID int64
 	if s.Quota != nil {
 		rid, qerr := s.Quota.ResellerOfClient(ctx, ownerClient)
-		if qerr == nil && rid != 0 {
-			qerr = s.Quota.CanCreateRoute(ctx, rid, in.ServiceID)
-		}
-		if errors.Is(qerr, quota.ErrDomainQuota) {
-			return 0, qerr
-		}
 		if qerr != nil {
 			s.Logger.Warn("reseller quota check skipped", "client", ownerClient, "err", qerr)
 		}
+		resellerID = rid
 	}
 
 	// Wildcard DNS-01: plan-gated for customers (admin clientID==0 bypasses,
@@ -270,6 +256,9 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		return 0, err
 	}
 	defer tx.Rollback() //nolint:errcheck
+	if err := s.checkDomainQuotas(ctx, tx, in.ServiceID, planMaxDom, resellerID); err != nil {
+		return 0, err
+	}
 
 	kind := in.Kind
 	if kind != "redirect" {
@@ -418,7 +407,7 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		// as a whole), where the caller retries instead.
 		alt, ok := int64(0), false
 		if groupMode == "single" && in.ViaWGPeerID == 0 {
-			alt, ok = claimNodeWithCapacity(ctx, tx, nodeGroupID, nodeID)
+			alt, ok = claimNodeWithCapacity(ctx, tx, nodeGroupID, nodeID, false)
 		}
 		if !ok {
 			return 0, ErrNodeAtCapacity
@@ -1009,4 +998,47 @@ func (s *Service) DeleteExpired(ctx context.Context) {
 			s.Logger.Warn("route expiry: delete", "route_id", id, "err", err)
 		}
 	}
+}
+
+// checkDomainQuotas enforces the plan's max_domains and the reseller's
+// aggregate domain quota inside the create transaction. Standalone COUNT(*)s
+// before the transaction let parallel creates all see the same last free slot,
+// so the service row (plan limit) and reseller row (aggregate) are locked
+// first, and only then counted. Locks come before any count so the counts read
+// after every competing create has committed.
+//
+// Lookup errors log and allow, as before: a business limit must not brick
+// creates on a transient. The quota errors themselves are returned.
+func (s *Service) checkDomainQuotas(ctx context.Context, tx *sql.Tx, serviceID int64, planMaxDom int, resellerID int64) error {
+	checkReseller := s.Quota != nil && resellerID != 0
+	var locked int64
+	if planMaxDom > 0 {
+		if err := tx.QueryRowContext(ctx,
+			"SELECT id FROM services WHERE id = ?"+store.ForUpdate(), serviceID).Scan(&locked); err != nil {
+			return fmt.Errorf("lock service: %w", err)
+		}
+	}
+	if checkReseller {
+		if err := tx.QueryRowContext(ctx,
+			"SELECT id FROM resellers WHERE id = ?"+store.ForUpdate(), resellerID).Scan(&locked); err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("lock reseller: %w", err)
+		}
+	}
+	if planMaxDom > 0 {
+		var n int
+		if err := tx.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM routes WHERE service_id = ?", serviceID).Scan(&n); err == nil && n >= planMaxDom {
+			return ErrMaxDomains
+		}
+	}
+	if checkReseller {
+		qerr := s.Quota.CanCreateRoute(ctx, tx, resellerID, serviceID)
+		if errors.Is(qerr, quota.ErrDomainQuota) {
+			return qerr
+		}
+		if qerr != nil {
+			s.Logger.Warn("reseller quota check skipped", "reseller", resellerID, "err", qerr)
+		}
+	}
+	return nil
 }

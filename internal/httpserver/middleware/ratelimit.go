@@ -65,8 +65,8 @@ func RateLimit(cfg RateLimitConfig) func(http.Handler) http.Handler {
 
 // UnauthPostLimit is a convenience wrapper for the common pattern of
 // rate-limiting only non-authenticated POSTs (login, password reset,
-// public form submissions). Authenticated sessions are skipped via the
-// admin session cookie check.
+// public form submissions). Authenticated sessions are skipped, except on
+// public auth routes (see isPublicAuthPath).
 func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Handler {
 	return RateLimit(RateLimitConfig{
 		RDB:         rdb,
@@ -84,18 +84,13 @@ func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Hand
 			if strings.HasPrefix(r.URL.Path, "/api/node/") || strings.HasPrefix(r.URL.Path, "/internal/") {
 				return true
 			}
-			// Skip passkey login challenge generation: it's a benign
-			// stateless op (returns a fresh assertion request) and has
-			// no credential-leak surface, so it doesn't need the same
-			// throttle as /auth/login. Without this a single user can
-			// burn the global budget by retrying passkey login a few
-			// times in a row.
-			if r.URL.Path == "/auth/passkey/login/begin" {
-				return true
-			}
+			// No passkey exemption: /auth/passkey/login/begin writes a WebAuthn
+			// ticket to Redis per call, so it shares the per-IP budget.
 			// Skip authed sessions: check the PARSED session, not a cookie
-			// name - a forged hpg_session* must not buy a bypass.
-			if SessionFromContext(r.Context()) != nil {
+			// name - a forged hpg_session* must not buy a bypass. Never on
+			// public auth routes: any low-privilege session would otherwise
+			// flood /auth/forgot (reset mail), /auth/register, etc.
+			if SessionFromContext(r.Context()) != nil && !isPublicAuthPath(r.URL.Path) {
 				return true
 			}
 			// Mid-2FA ticket: no session yet, but per-ticket OTP cap bounds it.
@@ -115,4 +110,10 @@ func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Hand
 			return false
 		},
 	})
+}
+
+// isPublicAuthPath reports whether path is a pre-login auth surface (panel
+// /auth/* and the forward-auth portal) that stays throttled with a session.
+func isPublicAuthPath(path string) bool {
+	return strings.HasPrefix(path, "/auth/") || strings.HasPrefix(path, "/hpg-portal/")
 }

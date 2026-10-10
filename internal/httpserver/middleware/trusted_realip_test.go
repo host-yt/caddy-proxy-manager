@@ -91,3 +91,28 @@ func TestTrustedRealIP_UntrustedPeerIgnoresEverything(t *testing.T) {
 		t.Fatalf("RemoteAddr = %q, untrusted peer must keep its own address", got)
 	}
 }
+
+// TestIPAllowList_MalformedFailsClosed is the regression for #54: a
+// configured but unparseable allowlist must deny, not fall open.
+func TestIPAllowList_MalformedFailsClosed(t *testing.T) {
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})
+	status := func(allow []string, remote string) int {
+		r := httptest.NewRequest("GET", "/", nil)
+		r.RemoteAddr = remote
+		rec := httptest.NewRecorder()
+		IPAllowList(ParseCIDRList(allow), ok).ServeHTTP(rec, r)
+		return rec.Code
+	}
+	if got := status([]string{"10.0.0.0/33", "not-an-ip"}, "203.0.113.9:1"); got != http.StatusNotFound {
+		t.Fatalf("all-invalid list: got %d, want 404", got)
+	}
+	if got := status([]string{"bogus", "10.0.0.5"}, "203.0.113.9:1"); got != http.StatusNotFound {
+		t.Fatalf("partly-invalid list, outsider: got %d, want 404", got)
+	}
+	if got := status([]string{"bogus", "10.0.0.5"}, "10.0.0.5:1"); got != http.StatusOK {
+		t.Fatalf("partly-invalid list, valid entry: got %d, want 200", got)
+	}
+	if got := status([]string{" ", ""}, "203.0.113.9:1"); got != http.StatusOK {
+		t.Fatalf("empty setting must stay open: got %d, want 200", got)
+	}
+}

@@ -23,19 +23,16 @@ type APICaller struct {
 	UserID int64
 	KeyID  int64
 	Role   string
-	// Scopes carried by the API key. Empty means the key is unscoped and has
-	// full access (back-compat: keys issued before scope enforcement).
+	// Scopes carried by the API key. Empty grants nothing: legacy unscoped
+	// keys were migrated to an explicit scope set (migration 00165).
 	Scopes []string
 }
 
-// HasScope reports whether the caller may use the given scope. An unscoped
-// key (no scopes recorded) is treated as full access for back-compat.
+// HasScope reports whether the caller carries any of the given scopes.
+// Deny by default: a key with no scopes passes no check.
 func (c *APICaller) HasScope(want ...string) bool {
 	if c == nil {
 		return false
-	}
-	if len(c.Scopes) == 0 {
-		return true
 	}
 	for _, s := range c.Scopes {
 		for _, w := range want {
@@ -137,7 +134,7 @@ func parseScopes(s string) []string {
 
 // RequireScope enforces that the API key carries at least one of the given
 // scopes (security review API-01: scopes were stored but never enforced).
-// Must sit behind APIKeyAuth. An unscoped key passes (see APICaller.HasScope).
+// Must sit behind APIKeyAuth. A key with no scopes is denied.
 func RequireScope(want ...string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -150,6 +147,38 @@ func RequireScope(want ...string) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireCustomerResourceScope gates resources open to both admin and
+// customer keys (services, routes). Admin keys need the resource scope.
+// Customer-issued keys (owner role "client") carry client:read/client:write
+// instead: safe methods need either, mutations need client:write. The
+// handlers still confine a client caller to its own rows.
+func RequireCustomerResourceScope(scope string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c := CallerFromContext(r.Context())
+			ok := c.HasScope(scope)
+			// client:* is honoured only for client-owned keys so it can never
+			// widen what an admin key reaches.
+			if !ok && c != nil && c.Role == "client" {
+				if safeMethod(r.Method) {
+					ok = c.HasScope("client:read", "client:write")
+				} else {
+					ok = c.HasScope("client:write")
+				}
+			}
+			if !ok {
+				writeJSONErr(w, http.StatusForbidden, "api key missing required scope")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func safeMethod(m string) bool {
+	return m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions
+}
+
 // RequireAdminScope gates admin-domain resources (clients, plans,
 // provisioning): safe methods need admin:read or admin:write, mutations need
 // admin:write.
@@ -157,11 +186,10 @@ func RequireAdminScope() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			c := CallerFromContext(r.Context())
-			ok := false
-			switch r.Method {
-			case http.MethodGet, http.MethodHead, http.MethodOptions:
+			var ok bool
+			if safeMethod(r.Method) {
 				ok = c.HasScope("admin:read", "admin:write")
-			default:
+			} else {
 				ok = c.HasScope("admin:write")
 			}
 			if !ok {

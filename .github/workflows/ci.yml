@@ -36,6 +36,14 @@ jobs:
         options: >-
           --health-cmd="healthcheck.sh --connect --innodb_initialized"
           --health-interval=5s --health-timeout=5s --health-retries=10
+      # Redis-backed middleware tests (rate limits, 2FA grace) skip without it.
+      redis:
+        image: redis:7-alpine
+        ports:
+          - "6379"  # dynamic host port
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=5s --health-retries=10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -142,6 +150,7 @@ jobs:
         env:
           TEST_DB_DSN: "root:hpg_ci@tcp(127.0.0.1:${{ job.services.mariadb.ports['3306'] }})/hpg_ci?parseTime=true&multiStatements=true"
           TEST_DB_REQUIRE_MYSQL: "1"
+          HPG_TEST_REDIS_ADDR: "127.0.0.1:${{ job.services.redis.ports['6379'] }}"
         run: go test -race -count=1 ./...
 
   terraform-provider:

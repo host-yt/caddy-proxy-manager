@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 
@@ -66,7 +67,7 @@ type Deps struct {
 
 	// NodeWAFIngest receives WAF event batches POSTed by node-local Caddy WAF modules.
 	NodeWAFIngest *handlers.NodeWAFIngestHandler
-	// SlaveMode, when true, applies SlaveReadOnly middleware (blocks admin writes).
+	// SlaveMode, when true, applies SlaveReadOnly middleware (blocks every write outside its allowlist).
 	SlaveMode bool
 }
 
@@ -110,18 +111,18 @@ func New(d Deps) *Server {
 func (s *Server) Handler() http.Handler { return s.mux }
 
 // admin2FARequired reads the runtime DB toggle (security.require_admin_2fa) so
-// operators can flip 2FA enforcement without a restart. Best-effort: a missing
-// row or unavailable DB means "not required" (the env var still applies).
-func (s *Server) admin2FARequired() bool {
+// operators can flip 2FA enforcement without a restart. A missing row means
+// "not required"; a query error fails closed (see mw.Admin2FAPolicy).
+func (s *Server) admin2FARequired() (bool, error) {
 	db := s.deps.Wizard.DB()
 	if db == nil {
-		return false
+		return false, nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	var v string
-	_ = db.QueryRowContext(ctx, "SELECT value FROM settings WHERE `key` = 'security.require_admin_2fa' LIMIT 1").Scan(&v)
-	return v == "1"
+	err := db.QueryRowContext(ctx, "SELECT value FROM settings WHERE `key` = 'security.require_admin_2fa' LIMIT 1").Scan(&v)
+	return mw.Admin2FAPolicy(v == "1", err)
 }
 
 func (s *Server) routes() {
@@ -148,7 +149,7 @@ func (s *Server) routes() {
 		r.Use(s.deps.Metrics.Middleware)
 	}
 	r.Use(slogRequestLogger(s.deps.Logger))
-	r.Use(chimw.Timeout(30_000_000_000))
+	r.Use(requestTimeout(30 * time.Second))
 	r.Use(installRedirectMiddleware(s.deps.InstallState))
 	// Enforce the session-generation fence before any session is loaded, so a
 	// pre-existing connection cannot keep authenticating against this replica.
@@ -159,7 +160,7 @@ func (s *Server) routes() {
 	}
 	r.Use(mw.VerifyCSRF)
 	// Global anti-DDoS: cap unauthenticated POST traffic per source IP.
-	// Authenticated sessions are skipped (admin workflows hit their own
+	// Authenticated sessions are skipped outside /auth and /hpg-portal (admin workflows hit their own
 	// per-handler limits). 60/min/IP fits real users behind NAT (office,
 	// VPN, mobile carrier) while still throttling brute force; the
 	// per-(email,IP) lockout in handlers/auth.go does the targeted job.
@@ -418,7 +419,12 @@ func (s *Server) routes() {
 		r.Use(mw.RequireAdmin2FA(
 			s.deps.Wizard.DB,
 			s.deps.RDB,
-			func() bool { return s.deps.Config.Security.RequireAdmin2FA || s.admin2FARequired() },
+			func() (bool, error) {
+				if s.deps.Config.Security.RequireAdmin2FA {
+					return true, nil
+				}
+				return s.admin2FARequired()
+			},
 			s.deps.Config.Security.Admin2FAGraceHours,
 		))
 		r.Get("/2fa/required", s.deps.Admin.TwoFARequired)
@@ -856,7 +862,7 @@ func (s *Server) routes() {
 			// Idempotency replay for POST provisioning calls.
 			r.Use(mw.Idempotency(s.deps.Wizard.DB))
 			r.Route("/services", func(r chi.Router) {
-				r.Use(mw.RequireScope("services"))
+				r.Use(mw.RequireCustomerResourceScope("services"))
 				r.Get("/", s.deps.API.ServicesList)
 				r.Post("/", s.deps.API.ServiceCreate)
 				r.Get("/{id}", s.deps.API.ServiceGet)
@@ -866,7 +872,7 @@ func (s *Server) routes() {
 				r.Get("/{id}/routes", s.deps.API.ServiceRoutes)
 			})
 			r.Route("/routes", func(r chi.Router) {
-				r.Use(mw.RequireScope("routes"))
+				r.Use(mw.RequireCustomerResourceScope("routes"))
 				r.Get("/", s.deps.API.RoutesList)
 				r.Post("/", s.deps.API.RouteCreate)
 				r.Get("/{id}", s.deps.API.RouteGet)
@@ -984,6 +990,33 @@ func (s *Server) routes() {
 		staticHandler = http.FileServer(http.Dir("web/static"))
 	}
 	r.Handle("/static/*", http.StripPrefix("/static/", staticCacheHeaders(noDirListing(staticHandler))))
+}
+
+// streamPaths are the SSE endpoints that outlive the request timeout: they
+// clear their write deadline, but chi's Timeout also puts a deadline on
+// r.Context(), which would still end them at 30s. They bound themselves
+// (client disconnect; the AI handler sets its own provider deadline).
+var streamPaths = []string{
+	"/admin/hosts/*/logs/stream",
+	"/admin/ai/chat/sessions/*/message",
+	"/app/ai/chat/sessions/*/message",
+}
+
+// requestTimeout is chi's Timeout for every request except streamPaths.
+func requestTimeout(d time.Duration) func(http.Handler) http.Handler {
+	timeout := chimw.Timeout(d)
+	return func(next http.Handler) http.Handler {
+		timed := timeout(next)
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for _, p := range streamPaths {
+				if ok, _ := path.Match(p, r.URL.Path); ok {
+					next.ServeHTTP(w, r)
+					return
+				}
+			}
+			timed.ServeHTTP(w, r)
+		})
+	}
 }
 
 // staticCacheHeaders adds a modest cache window to static assets so repeat
