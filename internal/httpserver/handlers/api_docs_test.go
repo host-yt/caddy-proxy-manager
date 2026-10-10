@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
@@ -15,6 +16,51 @@ import (
 func TestAPIDocsNoQueryNodeToken(t *testing.T) {
 	if strings.Contains(string(openapiSpec), "node_token") {
 		t.Error("openapi.json still documents a node_token query parameter")
+	}
+}
+
+// encoding/json keeps the last of duplicate keys, so a repeated path silently
+// drops operations (POST /api/v1/services did). Walk the raw tokens instead.
+func TestAPIDocsNoDuplicateKeys(t *testing.T) {
+	dec := json.NewDecoder(bytes.NewReader(openapiSpec))
+	var walk func(path string)
+	walk = func(path string) {
+		tok, err := dec.Token()
+		if err != nil {
+			t.Fatalf("%s: %v", path, err)
+		}
+		switch tok {
+		case json.Delim('{'):
+			seen := map[string]bool{}
+			for dec.More() {
+				k, _ := dec.Token()
+				key := k.(string)
+				if seen[key] {
+					t.Errorf("duplicate key %s/%s", path, key)
+				}
+				seen[key] = true
+				walk(path + "/" + key)
+			}
+			_, _ = dec.Token()
+		case json.Delim('['):
+			for dec.More() {
+				walk(path + "[]")
+			}
+			_, _ = dec.Token()
+		}
+	}
+	walk("")
+
+	var doc struct {
+		Paths map[string]map[string]json.RawMessage `json:"paths"`
+	}
+	if err := json.Unmarshal(openapiSpec, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []string{"get", "post"} {
+		if _, ok := doc.Paths["/api/v1/services"][m]; !ok {
+			t.Errorf("/api/v1/services lost %s", m)
+		}
 	}
 }
 
