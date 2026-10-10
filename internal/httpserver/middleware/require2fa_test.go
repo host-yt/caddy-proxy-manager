@@ -8,6 +8,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/redis/go-redis/v9"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 )
@@ -71,5 +74,38 @@ func TestRequireAdmin2FAPolicyErrorKeepsGrace(t *testing.T) {
 	}
 	if n, _ := rdb.Exists(ctx, key).Result(); n != 0 {
 		t.Fatal("grace window started while policy was unknown")
+	}
+}
+
+// The grace window is granted once and never reissued, even after the
+// deadline passes or the key carried a TTL from an older release.
+func TestWithin2FAGraceIssuedOnce(t *testing.T) {
+	rdb := testRedis(t)
+	ctx := context.Background()
+	key := "hpg:2fa:grace_until:990056"
+	rdb.Del(ctx, key)
+	t.Cleanup(func() { rdb.Del(ctx, key) })
+
+	if !within2FAGrace(ctx, rdb, 990056, 24) {
+		t.Fatal("first encounter must open the window")
+	}
+	if ttl, _ := rdb.TTL(ctx, key).Result(); ttl != -1 {
+		t.Fatalf("grace key must not expire, ttl=%v", ttl)
+	}
+	// Expired deadline with a legacy TTL: denied, and the key is kept.
+	rdb.Set(ctx, key, "1", time.Hour)
+	if within2FAGrace(ctx, rdb, 990056, 24) {
+		t.Fatal("expired window must not be reissued")
+	}
+	if ttl, _ := rdb.TTL(ctx, key).Result(); ttl != -1 {
+		t.Fatalf("legacy TTL must be stripped, ttl=%v", ttl)
+	}
+}
+
+func TestWithin2FAGraceRedisErrorDenies(t *testing.T) {
+	rdb := redis.NewClient(&redis.Options{Addr: "127.0.0.1:1", MaxRetries: -1})
+	t.Cleanup(func() { _ = rdb.Close() })
+	if within2FAGrace(context.Background(), rdb, 1, 24) {
+		t.Fatal("redis error must not grant grace")
 	}
 }

@@ -14,10 +14,6 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-// graceTTL keeps a per-user grace deadline long enough that it can't silently
-// reset and re-grant a fresh window on each restart.
-const graceTTL = 60 * 24 * time.Hour
-
 // RequireAdmin2FA redirects admin/super_admin users who have no 2FA method
 // enrolled to a setup interstitial. It bypasses itself on enrollment + logout
 // routes (no redirect loop) and during impersonation. graceHours > 0 gives an
@@ -123,21 +119,35 @@ func admin2FAEnrolled(ctx context.Context, db *sql.DB, rdb *redis.Client, userID
 }
 
 // within2FAGrace returns true while the user is inside their break-glass
-// window. The deadline is fixed on first encounter (persisted) so it cannot
-// reset on restart and keep granting access forever.
+// window. The deadline is created once (SET NX, no TTL) and kept after it
+// passes, so an unenrolled admin never gets a second window. Any Redis error
+// denies grace.
+// ponytail: Redis eviction of the key would re-grant once; move the deadline
+// to a users column if the instance runs an evicting maxmemory-policy.
 func within2FAGrace(ctx context.Context, rdb *redis.Client, userID int64, graceHours int) bool {
 	if rdb == nil {
 		return false
 	}
 	key := fmt.Sprintf("hpg:2fa:grace_until:%d", userID)
-	if v, err := rdb.Get(ctx, key).Result(); err == nil {
-		deadline, perr := strconv.ParseInt(v, 10, 64)
-		return perr == nil && time.Now().Unix() < deadline
+	v, err := rdb.Get(ctx, key).Result()
+	if errors.Is(err, redis.Nil) {
+		deadline := strconv.FormatInt(time.Now().Add(time.Duration(graceHours)*time.Hour).Unix(), 10)
+		created, serr := rdb.SetNX(ctx, key, deadline, 0).Result()
+		if serr != nil {
+			return false
+		}
+		if created {
+			return true
+		}
+		v, err = rdb.Get(ctx, key).Result() // lost the race: use the winner's deadline
 	}
-	// First encounter under enforcement: open the window once.
-	deadline := time.Now().Add(time.Duration(graceHours) * time.Hour).Unix()
-	_ = rdb.Set(ctx, key, strconv.FormatInt(deadline, 10), graceTTL).Err()
-	return true
+	if err != nil {
+		return false
+	}
+	// Strip the 60-day TTL older releases set, so the key can't expire and re-grant.
+	_ = rdb.Persist(ctx, key).Err()
+	deadline, perr := strconv.ParseInt(v, 10, 64)
+	return perr == nil && time.Now().Unix() < deadline
 }
 
 // InvalidateAdmin2FACache drops the enrollment cache after a 2FA method is
