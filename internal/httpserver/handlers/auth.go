@@ -732,7 +732,7 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 		cleaned := strings.ReplaceAll(code, "-", "")
 		if uid, verr := auth.VerifySMSOTP(ctx, h.RDB, otpCookie.Value, cleaned); verr == nil && uid == pend.UserID {
 			success = true
-			http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_smsotp")
 		}
 	case "email":
 		otpCookie, err := r.Cookie("hpg_emailotp")
@@ -742,7 +742,7 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 		}
 		if uid, verr := auth.VerifyEmailOTP(ctx, h.RDB, otpCookie.Value, code); verr == nil && uid == pend.UserID {
 			success = true
-			http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 		}
 	default:
 		h.renderTOTPRetry(w, r, http.StatusBadRequest, "Unknown method.")
@@ -759,8 +759,8 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 		h.Metrics.OTPAttempt(mfaTag, "fail")
 		if h.burnAttempt(ctx, ticket) || h.twoFALocked(ctx, pend.UserID) {
 			h.consumePending2FA(r)
-			http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
-			http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_smsotp")
+			h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 			http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 			return
 		}
@@ -1713,7 +1713,7 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// Link flow: user is already logged in and wants to add this OIDC
 	// provider as an additional login method.
 	if s.LinkUserID != "" {
-		http.SetCookie(w, &http.Cookie{Name: "hpg_oidc_state", Value: "", Path: "/", MaxAge: -1})
+		h.Sessions.ClearCookie(w, r, "hpg_oidc_state")
 		linkUID, linkErr := strconv.ParseInt(s.LinkUserID, 10, 64)
 		if linkErr != nil {
 			http.Error(w, "invalid link state", http.StatusBadRequest)
@@ -1902,7 +1902,7 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear the state cookie now that we're done with it.
-	http.SetCookie(w, &http.Cookie{Name: "hpg_oidc_state", Value: "", Path: "/", MaxAge: -1})
+	h.Sessions.ClearCookie(w, r, "hpg_oidc_state")
 
 	// SSO IdP already performed any MFA it owns - don't double-prompt with
 	// our local TOTP. Same trust model as passkey login.
@@ -2288,7 +2288,7 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 	// Per-user 2FA lock: independent of the ticket, blocks the fresh-ticket loop.
 	if h.twoFALocked(ctx, pend.UserID) {
 		h.consumePending2FA(r)
-		http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
+		h.Sessions.ClearCookie(w, r, "hpg_smsotp")
 		http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 		return
 	}
@@ -2308,7 +2308,7 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 		h.Metrics.OTPAttempt("sms", "fail")
 		if h.burnAttempt(ctx, ticket) || h.twoFALocked(ctx, pend.UserID) {
 			h.consumePending2FA(r)
-			http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_smsotp")
 			http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 			return
 		}
@@ -2323,7 +2323,7 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
+	h.Sessions.ClearCookie(w, r, "hpg_smsotp")
 
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &pend.UserID, Action: "2fa.sms.success", Entity: "auth", EntityID: pend.Email,
@@ -2432,7 +2432,7 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 	// Per-user 2FA lock: independent of the ticket, blocks the fresh-ticket loop.
 	if h.twoFALocked(ctx, pend.UserID) {
 		h.consumePending2FA(r)
-		http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+		h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 		http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 		return
 	}
@@ -2451,7 +2451,7 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 		h.Metrics.OTPAttempt("email", "fail")
 		if h.burnAttempt(ctx, ticket) || h.twoFALocked(ctx, pend.UserID) {
 			h.consumePending2FA(r)
-			http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 			http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 			return
 		}
@@ -2464,7 +2464,7 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+	h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &pend.UserID, Action: "2fa.email.success", Entity: "auth", EntityID: pend.Email,
 	})

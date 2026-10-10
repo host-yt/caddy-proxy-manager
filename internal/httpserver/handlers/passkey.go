@@ -116,7 +116,7 @@ func (h *PasskeyHandlers) RegisterFinish(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "registration expired", http.StatusBadRequest)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "hpg_wa_reg", Value: "", Path: "/", MaxAge: -1})
+	h.Sessions.ClearCookie(w, r, "hpg_wa_reg")
 
 	parsed, err := protocol.ParseCredentialCreationResponseBody(r.Body)
 	if err != nil {
@@ -302,7 +302,7 @@ func (h *PasskeyHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "login expired", http.StatusBadRequest)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "hpg_wa_login", Value: "", Path: "/", MaxAge: -1})
+	h.Sessions.ClearCookie(w, r, "hpg_wa_login")
 
 	parsed, err := protocol.ParseCredentialRequestResponseBody(r.Body)
 	if err != nil {
