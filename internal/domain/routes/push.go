@@ -217,6 +217,33 @@ func (s *Service) SchedulePushForRoute(ctx context.Context, routeID int64) {
 	}
 }
 
+// MTLSCANodes lists every node serving a route that trusts the given mTLS CA
+// (anchor or fan-out peer). Callers need it before a CA delete nulls mtls_ca_id.
+func (s *Service) MTLSCANodes(ctx context.Context, caID int64) ([]int64, error) {
+	if s.DB == nil {
+		return nil, errors.New("db unavailable")
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT caddy_node_id FROM routes WHERE mtls_ca_id = ? AND caddy_node_id IS NOT NULL
+		 UNION
+		 SELECT rna.node_id FROM route_node_assignments rna
+		   JOIN routes r ON r.id = rna.route_id
+		  WHERE r.mtls_ca_id = ?`, caID, caID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var nid int64
+		if err := rows.Scan(&nid); err != nil {
+			return nil, err
+		}
+		ids = append(ids, nid)
+	}
+	return ids, rows.Err()
+}
+
 // pushWorkers bounds concurrent full /load pushes during fleet-wide sweeps
 // (boot push, drift resync). Without this a single slow node serialized the
 // whole sweep at N x clientTimeout; now one slow node only ties up one worker.

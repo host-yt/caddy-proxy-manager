@@ -33,6 +33,27 @@ func TestBuildConnPolicies_FailOpenStillVerifies(t *testing.T) {
 	}
 }
 
+// A revoked leaf still chains to the CA; the route must refuse it by
+// fingerprint before the upstream (and in fail-open mode too).
+func TestBuildRoute_DeniesRevokedLeaf(t *testing.T) {
+	r := Route{ID: "2", Hosts: []string{"secure.example.com"}, UpstreamIP: "10.0.0.2", UpstreamPort: 443,
+		RequireClientCert: true, MTLSCACertPEM: testCAPEM(t), MTLSRevokedFingerprints: []string{"abc123"}}
+	b, _ := json.Marshal(BuildRoute(r))
+	s := string(b)
+	deny := strings.Index(s, `"vars":{"{http.request.tls.client.fingerprint}":["abc123"]}`)
+	proxy := strings.Index(s, `"handler":"reverse_proxy"`)
+	if deny < 0 || proxy < 0 || deny > proxy {
+		t.Fatalf("revoked-leaf deny missing or after the proxy: %s", s)
+	}
+	if !strings.Contains(s, `"status_code":403`) {
+		t.Errorf("revoked leaf must get 403: %s", s)
+	}
+	r.MTLSRevokedFingerprints = nil
+	if b, _ := json.Marshal(BuildRoute(r)); strings.Contains(string(b), "client.fingerprint}\":") {
+		t.Errorf("no revocations must emit no deny: %s", b)
+	}
+}
+
 // A client must not be able to supply X-Mtls-Subject itself: it is the channel
 // a verified subject travels on, to RBAC and to the upstream.
 func TestBuildRoute_StripsInboundMTLSSubject(t *testing.T) {

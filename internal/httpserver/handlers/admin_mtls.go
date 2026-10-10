@@ -346,7 +346,8 @@ func (h *AdminHandlers) MTLSRevoke(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	if err := svc.Revoke(ctx, id); err != nil {
+	caID, err := svc.Revoke(ctx, id)
+	if err != nil {
 		redirectWithFlash(w, r, page, "", "revoke failed: "+sanitizeErr(err))
 		return
 	}
@@ -355,7 +356,29 @@ func (h *AdminHandlers) MTLSRevoke(w http.ResponseWriter, r *http.Request) {
 		UserID: actorUserID(sess), Action: "mtls.cert.revoke", Entity: "mtls_cert",
 		EntityID: strconv.FormatInt(id, 10),
 	})
+	nodes, err := h.mtlsCANodes(ctx, caID)
+	if err != nil {
+		redirectWithFlash(w, r, page, "", "Certificate revoked, but its nodes could not be listed for an immediate push; drift reconcile will apply it.")
+		return
+	}
+	h.pushMTLSNodes(nodes)
 	redirectWithFlash(w, r, page, "Client certificate revoked.", "")
+}
+
+// mtlsCANodes lists the nodes trusting caID; nil Routes means nothing to push.
+func (h *AdminHandlers) mtlsCANodes(ctx context.Context, caID int64) ([]int64, error) {
+	if h.Routes == nil {
+		return nil, nil
+	}
+	return h.Routes.MTLSCANodes(ctx, caID)
+}
+
+// pushMTLSNodes schedules a durable config push so trust changes land now,
+// not at the next drift reconcile.
+func (h *AdminHandlers) pushMTLSNodes(nodes []int64) {
+	for _, nid := range nodes {
+		h.Routes.SchedulePush(nid)
+	}
 }
 
 // MTLSCABundle GET /admin/mtls/ca/{id}/bundle.pem - download a CA's public cert

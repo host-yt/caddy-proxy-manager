@@ -163,7 +163,9 @@ A catch-all policy at the end allows non-mTLS routes to use default TLS.
   certificate is allowed to reach can still be narrowed per path - see
   [Per-path role rules](#per-path-role-rules).
 - Certificate revocation is handled by HPG state only (no OCSP/CRL endpoint is
-  published). A revoked cert takes effect on the next Caddy config push.
+  published). Revoking queues an immediate config push to every node serving a
+  route that trusts the CA; each such route answers 403 to the revoked leaf
+  (matched by SHA-256 fingerprint) before any other handler runs.
 - The CA private key is stored encrypted in the database. Back up `APP_SECRET` and the
   database together; losing either makes CA key recovery impossible.
 - Browser clients require manual import of the client certificate and the CA cert.

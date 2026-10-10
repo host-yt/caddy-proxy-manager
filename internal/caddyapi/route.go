@@ -332,6 +332,9 @@ type Route struct {
 	// (SSL off / no active CA / unparsable PEM) and mtls.fail_open=0 - deny
 	// instead of serving the upstream with no client-cert requirement.
 	MTLSDenyOnMisconfig bool
+	// MTLSRevokedFingerprints: SHA-256 (hex) of this CA's revoked, unexpired
+	// leaves; requests presenting one get a 403.
+	MTLSRevokedFingerprints []string
 
 	// TLSPQOnly pins this route's TLS connection policy to the hybrid
 	// post-quantum group (x25519mlkem768) and TLS 1.3. Opt-in: a client
@@ -712,6 +715,24 @@ func BuildRoute(r Route) map[string]any {
 			"delete": []string{"X-Mtls-Subject"},
 		},
 	})
+	// The CA still chains a revoked leaf, so the handshake accepts it; refuse
+	// it here, ahead of every other handler.
+	if r.RequireClientCert && len(r.MTLSRevokedFingerprints) > 0 {
+		handlers = append(handlers, map[string]any{
+			"handler": "subroute",
+			"routes": []any{map[string]any{
+				"match": []any{map[string]any{"vars": map[string]any{
+					"{http.request.tls.client.fingerprint}": r.MTLSRevokedFingerprints,
+				}}},
+				"handle": []any{map[string]any{
+					"handler":     "static_response",
+					"status_code": 403,
+					"headers":     map[string]any{"Cache-Control": []string{"no-store"}},
+					"body":        "Client certificate revoked.\n",
+				}},
+			}},
+		})
+	}
 	// HPG-SEC-005: the panel self-route is reached over the trusted docker
 	// bridge, so nothing downstream re-checks who the caller claims to be -
 	// an inbound True-Client-IP/X-Real-IP would otherwise ride straight
