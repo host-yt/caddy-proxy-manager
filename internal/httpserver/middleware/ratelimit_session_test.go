@@ -43,3 +43,25 @@ func TestUnauthPostLimitSessionBypassScope(t *testing.T) {
 		}
 	}
 }
+
+// Passkey challenge creation stores a ticket in Redis per call, so anonymous
+// callers must hit the per-IP limit (#58).
+func TestUnauthPostLimitThrottlesPasskeyBegin(t *testing.T) {
+	rdb := testRedis(t)
+	ip := "198.51.100.200"
+	t.Cleanup(func() { rdb.Del(context.Background(), "hpg:rl:unauth-post:"+ip) })
+	h := UnauthPostLimit(rdb, 2)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	last := 0
+	for n := 0; n < 4; n++ {
+		req := httptest.NewRequest(http.MethodPost, "/auth/passkey/login/begin", nil)
+		req.RemoteAddr = ip + ":1234"
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		last = rec.Code
+	}
+	if last != http.StatusTooManyRequests {
+		t.Fatalf("passkey begin not throttled: last status %d", last)
+	}
+}

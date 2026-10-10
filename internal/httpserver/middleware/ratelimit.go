@@ -84,15 +84,8 @@ func UnauthPostLimit(rdb *redis.Client, perMin int) func(http.Handler) http.Hand
 			if strings.HasPrefix(r.URL.Path, "/api/node/") || strings.HasPrefix(r.URL.Path, "/internal/") {
 				return true
 			}
-			// Skip passkey login challenge generation: it's a benign
-			// stateless op (returns a fresh assertion request) and has
-			// no credential-leak surface, so it doesn't need the same
-			// throttle as /auth/login. Without this a single user can
-			// burn the global budget by retrying passkey login a few
-			// times in a row.
-			if r.URL.Path == "/auth/passkey/login/begin" {
-				return true
-			}
+			// No passkey exemption: /auth/passkey/login/begin writes a WebAuthn
+			// ticket to Redis per call, so it shares the per-IP budget.
 			// Skip authed sessions: check the PARSED session, not a cookie
 			// name - a forged hpg_session* must not buy a bypass. Never on
 			// public auth routes: any low-privilege session would otherwise
