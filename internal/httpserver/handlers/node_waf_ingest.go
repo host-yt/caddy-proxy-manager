@@ -108,7 +108,7 @@ func (h *NodeWAFIngestHandler) authNode(w http.ResponseWriter, r *http.Request) 
 	if err := db.QueryRowContext(ctx,
 		`SELECT id FROM caddy_nodes WHERE agent_token_hash IS NOT NULL AND agent_token_hash = SHA2(?, 256) LIMIT 1`,
 		token).Scan(&nodeID); err != nil {
-		h.Logger.Warn("waf ingest node token mismatch", "ip", security.ClientIP(r), "token_prefix", safePrefix(token))
+		h.Logger.Warn("waf ingest node token mismatch", "ip", security.ClientIP(r), "token_fp", tokenFingerprint(token))
 		http.Error(w, "denied", http.StatusForbidden)
 		return 0
 	}
