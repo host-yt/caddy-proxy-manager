@@ -1112,6 +1112,12 @@ func ensureStableHash(rs []caddyapi.Route) string {
 	return hashRoutes(dup)
 }
 
+// ClearNode pushes an empty config to a node being removed, keeping the admin
+// bind the regular push uses (the node-agent proxy may sit on a socket).
+func (s *Service) ClearNode(ctx context.Context, nodeID int64, apiURL string) error {
+	return s.NodeClient(ctx, nodeID, apiURL).Load(ctx, caddyapi.EmptyNodeConfig(s.adminListenFor(nodeID)))
+}
+
 // adminListenFor returns the Caddy Admin API bind to push to one node. The
 // bind is fleet-wide unless the operator named the nodes it applies to, which
 // is how a socket endpoint is rolled out one node at a time.

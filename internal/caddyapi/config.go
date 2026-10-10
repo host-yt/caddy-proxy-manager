@@ -241,6 +241,12 @@ func adminListenOr(listen string) string {
 	return listen
 }
 
+// EmptyNodeConfig is the config pushed to a leaving node: no apps, admin bind
+// unchanged so a decommission never re-exposes or relocates the admin API.
+func EmptyNodeConfig(adminListen string) map[string]any {
+	return map[string]any{"admin": map[string]any{"listen": adminListenOr(adminListen)}}
+}
+
 // BuildNodeConfig renders the full Caddy JSON config for one node from
 // the supplied routes. POST this to /load on the node's Admin API.
 //
