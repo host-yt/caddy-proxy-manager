@@ -1312,8 +1312,8 @@ func (h *AdminHandlers) NodesDelete(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/nodes", "Node deleted", "")
 }
 
-// NodesDrain migrates every route off a node onto a healthy peer in
-// the same group AND flips is_enabled=0, but keeps the node row. Used
+// NodesDrain migrates every route off a node onto healthy peers in
+// the same group (see migrateNodeRoutes) AND flips is_enabled=0, but keeps the node row. Used
 // for maintenance windows: operator can re-enable + Resync afterwards
 // without re-doing approval/wg-rekey. Skips routes bound to a WG
 // tunnel on this node - those would 502 elsewhere; operator must
@@ -1335,54 +1335,28 @@ func (h *AdminHandlers) NodesDrain(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/nodes", "", "node not found")
 		return
 	}
-	var destID int64
-	if err := db.QueryRowContext(ctx,
-		`SELECT id FROM caddy_nodes
-		 WHERE node_group_id = ? AND id <> ? AND is_enabled = 1 AND approved_at IS NOT NULL
-		   AND health_status = 'healthy' AND current_routes < max_routes
-		 ORDER BY (current_routes / GREATEST(max_routes,1)) ASC, priority DESC, id ASC
-		 LIMIT 1`, groupID, id).Scan(&destID); err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "",
-			"no healthy peer in the same group - drain aborted")
-		return
-	}
-
-	// Migrate only non-tunneled routes. Tunneled ones stay; the node-row
-	// is flagged disabled so AutoFailover will not pick it up either.
-	res, err := db.ExecContext(ctx,
-		`UPDATE routes SET caddy_node_id = ?
-		   WHERE caddy_node_id = ? AND via_wg_peer_id IS NULL`,
-		destID, id)
+	// Tunneled routes stay; the disabled flag keeps AutoFailover off this node.
+	moved, dests, err := h.migrateNodeRoutes(ctx, db, id, groupID, true)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "route move failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/nodes", "", "drain aborted: "+sanitizeErr(err))
 		return
 	}
-	moved, _ := res.RowsAffected()
-
 	if _, err := db.ExecContext(ctx, `UPDATE caddy_nodes SET is_enabled = 0 WHERE id = ?`, id); err != nil {
 		redirectWithFlash(w, r, "/admin/nodes", "", "disable failed: "+sanitizeErr(err))
 		return
-	}
-	_, _ = db.ExecContext(ctx,
-		`UPDATE caddy_nodes SET current_routes = current_routes + ? WHERE id = ?`, moved, destID)
-	_, _ = db.ExecContext(ctx,
-		`UPDATE caddy_nodes SET current_routes = GREATEST(0, current_routes - ?) WHERE id = ?`, moved, id)
-
-	if h.ResyncNode != nil {
-		_ = h.ResyncNode(ctx, destID)
 	}
 
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.drain", Entity: "node", EntityID: fmt.Sprintf("%d", id),
-		Meta: map[string]any{"moved_routes": moved, "dest_node_id": destID},
+		Meta: map[string]any{"moved_routes": moved, "dest_node_ids": dests},
 	})
 	redirectWithFlash(w, r, "/admin/nodes",
-		fmt.Sprintf("Drained node. %d route(s) moved to node %d. Re-enable from this page when maintenance is done.", moved, destID), "")
+		fmt.Sprintf("Drained node. %d route(s) moved to node(s) %v. Re-enable from this page when maintenance is done.", moved, dests), "")
 }
 
-// NodesDecommission migrates every route off a node onto the lowest-usage
-// peer in the same node_group, then pushes an empty config to the leaving
+// NodesDecommission migrates every route off a node onto peers in the same
+// node_group (see migrateNodeRoutes), then pushes an empty config to the leaving
 // node (best-effort), then deletes the row. Required because the
 // fk_route_node FK has no ON DELETE cascade - a direct delete fails with
 // a constraint error as soon as one route exists on the node.
@@ -1405,52 +1379,10 @@ func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var destID int64
-	if err := db.QueryRowContext(ctx,
-		`SELECT id FROM caddy_nodes
-		 WHERE node_group_id = ? AND id <> ? AND is_enabled = 1 AND approved_at IS NOT NULL
-		   AND current_routes < max_routes
-		 ORDER BY (current_routes / GREATEST(max_routes,1)) ASC, priority DESC, id ASC
-		 LIMIT 1`, groupID, id).Scan(&destID); err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "",
-			"no peer node in the same group with capacity - add a replacement before decommissioning")
-		return
-	}
-
-	tx, err := db.BeginTx(ctx, nil)
+	moved, dests, err := h.migrateNodeRoutes(ctx, db, id, groupID, false)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "tx begin failed")
+		redirectWithFlash(w, r, "/admin/nodes", "", "decommission aborted: "+sanitizeErr(err))
 		return
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	res, err := tx.ExecContext(ctx,
-		"UPDATE routes SET caddy_node_id = ? WHERE caddy_node_id = ?", destID, id)
-	if err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "route move failed: "+sanitizeErr(err))
-		return
-	}
-	moved, _ := res.RowsAffected()
-
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE caddy_nodes SET current_routes = current_routes + ? WHERE id = ?`, moved, destID); err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "counter bump dest failed")
-		return
-	}
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE caddy_nodes SET current_routes = 0 WHERE id = ?`, id); err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "counter zero src failed")
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "tx commit failed")
-		return
-	}
-
-	if h.ResyncNode != nil {
-		if rerr := h.ResyncNode(ctx, destID); rerr != nil {
-			h.Logger.Warn("decommission resync dest failed", "dest", destID, "err", rerr)
-		}
 	}
 	go func() {
 		bctx, bcancel := context.WithTimeout(context.Background(), 15*time.Second)
@@ -1471,10 +1403,10 @@ func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.decommission", Entity: "node", EntityID: fmt.Sprintf("%d", id),
-		Meta: map[string]any{"moved_routes": moved, "dest_node_id": destID},
+		Meta: map[string]any{"moved_routes": moved, "dest_node_ids": dests},
 	})
 	redirectWithFlash(w, r, "/admin/nodes",
-		fmt.Sprintf("Decommissioned. Moved %d route(s) to node %d.", moved, destID), "")
+		fmt.Sprintf("Decommissioned. Moved %d route(s) to node(s) %v.", moved, dests), "")
 }
 
 // NodesRekey generates a fresh WireGuard keypair for a node, stores the
