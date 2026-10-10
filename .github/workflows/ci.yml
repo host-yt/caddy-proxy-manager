@@ -194,3 +194,40 @@ jobs:
               --format table \
               --timeout 10m \
               hostyt/proxy-gateway:ci
+
+  # The Caddy node image is otherwise first built by Release, after merge;
+  # build and scan it here when a PR touches it (same trivy gate as Release).
+  caddy-image:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - id: changed
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          if git diff --quiet "origin/$BASE...HEAD" -- deploy/caddy; then
+            echo "build=false" >> "$GITHUB_OUTPUT"; echo "deploy/caddy unchanged, skipping"
+          else
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Build image
+        if: steps.changed.outputs.build == 'true'
+        run: docker build -t hostyt/caddy-edge:ci deploy/caddy
+      - name: Scan image
+        if: steps.changed.outputs.build == 'true'
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "${{ runner.temp }}/trivy-cache:/root/.cache/trivy" \
+            aquasec/trivy:0.74.0 image \
+              --scanners vuln \
+              --ignore-unfixed \
+              --severity HIGH,CRITICAL \
+              --exit-code 1 \
+              --format table \
+              --timeout 10m \
+              hostyt/caddy-edge:ci
