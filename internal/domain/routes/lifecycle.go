@@ -418,7 +418,7 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		// as a whole), where the caller retries instead.
 		alt, ok := int64(0), false
 		if groupMode == "single" && in.ViaWGPeerID == 0 {
-			alt, ok = claimNodeWithCapacity(ctx, tx, nodeGroupID, nodeID)
+			alt, ok = claimNodeWithCapacity(ctx, tx, nodeGroupID, nodeID, false)
 		}
 		if !ok {
 			return 0, ErrNodeAtCapacity
