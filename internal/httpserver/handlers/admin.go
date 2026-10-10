@@ -4697,17 +4697,28 @@ func (h *AdminHandlers) loadSettingsRaw(ctx context.Context, db *sql.DB, keys []
 // saveSettings upserts key/value pairs. If encrypted=true, value is stored
 // as-is (caller has already encrypted) and is_encrypted=1.
 func (h *AdminHandlers) saveSettings(ctx context.Context, db *sql.DB, kv map[string]string, encrypted bool) error {
-	encFlag := 0
 	if encrypted {
-		encFlag = 1
+		return saveSettingsTx(ctx, db, nil, kv)
 	}
-	for k, v := range kv {
-		_, err := db.ExecContext(ctx, store.UpsertSettingSQL(), k, v, encFlag)
-		if err != nil {
-			return err
+	return saveSettingsTx(ctx, db, kv, nil)
+}
+
+// saveSettingsTx upserts plain (is_encrypted=0) and secret (is_encrypted=1,
+// already encrypted) rows in one transaction so a failure never half-applies.
+func saveSettingsTx(ctx context.Context, db *sql.DB, plain, secret map[string]string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for encFlag, kv := range []map[string]string{plain, secret} {
+		for k, v := range kv {
+			if _, err := tx.ExecContext(ctx, store.UpsertSettingSQL(), k, v, encFlag); err != nil {
+				return err
+			}
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (h *AdminHandlers) encryptSetting(plaintext string) (string, error) {
@@ -5309,7 +5320,7 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
-	if err := h.saveSettings(ctx, db, map[string]string{
+	plain := map[string]string{
 		"oidc.enabled":                 enabledStr,
 		"oidc.provider_name":           providerName,
 		"oidc.issuer":                  issuer,
@@ -5320,27 +5331,23 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 		"oidc.password_login_disabled": pwdDisabledStr,
 		"oidc.allow_unverified_email":  allowUnverifiedStr,
 		"oidc.scopes":                  scopes,
-	}, false); err != nil {
-		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
-		return
 	}
+	var secret map[string]string
 	if clearSecret {
-		// Hard-clear: row stays so we don't fight ON DUPLICATE KEY, value
-		// becomes empty. loadConfig treats "" as "no secret".
-		if err := h.saveSettings(ctx, db, map[string]string{"oidc.client_secret": ""}, false); err != nil {
-			redirectWithFlash(w, r, "/admin/settings", "", "client_secret clear failed")
-			return
-		}
+		// Row stays (value ""), loadConfig treats "" as "no secret".
+		plain["oidc.client_secret"] = ""
 	} else if clientSecret != "" {
+		// Encrypt before any write so a crypto failure leaves the old config intact.
 		ct, err := h.encryptSetting(clientSecret)
 		if err != nil {
 			redirectWithFlash(w, r, "/admin/settings", "", "encrypt client_secret failed")
 			return
 		}
-		if err := h.saveSettings(ctx, db, map[string]string{"oidc.client_secret": ct}, true); err != nil {
-			redirectWithFlash(w, r, "/admin/settings", "", "client_secret save failed")
-			return
-		}
+		secret = map[string]string{"oidc.client_secret": ct}
+	}
+	if err := saveSettingsTx(ctx, db, plain, secret); err != nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
+		return
 	}
 	// Drop cached provider so the next /auth/oidc/start re-runs discovery
 	// with the freshly saved issuer/client_id.
