@@ -197,3 +197,45 @@ func TestPushNodeConfig_LoadFailureIsReported(t *testing.T) {
 		t.Error("applied generation not recorded after a successful push")
 	}
 }
+
+// The plan domain limit is counted through the create transaction, after the
+// service row lock, so a route another create has just inserted counts against
+// the limit (#50). Before, a standalone COUNT(*) ran ahead of the transaction
+// and parallel creates all saw the same last free slot.
+func TestCheckDomainQuotas_CountsInsideTheTransaction(t *testing.T) {
+	db := newPushTestDB(t)
+	ctx := context.Background()
+
+	exec := func(q string, args ...any) {
+		t.Helper()
+		if _, err := db.Exec(q, args...); err != nil {
+			t.Fatalf("seed %q: %v", q, err)
+		}
+	}
+	exec(`INSERT INTO users (id, email, password_hash, role) VALUES (1, 'a@b.c', 'x', 'client')`)
+	exec(`INSERT INTO clients (id, user_id, display_name) VALUES (1, 1, 'acme')`)
+	exec(`INSERT INTO node_groups (id, name, mode) VALUES (1, 'default', 'single')`)
+	exec(`INSERT INTO plans (id, name, node_group_id, max_domains) VALUES (1, 'basic', 1, 1)`)
+	exec(`INSERT INTO services (id, client_id, name, backend_ip, allowed_port_start, allowed_port_end, plan_id, node_group_id)
+	      VALUES (1, 1, 'svc', '10.9.9.9', 1, 65535, 1, 1)`)
+	exec(`INSERT INTO caddy_nodes (id, name, api_url, public_hostname, node_group_id, max_routes, current_routes,
+	        is_enabled, health_status, approved_at)
+	      VALUES (1, 'edge1', 'http://127.0.0.1:1', 'edge1.example', 1, 100, 0, 1, 'healthy', CURRENT_TIMESTAMP)`)
+
+	svc := &Service{DB: db, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := svc.checkDomainQuotas(ctx, tx, 1, 1, 0); err != nil {
+		t.Fatalf("empty service refused: %v", err)
+	}
+	if _, err := tx.Exec(`INSERT INTO routes (service_id, caddy_node_id, domain, path_prefix, upstream_port, ssl_enabled, status)
+	      VALUES (1, 1, 'a.example', '', 8080, 0, 'pending_dns')`); err != nil {
+		t.Fatalf("insert route: %v", err)
+	}
+	if err := svc.checkDomainQuotas(ctx, tx, 1, 1, 0); !errors.Is(err, ErrMaxDomains) {
+		t.Fatalf("second domain on a 1-domain plan: want ErrMaxDomains, got %v", err)
+	}
+}

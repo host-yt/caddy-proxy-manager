@@ -90,19 +90,19 @@ func TestRouteQuotaOversellAndNPM(t *testing.T) {
 	db(s).Exec(`INSERT INTO services (id, client_id, plan_id) VALUES (1, 100, 10), (2, 100, 20)`)
 
 	// Overselling OFF + retail plan: no aggregate route check (allocation covers it).
-	if err := s.CanCreateRoute(ctx, 7, 1); err != nil {
+	if err := s.CanCreateRoute(ctx, db(s), 7, 1); err != nil {
 		t.Fatalf("retail route (no oversell) should pass: %v", err)
 	}
 	// Overselling OFF + npm service: REAL count enforced. Fill to cap (5).
 	for i := 0; i < 5; i++ {
 		db(s).Exec(`INSERT INTO routes (service_id) VALUES (2)`)
 	}
-	if err := s.CanCreateRoute(ctx, 7, 2); !errors.Is(err, ErrDomainQuota) {
+	if err := s.CanCreateRoute(ctx, db(s), 7, 2); !errors.Is(err, ErrDomainQuota) {
 		t.Fatalf("npm route at cap: want ErrDomainQuota, got %v", err)
 	}
 	// Overselling ON: retail service also real-counted.
 	db(s).Exec(`UPDATE resellers SET overselling_allowed=1 WHERE id=7`)
-	if err := s.CanCreateRoute(ctx, 7, 1); !errors.Is(err, ErrDomainQuota) {
+	if err := s.CanCreateRoute(ctx, db(s), 7, 1); !errors.Is(err, ErrDomainQuota) {
 		t.Fatalf("oversell at cap: want ErrDomainQuota, got %v", err)
 	}
 }

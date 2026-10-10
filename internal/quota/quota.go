@@ -48,6 +48,19 @@ func (s *Service) limitsFor(ctx context.Context, resellerID int64) (limits, bool
 	if db == nil {
 		return limits{}, false, nil
 	}
+	return limitsOn(ctx, db, resellerID)
+}
+
+// Querier is satisfied by *sql.DB and *sql.Tx, so a check can run inside the
+// caller's transaction and see the rows it has locked.
+type Querier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+func limitsOn(ctx context.Context, db Querier, resellerID int64) (limits, bool, error) {
+	if resellerID == 0 {
+		return limits{}, false, nil
+	}
 	var l limits
 	var planID sql.NullInt64
 	err := db.QueryRowContext(ctx,
@@ -193,12 +206,18 @@ func (s *Service) CanChangeClientPlan(ctx context.Context, resellerID, clientID,
 // internal kind='npm' plans (hosts flow) whose capacity is never allocated -
 // otherwise the allocation check at service-create plus the per-plan
 // max_domains bound already cap real usage.
-func (s *Service) CanCreateRoute(ctx context.Context, resellerID, serviceID int64) error {
-	l, ok, err := s.limitsFor(ctx, resellerID)
+//
+// q is the caller's transaction: the count is only binding while the caller
+// holds the reseller row lock (see routes.Service.Create), otherwise parallel
+// creates all see the same last free slot.
+func (s *Service) CanCreateRoute(ctx context.Context, db Querier, resellerID, serviceID int64) error {
+	if s == nil || db == nil {
+		return nil
+	}
+	l, ok, err := limitsOn(ctx, db, resellerID)
 	if err != nil || !ok || l.maxDomains <= 0 {
 		return err
 	}
-	db := s.DB()
 	if !l.overselling {
 		var kind string
 		if err := db.QueryRowContext(ctx,
