@@ -857,7 +857,7 @@ func (s *Server) routes() {
 			// Idempotency replay for POST provisioning calls.
 			r.Use(mw.Idempotency(s.deps.Wizard.DB))
 			r.Route("/services", func(r chi.Router) {
-				r.Use(mw.RequireScope("services"))
+				r.Use(mw.RequireCustomerResourceScope("services"))
 				r.Get("/", s.deps.API.ServicesList)
 				r.Post("/", s.deps.API.ServiceCreate)
 				r.Get("/{id}", s.deps.API.ServiceGet)
@@ -867,7 +867,7 @@ func (s *Server) routes() {
 				r.Get("/{id}/routes", s.deps.API.ServiceRoutes)
 			})
 			r.Route("/routes", func(r chi.Router) {
-				r.Use(mw.RequireScope("routes"))
+				r.Use(mw.RequireCustomerResourceScope("routes"))
 				r.Get("/", s.deps.API.RoutesList)
 				r.Post("/", s.deps.API.RouteCreate)
 				r.Get("/{id}", s.deps.API.RouteGet)

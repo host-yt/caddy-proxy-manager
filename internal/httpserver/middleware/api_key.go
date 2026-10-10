@@ -150,6 +150,38 @@ func RequireScope(want ...string) func(http.Handler) http.Handler {
 	}
 }
 
+// RequireCustomerResourceScope gates resources open to both admin and
+// customer keys (services, routes). Admin keys need the resource scope.
+// Customer-issued keys (owner role "client") carry client:read/client:write
+// instead: safe methods need either, mutations need client:write. The
+// handlers still confine a client caller to its own rows.
+func RequireCustomerResourceScope(scope string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			c := CallerFromContext(r.Context())
+			ok := c.HasScope(scope)
+			// client:* is honoured only for client-owned keys so it can never
+			// widen what an admin key reaches.
+			if !ok && c != nil && c.Role == "client" {
+				if safeMethod(r.Method) {
+					ok = c.HasScope("client:read", "client:write")
+				} else {
+					ok = c.HasScope("client:write")
+				}
+			}
+			if !ok {
+				writeJSONErr(w, http.StatusForbidden, "api key missing required scope")
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+func safeMethod(m string) bool {
+	return m == http.MethodGet || m == http.MethodHead || m == http.MethodOptions
+}
+
 // RequireAdminScope gates admin-domain resources (clients, plans,
 // provisioning): safe methods need admin:read or admin:write, mutations need
 // admin:write.
@@ -157,11 +189,10 @@ func RequireAdminScope() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			c := CallerFromContext(r.Context())
-			ok := false
-			switch r.Method {
-			case http.MethodGet, http.MethodHead, http.MethodOptions:
+			var ok bool
+			if safeMethod(r.Method) {
 				ok = c.HasScope("admin:read", "admin:write")
-			default:
+			} else {
 				ok = c.HasScope("admin:write")
 			}
 			if !ok {
