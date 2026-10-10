@@ -4,11 +4,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	mw "github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 )
+
+// Node tokens are header-only; documenting a query form leaks them into logs.
+func TestAPIDocsNoQueryNodeToken(t *testing.T) {
+	if strings.Contains(string(openapiSpec), "node_token") {
+		t.Error("openapi.json still documents a node_token query parameter")
+	}
+}
 
 // specPaths runs Spec for a given session and returns the path set + server URL.
 func specPaths(t *testing.T, sess *auth.Session) (map[string]bool, string) {

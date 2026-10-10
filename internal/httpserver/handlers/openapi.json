@@ -3,7 +3,7 @@
   "info": {
     "title": "Hostyt Proxy Gateway API",
     "version": "0.3.0",
-    "description": "## Introduction\n\nHostyt Proxy Gateway (HPG) is a self-hosted control panel for a fleet of Caddy reverse-proxy nodes.\nCustomers receive a VPS with a fixed backend IP and an allowed port range (e.g. `30000-30019`).\nThrough this API they map their own domains to those ports; Caddy config is pushed automatically.\n\n## Authentication\n\nMost endpoints require a **Bearer API key** issued from `/admin/api-keys` (admin) or `/app/api-keys` (client).\n\n```\nAuthorization: Bearer hpg_live_xxxx...\n```\n\n**Node-agent endpoints** use a per-node agent token stored as a SHA-256 hash in `caddy_nodes.agent_token_hash`.\nPass it the same way: `Authorization: Bearer <token>` or `?node_token=<token>`.\n\n**WireGuard bootstrap endpoints** are authenticated by a single-shot 192-hex-char token passed as `?token=`.\nEach token has a 24 h TTL and is invalidated after first use.\n\n## Roles\n\n| Role    | Can do |\n|---------|--------|\n| `admin` | All operations |\n| `client`| Read own services/routes, create/delete own routes |\n\n`backend_ip` is admin-only — clients can never set or change it.\nAllowed ports come from the service record; the server validates membership.\n\n## Rate limits\n\nAll authenticated API endpoints share a per-key quota enforced in Redis.\nBootstrap endpoints are rate-limited to 10 req/min per IP.\nExceeding any limit returns `429 Too Many Requests`.\n\n## Async operations\n\nCaddy config changes (route create/delete, resync) are pushed in the background.\nSSL certificate provisioning is asynchronous — poll `GET /api/v1/services/{id}/routes` and watch `status`.\n"
+    "description": "## Introduction\n\nHostyt Proxy Gateway (HPG) is a self-hosted control panel for a fleet of Caddy reverse-proxy nodes.\nCustomers receive a VPS with a fixed backend IP and an allowed port range (e.g. `30000-30019`).\nThrough this API they map their own domains to those ports; Caddy config is pushed automatically.\n\n## Authentication\n\nMost endpoints require a **Bearer API key** issued from `/admin/api-keys` (admin) or `/app/api-keys` (client).\n\n```\nAuthorization: Bearer hpg_live_xxxx...\n```\n\n**Node-agent endpoints** use a per-node agent token stored as a SHA-256 hash in `caddy_nodes.agent_token_hash`.\nPass it in the header only: `Authorization: Bearer <token>`. Query-string tokens are rejected.\n\n**WireGuard bootstrap endpoints** are authenticated by a single-shot 192-hex-char token passed as `?token=`.\nEach token has a 24 h TTL and is invalidated after first use.\n\n## Roles\n\n| Role    | Can do |\n|---------|--------|\n| `admin` | All operations |\n| `client`| Read own services/routes, create/delete own routes |\n\n`backend_ip` is admin-only — clients can never set or change it.\nAllowed ports come from the service record; the server validates membership.\n\n## Rate limits\n\nAll authenticated API endpoints share a per-key quota enforced in Redis.\nBootstrap endpoints are rate-limited to 10 req/min per IP.\nExceeding any limit returns `429 Too Many Requests`.\n\n## Async operations\n\nCaddy config changes (route create/delete, resync) are pushed in the background.\nSSL certificate provisioning is asynchronous — poll `GET /api/v1/services/{id}/routes` and watch `status`.\n"
   },
   "servers": [
     {
@@ -22,7 +22,7 @@
     },
     {
       "name": "Node Agent",
-      "description": "Called by `hpg-node-agent` on each Caddy node. Auth: `Authorization: Bearer <agent_token>` or `?node_token=`."
+      "description": "Called by `hpg-node-agent` on each Caddy node. Auth: `Authorization: Bearer <agent_token>` (header only)."
     },
     {
       "name": "Node Join",
@@ -75,7 +75,7 @@
       "nodeAuthToken": {
         "type": "http",
         "scheme": "bearer",
-        "description": "Per-node agent token. Also accepted as `?node_token=<token>`."
+        "description": "Per-node agent token, `Authorization: Bearer` header only."
       }
     },
     "schemas": {
@@ -384,15 +384,6 @@
         "operationId": "nodePeersPull",
         "description": "Called by `hpg-node-agent` every ~30 s. Returns the full list of customer WireGuard peers the node should configure.",
         "security": [{ "nodeAuthToken": [] }],
-        "parameters": [
-          {
-            "in": "query",
-            "name": "node_token",
-            "required": false,
-            "schema": { "type": "string" },
-            "description": "Alternative to `Authorization: Bearer`. One of the two must be present."
-          }
-        ],
         "responses": {
           "200": {
             "description": "Peer list",
@@ -430,9 +421,6 @@
         "operationId": "nodeHandshakeReport",
         "description": "Agent posts latest handshake timestamps. Superseded by `/api/node/wg/stats` but kept live for rolling upgrades.",
         "security": [{ "nodeAuthToken": [] }],
-        "parameters": [
-          { "in": "query", "name": "node_token", "required": false, "schema": { "type": "string" } }
-        ],
         "requestBody": {
           "required": false,
           "content": {
@@ -469,9 +457,6 @@
         "operationId": "nodeStatsReport",
         "description": "Full stats report from `wg show <iface> dump` — supersedes `/api/node/wg/handshakes`. Includes rx/tx byte counters, endpoint, and optional node-level forwarding diagnostics. Panel stores reset-safe byte deltas and updates `wstunnel_healthy`, triggering a Caddy route resync on any health transition.",
         "security": [{ "nodeAuthToken": [] }],
-        "parameters": [
-          { "in": "query", "name": "node_token", "required": false, "schema": { "type": "string" } }
-        ],
         "requestBody": {
           "required": true,
           "content": {

@@ -1328,13 +1328,13 @@ Poll whether the customer WireGuard peer has established a handshake.
 
 These endpoints are called by `hpg-node-agent` on each Caddy node. They are **not** under `/api/v1`.
 
-**Authentication:** `Authorization: Bearer <agent_token>` or `?node_token=<agent_token>`.
+**Authentication:** `Authorization: Bearer <agent_token>` (header only; query-string tokens are rejected).
 
 The agent token is the per-node token stored as a SHA-256 hash in `caddy_nodes.agent_token_hash`. It is issued during node join or rotated via `Admin → Nodes → Rotate`.
 
 ---
 
-#### `GET /api/node/wg/peers?node_token=<token>`
+#### `GET /api/node/wg/peers`
 
 Pull the list of WireGuard peers this node should configure.
 
