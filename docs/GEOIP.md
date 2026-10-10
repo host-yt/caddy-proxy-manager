@@ -79,7 +79,7 @@ all three ship in `deploy/remote-node/` + `deploy/node-agent/`:
    the caddy service. Without it the agent warns
    `geoip: target directory missing` and skips the sync rather than writing
    into its own container where Caddy will never see it.
-2. **A Caddy build with the module.** Stock `caddy:2.11.4` has no
+2. **A Caddy build with the module.** Stock `caddy:2.11.7` has no
    `maxmind_geolocation` matcher and rejects the whole config; the remote-node
    profile therefore defaults to
    `ghcr.io/host-yt/caddy-proxy-manager-edge`.

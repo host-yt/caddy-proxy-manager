@@ -1,7 +1,7 @@
 # =========================================================================
 # Hostyt Proxy Gateway - LITE stack (stock Caddy, no custom modules)
 #
-# Runs on the official `caddy:2.11.4` image instead of the custom edge build.
+# Runs on the official `caddy:2.11.7` image instead of the custom edge build.
 # Every optional Caddy module is OFF (*_AVAILABLE=0): no WAF, origin cache, L4
 # streams, GeoIP matcher, per-route rate-limit, weighted LB, or DNS-01 wildcard.
 # Core reverse-proxy + ACME HTTP/TLS-ALPN + the whole panel work unchanged.
@@ -129,7 +129,7 @@ services:
   # STOCK Caddy - no custom modules. The panel drives it via the admin API;
   # the mounted Caddyfile only configures the admin listener + on-demand-TLS ask.
   caddy:
-    image: caddy:2.11.4@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
+    image: caddy:2.11.7@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     # Real request against the admin API either way - a leftover socket file

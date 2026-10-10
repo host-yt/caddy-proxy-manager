@@ -2,7 +2,7 @@
 # =========================================================================
 # Caddy node image. Custom build via xcaddy embeds the Souin cache module
 # so the panel's per-route `cache_enabled` flag turns into a real origin
-# cache (stock caddy:2.11.4 only ships Cache-Control header emission). Same
+# cache (stock caddy:2.11.7 only ships Cache-Control header emission). Same
 # image is used by both the central panel node and remote join nodes.
 #
 # Pinned versions: bump on Caddy minor releases (sync `FROM caddy:X.Y`
@@ -11,7 +11,7 @@
 # Also pinned by digest so CI's scan and the shipped image are the same
 # bytes; Dependabot (.github/dependabot.yml) rolls the digest forward.
 # =========================================================================
-FROM caddy:2.11.4-builder@sha256:369218c81ca6d6af249981221b3a5c764d886dd5b058f51d144066de13f2418d AS builder
+FROM caddy:2.11.7-builder@sha256:b25f47453fa02f7e66c0828b4b1343658808b9000950b6825c4a1cb0c988f5f8 AS builder
 # Souin cache-handler (per-route real cache) + caddy-l4 (TCP/UDP stream
 # proxy used by the Streams admin page) + caddy-ratelimit (per-route
 # rate_limit handler, gated by RATE_LIMIT_AVAILABLE) + coraza WAF (per-route
@@ -25,7 +25,9 @@ FROM caddy:2.11.4-builder@sha256:369218c81ca6d6af249981221b3a5c764d886dd5b058f51
 # hand with the Go provider registry (internal/caddyapi/dnsproviders.go): a
 # selected provider whose module is NOT built makes Caddy reject the whole
 # /load, so the two MUST match exactly (DNSProviderModules()).
+# x/net pinned past CVE-2026-78669 until Caddy itself requires >= v0.60.0
 RUN xcaddy build \
+      --with golang.org/x/net@v0.60.0 \
       --with github.com/caddyserver/cache-handler@v0.16.0 \
       --with github.com/mholt/caddy-l4@v0.1.1 \
       --with github.com/mholt/caddy-ratelimit@v0.1.0 \
@@ -50,7 +52,7 @@ RUN xcaddy build \
       --with github.com/caddy-dns/netcup@v1.0.0 \
       --with github.com/caddy-dns/powerdns@v1.0.2
 
-FROM caddy:2.11.4@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
+FROM caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 
 # Bake the Caddyfile into the image so deploys (Portainer, plain compose,

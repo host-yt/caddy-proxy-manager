@@ -23,6 +23,12 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+### Security
+
+- Caddy node image 2.11.4 -> 2.11.7 (builder on Go 1.27.2) and `golang.org/x/net`
+  pinned to v0.60.0 in the xcaddy build: CVE-2026-78667, CVE-2026-78669,
+  CVE-2026-97031 (HIGH, DoS). All Caddy pins (compose, node-join, docs) moved together.
+
 ## [1.8.0] - 2026-10-05
 
 Closes the remaining findings of the September system review and the 1.7.1
