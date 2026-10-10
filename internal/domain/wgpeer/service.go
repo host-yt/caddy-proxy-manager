@@ -555,27 +555,22 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 		return BootstrapResult{}, ErrTokenInvalid
 	}
 
-	// Atomic single-shot: the WHERE consumed_at IS NULL clause guarantees
-	// only one concurrent call can win. RowsAffected==0 means race lost
-	// or token already consumed/expired.
-	res, err := s.DB.ExecContext(ctx,
-		`UPDATE customer_wg_bootstrap
-		   SET consumed_at = NOW()
-		 WHERE token = ?
-		   AND consumed_at IS NULL
-		   AND expires_at > NOW()`, token)
+	// The token row stays locked while the config is built and is marked
+	// consumed last: any failure rolls back and leaves the token usable.
+	tx, err := s.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return BootstrapResult{}, err
 	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
+	defer tx.Rollback() //nolint:errcheck
+	var peerID int64
+	err = tx.QueryRowContext(ctx,
+		`SELECT peer_id FROM customer_wg_bootstrap
+		 WHERE token = ? AND consumed_at IS NULL AND expires_at > NOW()`+store.ForUpdate(),
+		token).Scan(&peerID)
+	if errors.Is(err, sql.ErrNoRows) {
 		return BootstrapResult{}, ErrTokenInvalid
 	}
-
-	var peerID int64
-	if err := s.DB.QueryRowContext(ctx,
-		`SELECT peer_id FROM customer_wg_bootstrap WHERE token=?`,
-		token).Scan(&peerID); err != nil {
+	if err != nil {
 		return BootstrapResult{}, err
 	}
 
@@ -590,7 +585,7 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 		peerGroup  sql.NullString
 		encPSK     sql.NullString
 	)
-	if err := s.DB.QueryRowContext(ctx,
+	if err := tx.QueryRowContext(ctx,
 		`SELECT client_id, node_id, name, pubkey, server_privkey_e2, assigned_ip, status, peer_group_id, psk_enc
 		 FROM customer_wg_peer WHERE id=?`,
 		peerID).Scan(&clientID, &nodeID, &name, &pubkey, &encPriv, &assignedIP, &status, &peerGroup, &encPSK); err != nil {
@@ -617,7 +612,7 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 		transport                sql.NullString
 		wstunnelPort             sql.NullInt64
 	)
-	if err := s.DB.QueryRowContext(ctx,
+	if err := tx.QueryRowContext(ctx,
 		`SELECT tunnel_endpoint, tunnel_pubkey, tunnel_subnet, tunnel_listen_port, tunnel_transport, tunnel_wstunnel_port FROM caddy_nodes WHERE id=?`,
 		nodeID).Scan(&endpoint, &tunPub, &subnet, &listenPort, &transport, &wstunnelPort); err != nil {
 		return BootstrapResult{}, err
@@ -640,7 +635,7 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 	}
 
 	// Flip peer to active (idempotent — re-consume after race would noop).
-	if _, err := s.DB.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE customer_wg_peer SET status='active', activated_at=COALESCE(activated_at, NOW()) WHERE id=?`,
 		peerID); err != nil {
 		return BootstrapResult{}, err
@@ -650,44 +645,52 @@ func (s *Service) ConsumeBootstrap(ctx context.Context, token string) (Bootstrap
 	// RenderConfig can emit multi-[Peer] failover.
 	var haPeers []HAPeerInfo
 	if peerGroup.Valid && peerGroup.String != "" {
-		rows, err := s.DB.QueryContext(ctx,
+		rows, err := tx.QueryContext(ctx,
 			`SELECT p.assigned_ip, n.tunnel_endpoint, n.tunnel_pubkey, n.tunnel_subnet, n.tunnel_listen_port, p.psk_enc
 			   FROM customer_wg_peer p JOIN caddy_nodes n ON n.id = p.node_id
 			  WHERE p.peer_group_id = ? AND p.id <> ? AND p.status <> 'revoked'`,
 			peerGroup.String, peerID)
-		if err == nil {
-			defer rows.Close()
-			for rows.Next() {
-				var (
-					hp     HAPeerInfo
-					port   sql.NullInt64
-					sibPSK sql.NullString
-				)
-				// A scan error means an incomplete HA failover set - log it
-				// instead of silently degrading.
-				if err := rows.Scan(&hp.AssignedIP, &hp.Endpoint, &hp.TunnelPubkey, &hp.TunnelSubnet, &port, &sibPSK); err != nil {
-					s.Logger.Warn("ha peer scan", "peer_group", peerGroup.String, "err", err)
-					continue
-				}
-				sib, derr := s.decryptPSK(sibPSK)
-				if derr != nil {
-					return BootstrapResult{}, derr
-				}
-				hp.PresharedKey = sib
-				hp.Endpoint = ensureEndpointPort(hp.Endpoint, port.Int64)
-				haPeers = append(haPeers, hp)
+		// The token survives a failure now, so an incomplete failover set
+		// fails the download instead of shipping a degraded .conf.
+		if err != nil {
+			return BootstrapResult{}, fmt.Errorf("ha peers: %w", err)
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var (
+				hp     HAPeerInfo
+				port   sql.NullInt64
+				sibPSK sql.NullString
+			)
+			if err := rows.Scan(&hp.AssignedIP, &hp.Endpoint, &hp.TunnelPubkey, &hp.TunnelSubnet, &port, &sibPSK); err != nil {
+				return BootstrapResult{}, fmt.Errorf("ha peer scan: %w", err)
 			}
-			if err := rows.Err(); err != nil {
-				s.Logger.Warn("ha peer rows", "peer_group", peerGroup.String, "err", err)
+			sib, derr := s.decryptPSK(sibPSK)
+			if derr != nil {
+				return BootstrapResult{}, derr
 			}
-		} else {
-			s.Logger.Warn("ha peer query", "peer_group", peerGroup.String, "err", err)
+			hp.PresharedKey = sib
+			hp.Endpoint = ensureEndpointPort(hp.Endpoint, port.Int64)
+			haPeers = append(haPeers, hp)
+		}
+		if err := rows.Err(); err != nil {
+			return BootstrapResult{}, fmt.Errorf("ha peers: %w", err)
 		}
 		// Bonus: flip ALL peers in the group to active on first consume
 		// (they're equivalent from the customer's perspective).
-		_, _ = s.DB.ExecContext(ctx,
+		if _, err := tx.ExecContext(ctx,
 			`UPDATE customer_wg_peer SET status='active', activated_at=COALESCE(activated_at, NOW())
-			 WHERE peer_group_id=? AND status<>'revoked'`, peerGroup.String)
+			 WHERE peer_group_id=? AND status<>'revoked'`, peerGroup.String); err != nil {
+			return BootstrapResult{}, err
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE customer_wg_bootstrap SET consumed_at = NOW() WHERE token = ?`, token); err != nil {
+		return BootstrapResult{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return BootstrapResult{}, err
 	}
 
 	return BootstrapResult{

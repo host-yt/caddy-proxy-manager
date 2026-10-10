@@ -2,6 +2,7 @@ package wgpeer
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -26,5 +27,35 @@ func TestCreateHARollsBackOnLaterNodeFailure(t *testing.T) {
 	}
 	if peers != 0 || next != 2 {
 		t.Fatalf("partial group left behind: peers=%d next_octet=%d", peers, next)
+	}
+}
+
+// A config build failure must leave the token usable; only success consumes it.
+func TestConsumeBootstrapKeepsTokenOnFailure(t *testing.T) {
+	db := openTestDB(t)
+	defer db.Close()
+	ctx := context.Background()
+	clientID := insertTestClient(t, db, ctx)
+	nodeID := insertTunnelNode(t, db, ctx, "100.96.45.0/24", 1)
+	svc := newTestSvc(db)
+	peer, token, err := svc.Create(ctx, CreateInput{ClientID: clientID, NodeID: nodeID, Name: "t"})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	good := peerPSK(t, db, peer.ID)
+	if _, err := db.Exec("UPDATE customer_wg_peer SET psk_enc='garbage' WHERE id=?", peer.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ConsumeBootstrap(ctx, token); err == nil || errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("broken psk: want build error, got %v", err)
+	}
+	if _, err := db.Exec("UPDATE customer_wg_peer SET psk_enc=? WHERE id=?", good, peer.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.ConsumeBootstrap(ctx, token); err != nil {
+		t.Fatalf("retry after fix: %v", err)
+	}
+	if _, err := svc.ConsumeBootstrap(ctx, token); !errors.Is(err, ErrTokenInvalid) {
+		t.Fatalf("second consume: want ErrTokenInvalid, got %v", err)
 	}
 }
