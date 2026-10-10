@@ -154,29 +154,71 @@ func (s *Service) EnsureKeypair(ctx context.Context) (ControlPlane, error) {
 	if c.PrivateKey != "" && c.PublicKey != "" {
 		return c, nil
 	}
-	kp, err := GenerateKeypair()
-	if err != nil {
-		return c, err
-	}
-	encPriv, err := s.State.Encrypt(kp.PrivateKey)
-	if err != nil {
-		return c, err
-	}
 	db := s.DB()
 	if db == nil {
 		return c, errors.New("db not ready")
 	}
-	upserts := map[string]struct {
-		v   string
-		enc int
-	}{
-		"wireguard.public_key":  {kp.PublicKey, 0},
-		"wireguard.private_key": {encPriv, 1},
-	}
-	for k, val := range upserts {
-		if _, err := db.ExecContext(ctx, store.UpsertSettingSQL(), k, val.v, val.enc); err != nil {
+	// Placeholder rows give FOR UPDATE something to lock, so concurrent callers
+	// serialize and cannot persist halves of two different generated pairs.
+	for _, k := range []string{"wireguard.public_key", "wireguard.private_key"} {
+		if _, err := db.ExecContext(ctx,
+			store.InsertOrIgnore()+" INTO settings (`key`, value, is_encrypted) VALUES (?, '', 0)", k); err != nil {
 			return c, err
 		}
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return c, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx,
+		"SELECT `key`, value, is_encrypted FROM settings WHERE `key` IN ('wireguard.public_key', 'wireguard.private_key')"+store.ForUpdate())
+	if err != nil {
+		return c, err
+	}
+	var pub, priv string
+	for rows.Next() {
+		var k, v string
+		var enc bool
+		if err := rows.Scan(&k, &v, &enc); err != nil {
+			_ = rows.Close()
+			return c, err
+		}
+		if enc {
+			if v, err = s.State.Decrypt(v); err != nil {
+				v = ""
+			}
+		}
+		if k == "wireguard.public_key" {
+			pub = strings.TrimSpace(v)
+		} else {
+			priv = strings.TrimSpace(v)
+		}
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return c, err
+	}
+	if pub == "" || priv == "" {
+		kp, err := GenerateKeypair()
+		if err != nil {
+			return c, err
+		}
+		encPriv, err := s.State.Encrypt(kp.PrivateKey)
+		if err != nil {
+			return c, err
+		}
+		for _, kv := range [][3]any{
+			{kp.PublicKey, 0, "wireguard.public_key"},
+			{encPriv, 1, "wireguard.private_key"},
+		} {
+			if _, err := tx.ExecContext(ctx, "UPDATE settings SET value = ?, is_encrypted = ? WHERE `key` = ?", kv[0], kv[1], kv[2]); err != nil {
+				return c, err
+			}
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return c, err
 	}
 	return s.load(ctx)
 }
