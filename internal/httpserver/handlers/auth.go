@@ -770,7 +770,10 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 
 	h.clearAttempts(ctx, ticket)
 	h.clear2FAFails(ctx, pend.UserID) // reset per-user counter only on success
-	h.consumePending2FA(r)
+	if !h.consumePending2FA(r) {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
 	claims, ok := h.claimsForPending(ctx, w, r, pend)
 	if !ok {
 		return
@@ -1536,12 +1539,15 @@ func (h *AuthHandlers) claimsForPending(ctx context.Context, w http.ResponseWrit
 	return c, true
 }
 
-func (h *AuthHandlers) consumePending2FA(r *http.Request) {
+// consumePending2FA deletes the ticket; true only for the one caller whose DEL
+// removed it, so parallel successful proofs cannot mint two sessions.
+func (h *AuthHandlers) consumePending2FA(r *http.Request) bool {
 	c, err := r.Cookie("hpg_2fa_pending")
 	if err != nil {
-		return
+		return false
 	}
-	_ = h.RDB.Del(r.Context(), pending2FAKeyPrefix+c.Value).Err()
+	n, err := h.RDB.Del(r.Context(), pending2FAKeyPrefix+c.Value).Result()
+	return err == nil && n == 1
 }
 
 // signTrustToken returns an AES-GCM-sealed (userID|exp) token. Sealing key
@@ -2318,7 +2324,10 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 	h.clear2FAFails(ctx, pend.UserID)
 
 	// Consume both cookies.
-	h.consumePending2FA(r)
+	if !h.consumePending2FA(r) {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
 
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
@@ -2456,7 +2465,10 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	h.clearAttempts(ctx, ticket)
 	h.clear2FAFails(ctx, pend.UserID)
-	h.consumePending2FA(r)
+	if !h.consumePending2FA(r) {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
 	http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &pend.UserID, Action: "2fa.email.success", Entity: "auth", EntityID: pend.Email,
