@@ -4287,23 +4287,11 @@ func (h *AdminHandlers) SettingsSMTP(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/settings", "", "Set From email first")
 			return
 		}
-		// Save current values BEFORE sending so loader picks them up.
-		ctx2, cancel2 := context.WithTimeout(r.Context(), 5_000_000_000)
+		ctx2, cancel2 := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel2()
-		_ = h.saveSettings(ctx2, db, map[string]string{
-			"smtp.host":       host,
-			"smtp.port":       strconv.Itoa(port),
-			"smtp.encryption": encryption,
-			"smtp.username":   username,
-			"smtp.from_email": fromEmail,
-			"smtp.from_name":  fromName,
-		}, false)
-		if password != "" {
-			if c, err := h.encryptSetting(password); err == nil {
-				_ = h.saveSettings(ctx2, db, map[string]string{"smtp.password": c}, true)
-			}
-		}
-		if err := h.Mailer.SendTest(ctx2, to); err != nil {
+		cfg := mail.Config{Host: host, Port: port, Encryption: encryption, Username: username,
+			Password: password, FromEmail: fromEmail, FromName: fromName}
+		if err := h.Mailer.SendTestWith(ctx2, cfg, to); err != nil {
 			redirectWithFlash(w, r, "/admin/settings", "", "Test failed: "+sanitizeErr(err))
 			return
 		}
