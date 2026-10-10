@@ -667,7 +667,7 @@
         "tags": ["Services"],
         "summary": "Update allowed port range",
         "operationId": "servicePorts",
-        "description": "Admin-only. Replaces the port range for a service. Existing routes using ports outside the new range must be deleted first.",
+        "description": "Admin-only. Replaces the port range for a service. Rejected with 409 while any proxy route uses a port outside the new range; move or delete those routes first.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [
           { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
@@ -695,6 +695,7 @@
           "400": { "description": "Invalid port range", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "403": { "description": "Admin role required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "409": { "description": "Existing routes use ports outside the new range", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "500": { "description": "Database error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }

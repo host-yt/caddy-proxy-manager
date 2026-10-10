@@ -548,6 +548,25 @@ func TestClientRouteEditSave_MTLSImpliesForceHTTPS(t *testing.T) {
 	}
 }
 
+// Narrowing a service's port range must see the live route on 10001; redirects
+// never dial, so they do not block.
+func TestRoutesOutsidePorts(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	ctx := context.Background()
+	if n, err := routes.RoutesOutsidePorts(ctx, db, 1, 10000, 10500); err != nil || n != 0 {
+		t.Fatalf("in-range: n=%d err=%v", n, err)
+	}
+	if n, err := routes.RoutesOutsidePorts(ctx, db, 1, 15000, 20000); err != nil || n != 1 {
+		t.Fatalf("narrowed: n=%d err=%v, want 1", n, err)
+	}
+	if _, err := db.Exec("UPDATE routes SET kind = 'redirect' WHERE id = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := routes.RoutesOutsidePorts(ctx, db, 1, 15000, 20000); n != 0 {
+		t.Fatalf("redirect counted: n=%d", n)
+	}
+}
+
 // A plan without path routing must not gain it through the tenant edit form.
 func TestClientRouteEditSave_PathNeedsPlan(t *testing.T) {
 	db := mtlsTLSEditDB(t)

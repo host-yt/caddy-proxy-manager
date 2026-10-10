@@ -486,6 +486,13 @@ func (h *APIHandlers) ServicePorts(w http.ResponseWriter, r *http.Request) {
 	if !h.serviceInScope(ctx, w, r, id) {
 		return
 	}
+	if n, err := routes.RoutesOutsidePorts(ctx, h.DB(), id, in.AllowedPortStart, in.AllowedPortEnd); err != nil {
+		apiErr(w, http.StatusInternalServerError, "route check failed")
+		return
+	} else if n > 0 {
+		apiErr(w, http.StatusConflict, strconv.Itoa(n)+" route(s) use ports outside the new range; move or delete them first")
+		return
+	}
 	if _, err := h.DB().ExecContext(ctx,
 		"UPDATE services SET allowed_port_start = ?, allowed_port_end = ? WHERE id = ?",
 		in.AllowedPortStart, in.AllowedPortEnd, id); err != nil {

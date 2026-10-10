@@ -108,6 +108,18 @@ func (s *Service) checkRouteState(ctx context.Context, serviceID, routeID int64,
 	return nil
 }
 
+// RoutesOutsidePorts counts the service's dialing routes (same rule as
+// checkRouteState) whose port falls outside [start,end]. A range change must
+// not leave them live on ports the service no longer owns.
+func RoutesOutsidePorts(ctx context.Context, db *sql.DB, serviceID int64, start, end int) (int, error) {
+	var n int
+	err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM routes WHERE service_id = ? AND kind <> 'redirect'
+		    AND COALESCE(upstream_external,0) = 0 AND (upstream_port < ? OR upstream_port > ?)`,
+		serviceID, start, end).Scan(&n)
+	return n, err
+}
+
 // ScreenTenantString rejects a tenant-supplied string Caddy would expand as a
 // placeholder reading the node's environment or filesystem. It is the write-time
 // half of the screening the emission path already does; fail closed.

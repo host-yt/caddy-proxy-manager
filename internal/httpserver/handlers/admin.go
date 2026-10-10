@@ -2918,6 +2918,10 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/services", "", "port range overlaps an existing service on this backend IP")
 		return
 	}
+	if n, err := routes.RoutesOutsidePorts(ctx, db, id, portStart, portEnd); err != nil || n > 0 {
+		redirectWithFlash(w, r, "/admin/services", "", "port range excludes ports used by existing routes; move or delete them first")
+		return
+	}
 
 	var nodeGroupID int64
 	if err := db.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
