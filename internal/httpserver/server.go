@@ -342,6 +342,7 @@ func (s *Server) routes() {
 			// OAuth2 social login for the portal (provider-agnostic).
 			r.Get("/oauth/{provider}", s.deps.Portal.PortalOAuthStart)
 			r.Get("/oauth/{provider}/callback", s.deps.Portal.PortalOAuthCallback)
+			r.Get("/oauth/complete", s.deps.Portal.PortalOAuthComplete)
 		})
 	}
 

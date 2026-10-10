@@ -943,15 +943,20 @@ func portalOriginalURL(r *http.Request, host string) string {
 // (with scheme+host) because the 302 is followed by the browser on the
 // protected origin, not the panel.
 func portalLoginURL(host, back string, secure bool) string {
-	scheme := "https"
-	if !secure {
-		scheme = "http"
-	}
-	u := scheme + "://" + host + portalLoginPath
+	u := portalHostURL(host, portalLoginPath, secure)
 	if back != "" {
 		u += "?back=" + url.QueryEscape(back)
 	}
 	return u
+}
+
+// portalHostURL is an absolute URL for path on the protected host.
+func portalHostURL(host, path string, secure bool) string {
+	scheme := "https"
+	if !secure {
+		scheme = "http"
+	}
+	return scheme + "://" + host + path
 }
 
 // portalSafeBack validates the post-login redirect target. Open-redirect
