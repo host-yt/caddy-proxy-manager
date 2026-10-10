@@ -90,10 +90,10 @@ func run(in, secret, out string) error {
 			return fmt.Errorf("tar: %w", err)
 		}
 		// Defence in depth: refuse traversal.
-		clean := filepath.Clean(hdr.Name)
-		if strings.HasPrefix(clean, "..") || strings.HasPrefix(clean, "/") {
+		if !filepath.IsLocal(hdr.Name) {
 			return fmt.Errorf("unsafe path in archive: %q", hdr.Name)
 		}
+		clean := filepath.Clean(hdr.Name)
 		target := filepath.Join(out, clean)
 		if err := os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 			return err
