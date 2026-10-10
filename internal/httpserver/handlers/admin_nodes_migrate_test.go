@@ -6,8 +6,16 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 )
 
 // migrateFixture builds a group with a source holding nRoutes routes and
@@ -112,5 +120,35 @@ func TestMigrateNodeRoutesRollsBackOnPushFailure(t *testing.T) {
 		if n, c := nodeLoad(t, db, peers[i]); n != 0 || c != want {
 			t.Fatalf("peer %d not restored: routes=%d counter=%d", i, n, c)
 		}
+	}
+}
+
+// Decommission keeps the node row (and its credential) when clearing fails,
+// unless the operator explicitly forces it.
+func TestNodesDecommissionRequiresCleanup(t *testing.T) {
+	db, _, src, _ := migrateFixture(t, 0)
+	if _, err := db.Exec("UPDATE caddy_nodes SET api_url = 'http://127.0.0.1:1' WHERE id = ?", src); err != nil {
+		t.Fatal(err)
+	}
+	h := &AdminHandlers{DB: func() *sql.DB { return db }, Logger: slog.Default(), Routes: &routes.Service{}}
+	post := func(form url.Values) {
+		req := httptest.NewRequest(http.MethodPost, "/", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", fmt.Sprint(src))
+		h.NodesDecommission(httptest.NewRecorder(), req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx)))
+	}
+	exists := func() bool {
+		var n int
+		_ = db.QueryRow("SELECT COUNT(*) FROM caddy_nodes WHERE id = ?", src).Scan(&n)
+		return n == 1
+	}
+	post(url.Values{})
+	if !exists() {
+		t.Fatal("node deleted although its config could not be cleared")
+	}
+	post(url.Values{"force": {"1"}})
+	if exists() {
+		t.Fatal("force decommission did not delete the node")
 	}
 }

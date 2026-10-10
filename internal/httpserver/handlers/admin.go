@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -1357,7 +1358,7 @@ func (h *AdminHandlers) NodesDrain(w http.ResponseWriter, r *http.Request) {
 
 // NodesDecommission migrates every route off a node onto peers in the same
 // node_group (see migrateNodeRoutes), then pushes an empty config to the leaving
-// node (best-effort), then deletes the row. Required because the
+// node (required unless force=1), then deletes the row. Required because the
 // fk_route_node FK has no ON DELETE cascade - a direct delete fails with
 // a constraint error as soon as one route exists on the node.
 func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request) {
@@ -1384,13 +1385,20 @@ func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request
 		redirectWithFlash(w, r, "/admin/nodes", "", "decommission aborted: "+sanitizeErr(err))
 		return
 	}
-	go func() {
-		bctx, bcancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer bcancel()
-		if h.Routes != nil {
-			_ = h.Routes.ClearNode(bctx, id, apiURL)
-		}
-	}()
+	// Clear the node while its credential row still exists; a node that kept
+	// its config would keep serving routes outside management.
+	cerr := errors.New("routes service not wired")
+	if h.Routes != nil {
+		cctx, ccancel := context.WithTimeout(ctx, 15*time.Second)
+		cerr = h.Routes.ClearNode(cctx, id, apiURL)
+		ccancel()
+	}
+	force := r.FormValue("force") == "1"
+	if cerr != nil && !force {
+		redirectWithFlash(w, r, "/admin/nodes", "",
+			fmt.Sprintf("routes moved (%d) but clearing the node failed: %s - retry, or force-decommission an offline node", moved, sanitizeErr(cerr)))
+		return
+	}
 
 	if _, err := db.ExecContext(ctx, "DELETE FROM caddy_nodes WHERE id = ?", id); err != nil {
 		redirectWithFlash(w, r, "/admin/nodes", "", "delete failed after route move: "+sanitizeErr(err))
@@ -1403,10 +1411,13 @@ func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.decommission", Entity: "node", EntityID: fmt.Sprintf("%d", id),
-		Meta: map[string]any{"moved_routes": moved, "dest_node_ids": dests},
+		Meta: map[string]any{"moved_routes": moved, "dest_node_ids": dests, "forced": force, "cleared": cerr == nil},
 	})
-	redirectWithFlash(w, r, "/admin/nodes",
-		fmt.Sprintf("Decommissioned. Moved %d route(s) to node(s) %v.", moved, dests), "")
+	msg := fmt.Sprintf("Decommissioned. Moved %d route(s) to node(s) %v.", moved, dests)
+	if cerr != nil {
+		msg += " Node config was NOT cleared - stop Caddy on that server by hand."
+	}
+	redirectWithFlash(w, r, "/admin/nodes", msg, "")
 }
 
 // NodesRekey generates a fresh WireGuard keypair for a node, stores the
