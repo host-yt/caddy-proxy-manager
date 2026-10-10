@@ -62,7 +62,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		kind = "proxy"
 	}
 	redirectURL := strings.TrimSpace(r.FormValue("redirect_url"))
-	redirectCode, _ := strconv.Atoi(r.FormValue("redirect_code"))
+	redirectCode := atoi32(r.FormValue("redirect_code"))
 	ssl := r.FormValue("ssl") == "1"
 	forceHTTPS := r.FormValue("force_https") == "1"
 	websocket := r.FormValue("websocket") == "1"

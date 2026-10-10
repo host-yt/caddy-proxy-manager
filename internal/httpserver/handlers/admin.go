@@ -1938,7 +1938,7 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	maxDomains, _ := strconv.Atoi(r.FormValue("max_domains"))
 	maxPorts, _ := strconv.Atoi(r.FormValue("max_ports"))
-	rateLimit, _ := strconv.Atoi(r.FormValue("rate_limit_rpm"))
+	rateLimit := atoi32(r.FormValue("rate_limit_rpm"))
 	groupID, _ := strconv.ParseInt(r.FormValue("node_group_id"), 10, 64)
 	ssl := r.FormValue("ssl") == "1"
 	pathRouting := r.FormValue("path_routing") == "1"
@@ -1946,7 +1946,7 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 	wildcard := r.FormValue("wildcard") == "1"
 	externalProxy := r.FormValue("external_proxy") == "1"
 	allowEgressIP := r.FormValue("allow_egress_ip") == "1"
-	wgKeyRotDays, _ := strconv.Atoi(r.FormValue("wg_key_rotation_days"))
+	wgKeyRotDays := atoi32(r.FormValue("wg_key_rotation_days"))
 
 	if name == "" || maxDomains <= 0 || maxPorts <= 0 || groupID == 0 {
 		redirectWithFlash(w, r, "/admin/plans", "", "name, limits, and node group are required")
@@ -2026,7 +2026,7 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	maxDomains, _ := strconv.Atoi(r.FormValue("max_domains"))
 	maxPorts, _ := strconv.Atoi(r.FormValue("max_ports"))
-	rateLimit, _ := strconv.Atoi(r.FormValue("rate_limit_rpm"))
+	rateLimit := atoi32(r.FormValue("rate_limit_rpm"))
 	groupID, _ := strconv.ParseInt(r.FormValue("node_group_id"), 10, 64)
 	ssl := r.FormValue("ssl") == "1"
 	pathRouting := r.FormValue("path_routing") == "1"
@@ -2034,7 +2034,7 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 	wildcard := r.FormValue("wildcard") == "1"
 	externalProxy := r.FormValue("external_proxy") == "1"
 	allowEgressIP := r.FormValue("allow_egress_ip") == "1"
-	wgKeyRotDays, _ := strconv.Atoi(r.FormValue("wg_key_rotation_days"))
+	wgKeyRotDays := atoi32(r.FormValue("wg_key_rotation_days"))
 
 	if name == "" || maxDomains <= 0 || maxPorts <= 0 || groupID == 0 {
 		redirectWithFlash(w, r, "/admin/plans", "", "name, limits, and node group are required")
@@ -4734,6 +4734,16 @@ func actorUserID(s *auth.Session) *int64 {
 	}
 	id := s.UserID
 	return &id
+}
+
+// atoi32 parses a form int bounded to 32 bits (the INT columns it lands in);
+// junk or out-of-range input yields 0.
+func atoi32(s string) int {
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return 0
+	}
+	return int(n)
 }
 
 func atoiOr(s string, def int) int {

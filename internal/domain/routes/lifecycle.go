@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -269,7 +270,7 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		redirURL = sql.NullString{String: in.RedirectURL, Valid: true}
 	}
 	var redirCode sql.NullInt32
-	if in.RedirectCode != 0 {
+	if in.RedirectCode > 0 && in.RedirectCode <= math.MaxInt32 {
 		redirCode = sql.NullInt32{Int32: int32(in.RedirectCode), Valid: true}
 	}
 	var tagVal sql.NullString
