@@ -15,6 +15,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // Service resolves and enforces reseller package limits.
@@ -57,6 +59,8 @@ type Querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
+// limitsOn locks the reseller row: inside the caller's transaction this
+// serializes concurrent creates so a count stays binding until commit.
 func limitsOn(ctx context.Context, db Querier, resellerID int64) (limits, bool, error) {
 	if resellerID == 0 {
 		return limits{}, false, nil
@@ -65,7 +69,7 @@ func limitsOn(ctx context.Context, db Querier, resellerID int64) (limits, bool, 
 	var planID sql.NullInt64
 	err := db.QueryRowContext(ctx,
 		`SELECT r.reseller_plan_id, COALESCE(r.overselling_allowed,0)
-		 FROM resellers r WHERE r.id=?`, resellerID).Scan(&planID, &l.overselling)
+		 FROM resellers r WHERE r.id=?`+store.ForUpdate(), resellerID).Scan(&planID, &l.overselling)
 	if errors.Is(err, sql.ErrNoRows) {
 		return limits{}, false, nil
 	}
@@ -87,14 +91,18 @@ func limitsOn(ctx context.Context, db Querier, resellerID int64) (limits, bool, 
 	return l, true, nil
 }
 
-// CanCreateClient gates adding one more client under the reseller.
-func (s *Service) CanCreateClient(ctx context.Context, resellerID int64) error {
-	l, ok, err := s.limitsFor(ctx, resellerID)
+// CanCreateClient gates adding one more client under the reseller. db must be
+// the transaction that then inserts the client (see CanCreateRoute).
+func (s *Service) CanCreateClient(ctx context.Context, db Querier, resellerID int64) error {
+	if s == nil || db == nil {
+		return nil
+	}
+	l, ok, err := limitsOn(ctx, db, resellerID)
 	if err != nil || !ok || l.maxClients <= 0 {
 		return err
 	}
 	var n int
-	if err := s.DB().QueryRowContext(ctx,
+	if err := db.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM clients WHERE reseller_id=?`, resellerID).Scan(&n); err != nil {
 		return fmt.Errorf("quota: client count: %w", err)
 	}
@@ -106,13 +114,16 @@ func (s *Service) CanCreateClient(ctx context.Context, resellerID int64) error {
 
 // CanCreateService gates adding one more subscription. planID is the service
 // plan being attached; without overselling its max_domains allocation must fit
-// the package's aggregate domain capacity.
-func (s *Service) CanCreateService(ctx context.Context, resellerID, planID int64) error {
-	l, ok, err := s.limitsFor(ctx, resellerID)
+// the package's aggregate domain capacity. db must be the transaction that
+// then inserts the service.
+func (s *Service) CanCreateService(ctx context.Context, db Querier, resellerID, planID int64) error {
+	if s == nil || db == nil {
+		return nil
+	}
+	l, ok, err := limitsOn(ctx, db, resellerID)
 	if err != nil || !ok {
 		return err
 	}
-	db := s.DB()
 	if l.maxServices > 0 {
 		var n int
 		if err := db.QueryRowContext(ctx,
@@ -159,13 +170,16 @@ func (s *Service) CanCreateService(ctx context.Context, resellerID, planID int64
 // CanChangeClientPlan gates repointing every service of a client at newPlanID.
 // Without overselling the reallocated capacity (all of the client's services on
 // the new plan, plus every other client's current allocation) must still fit the
-// package's aggregate domain cap.
-func (s *Service) CanChangeClientPlan(ctx context.Context, resellerID, clientID, newPlanID int64) error {
-	l, ok, err := s.limitsFor(ctx, resellerID)
+// package's aggregate domain cap. db must be the transaction that then
+// repoints the services.
+func (s *Service) CanChangeClientPlan(ctx context.Context, db Querier, resellerID, clientID, newPlanID int64) error {
+	if s == nil || db == nil {
+		return nil
+	}
+	l, ok, err := limitsOn(ctx, db, resellerID)
 	if err != nil || !ok || l.overselling || l.maxDomains <= 0 {
 		return err
 	}
-	db := s.DB()
 	var newAlloc int
 	var newKind string
 	if err := db.QueryRowContext(ctx,

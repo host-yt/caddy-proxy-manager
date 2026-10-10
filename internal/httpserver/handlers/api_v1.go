@@ -289,18 +289,27 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	// Reseller aggregate quota (subscriptions + allocated domain capacity).
+	var rid int64
 	if h.Quota != nil {
-		if rid, qerr := h.Quota.ResellerOfClient(ctx, in.ClientID); qerr == nil && rid != 0 {
-			if qerr = h.Quota.CanCreateService(ctx, rid, in.PlanID); qerr != nil {
-				h.Logger.Warn("service quota check failed", "err", qerr)
-				apiErr(w, http.StatusForbidden, "service quota reached or check failed")
-				return
-			}
+		rid, _ = h.Quota.ResellerOfClient(ctx, in.ClientID)
+	}
+	// SQLite has one connection: everything below must go through tx.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "tx begin failed")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+	// Reseller aggregate quota (subscriptions + allocated domain capacity).
+	if rid != 0 {
+		if qerr := h.Quota.CanCreateService(ctx, tx, rid, in.PlanID); qerr != nil {
+			h.Logger.Warn("service quota check failed", "err", qerr)
+			apiErr(w, http.StatusForbidden, "service quota reached or check failed")
+			return
 		}
 	}
 	var nodeGroupID int64
-	if err := db.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", in.PlanID).Scan(&nodeGroupID); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", in.PlanID).Scan(&nodeGroupID); err != nil {
 		apiErr(w, http.StatusBadRequest, "plan not found")
 		return
 	}
@@ -308,7 +317,7 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 	if in.ExternalReference != "" {
 		extRef = sql.NullString{String: in.ExternalReference, Valid: true}
 	}
-	res, err := db.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO services (client_id, name, backend_ip, allowed_port_start, allowed_port_end,
 		   plan_id, node_group_id, status, external_reference)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
@@ -319,6 +328,10 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := res.LastInsertId()
+	if err := tx.Commit(); err != nil {
+		apiErr(w, http.StatusInternalServerError, "commit failed")
+		return
+	}
 	uid := apiCallerID(r)
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: &uid, ActorType: audit.ActorAPI, Action: "service.create", Entity: "service",

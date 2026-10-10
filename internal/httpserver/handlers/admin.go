@@ -2448,22 +2448,22 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/clients", "", "forbidden: your account is scoped to assigned clients")
 		return
 	}
-	// Reseller aggregate quota: cap the number of clients under the reseller.
-	if h.Quota != nil {
-		if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 {
-			if qerr := h.Quota.CanCreateClient(ctx, sess.ResellerID); qerr != nil {
-				h.Logger.Warn("client quota check failed", "err", qerr)
-				redirectWithFlash(w, r, "/admin/clients", "", "client quota reached or check failed")
-				return
-			}
-		}
-	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/clients", "", "tx begin failed")
 		return
 	}
 	defer tx.Rollback() //nolint:errcheck
+	// Reseller aggregate quota: cap the number of clients under the reseller.
+	if h.Quota != nil {
+		if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 {
+			if qerr := h.Quota.CanCreateClient(ctx, tx, sess.ResellerID); qerr != nil {
+				h.Logger.Warn("client quota check failed", "err", qerr)
+				redirectWithFlash(w, r, "/admin/clients", "", "client quota reached or check failed")
+				return
+			}
+		}
+	}
 
 	res, err := tx.ExecContext(ctx,
 		"INSERT INTO users (email, password_hash, password_set, role, full_name, is_active) VALUES (?, ?, 1, 'client', ?, 1)",
@@ -2794,20 +2794,29 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/services", "", "port range overlaps an existing service on this backend IP")
 		return
 	}
+	var rid int64
+	if h.Quota != nil {
+		rid, _ = h.Quota.ResellerOfClient(ctx, clientID)
+	}
+	// SQLite has one connection: everything below must go through tx.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "tx begin failed")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
 	// Reseller aggregate quota: subscriptions + (without overselling) the
 	// allocated domain capacity of the attached plan.
-	if h.Quota != nil {
-		if rid, qerr := h.Quota.ResellerOfClient(ctx, clientID); qerr == nil && rid != 0 {
-			if qerr = h.Quota.CanCreateService(ctx, rid, planID); qerr != nil {
-				h.Logger.Warn("service quota check failed", "err", qerr)
-				redirectWithFlash(w, r, "/admin/services", "", "service quota reached or check failed")
-				return
-			}
+	if rid != 0 {
+		if qerr := h.Quota.CanCreateService(ctx, tx, rid, planID); qerr != nil {
+			h.Logger.Warn("service quota check failed", "err", qerr)
+			redirectWithFlash(w, r, "/admin/services", "", "service quota reached or check failed")
+			return
 		}
 	}
 
 	var nodeGroupID int64
-	if err := db.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
 		redirectWithFlash(w, r, "/admin/services", "", "plan not found")
 		return
 	}
@@ -2820,7 +2829,7 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	if notes != "" {
 		notesVal = sql.NullString{String: notes, Valid: true}
 	}
-	res, err := db.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO services (client_id, name, backend_ip, allowed_port_start, allowed_port_end,
 		   plan_id, node_group_id, status, external_reference, notes)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
@@ -2831,6 +2840,10 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := res.LastInsertId()
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "commit failed")
+		return
+	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "service.create", Entity: "service", EntityID: fmt.Sprintf("%d", id),
