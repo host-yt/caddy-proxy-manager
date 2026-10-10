@@ -1,5 +1,9 @@
 # Hostyt Proxy Gateway
 
+[![CI](https://github.com/host-yt/caddy-proxy-manager/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/host-yt/caddy-proxy-manager/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/host-yt/caddy-proxy-manager)](https://github.com/host-yt/caddy-proxy-manager/releases/latest)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/host-yt/caddy-proxy-manager/badge)](https://scorecard.dev/viewer/?uri=github.com/host-yt/caddy-proxy-manager)
+
 **A Caddy proxy manager - the self-hosted, multi-tenant alternative to Nginx Proxy Manager, built on [Caddy](https://caddyserver.com).**
 
 Hostyt Proxy Gateway is a self-hosted control panel - a Caddy web UI - for a
@@ -208,6 +212,27 @@ To add a remote Caddy node:
    Caddy, joins the mesh, and registers itself.
 
 Full guide: [docs/MULTI_NODE.md](docs/MULTI_NODE.md).
+
+### Verifying images
+
+Release images (`caddy-proxy-manager`, `-edge`, `-wg`, `-node-agent` under
+`ghcr.io/host-yt/`) are signed keylessly with cosign and carry GitHub build
+provenance attestations. Check either before deploying:
+
+```bash
+IMAGE=ghcr.io/host-yt/caddy-proxy-manager:latest
+
+# Sigstore signature, made by this repo's release workflow
+cosign verify "$IMAGE" \
+  --certificate-identity-regexp '^https://github\.com/host-yt/caddy-proxy-manager/\.github/workflows/release\.yml@refs/(tags/v|heads/main$)' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+
+# SLSA build provenance
+gh attestation verify "oci://$IMAGE" --owner host-yt
+```
+
+GitHub attestations exist for images published after v1.8.0; older tags
+are covered by the cosign signature only.
 
 ---
 
