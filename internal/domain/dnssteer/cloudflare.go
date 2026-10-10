@@ -12,7 +12,7 @@ import (
 	"time"
 )
 
-const cfAPIBase = "https://api.cloudflare.com/client/v4"
+var cfAPIBase = "https://api.cloudflare.com/client/v4" // var so tests can point it at httptest
 
 // cloudflareProvider talks to the Cloudflare v4 REST API directly with
 // net/http (same approach as internal/cloudflare's token-verify call) -
@@ -108,26 +108,35 @@ func (p *cloudflareProvider) GetRecords(ctx context.Context, zone string) ([]Rec
 	if err != nil {
 		return nil, err
 	}
-	var out struct {
-		Success bool         `json:"success"`
-		Result  []cfRecord   `json:"result"`
-		Errors  []cfAPIError `json:"errors"`
-	}
-	// per_page=5000 is Cloudflare's max; steered zones are small so one page suffices.
-	if err := p.do(ctx, http.MethodGet, "/zones/"+zid+"/dns_records?per_page=5000", nil, &out); err != nil {
-		return nil, err
-	}
-	if !out.Success {
-		return nil, cfErr(out.Errors)
-	}
-	recs := make([]Record, 0, len(out.Result))
-	for _, r := range out.Result {
-		if r.Type != "A" && r.Type != "AAAA" {
-			continue
+	var recs []Record
+	// Walk every page: a record missed on a later page would be re-created
+	// as a duplicate or never removed.
+	for page := 1; ; page++ {
+		var out struct {
+			Success    bool         `json:"success"`
+			Result     []cfRecord   `json:"result"`
+			Errors     []cfAPIError `json:"errors"`
+			ResultInfo struct {
+				TotalPages int `json:"total_pages"`
+			} `json:"result_info"`
 		}
-		recs = append(recs, Record{ID: r.ID, Type: r.Type, Name: r.Name, Value: r.Content, TTL: time.Duration(r.TTL) * time.Second})
+		path := fmt.Sprintf("/zones/%s/dns_records?per_page=5000&page=%d", zid, page)
+		if err := p.do(ctx, http.MethodGet, path, nil, &out); err != nil {
+			return nil, err
+		}
+		if !out.Success {
+			return nil, cfErr(out.Errors)
+		}
+		for _, r := range out.Result {
+			if r.Type != "A" && r.Type != "AAAA" {
+				continue
+			}
+			recs = append(recs, Record{ID: r.ID, Type: r.Type, Name: r.Name, Value: r.Content, TTL: time.Duration(r.TTL) * time.Second})
+		}
+		if page >= out.ResultInfo.TotalPages || len(out.Result) == 0 {
+			return recs, nil
+		}
 	}
-	return recs, nil
 }
 
 type cfCreateReq struct {
