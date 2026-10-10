@@ -5251,7 +5251,7 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/settings", "", "OIDC issuer: invalid URL")
 			return
 		}
-		if u.Scheme != "https" && !strings.HasPrefix(u.Host, "localhost") && u.Hostname() != "127.0.0.1" {
+		if u.Scheme != "https" { // no loopback http exemption: SSRF guard blocks loopback anyway
 			redirectWithFlash(w, r, "/admin/settings", "", "OIDC issuer: must use https:// (RFC 8252)")
 			return
 		}
