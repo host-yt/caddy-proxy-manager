@@ -15,7 +15,7 @@ import (
 )
 
 // HealthProbe sweeps every enabled node in parallel, GETs its /config/
-// endpoint, and updates health_status + last_seen_at. Errors are logged,
+// endpoint, and updates health_status (+ last_seen_at on success). Errors are logged,
 // not returned. Bounded concurrency keeps slow nodes from delaying the
 // rest. Designed to be called every ~30s from a background ticker.
 const healthProbeWorkers = 8
@@ -63,9 +63,16 @@ func (s *Service) HealthProbe(ctx context.Context) {
 				status = "healthy"
 			}
 			cancel()
-			_, _ = s.DB.ExecContext(ctx,
-				"UPDATE caddy_nodes SET health_status = ?, last_seen_at = NOW() WHERE id = ?",
-				status, p.id)
+			// last_seen_at = last successful contact; AutoFailover and the
+			// node_offline alert measure the outage from it.
+			if probeErr == nil {
+				_, _ = s.DB.ExecContext(ctx,
+					"UPDATE caddy_nodes SET health_status = ?, last_seen_at = NOW() WHERE id = ?",
+					status, p.id)
+			} else {
+				_, _ = s.DB.ExecContext(ctx,
+					"UPDATE caddy_nodes SET health_status = ? WHERE id = ?", status, p.id)
+			}
 			// Only a successful probe reflects real RTT - a failed/timed-out
 			// probe measures the timeout, not the network.
 			if probeErr == nil {

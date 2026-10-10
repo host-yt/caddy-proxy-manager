@@ -212,3 +212,40 @@ func TestAutoFailover_RespectsPeerCapacity(t *testing.T) {
 		t.Errorf("down current_routes = %d, want 2 (routes not moved stay counted)", got)
 	}
 }
+
+// A failed probe must not refresh last_seen_at, or the failover grace window
+// restarts every sweep and a dead node is never failed over.
+func TestHealthProbe_FailedProbeKeepsLastSeen(t *testing.T) {
+	db := newPushTestDB(t)
+	ctx := context.Background()
+	healthy := newRecordingNode(t)
+	if _, err := db.Exec(`INSERT INTO node_groups (id, name, mode) VALUES (1, 'default', 'failover')`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`INSERT INTO caddy_nodes (id, name, api_url, public_hostname, node_group_id, max_routes,
+	        is_enabled, health_status, last_seen_at, approved_at)
+	      VALUES (1, 'edge-down', 'http://127.0.0.1:1', 'down.example', 1, 100, 1, 'down',
+	              datetime('now', '-30 minutes'), CURRENT_TIMESTAMP),
+	             (2, 'edge-ok', ?, 'ok.example', 1, 100, 1, 'unknown',
+	              datetime('now', '-30 minutes'), CURRENT_TIMESTAMP)`, healthy.srv.URL); err != nil {
+		t.Fatal(err)
+	}
+
+	svc := &Service{DB: db, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+	svc.HealthProbe(ctx)
+
+	stale := func(id int) bool {
+		var n int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM caddy_nodes
+		        WHERE id = ? AND last_seen_at < datetime('now', '-10 minutes')`, id).Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n == 1
+	}
+	if !stale(1) {
+		t.Error("failed probe refreshed last_seen_at on the down node")
+	}
+	if stale(2) {
+		t.Error("successful probe did not refresh last_seen_at")
+	}
+}
