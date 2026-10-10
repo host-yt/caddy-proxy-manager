@@ -25,9 +25,7 @@ FROM caddy:2.11.7-builder@sha256:b25f47453fa02f7e66c0828b4b1343658808b9000950b68
 # hand with the Go provider registry (internal/caddyapi/dnsproviders.go): a
 # selected provider whose module is NOT built makes Caddy reject the whole
 # /load, so the two MUST match exactly (DNSProviderModules()).
-# x/net pinned past CVE-2026-78669 until Caddy itself requires >= v0.60.0
 RUN xcaddy build \
-      --with golang.org/x/net@v0.60.0 \
       --with github.com/caddyserver/cache-handler@v0.16.0 \
       --with github.com/mholt/caddy-l4@v0.1.1 \
       --with github.com/mholt/caddy-ratelimit@v0.1.0 \
