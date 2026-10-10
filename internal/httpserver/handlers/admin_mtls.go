@@ -256,10 +256,17 @@ func (h *AdminHandlers) MTLSDeleteCA(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
+	// Collect nodes first: the delete nulls routes.mtls_ca_id, losing the link.
+	nodes, err := h.mtlsCANodes(ctx, id)
+	if err != nil {
+		redirectWithFlash(w, r, page, "", "delete aborted: could not list the nodes trusting this CA")
+		return
+	}
 	if err := svc.DeleteCA(ctx, id); err != nil {
 		redirectWithFlash(w, r, page, "", "delete failed: "+sanitizeErr(err))
 		return
 	}
+	h.pushMTLSNodes(nodes)
 	sess := middleware.SessionFromContext(r.Context())
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "mtls.ca.delete", Entity: "mtls_ca",
