@@ -1,7 +1,12 @@
 # Contributing
 
-Thanks for considering a patch. This document is the short version of
-how the project is built - read it once, then go.
+Thanks for your interest. **Pull requests are open to maintainers only**
+(repository setting). Found a bug or want a feature? Open an
+[issue](https://github.com/host-yt/caddy-proxy-manager/issues/new/choose) - a clear report with steps to reproduce
+is the most useful contribution. Security problems: see [SECURITY.md](SECURITY.md).
+
+The rest of this document is how the project is built, for maintainers
+and for anyone running a fork.
 
 ## Tooling
 
@@ -65,8 +70,9 @@ Conventional Commits prefixes: `feat(...)`, `fix(...)`, `chore(...)`,
 `docs(...)`, `refactor(...)`. Keep the subject under 72 chars; explain
 the **why** in the body when it isn't obvious from the diff.
 
-## Pull requests
+## Pull requests (maintainers)
 
+- Outside contributors can't open PRs here; report through issues instead.
 - Squash on merge.
 - Include a short test plan in the description.
 - Link the related ticket / issue if there is one.
