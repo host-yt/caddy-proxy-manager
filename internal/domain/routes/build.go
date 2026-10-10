@@ -1025,10 +1025,12 @@ func (s *Service) buildWildcardPolicies(ctx context.Context, nodeID int64) []cad
 		`SELECT DISTINCT dp.name, dp.provider, dp.api_token_enc
 		   FROM routes r
 		   JOIN dns_providers dp ON dp.name = r.wildcard_zone
-		  WHERE r.caddy_node_id = ?
+		  WHERE (r.caddy_node_id = ?
+		         OR EXISTS (SELECT 1 FROM route_node_assignments rna
+		                     WHERE rna.route_id = r.id AND rna.node_id = ?))
 		    AND r.wildcard_enabled = 1
 		    AND r.status IN ('dns_ok','active','pending_ssl')`+serviceActiveSQL+`
-		  ORDER BY dp.name ASC`, nodeID)
+		  ORDER BY dp.name ASC`, nodeID, nodeID)
 	if err != nil {
 		s.Logger.Error("wildcard: policy query failed, no DNS-01 policy emitted", "node_id", nodeID, "err", err)
 		return nil
