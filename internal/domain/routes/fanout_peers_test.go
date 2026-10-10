@@ -75,3 +75,21 @@ func TestUpdateRoute_PushesFanoutPeers(t *testing.T) {
 		}
 	}
 }
+
+// Fleet- and client-wide pushes must include nodes that host a route only
+// through a fan-out assignment.
+func TestSchedulePushAllAndClient_IncludeFanoutPeers(t *testing.T) {
+	db := seedFanoutRoute(t)
+	for name, run := range map[string]func(*Service){
+		"all":    func(s *Service) { s.SchedulePushAllNodes(context.Background()) },
+		"client": func(s *Service) { s.SchedulePushForClient(context.Background(), 1) },
+	} {
+		svc := quietService(db)
+		run(svc)
+		for _, node := range []int64{1, 2} {
+			if svc.currentGen(node) == 0 {
+				t.Errorf("%s: node %d not scheduled", name, node)
+			}
+		}
+	}
+}

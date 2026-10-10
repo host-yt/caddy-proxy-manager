@@ -117,14 +117,16 @@ func (s *Service) schedulePush(nodeID int64) {
 // change but don't want to import the full push path directly.
 func (s *Service) SchedulePush(nodeID int64) { s.schedulePush(nodeID) }
 
-// SchedulePushAllNodes re-pushes every node that hosts a route. Used when a
+// SchedulePushAllNodes re-pushes every node that hosts a route (anchor or
+// fan-out assignment). Used when a
 // panel-wide setting baked into generated config (geo-block default, error-page
 // branding) changes and must reach all nodes, not just one client's.
 func (s *Service) SchedulePushAllNodes(ctx context.Context) {
 	if s.DB == nil {
 		return
 	}
-	s.scheduleQueried(ctx, `SELECT DISTINCT caddy_node_id FROM routes WHERE caddy_node_id IS NOT NULL`)
+	s.scheduleQueried(ctx, `SELECT caddy_node_id FROM routes WHERE caddy_node_id IS NOT NULL
+		 UNION SELECT node_id FROM route_node_assignments`)
 }
 
 // scheduleQueried schedules every node id the query returns. Rows are drained
@@ -154,9 +156,14 @@ func (s *Service) SchedulePushForClient(ctx context.Context, clientID int64) {
 	if s.DB == nil || clientID == 0 {
 		return
 	}
-	s.scheduleQueried(ctx, `SELECT DISTINCT r.caddy_node_id FROM routes r
+	s.scheduleQueried(ctx, `SELECT r.caddy_node_id FROM routes r
 		   JOIN services sv ON sv.id = r.service_id
-		  WHERE sv.client_id = ? AND r.caddy_node_id IS NOT NULL`, clientID)
+		  WHERE sv.client_id = ? AND r.caddy_node_id IS NOT NULL
+		 UNION
+		 SELECT rna.node_id FROM route_node_assignments rna
+		   JOIN routes r ON r.id = rna.route_id
+		   JOIN services sv ON sv.id = r.service_id
+		  WHERE sv.client_id = ?`, clientID, clientID)
 }
 
 // SchedulePushForRoute re-pushes every node serving the given route (its direct
