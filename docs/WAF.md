@@ -90,24 +90,18 @@ around that by disabling the WAF on a route, re-enable it and use the exclusion.
 
 ### WebSocket routes
 
-Coraza wraps the response writer to inspect responses, which breaks hijacked
-connections: a WebSocket completes its 101 handshake and then drops within
-seconds. On routes with WebSocket support enabled, HPG therefore skips the WAF for
-genuine handshake requests - `GET` carrying both `Connection: Upgrade` and
-`Sec-WebSocket-Key`. Everything else on the route, including all normal HTTP
-traffic, is still inspected.
+The WAF inspects every request on a WebSocket route, including the upgrade
+handshake. Older HPG versions skipped the WAF for requests carrying WebSocket
+handshake headers, because coraza-caddy before 2.6.1 broke hijacked connections
+(the socket dropped seconds after the 101). Those headers are client-controlled,
+so the skip let any request bypass inspection; it was removed once the edge image
+shipped coraza-caddy 2.6.1, which passes the hijack through.
 
-Two consequences worth knowing:
+Nodes must run the v1.8.0 edge image or newer. On an older image, WebSockets on
+WAF-enabled routes connect and then drop.
 
-- Traffic inside an established WebSocket is never inspected. Coraza does not
-  parse WS frames anyway, so treat the upstream as responsible for validating
-  messages.
-- A client that forges all three handshake conditions skips inspection for that
-  one request. The upstream then receives an upgrade request it did not expect
-  and normally answers 400/404, so a payload sent this way does not reach
-  application logic - but if your backend ignores upgrade headers and serves the
-  request normally, it would be uninspected. Turn WebSocket support off on routes
-  that do not need it; the WAF then covers every request with no bypass.
+Traffic inside an established WebSocket is never inspected. Coraza does not
+parse WS frames, so treat the upstream as responsible for validating messages.
 
 ### Streaming responses (SSE) - edge image before v1.4.9
 

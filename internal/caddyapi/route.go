@@ -799,35 +799,9 @@ func BuildRoute(r Route) map[string]any {
 			"load_owasp_crs": true,
 			"directives":     sb.String(),
 		}
-		if !r.WebSocket || r.Kind == "redirect" || r.MaintenanceMode {
-			// No upgrades possible on this route, so inspect everything.
-			handlers = append(handlers, wafHandler)
-		} else {
-			// Coraza wraps the ResponseWriter, which breaks hijacked/upgraded
-			// (101) connections - websockets connect, then drop seconds later.
-			// Skip the WAF only for genuine handshakes: GET + Connection:
-			// Upgrade + Sec-WebSocket-Key, all three required. A forged
-			// combination still bypasses inspection, but the upstream then has
-			// to answer an upgrade it did not get, so ordinary payloads land on
-			// a 400/404 instead of app logic.
-			handlers = append(handlers, map[string]any{
-				"handler": "subroute",
-				"routes": []any{
-					map[string]any{
-						"match": []any{map[string]any{
-							"not": []any{map[string]any{
-								"method": []string{"GET"},
-								"header": map[string]any{
-									"Connection":        []string{"*Upgrade*"},
-									"Sec-Websocket-Key": []string{"*"},
-								},
-							}},
-						}},
-						"handle": []any{wafHandler},
-					},
-				},
-			})
-		}
+		// No header-based upgrade bypass: those headers are client-forgeable.
+		// coraza-caddy >= 2.6.1 passes Hijack through, so WebSockets work inspected.
+		handlers = append(handlers, wafHandler)
 	}
 	// Inbound bearer gate for External upstream routes. This route egresses to
 	// the public internet from the node's clean IP and the data-plane request
