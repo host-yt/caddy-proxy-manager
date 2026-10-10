@@ -447,6 +447,45 @@ type dashboardData struct {
 	TopClients   []dashTopClient
 	// ResellerUsage is set for reseller sessions: own consumption vs package.
 	ResellerUsage *quota.Usage
+	// Scoped hides platform-wide widgets (fleet, plans, audit, node traffic).
+	Scoped bool
+}
+
+// dashScope limits dashboard queries to a confined admin's clients.
+type dashScope struct {
+	scoped bool
+	ids    []int64
+}
+
+// cond returns " AND col IN (...)" for a scoped caller; no ids matches nothing.
+func (sc dashScope) cond(col string) (string, []any) {
+	if !sc.scoped {
+		return "", nil
+	}
+	if len(sc.ids) == 0 {
+		return " AND 1=0", nil
+	}
+	args := make([]any, len(sc.ids))
+	for i, id := range sc.ids {
+		args[i] = id
+	}
+	return " AND " + col + " IN (?" + strings.Repeat(",?", len(sc.ids)-1) + ")", args
+}
+
+// dashboardScope resolves the caller's client scope; errors fail closed.
+func (h *AdminHandlers) dashboardScope(ctx context.Context, sess *auth.Session) dashScope {
+	if sess == nil {
+		return dashScope{scoped: true}
+	}
+	if sess.Role == "super_admin" || h.AdminScope == nil {
+		return dashScope{}
+	}
+	ids, all, err := h.AdminScope.ScopeFilter(ctx, sess.UserID)
+	if err != nil {
+		h.Logger.Warn("dashboard scope", "user_id", sess.UserID, "err", err)
+		return dashScope{scoped: true}
+	}
+	return dashScope{scoped: !all, ids: ids}
 }
 
 // Cap below the max number of distinct attention items (currently 7) so the
@@ -464,37 +503,46 @@ func (h *AdminHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	d.Counts = h.dashboardCounts(ctx, db)
+	sess := middleware.SessionFromContext(r.Context())
+	sc := h.dashboardScope(ctx, sess)
+	d.Scoped = sc.scoped
+	d.Counts = h.dashboardCounts(ctx, db, sc)
 	// Reseller sessions get their package usage front and center.
-	if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 && h.Quota != nil {
+	if sess != nil && sess.ResellerID > 0 && h.Quota != nil {
 		if u, err := h.Quota.UsageFor(ctx, sess.ResellerID); err == nil {
 			d.ResellerUsage = &u
 		}
 	}
-	d.Attention, d.Truncated = h.dashboardAttention(ctx, db)
-	d.RecentEvents = h.dashboardRecentEvents(ctx, db)
-	d.Traffic = h.dashboardTraffic(ctx, db)
-	d.TopRoutes = h.dashboardTopRoutes(ctx, db)
-	d.TopClients = h.dashboardTopClients(ctx, db)
+	d.Attention, d.Truncated = h.dashboardAttention(ctx, db, sc)
+	if !sc.scoped {
+		d.RecentEvents = h.dashboardRecentEvents(ctx, db)
+		d.Traffic = h.dashboardTraffic(ctx, db)
+	}
+	d.TopRoutes = h.dashboardTopRoutes(ctx, db, sc)
+	d.TopClients = h.dashboardTopClients(ctx, db, sc)
 
 	h.render(w, "dashboard", d)
 }
 
-func (h *AdminHandlers) dashboardCounts(ctx context.Context, db *sql.DB) dashCounts {
+func (h *AdminHandlers) dashboardCounts(ctx context.Context, db *sql.DB, sc dashScope) dashCounts {
 	var c dashCounts
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM routes").Scan(&c.TotalHosts)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM routes WHERE status='active'").Scan(&c.ActiveHosts)
+	rc, ra := sc.cond("s.client_id")
+	const routesQ = "SELECT COUNT(*) FROM routes r JOIN services s ON s.id = r.service_id WHERE 1=1"
+	_ = db.QueryRowContext(ctx, routesQ+rc, ra...).Scan(&c.TotalHosts)
+	_ = db.QueryRowContext(ctx, routesQ+" AND r.status='active'"+rc, ra...).Scan(&c.ActiveHosts)
 	_ = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM routes WHERE status IN ('pending_dns','dns_ok','pending_ssl')").Scan(&c.PendingHosts)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM routes WHERE status='failed'").Scan(&c.FailedHosts)
+		routesQ+" AND r.status IN ('pending_dns','dns_ok','pending_ssl')"+rc, ra...).Scan(&c.PendingHosts)
+	_ = db.QueryRowContext(ctx, routesQ+" AND r.status='failed'"+rc, ra...).Scan(&c.FailedHosts)
+	cc, ca := sc.cond("c.id")
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clients c WHERE 1=1"+cc, ca...).Scan(&c.Clients)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM services s WHERE s.status='suspended'"+rc, ra...).Scan(&c.SuspendedServices)
+	if sc.scoped {
+		return c // nodes, plans and CAs are platform-wide
+	}
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM caddy_nodes").Scan(&c.NodesTotal)
 	_ = db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM caddy_nodes WHERE health_status='healthy' AND is_enabled=1 AND approved_at IS NOT NULL").Scan(&c.NodesOnline)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clients").Scan(&c.Clients)
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM plans").Scan(&c.Plans)
-	var susp int
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM services WHERE status='suspended'").Scan(&susp)
-	c.SuspendedServices = susp
 	// Count CA certs expiring within 30 days (includes already expired).
 	var mtlsExpiring int
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after < ("+store.DateAdd(30, "DAY")+")").Scan(&mtlsExpiring)
@@ -504,16 +552,15 @@ func (h *AdminHandlers) dashboardCounts(ctx context.Context, db *sql.DB) dashCou
 
 // dashboardAttention builds the actionable list from real conditions only;
 // a condition with zero rows is omitted. Capped at dashAttentionCap.
-func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB) ([]AttentionItem, bool) {
+func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB, sc dashScope) ([]AttentionItem, bool) {
 	var items []AttentionItem
 
 	var stuckSSL, stuckDNS, failed int
-	_ = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM routes WHERE status='pending_ssl'").Scan(&stuckSSL)
-	_ = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM routes WHERE status IN ('pending_dns','dns_ok')").Scan(&stuckDNS)
-	_ = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM routes WHERE status='failed'").Scan(&failed)
+	rc, ra := sc.cond("s.client_id")
+	const routesQ = "SELECT COUNT(*) FROM routes r JOIN services s ON s.id = r.service_id WHERE "
+	_ = db.QueryRowContext(ctx, routesQ+"r.status='pending_ssl'"+rc, ra...).Scan(&stuckSSL)
+	_ = db.QueryRowContext(ctx, routesQ+"r.status IN ('pending_dns','dns_ok')"+rc, ra...).Scan(&stuckDNS)
+	_ = db.QueryRowContext(ctx, routesQ+"r.status='failed'"+rc, ra...).Scan(&failed)
 	if failed > 0 {
 		items = append(items, AttentionItem{
 			Severity: "error",
@@ -534,6 +581,15 @@ func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB) ([]A
 			Text:     fmt.Sprintf("%d host(s) waiting on DNS validation", stuckDNS),
 			URL:      "/admin/hosts?status=pending_dns",
 		})
+	}
+	if sc.scoped {
+		var susp int
+		_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM services s WHERE s.status='suspended'"+rc, ra...).Scan(&susp)
+		if susp > 0 {
+			items = append(items, AttentionItem{Severity: "warn",
+				Text: fmt.Sprintf("%d service(s) currently suspended", susp), URL: "/admin/services?status=suspended"})
+		}
+		return items, false // the rest is platform-wide
 	}
 
 	// Node health: down, never-probed, then approved-but-disabled.
@@ -684,13 +740,15 @@ func (h *AdminHandlers) dashboardRecentEvents(ctx context.Context, db *sql.DB) [
 }
 
 // dashboardTopRoutes returns the 5 busiest routes by request count in the last 24h.
-func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB) []dashTopRoute {
+func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB, sc dashScope) []dashTopRoute {
+	rc, ra := sc.cond("s.client_id")
 	rows, err := db.QueryContext(ctx,
 		`SELECT lr.route_id, r.domain, SUM(lr.requests) AS reqs
 		 FROM log_rollups lr JOIN routes r ON r.id = lr.route_id
-		 WHERE lr.bucket_start >= `+store.DateSub(24, "HOUR")+`
+		 JOIN services s ON s.id = r.service_id
+		 WHERE lr.bucket_start >= `+store.DateSub(24, "HOUR")+rc+`
 		 GROUP BY lr.route_id, r.domain
-		 ORDER BY reqs DESC LIMIT 5`)
+		 ORDER BY reqs DESC LIMIT 5`, ra...)
 	if err != nil {
 		return nil
 	}
@@ -706,7 +764,8 @@ func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB) []da
 }
 
 // dashboardTopClients returns the 5 highest-bandwidth clients over the last 7d.
-func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB) []dashTopClient {
+func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB, sc dashScope) []dashTopClient {
+	rc, ra := sc.cond("s.client_id")
 	rows, err := db.QueryContext(ctx,
 		`SELECT s.client_id, COALESCE(c.display_name, u.full_name, u.email), SUM(lr.bytes_resp) AS bw
 		 FROM log_rollups lr
@@ -714,9 +773,9 @@ func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB) []d
 		 JOIN services s ON s.id = r.service_id
 		 JOIN clients c ON c.id = s.client_id
 		 JOIN users u ON u.id = c.user_id
-		 WHERE lr.bucket_start >= `+store.DateSub(7, "DAY")+`
+		 WHERE lr.bucket_start >= `+store.DateSub(7, "DAY")+rc+`
 		 GROUP BY s.client_id, c.display_name, u.email, u.full_name
-		 ORDER BY bw DESC LIMIT 5`)
+		 ORDER BY bw DESC LIMIT 5`, ra...)
 	if err != nil {
 		return nil
 	}
