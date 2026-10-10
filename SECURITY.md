@@ -2,23 +2,39 @@
 
 ## Supported versions
 
-This is a young project. Only the `main` branch is currently
-maintained.
+Only the latest minor release line gets security fixes: currently **1.8.x**
+(plus `main`). Upgrade to the newest patch release before reporting.
 
 ## Reporting a vulnerability
 
-**Do not open a public GitHub issue.** Email the maintainer
-(address in repository owner profile) or, if the repository is on a
-forge that supports it, open a private security advisory.
+**Do not open a public issue or pull request, and do not post details in
+Discussions.** Use GitHub private vulnerability reporting:
+
+<https://github.com/host-yt/caddy-proxy-manager/security/advisories/new>
 
 Please include:
 
 - Affected endpoint or code path.
 - Reproduction steps (or a proof-of-concept).
 - Your suggested fix, if you have one.
-- Whether you'd like credit in the changelog.
+- Whether you'd like credit in the advisory.
 
-Expect an initial response within 72 hours.
+## Response targets
+
+| Step | Target |
+|------|--------|
+| Acknowledgement | within 3 days |
+| Fix for high severity | within 14 days |
+| Fix for medium severity | within 60 days |
+
+Low severity is fixed in a regular release. Targets are best effort from a
+single maintainer; you will be told if one slips.
+
+## Disclosure
+
+Coordinated disclosure: details stay private until a fix is released. After
+that the issue is published as a GitHub Security Advisory (with a CVE where
+applicable) and credited in the changelog.
 
 ## Hardening checklist for operators
 

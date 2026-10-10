@@ -1,5 +1,5 @@
 blank_issues_enabled: false
 contact_links:
-  - name: Security vulnerability
-    url: https://github.com/host-yt/caddy-proxy-manager/security/policy
-    about: Report privately - never in a public issue.
+  - name: Question or help
+    url: https://github.com/host-yt/caddy-proxy-manager/discussions
+    about: Ask usage questions in Discussions, not in issues.
