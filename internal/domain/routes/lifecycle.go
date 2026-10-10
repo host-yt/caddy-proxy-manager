@@ -625,7 +625,7 @@ func (s *Service) verifyAliases(ctx context.Context, routeID int64, aliases, tok
 	changed := false
 	for _, a := range list {
 		if !proven[a] {
-			if !dns.TXTContains(ctx, "_hpg-verify."+a, token) {
+			if !aliasTXTContains(ctx, "_hpg-verify."+a, token) {
 				continue
 			}
 			changed = true
@@ -658,45 +658,63 @@ func (s *Service) RecheckPendingAliases(ctx context.Context) {
 	if s.DB == nil {
 		return
 	}
-	rows, err := s.DB.QueryContext(ctx,
-		`SELECT id, COALESCE(aliases,''), COALESCE(aliases_verified,''), COALESCE(verify_token,'')
-		   FROM routes
-		  WHERE aliases IS NOT NULL AND aliases <> '' AND status <> 'disabled'
-		  ORDER BY id ASC LIMIT 500`)
-	if err != nil {
-		s.Logger.Warn("alias recheck: list", "err", err)
-		return
-	}
 	type pending struct {
 		id             int64
 		aliases, token string
 	}
-	var todo []pending
-	for rows.Next() {
-		var p pending
-		var verified string
-		if rows.Scan(&p.id, &p.aliases, &verified, &p.token) != nil {
-			continue
-		}
-		if p.token == "" || len(unprovenHosts(p.aliases, verified)) == 0 {
-			continue
-		}
-		todo = append(todo, p)
-	}
-	rows.Close()
-	for _, p := range todo {
-		if ctx.Err() != nil {
+	// Keyset-page the whole table: a fixed LIMIT let fully verified (or never
+	// provable) low-id routes starve every route behind them.
+	var lastID int64
+	for {
+		rows, err := s.DB.QueryContext(ctx,
+			`SELECT id, COALESCE(aliases,''), COALESCE(aliases_verified,''), COALESCE(verify_token,'')
+			   FROM routes
+			  WHERE aliases IS NOT NULL AND aliases <> '' AND status <> 'disabled' AND id > ?
+			  ORDER BY id ASC LIMIT ?`, lastID, aliasRecheckBatch)
+		if err != nil {
+			s.Logger.Warn("alias recheck: list", "err", err)
 			return
 		}
-		proven := s.verifyAliases(ctx, p.id, p.aliases, p.token)
-		if len(unprovenHosts(p.aliases, strings.Join(proven, ","))) > 0 {
-			continue
+		var todo []pending
+		n := 0
+		for rows.Next() {
+			n++
+			var p pending
+			var verified string
+			if rows.Scan(&p.id, &p.aliases, &verified, &p.token) != nil {
+				continue
+			}
+			lastID = p.id
+			if p.token == "" || len(unprovenHosts(p.aliases, verified)) == 0 {
+				continue
+			}
+			todo = append(todo, p)
 		}
-		_, _ = s.DB.ExecContext(ctx,
-			`UPDATE route_alias_legacy_claims SET status='proven', resolved_at=NOW()
-			  WHERE route_id = ? AND status = 'pending'`, p.id)
+		rows.Close()
+		for _, p := range todo {
+			if ctx.Err() != nil {
+				return
+			}
+			proven := s.verifyAliases(ctx, p.id, p.aliases, p.token)
+			if len(unprovenHosts(p.aliases, strings.Join(proven, ","))) > 0 {
+				continue
+			}
+			_, _ = s.DB.ExecContext(ctx,
+				`UPDATE route_alias_legacy_claims SET status='proven', resolved_at=NOW()
+				  WHERE route_id = ? AND status = 'pending'`, p.id)
+		}
+		if n < aliasRecheckBatch {
+			return
+		}
 	}
 }
+
+// aliasTXTContains is the alias-proof lookup; a var so tests skip real DNS.
+var aliasTXTContains = dns.TXTContains
+
+// aliasRecheckBatch is the page size for RecheckPendingAliases; a var so tests
+// can exercise paging without seeding hundreds of routes.
+var aliasRecheckBatch = 500
 
 // unprovenHosts returns the entries of aliases that are absent from verified.
 func unprovenHosts(aliases, verified string) []string {
