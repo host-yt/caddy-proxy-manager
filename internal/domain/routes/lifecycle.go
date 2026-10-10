@@ -338,21 +338,17 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 	// tx so the new claim can proceed (both then race to prove ownership via TXT).
 	// A VERIFIED conflicting row is never displaced - that owner proved control.
 	var conflictID, conflictVerified int64
-	var conflictNode sql.NullInt64
 	if e := tx.QueryRowContext(ctx,
-		`SELECT id, domain_verified, caddy_node_id FROM routes
+		`SELECT id, domain_verified FROM routes
 		 WHERE domain = ? AND COALESCE(path_prefix,'') = ? LIMIT 1`,
 		domain, pathPrefix,
-	).Scan(&conflictID, &conflictVerified, &conflictNode); e == nil {
+	).Scan(&conflictID, &conflictVerified); e == nil {
 		if conflictVerified == 1 {
 			return 0, ErrDomainTaken
 		}
-		if _, e := tx.ExecContext(ctx, "DELETE FROM routes WHERE id = ? AND domain_verified = 0", conflictID); e != nil {
+		// Unverified rows are never emitted, so no node config needs a push.
+		if _, e := evictUnverifiedRoute(ctx, tx, conflictID); e != nil {
 			return 0, ErrDomainTaken
-		}
-		if conflictNode.Valid && conflictNode.Int64 != 0 {
-			_, _ = tx.ExecContext(ctx,
-				"UPDATE caddy_nodes SET current_routes = GREATEST(current_routes - 1, 0) WHERE id = ?", conflictNode.Int64)
 		}
 		s.Logger.Warn("anti-squat: evicted unverified route on create", "evicted_id", conflictID, "domain", domain)
 	}
@@ -557,39 +553,34 @@ func (s *Service) VerifyDomainToken(ctx context.Context, clientID, routeID int64
 	// Only unverified rows are evicted - a verified conflicting claim is left
 	// intact (that owner also proved control; a genuine dispute is out of scope).
 	rows, derr := s.DB.QueryContext(ctx,
-		`SELECT id, caddy_node_id FROM routes
+		`SELECT id FROM routes
 		 WHERE domain = ? AND COALESCE(path_prefix,'') = COALESCE(?, '')
 		   AND id <> ? AND domain_verified = 0`,
 		domain, pathPrefix, routeID)
 	if derr == nil {
-		type stale struct{ id, node int64 }
-		var stales []stale
+		var stales []int64
 		for rows.Next() {
-			var st stale
-			var node sql.NullInt64
-			if rows.Scan(&st.id, &node) == nil {
-				st.node = node.Int64
-				stales = append(stales, st)
+			var id int64
+			if rows.Scan(&id) == nil {
+				stales = append(stales, id)
 			}
 		}
 		rows.Close()
-		for _, st := range stales {
-			if _, e := s.DB.ExecContext(ctx, "DELETE FROM routes WHERE id = ? AND domain_verified = 0", st.id); e == nil {
-				s.Logger.Warn("anti-squat: evicted unverified route", "evicted_id", st.id, "domain", domain, "winner_id", routeID)
-				if st.node != 0 {
-					_, _ = s.DB.ExecContext(ctx,
-						"UPDATE caddy_nodes SET current_routes = GREATEST(current_routes - 1, 0) WHERE id = ?", st.node)
-					// Row already gone: drop it from the squatter's node config.
-					nodeID := st.node
-					evID := st.id
-					go func() {
-						defer recoverBg(s.Logger, "antiSquat.removeRoute")
-						c, cancel := context.WithTimeout(s.BackgroundCtx(), 30*time.Second)
-						defer cancel()
-						_ = s.pushRouteIncremental(c, nodeID, evID, routeRemove)
-					}()
-				}
+		for _, evID := range stales {
+			nodes, e := s.evictUnverifiedRouteTx(ctx, evID)
+			if e != nil || nodes == nil {
+				continue
 			}
+			s.Logger.Warn("anti-squat: evicted unverified route", "evicted_id", evID, "domain", domain, "winner_id", routeID)
+			// Row already gone: drop it from every node that held it.
+			go func(evID int64, nodes []int64) {
+				defer recoverBg(s.Logger, "antiSquat.removeRoute")
+				c, cancel := context.WithTimeout(s.BackgroundCtx(), 30*time.Second)
+				defer cancel()
+				for _, n := range nodes {
+					_ = s.pushRouteIncremental(c, n, evID, routeRemove)
+				}
+			}(evID, nodes)
 		}
 	}
 
@@ -818,6 +809,73 @@ func (s *Service) fanOutNodes(ctx context.Context, routeID, primaryNodeID int64)
 		ids = append(ids, id)
 	}
 	return ids, rows.Err()
+}
+
+// evictUnverifiedRoute deletes an unverified route and releases its slot on
+// every node holding it (anchor + fan-out peers). Returns the nodes released,
+// nil when the row was already gone or got verified meanwhile.
+func evictUnverifiedRoute(ctx context.Context, tx *sql.Tx, routeID int64) ([]int64, error) {
+	var anchor sql.NullInt64
+	if err := tx.QueryRowContext(ctx,
+		"SELECT caddy_node_id FROM routes WHERE id = ? AND domain_verified = 0"+store.ForUpdate(), routeID).Scan(&anchor); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx,
+		"SELECT node_id FROM route_node_assignments WHERE route_id = ? AND node_id <> ?", routeID, anchor.Int64)
+	if err != nil {
+		return nil, err
+	}
+	var nodes []int64
+	if anchor.Int64 != 0 {
+		nodes = append(nodes, anchor.Int64)
+	}
+	for rows.Next() {
+		var n int64
+		if rows.Scan(&n) == nil {
+			nodes = append(nodes, n)
+		}
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	res, err := tx.ExecContext(ctx, "DELETE FROM routes WHERE id = ? AND domain_verified = 0", routeID)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return nil, nil
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM route_node_assignments WHERE route_id = ?", routeID); err != nil {
+		return nil, err
+	}
+	for _, n := range nodes {
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE caddy_nodes SET current_routes = GREATEST(current_routes - 1, 0) WHERE id = ?", n); err != nil {
+			return nil, err
+		}
+	}
+	if nodes == nil {
+		nodes = []int64{}
+	}
+	return nodes, nil
+}
+
+// evictUnverifiedRouteTx runs evictUnverifiedRoute in its own transaction.
+func (s *Service) evictUnverifiedRouteTx(ctx context.Context, routeID int64) ([]int64, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	nodes, err := evictUnverifiedRoute(ctx, tx, routeID)
+	if err != nil || nodes == nil {
+		return nil, err
+	}
+	return nodes, tx.Commit()
 }
 
 // advanceRoute: DNS check → status update → push if eligible.

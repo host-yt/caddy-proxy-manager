@@ -93,3 +93,28 @@ func TestSchedulePushAllAndClient_IncludeFanoutPeers(t *testing.T) {
 		}
 	}
 }
+
+// Anti-squat eviction must release the slot on fan-out peers too, or repeated
+// evictions inflate their current_routes until placement sees them as full.
+func TestEvictUnverifiedRoute_ReleasesFanoutSlots(t *testing.T) {
+	db := seedFanoutRoute(t)
+	if _, err := db.Exec(`UPDATE routes SET domain_verified = 0 WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	svc := quietService(db)
+	nodes, err := svc.evictUnverifiedRouteTx(context.Background(), 1)
+	if err != nil || len(nodes) != 2 {
+		t.Fatalf("evict: nodes=%v err=%v, want both nodes", nodes, err)
+	}
+	var sum int
+	if err := db.QueryRow(`SELECT SUM(current_routes) FROM caddy_nodes`).Scan(&sum); err != nil {
+		t.Fatal(err)
+	}
+	if sum != 0 {
+		t.Errorf("current_routes sum = %d after eviction, want 0", sum)
+	}
+	// A second eviction of the same id is a no-op, not a second decrement.
+	if nodes, err := svc.evictUnverifiedRouteTx(context.Background(), 1); err != nil || nodes != nil {
+		t.Errorf("re-evict: nodes=%v err=%v, want nil", nodes, err)
+	}
+}
