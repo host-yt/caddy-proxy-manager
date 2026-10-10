@@ -61,9 +61,13 @@ func ParseURL(q url.Values, allowed []string, defaults Defaults) Params {
 		sort = defaults.Sort
 	}
 
-	dir := strings.ToLower(strings.TrimSpace(q.Get("dir")))
-	if dir != "asc" && dir != "desc" {
-		dir = defaults.Dir
+	// Assign literals, never the input: Dir is spliced into ORDER BY.
+	dir := defaults.Dir
+	switch strings.ToLower(strings.TrimSpace(q.Get("dir"))) {
+	case "asc":
+		dir = "asc"
+	case "desc":
+		dir = "desc"
 	}
 	if dir == "" {
 		dir = "desc"
