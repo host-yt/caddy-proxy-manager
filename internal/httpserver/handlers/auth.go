@@ -154,6 +154,7 @@ type loginViewData struct {
 	Email                 string
 	Error                 string
 	Flash                 string
+	LoginCSRF             string
 	CaptchaEnabled        bool
 	CaptchaProvider       string // "turnstile" | "hcaptcha" | "recaptcha"
 	CaptchaSiteKey        string
@@ -204,8 +205,40 @@ func (h *AuthHandlers) stampReset(r *http.Request, d resetViewData) resetViewDat
 	return d
 }
 
-func (h *AuthHandlers) renderLogin(w http.ResponseWriter, status int, data loginViewData) {
-	_ = data.CSPNonce
+// loginCSRFCookie double-submits a pre-session token on the login form so a
+// cross-site form cannot sign the victim into an attacker's account.
+const loginCSRFCookie = "hpg_login_csrf"
+
+// loginCSRFToken reuses the visitor's login token (keeps other open tabs valid)
+// or mints and sets a new one.
+func (h *AuthHandlers) loginCSRFToken(w http.ResponseWriter, r *http.Request) string {
+	if c, err := r.Cookie(loginCSRFCookie); err == nil && len(c.Value) == 43 {
+		return c.Value
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return ""
+	}
+	tok := base64.RawURLEncoding.EncodeToString(b)
+	http.SetCookie(w, &http.Cookie{
+		Name: loginCSRFCookie, Value: tok, Path: "/auth/login", HttpOnly: true,
+		Secure: h.Sessions != nil && h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
+	})
+	return tok
+}
+
+// verifyLoginCSRF fails closed unless the form token matches the login cookie.
+func verifyLoginCSRF(r *http.Request) bool {
+	c, err := r.Cookie(loginCSRFCookie)
+	if err != nil || c.Value == "" {
+		return false
+	}
+	got := r.FormValue("csrf_token")
+	return got != "" && subtle.ConstantTimeCompare([]byte(got), []byte(c.Value)) == 1
+}
+
+func (h *AuthHandlers) renderLogin(w http.ResponseWriter, r *http.Request, status int, data loginViewData) {
+	data.LoginCSRF = h.loginCSRFToken(w, r)
 	if h.Captcha != nil && h.Captcha.Enabled() {
 		data.CaptchaEnabled = true
 	}
@@ -251,11 +284,15 @@ func (h *AuthHandlers) renderLogin(w http.ResponseWriter, status int, data login
 
 func (h *AuthHandlers) LoginPage(w http.ResponseWriter, r *http.Request) {
 	nonce, lang := authBase(r)
-	h.renderLogin(w, http.StatusOK, h.stampLogin(r, loginViewData{Flash: r.URL.Query().Get("flash"), CSPNonce: nonce, Lang: lang}))
+	h.renderLogin(w, r, http.StatusOK, h.stampLogin(r, loginViewData{Flash: r.URL.Query().Get("flash"), CSPNonce: nonce, Lang: lang}))
 }
 
 func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
+	if !verifyLoginCSRF(r) {
+		h.renderLogin(w, r, http.StatusForbidden, h.stampLogin(r, loginViewData{Error: "Your login form expired. Please try again."}))
+		return
+	}
 	email := strings.ToLower(strings.TrimSpace(r.FormValue("email")))
 	password := r.FormValue("password")
 	// Each widget posts its own token field name; read whichever is present.
@@ -269,13 +306,13 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	if email == "" || password == "" {
 		nonce, lang := authBase(r)
-		h.renderLogin(w, http.StatusBadRequest, h.stampLogin(r, loginViewData{Email: email, Error: "Email and password are required.", CSPNonce: nonce, Lang: lang}))
+		h.renderLogin(w, r, http.StatusBadRequest, h.stampLogin(r, loginViewData{Email: email, Error: "Email and password are required.", CSPNonce: nonce, Lang: lang}))
 		return
 	}
 
 	ip := security.ClientIP(r)
 	if h.locked(ctx, email, ip) {
-		h.renderLogin(w, http.StatusTooManyRequests, h.stampLogin(r, loginViewData{Email: email, Error: "Too many failed attempts. Try again in a few minutes."}))
+		h.renderLogin(w, r, http.StatusTooManyRequests, h.stampLogin(r, loginViewData{Email: email, Error: "Too many failed attempts. Try again in a few minutes."}))
 		return
 	}
 
@@ -288,7 +325,7 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if captchaOn || emailOverThreshold {
 		if captchaOn {
 			if err := h.Captcha.Verify(ctx, captchaToken, clientIPFromReq(r)); err != nil {
-				h.renderLogin(w, http.StatusBadRequest, h.stampLogin(r, loginViewData{Email: email, Error: "Captcha verification failed."}))
+				h.renderLogin(w, r, http.StatusBadRequest, h.stampLogin(r, loginViewData{Email: email, Error: "Captcha verification failed."}))
 				return
 			}
 		} else if emailOverThreshold {
@@ -299,7 +336,7 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	db := h.DB()
 	if db == nil {
-		h.renderLogin(w, http.StatusServiceUnavailable, h.stampLogin(r, loginViewData{Email: email, Error: "Database not configured."}))
+		h.renderLogin(w, r, http.StatusServiceUnavailable, h.stampLogin(r, loginViewData{Email: email, Error: "Database not configured."}))
 		return
 	}
 
@@ -336,12 +373,12 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 			Meta: map[string]any{"reason": "unknown_email"},
 		})
 		h.Metrics.LoginEvent("fail", "password", "none")
-		h.renderLogin(w, http.StatusUnauthorized, h.stampLogin(r, loginViewData{Email: email, Error: "Invalid email or password."}))
+		h.renderLogin(w, r, http.StatusUnauthorized, h.stampLogin(r, loginViewData{Email: email, Error: "Invalid email or password."}))
 		return
 	}
 	if err != nil {
 		h.Logger.Error("login query", "err", err)
-		h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: email, Error: "Server error."}))
+		h.renderLogin(w, r, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: email, Error: "Server error."}))
 		return
 	}
 	if !isActive {
@@ -350,7 +387,7 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 			Meta: map[string]any{"reason": "disabled"},
 		})
 		h.Metrics.LoginEvent("fail", "password", "none")
-		h.renderLogin(w, http.StatusForbidden, h.stampLogin(r, loginViewData{Email: email, Error: "Account is disabled."}))
+		h.renderLogin(w, r, http.StatusForbidden, h.stampLogin(r, loginViewData{Email: email, Error: "Account is disabled."}))
 		return
 	}
 
@@ -360,7 +397,7 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 			UserID: &userID, Action: "login.fail", Entity: "auth", EntityID: email,
 			Meta: map[string]any{"reason": "password_login_disabled"},
 		})
-		h.renderLogin(w, http.StatusForbidden, h.stampLogin(r, loginViewData{
+		h.renderLogin(w, r, http.StatusForbidden, h.stampLogin(r, loginViewData{
 			Email: email, Error: "Password login disabled - use SSO.",
 		}))
 		return
@@ -373,7 +410,7 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 			Meta: map[string]any{"reason": "bad_password"},
 		})
 		h.Metrics.LoginEvent("fail", "password", "none")
-		h.renderLogin(w, http.StatusUnauthorized, h.stampLogin(r, loginViewData{Email: email, Error: "Invalid email or password."}))
+		h.renderLogin(w, r, http.StatusUnauthorized, h.stampLogin(r, loginViewData{Email: email, Error: "Invalid email or password."}))
 		return
 	}
 	h.clearFails(ctx, email, ip)
@@ -400,7 +437,7 @@ func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 		ticket, err := h.issuePending2FAAt(ctx, userID, email, role, clientID, proofEpoch)
 		if err != nil {
 			h.Logger.Error("pending 2fa issue", "err", err)
-			h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: email, Error: "Server error."}))
+			h.renderLogin(w, r, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: email, Error: "Server error."}))
 			return
 		}
 		http.SetCookie(w, &http.Cookie{
@@ -517,7 +554,7 @@ func (h *AuthHandlers) denyStaleLogin(w http.ResponseWriter, r *http.Request, er
 		http.Redirect(w, r, "/auth/login?flash=Account+is+no+longer+available.", http.StatusSeeOther)
 	default:
 		h.Logger.Error("login: claim reload", "err", err)
-		h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Error: "Server error."}))
+		h.renderLogin(w, r, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Error: "Server error."}))
 	}
 }
 
@@ -525,7 +562,7 @@ func (h *AuthHandlers) finalizeLoginClaims(ctx context.Context, w http.ResponseW
 	c sessionClaims, via, mfa string) {
 	if _, err := h.Sessions.Create(ctx, w, r, newSessionFor(c)); err != nil {
 		h.Logger.Error("session create", "err", err)
-		h.renderLogin(w, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: c.Email, Error: "Could not create session."}))
+		h.renderLogin(w, r, http.StatusInternalServerError, h.stampLogin(r, loginViewData{Email: c.Email, Error: "Could not create session."}))
 		return
 	}
 	db := h.DB()

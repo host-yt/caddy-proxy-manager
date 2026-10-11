@@ -140,8 +140,9 @@ install_step smtp    "skip=1"
 # no wg_public_key so the config writer ignores it.
 install_step caddy   "name=node-placeholder&api_url=http%3A%2F%2F127.0.0.1%3A2019&public_hostname=placeholder.psk.test&public_ip=203.0.113.99"
 
+LOGIN_CSRF=$(curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$PANEL/auth/login" | grep -o 'name="csrf_token" value="[^"]*"' | head -1 | sed -E 's/.*value="([^"]*)".*/\1/')
 ADMIN_HTML=$(curl -sS -L -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-	--data "email=$ADMIN_EMAIL&password=$ADMIN_PASSWORD" "$PANEL/auth/login")
+	--data "email=$ADMIN_EMAIL&password=$ADMIN_PASSWORD&csrf_token=$LOGIN_CSRF" "$PANEL/auth/login")
 CSRF=$(printf '%s' "$ADMIN_HTML" | grep -o 'name="csrf-token" content="[^"]*"' | head -1 | sed -E 's/.*content="([^"]*)".*/\1/')
 [[ -n "$CSRF" ]] || fail "login yielded no CSRF token"
 

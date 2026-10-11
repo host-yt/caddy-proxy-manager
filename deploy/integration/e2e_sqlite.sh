@@ -133,8 +133,9 @@ record_pass "install wizard completed on sqlite (migrations applied, node-1 regi
 # ---- 2. admin login ----------------------------------------------------------
 
 log "logging in as the freshly-created admin"
+LOGIN_CSRF=$(curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$PANEL/auth/login" | grep -o 'name="csrf_token" value="[^"]*"' | head -1 | sed -E 's/.*value="([^"]*)".*/\1/')
 ADMIN_HTML=$(curl -sS -L -b "$COOKIE_JAR" -c "$COOKIE_JAR" \
-	--data "email=$ADMIN_EMAIL&password=$ADMIN_PASSWORD" "$PANEL/auth/login")
+	--data "email=$ADMIN_EMAIL&password=$ADMIN_PASSWORD&csrf_token=$LOGIN_CSRF" "$PANEL/auth/login")
 CSRF=$(printf '%s' "$ADMIN_HTML" | grep -o 'name="csrf-token" content="[^"]*"' | head -1 | sed -E 's/.*content="([^"]*)".*/\1/')
 [[ -n "$CSRF" ]] || fail "login did not yield a CSRF token (session not established)"
 record_pass "admin login established a session"

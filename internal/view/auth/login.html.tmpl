@@ -37,6 +37,7 @@
     <p class="t-small mb-4" style="color:rgb(var(--muted))">Password login is disabled. Please use SSO to sign in.</p>
     {{else}}
     <form method="POST" action="/auth/login" id="login-form" class="space-y-4">
+      <input type="hidden" name="csrf_token" value="{{.LoginCSRF}}">
       <div id="stage-email">
         <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Email</label>
         <input name="email" id="login-email" value="{{.Email}}" type="email" required autofocus autocomplete="username"

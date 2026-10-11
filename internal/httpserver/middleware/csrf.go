@@ -29,8 +29,8 @@ func VerifyCSRF(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		// Login POST: no session yet, no CSRF. Same-origin + SameSite=Lax
-		// cookies + the rate limit on the login form covers this.
+		// No session yet. Login enforces its own double-submit token
+		// (AuthHandlers.verifyLoginCSRF).
 		if r.URL.Path == "/auth/login" || r.URL.Path == "/auth/forgot" || strings.HasPrefix(r.URL.Path, "/auth/reset") {
 			next.ServeHTTP(w, r)
 			return
