@@ -634,11 +634,7 @@ func (s *Service) verifyAliases(ctx context.Context, routeID int64, aliases, tok
 		s.Logger.Warn("alias verification: persist", "route_id", routeID, "err", err)
 		return splitHostList(prev.String)
 	}
-	var nodeID sql.NullInt64
-	if err := s.DB.QueryRowContext(ctx,
-		"SELECT caddy_node_id FROM routes WHERE id = ?", routeID).Scan(&nodeID); err == nil && nodeID.Int64 > 0 {
-		s.SchedulePush(nodeID.Int64)
-	}
+	s.SchedulePushForRoute(ctx, routeID)
 	return out
 }
 

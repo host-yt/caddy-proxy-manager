@@ -746,8 +746,8 @@ func MTLSCAUsable(pemBundle string) bool {
 // caddy.listeners.proxy_protocol wrapper must run BEFORE tls (it strips the
 // PROXY header off the raw connection before the TLS handshake is read), and
 // tls must be listed explicitly once listener_wrappers is set - Caddy does
-// not implicitly append it. "allow" is omitted when empty so an unrestricted
-// node's JSON stays minimal (matches the UI's "accept from anywhere" state).
+// not implicitly append it. "allow" is omitted when empty; Caddy 2.8+ then
+// ignores the PROXY address and keeps the connecting one.
 func buildProxyProtocolWrappers(s NodeSettings) []any {
 	if !s.ProxyProtocolIn {
 		return nil
