@@ -329,8 +329,8 @@ func (d DBConfig) BuildSQLiteDSN() string {
 	if path == "" {
 		path = "./data/hpg.db"
 	}
-	// WAL mode for better concurrent reads; foreign_keys on; busy_timeout for write lock.
-	return "file:" + path + "?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000"
+	// modernc honours only _pragma; store.Open appends foreign_keys(1).
+	return "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 }
 
 // --- helpers --------------------------------------------------------------
