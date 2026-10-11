@@ -102,16 +102,8 @@ func (h *AdminHandlers) AdminWorldMap(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	// Resolve admin scope: super_admin sees all clients, others only assigned ones.
-	sess := middleware.SessionFromContext(ctx)
-	clientIDs, all := []int64(nil), true
-	if sess != nil && sess.Role != "super_admin" && h.AdminScope != nil {
-		ids, isAll, err := h.AdminScope.ScopeFilter(ctx, sess.UserID)
-		if err != nil {
-			h.Logger.Warn("worldmap scope", "user_id", sess.UserID, "err", err)
-			ids, isAll = nil, false
-		}
-		clientIDs, all = ids, isAll
-	}
+	sc := h.dashboardScope(ctx, middleware.SessionFromContext(ctx))
+	clientIDs, all := sc.ids, !sc.scoped
 
 	d.Hosts = loadTrafficHosts(ctx, db, clientIDs, all)
 
