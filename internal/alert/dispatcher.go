@@ -23,7 +23,7 @@ const eventAlertFired = "alert.fired"
 
 // dispatch records the alert in alert_log and fans out to webhook/mail/sms
 // unless the rule+label dedupe key is still within its cooldown window.
-func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
+func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, cfg Config, a Alert) {
 	key := dedupeKey(a)
 
 	// Cooldown: suppress if the same dedupe key fired within the window.
@@ -31,7 +31,7 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
 	_ = db.QueryRowContext(ctx,
 		`SELECT MAX(fired_at) FROM alert_log
 		  WHERE dedupe_key = ? AND fired_at > (`+store.DateSubParam("SECOND")+`)`,
-		key, e.Cfg.CooldownSeconds).Scan(&lastFired)
+		key, cfg.CooldownSeconds).Scan(&lastFired)
 	if lastFired.Valid {
 		return
 	}
@@ -62,18 +62,18 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
 		})
 	}
 	if e.Mailer != nil {
-		if to := e.resolveAdminEmail(ctx, db); to != "" {
+		if to := e.resolveAdminEmail(ctx, db, cfg); to != "" {
 			if err := e.Mailer.Send(ctx, to, "[HPG Alert] "+a.Title, "alert", map[string]any{"Alert": a}); err != nil && e.Logger != nil {
 				e.Logger.Warn("alert email failed", "rule", a.RuleID, "err", err)
 			}
 		}
 	}
-	if e.SMS != nil && e.Cfg.AdminPhone != "" {
-		if err := e.SMS.Send(ctx, e.Cfg.AdminPhone, "[HPG] "+a.Title+": "+a.Detail); err != nil && e.Logger != nil {
+	if e.SMS != nil && cfg.AdminPhone != "" {
+		if err := e.SMS.Send(ctx, cfg.AdminPhone, "[HPG] "+a.Title+": "+a.Detail); err != nil && e.Logger != nil {
 			e.Logger.Warn("alert sms failed", "rule", a.RuleID, "err", err)
 		}
 	}
-	if e.Cfg.TelegramBotToken != "" && e.Cfg.TelegramChatID != "" {
+	if cfg.TelegramBotToken != "" && cfg.TelegramChatID != "" {
 		sev := "ℹ️"
 		switch a.Severity {
 		case SeverityWarning:
@@ -82,7 +82,7 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
 			sev = "🔴"
 		}
 		msg := fmt.Sprintf("%s <b>[HPG Alert]</b> %s\n%s", sev, a.Title, a.Detail)
-		if err := sendTelegram(ctx, e.Cfg.TelegramBotToken, e.Cfg.TelegramChatID, msg); err != nil && e.Logger != nil {
+		if err := sendTelegram(ctx, cfg.TelegramBotToken, cfg.TelegramChatID, msg); err != nil && e.Logger != nil {
 			e.Logger.Warn("telegram alert failed", "rule", a.RuleID, "err", err)
 		}
 	}
@@ -99,9 +99,9 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, a Alert) {
 
 // resolveAdminEmail returns the configured override or the first active
 // super_admin email from DB.
-func (e *Evaluator) resolveAdminEmail(ctx context.Context, db *sql.DB) string {
-	if e.Cfg.AdminEmail != "" {
-		return e.Cfg.AdminEmail
+func (e *Evaluator) resolveAdminEmail(ctx context.Context, db *sql.DB, cfg Config) string {
+	if cfg.AdminEmail != "" {
+		return cfg.AdminEmail
 	}
 	var email string
 	_ = db.QueryRowContext(ctx,
@@ -120,7 +120,7 @@ func (e *Evaluator) TestFire(ctx context.Context, a Alert) {
 	if db == nil {
 		return
 	}
-	go e.dispatch(context.Background(), db, a)
+	go e.dispatch(context.Background(), db, e.mergedCfg(ctx, db), a)
 }
 
 // pruneLog bounds table size by dropping rows past the retention window.

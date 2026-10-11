@@ -66,8 +66,9 @@ func (e *Evaluator) Tick(ctx context.Context) {
 	if db == nil {
 		return
 	}
-	for _, a := range e.evaluate(ctx, db) {
-		e.dispatch(ctx, db, a)
+	cfg := e.mergedCfg(ctx, db)
+	for _, a := range e.evaluate(ctx, db, cfg) {
+		e.dispatch(ctx, db, cfg, a)
 	}
 	e.pruneLog(ctx, db)
 }
@@ -101,8 +102,7 @@ func (e *Evaluator) mergedCfg(ctx context.Context, db *sql.DB) Config {
 }
 
 // evaluate runs every rule against the current DB snapshot.
-func (e *Evaluator) evaluate(ctx context.Context, db *sql.DB) []Alert {
-	cfg := e.mergedCfg(ctx, db)
+func (e *Evaluator) evaluate(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 	var out []Alert
 	out = append(out, nodeOffline(ctx, db, cfg)...)
 	out = append(out, routeFailed(ctx, db, cfg)...)
