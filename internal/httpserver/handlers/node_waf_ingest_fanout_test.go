@@ -27,6 +27,8 @@ func TestWAFRouteIndex_FanoutAndAliases(t *testing.T) {
 		`INSERT INTO routes VALUES (2, 1, 'ha.example', '/api', '', 'active')`,
 		`INSERT INTO routes VALUES (3, 3, 'other.example', '', '', 'active')`,
 		`INSERT INTO route_node_assignments VALUES (1, 2), (2, 2)`,
+		`ALTER TABLE routes ADD COLUMN upstream_external INTEGER`,
+		`ALTER TABLE routes ADD COLUMN strip_path_prefix INTEGER`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
