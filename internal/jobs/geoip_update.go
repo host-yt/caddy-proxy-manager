@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -111,7 +112,13 @@ func (j *GeoIPUpdateJob) refresh(ctx context.Context) error {
 
 // loadCreds reads + decrypts the MaxMind account id and license key.
 func (j *GeoIPUpdateJob) loadCreds(ctx context.Context, db *sql.DB) (accountID, licenseKey string, err error) {
-	if j.State == nil {
+	return loadGeoIPCreds(ctx, db, j.State)
+}
+
+// loadGeoIPCreds returns empty creds only for absent/empty rows; scan and
+// decrypt failures are errors so a bad APP_SECRET is not reported as success.
+func loadGeoIPCreds(ctx context.Context, db *sql.DB, state *installstate.Manager) (accountID, licenseKey string, err error) {
+	if state == nil {
 		return "", "", errors.New("installstate not wired")
 	}
 	rows, err := db.QueryContext(ctx,
@@ -124,14 +131,14 @@ func (j *GeoIPUpdateJob) loadCreds(ctx context.Context, db *sql.DB) (accountID, 
 		var k, v string
 		var enc bool
 		if err := rows.Scan(&k, &v, &enc); err != nil {
-			continue
+			return "", "", fmt.Errorf("geoip: read settings: %w", err)
 		}
-		if enc {
-			if dec, derr := j.State.Decrypt(v); derr == nil {
-				v = dec
-			} else {
-				v = ""
+		if enc && v != "" {
+			dec, derr := state.Decrypt(v)
+			if derr != nil {
+				return "", "", fmt.Errorf("geoip: decrypt %s: %w", k, derr)
 			}
+			v = dec
 		}
 		switch k {
 		case "geoip.account_id":
@@ -139,6 +146,9 @@ func (j *GeoIPUpdateJob) loadCreds(ctx context.Context, db *sql.DB) (accountID, 
 		case "geoip.license_key":
 			licenseKey = v
 		}
+	}
+	if err := rows.Err(); err != nil {
+		return "", "", fmt.Errorf("geoip: read settings: %w", err)
 	}
 	return accountID, licenseKey, nil
 }
@@ -235,32 +245,9 @@ func (j *GeoIPASNUpdateJob) refresh(ctx context.Context) error {
 		return errors.New("db not ready")
 	}
 	// Reuse same credentials as GeoIPUpdateJob - MaxMind account is shared.
-	rows, err := db.QueryContext(ctx,
-		"SELECT `key`, value, is_encrypted FROM settings WHERE `key` IN ('geoip.account_id','geoip.license_key')")
+	accountID, licenseKey, err := loadGeoIPCreds(ctx, db, j.State)
 	if err != nil {
 		return err
-	}
-	defer rows.Close()
-	var accountID, licenseKey string
-	for rows.Next() {
-		var k, v string
-		var enc bool
-		if err2 := rows.Scan(&k, &v, &enc); err2 != nil {
-			continue
-		}
-		if enc {
-			if dec, derr := j.State.Decrypt(v); derr == nil {
-				v = dec
-			} else {
-				v = ""
-			}
-		}
-		switch k {
-		case "geoip.account_id":
-			accountID = v
-		case "geoip.license_key":
-			licenseKey = v
-		}
 	}
 	if accountID == "" || licenseKey == "" {
 		j.Logger.Info("geoip-asn: not configured, skipping")
