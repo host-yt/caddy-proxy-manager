@@ -424,15 +424,12 @@ func (h *PasskeyHandlers) stash(ctx context.Context, prefix string, sd *webauthn
 }
 
 func (h *PasskeyHandlers) consume(ctx context.Context, key string, out *webauthn.SessionData) error {
-	b, err := h.RDB.Get(ctx, key).Bytes()
+	// GETDEL: exactly one concurrent finisher gets the challenge.
+	b, err := h.RDB.GetDel(ctx, key).Bytes()
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(b, out); err != nil {
-		return err
-	}
-	_ = h.RDB.Del(ctx, key).Err()
-	return nil
+	return json.Unmarshal(b, out)
 }
 
 func currentDescriptors(u *auth.WAUser) []protocol.CredentialDescriptor {
