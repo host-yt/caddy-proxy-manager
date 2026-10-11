@@ -35,6 +35,9 @@ is needed, and a few API and Terraform behaviours change.
 
 ### Added
 
+- `HPG_DRILL_DSN` points the restore drill at a pre-created empty
+  database, for MySQL users that cannot `CREATE DATABASE` (shared hosting).
+- `/api/v1/health` reports the real build version.
 - Terraform `hpg_reseller.owner_password_wo` (write-only, Terraform 1.11+)
   keeps the reseller owner password out of plan and state;
   `owner_password` is deprecated.
@@ -135,6 +138,17 @@ is needed, and a few API and Terraform behaviours change.
 
 ### Fixed
 
+- Alert cooldown now applies to rules with changing measurements (stale WG
+  peer, error rate, DB pool, WAF surge); they no longer fire every minute.
+- Browsers no longer autofill the admin login into webhook, DNS provider,
+  backup and other secret fields.
+- Dashboard and Stats request counts match and survive node counter resets;
+  the 24h chart no longer piles all traffic into the last hour.
+- Row action menus stay inside the viewport; the Legacy aliases page renders;
+  Settings sections follow the URL hash.
+- Placeholders no longer look like saved values; the command palette is
+  readable in dark mode; backup destination form shows only the fields for
+  the chosen kind and the job list refreshes while a job runs.
 - Editing a stream keeps its CIDR lists; creating a stream with extra
   upstreams is all-or-nothing; reissuing a tunnel keeps its key-rotation age;
   a failed PSK clear keeps the rekey token usable.
