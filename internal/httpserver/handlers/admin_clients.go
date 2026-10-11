@@ -345,7 +345,7 @@ func (h *AdminHandlers) ClientsExport(w http.ResponseWriter, r *http.Request) {
 		if isActive {
 			active = "1"
 		}
-		_ = cw.Write([]string{name, email, plan, active, role, strconv.Itoa(services), strconv.Itoa(activeRoutes), createdAt})
+		_ = cw.Write(csvSafeRow([]string{name, email, plan, active, role, strconv.Itoa(services), strconv.Itoa(activeRoutes), createdAt}))
 	}
 	cw.Flush()
 }

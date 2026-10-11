@@ -902,7 +902,7 @@ func (h *ClientHandlers) RouteExport(w http.ResponseWriter, r *http.Request) {
 		if maint == 1 {
 			maintStr = "yes"
 		}
-		_ = cw.Write([]string{domain, pathPfx, strconv.Itoa(port), status, sslStr, maintStr, svcName, created})
+		_ = cw.Write(csvSafeRow([]string{domain, pathPfx, strconv.Itoa(port), status, sslStr, maintStr, svcName, created}))
 	}
 	cw.Flush()
 }
