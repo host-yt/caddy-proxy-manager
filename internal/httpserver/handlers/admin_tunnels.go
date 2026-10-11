@@ -427,8 +427,7 @@ func (h *AdminHandlers) TunnelsReissue(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/tunnels", "", "reissue failed: "+sanitizeErr(err))
 		return
 	}
-	// Stamp the rotation time so the "key age" view resets after a reissue.
-	_, _ = h.DB().ExecContext(ctx, "UPDATE customer_wg_peer SET last_key_rotation_at = NOW() WHERE id = ?", id)
+	// No rotation-timestamp stamp: the keypair is unchanged, so key age must not reset.
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.tunnel.reissue", Entity: "wg_peer",
 		EntityID: itoa64(id),
