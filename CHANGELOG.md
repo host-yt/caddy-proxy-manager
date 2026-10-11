@@ -106,6 +106,9 @@ is deliberately left as published.
   routing; narrowing a service port range is refused while routes use the
   removed ports (API: 409); the OpenAPI spec lists `POST /api/v1/services`
   again.
+- Port-range changes and route writes lock the service row, so a concurrent
+  route edit can't land outside a narrowed range; an aborted node migration
+  re-syncs every destination it touched.
 - SSO-created client users get their client record; self-registration is
   all-or-nothing.
 - Bulk approve enables nodes; drain/decommission spread routes over peers by
