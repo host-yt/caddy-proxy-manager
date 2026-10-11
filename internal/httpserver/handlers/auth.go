@@ -1070,8 +1070,13 @@ func (h *AuthHandlers) tryRecoveryCode(ctx context.Context, db *sql.DB, userID i
 	trimmed := strings.TrimSpace(code)
 	for _, c := range codes {
 		if err := auth.VerifyPassword(c.hash, trimmed); err == nil {
-			_, _ = db.ExecContext(ctx, "UPDATE recovery_codes SET used_at = NOW() WHERE id = ?", c.id)
-			return true
+			// Conditional claim: only one concurrent redeemer gets the row.
+			res, err := db.ExecContext(ctx, "UPDATE recovery_codes SET used_at = NOW() WHERE id = ? AND used_at IS NULL", c.id)
+			if err != nil {
+				return false
+			}
+			n, _ := res.RowsAffected()
+			return n == 1
 		}
 	}
 	return false
