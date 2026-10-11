@@ -141,6 +141,9 @@ is deliberately left as published.
   read.
 - The Portainer external-DB profile publishes the app on loopback so the
   installer is reachable.
+- SQLite installs on Go 1.27 builds: the alert cooldown, the stale restore
+  drill alert and the alert page's last-fired time read timestamps correctly
+  again (repeat alerts were not suppressed).
 - Drain and decommission move a node's active-active/failover replica
   assignments too, without double-counting a destination that already serves
   the route; a drain re-syncs the drained node and rolls back if it can't.
