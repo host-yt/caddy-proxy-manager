@@ -62,6 +62,8 @@ type streamRow struct {
 	ProxyProtoIn      string
 	ProxyProtoOut     string
 	ProxyProtoTrusted string // CSV of balancer CIDRs allowed to send a PROXY header
+	CIDRAllow         string // CSV; rendered on edit so a save doesn't wipe access control
+	CIDRDeny          string
 }
 
 // Quarantined reports whether the row is parked by the destination screen.
@@ -510,7 +512,8 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(sr.lb_policy,'round_robin'),
 		        COALESCE(sr.proxy_proto_in,'none'),
 		        COALESCE(sr.proxy_proto_out,'none'),
-		        COALESCE(sr.proxy_proto_trusted,'')
+		        COALESCE(sr.proxy_proto_trusted,''),
+		        COALESCE(sr.cidr_allow,''), COALESCE(sr.cidr_deny,'')
 		 FROM stream_routes sr
 		 JOIN services sv ON sv.id = sr.service_id
 		 JOIN caddy_nodes n ON n.id = sr.caddy_node_id
@@ -520,6 +523,7 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.Stream.QuarantineReason, &d.Stream.Tag, &d.Stream.CreatedAt,
 		&d.Stream.MatchMode, &d.Stream.MatchValues, &d.Stream.LBPolicy, &d.Stream.ProxyProtoIn, &d.Stream.ProxyProtoOut,
 		&d.Stream.ProxyProtoTrusted,
+		&d.Stream.CIDRAllow, &d.Stream.CIDRDeny,
 	); err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
 		return
