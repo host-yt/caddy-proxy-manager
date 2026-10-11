@@ -47,10 +47,6 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load path rules for this route. No rules = no restriction.
-	type pathRule struct {
-		Pattern  string
-		RoleName string
-	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT pr.path_pattern, ro.name
 		  FROM mtls_path_rules pr
@@ -87,15 +83,11 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 		reqPath = reqPath[:i]
 	}
 
-	// First matching rule wins.
-	var requiredRole string
-	for _, rule := range rules {
-		if pathMatchesPattern(reqPath, rule.Pattern) {
-			requiredRole = rule.RoleName
-			break
-		}
+	required := map[string]bool{}
+	for _, role := range mostSpecificRoles(reqPath, rules) {
+		required[role] = true
 	}
-	if requiredRole == "" {
+	if len(required) == 0 {
 		// No rule matches this path - allow.
 		w.WriteHeader(http.StatusOK)
 		return
@@ -127,13 +119,15 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	var count int
-	if err := db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM mtls_cert_roles cr
-		  JOIN mtls_roles ro ON ro.id = cr.role_id
-		 WHERE cr.cert_id = ? AND ro.name = ?`, certID, requiredRole).Scan(&count); err != nil || count == 0 {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
+	for role := range required {
+		var count int
+		if err := db.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM mtls_cert_roles cr
+			  JOIN mtls_roles ro ON ro.id = cr.role_id
+			 WHERE cr.cert_id = ? AND ro.name = ?`, certID, role).Scan(&count); err != nil || count == 0 {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 }
@@ -189,6 +183,34 @@ func (h *AdminHandlers) rbacCallerAllowed(ctx context.Context, db *sql.DB, r *ht
 		return false
 	}
 	return true
+}
+
+type pathRule struct {
+	Pattern  string
+	RoleName string
+}
+
+// mostSpecificRoles returns the roles of the most specific rules matching p:
+// exact beats wildcard, longer prefix beats shorter, equal ties all apply.
+func mostSpecificRoles(p string, rules []pathRule) []string {
+	best := -1
+	var roles []string
+	for _, rule := range rules {
+		if !pathMatchesPattern(p, rule.Pattern) {
+			continue
+		}
+		score := len(rule.Pattern)
+		if !strings.HasSuffix(rule.Pattern, "/*") {
+			score += 1 << 20 // exact match outranks any prefix
+		}
+		switch {
+		case score > best:
+			best, roles = score, []string{rule.RoleName}
+		case score == best:
+			roles = append(roles, rule.RoleName)
+		}
+	}
+	return roles
 }
 
 // pathMatchesPattern matches a request path against a rule pattern.

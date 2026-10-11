@@ -36,6 +36,33 @@ func rbacFixture(t *testing.T, extra ...string) func(uri, certPEM string) int {
 	}
 }
 
+func TestMTLSRBACCheck_MostSpecificRuleWins(t *testing.T) {
+	broad := `INSERT INTO mtls_path_rules (route_id, path_pattern, required_role_id) VALUES (7, '/app/*', 2)`
+	exact := `INSERT INTO mtls_path_rules (route_id, path_pattern, required_role_id) VALUES (7, '/app/secrets', 1)`
+	prefix := `INSERT INTO mtls_path_rules (route_id, path_pattern, required_role_id) VALUES (7, '/app/keys/*', 1)`
+	for name, order := range map[string][]string{
+		"broad-first":    {broad, exact, prefix},
+		"specific-first": {exact, prefix, broad},
+	} {
+		t.Run(name, func(t *testing.T) {
+			check := rbacFixture(t, append([]string{`DELETE FROM mtls_path_rules`}, order...)...)
+			for _, c := range []struct {
+				uri, cert string
+				want      int
+			}{
+				{"/app/secrets", rbacUserPEM, http.StatusForbidden},
+				{"/app/keys/1", rbacUserPEM, http.StatusForbidden},
+				{"/app/home", rbacUserPEM, http.StatusOK},
+				{"/app/secrets", rbacOpsPEM, http.StatusOK},
+			} {
+				if got := check(c.uri, c.cert); got != c.want {
+					t.Errorf("%s: status = %d, want %d", c.uri, got, c.want)
+				}
+			}
+		})
+	}
+}
+
 func TestMTLSRBACCheck_UnreadableRuleFailsClosed(t *testing.T) {
 	// NULL pattern makes Scan fail; the route must not fall back to "no rules".
 	check := rbacFixture(t, `INSERT INTO mtls_path_rules (route_id, path_pattern, required_role_id) VALUES (7, NULL, 1)`)
