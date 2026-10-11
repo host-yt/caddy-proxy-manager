@@ -434,7 +434,15 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		tagVal = sql.NullString{String: form.Tag, Valid: true}
 	}
-	res, err := db.ExecContext(ctx,
+	// Route and upstreams commit together: a partial upstream set would silently
+	// drop backends from a load-balanced/failover stream.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/streams", "", "create failed: "+sanitizeErr(err))
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO stream_routes
 		   (service_id, caddy_node_id, protocol, listen_port, upstream_port, status, tag,
 		    match_mode, match_values, lb_policy, proxy_proto_in, proxy_proto_out,
@@ -456,9 +464,15 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	streamID, _ := res.LastInsertId()
 
-	// Insert additional upstreams when provided.
-	if err := insertStreamUpstreams(ctx, db, streamID, extraUpstreams); err != nil {
+	if err := insertStreamUpstreams(ctx, tx, streamID, extraUpstreams); err != nil {
 		h.Logger.Warn("stream_upstreams insert", "err", err)
+		redirectWithFlash(w, r, "/admin/streams", "", "create failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.Logger.Warn("stream create commit", "err", err)
+		redirectWithFlash(w, r, "/admin/streams", "", "create failed: "+sanitizeErr(err))
+		return
 	}
 
 	go func() {
