@@ -231,3 +231,43 @@ func TestIngest_UnauthenticatedRejected(t *testing.T) {
 		t.Fatalf("status = %d, want 401", rec.Code)
 	}
 }
+
+// TestIngest_StoreFailureNotAcked: a failed write must answer non-2xx (so the
+// agent retries) and leave no partial batch behind to be double counted.
+func TestIngest_StoreFailureNotAcked(t *testing.T) {
+	db := openResolveTestDB(t)
+	rid := insertRoute(t, db, 2, "own.example", "", "", "active")
+	if _, err := db.Exec(`DROP TABLE log_rollups`); err != nil {
+		t.Fatal(err)
+	}
+	h := &IngestHandler{
+		Store:  New(func() *sql.DB { return db }, 100),
+		Broker: NewBroker(),
+		Logger: slog.Default(),
+		ResolveRoutes: func(ctx context.Context, nodeID int64) (NodeRouteIndex, error) {
+			return LoadNodeRouteIndex(ctx, db, nodeID)
+		},
+		AuthNode: func(ctx context.Context, token string) (int64, bool) { return 2, true },
+	}
+	line := `{"ts":1700000000,"status":200,"request":{"method":"GET","uri":"/","host":"own.example"}}`
+	req := httptest.NewRequest(http.MethodPost, "/internal/access-log", strings.NewReader(line+"\n"+line))
+	req.Header.Set("Authorization", "Bearer x")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code < 300 {
+		t.Fatalf("status = %d, want non-2xx", rec.Code)
+	}
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM host_access_log WHERE route_id = ?", rid).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("raw rows = %d, want 0", n)
+	}
+}
+
+func TestTruncUTF8(t *testing.T) {
+	if got := truncUTF8("aé", 2); got != "a" {
+		t.Fatalf("truncUTF8 = %q, want %q", got, "a")
+	}
+}

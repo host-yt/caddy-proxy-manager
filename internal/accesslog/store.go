@@ -59,12 +59,17 @@ type RollupBucket struct {
 	BytesReq     int64
 }
 
-// Insert appends one entry with its hourly rollup, then trims older rows
-// beyond MaxPerRoute. Raw row and rollup commit together so an acknowledged
-// entry is never missing from analytics; the prune stays best-effort.
+// Insert appends one entry; see InsertBatch.
 func (s *Store) Insert(ctx context.Context, e Entry) error {
+	return s.InsertBatch(ctx, []Entry{e})
+}
+
+// InsertBatch writes the entries and their hourly rollups in one transaction,
+// then trims each touched route to MaxPerRoute rows. All-or-nothing, so a
+// failed batch can be retried whole without double counting; prune is best-effort.
+func (s *Store) InsertBatch(ctx context.Context, es []Entry) error {
 	db := s.db()
-	if db == nil {
+	if db == nil || len(es) == 0 {
 		return nil
 	}
 	tx, err := db.BeginTx(ctx, nil)
@@ -72,29 +77,45 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx,
+	ins, err := tx.PrepareContext(ctx,
 		`INSERT INTO host_access_log (route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country,asn_org)
-		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-		e.RouteID, e.TS, e.Method, e.URI, e.Status, e.LatencyMS, e.RemoteIP, e.UserAgent, e.BytesResp, e.BytesReq, e.Proto, e.Country, e.ASNOrg,
-	); err != nil {
+		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+	if err != nil {
 		return err
 	}
-	var e4xx, e5xx int
-	if e.Status >= 400 && e.Status <= 499 {
-		e4xx = 1
-	} else if e.Status >= 500 {
-		e5xx = 1
-	}
-	bucket := e.TS.UTC().Truncate(time.Hour)
-	if _, err := tx.ExecContext(ctx, rollupUpsertQuery(),
-		e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS, e.BytesResp, e.BytesReq,
-	); err != nil {
+	defer ins.Close()
+	roll, err := tx.PrepareContext(ctx, rollupUpsertQuery())
+	if err != nil {
 		return err
+	}
+	defer roll.Close()
+	routes := map[int64]bool{}
+	for _, e := range es {
+		if _, err := ins.ExecContext(ctx,
+			e.RouteID, e.TS, e.Method, e.URI, e.Status, e.LatencyMS, e.RemoteIP, e.UserAgent, e.BytesResp, e.BytesReq, e.Proto, e.Country, e.ASNOrg,
+		); err != nil {
+			return err
+		}
+		var e4xx, e5xx int
+		if e.Status >= 400 && e.Status <= 499 {
+			e4xx = 1
+		} else if e.Status >= 500 {
+			e5xx = 1
+		}
+		bucket := e.TS.UTC().Truncate(time.Hour)
+		if _, err := roll.ExecContext(ctx,
+			e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS, e.BytesResp, e.BytesReq,
+		); err != nil {
+			return err
+		}
+		routes[e.RouteID] = true
 	}
 	if err := tx.Commit(); err != nil {
 		return err
 	}
-	s.prune(ctx, db, e.RouteID)
+	for id := range routes {
+		s.prune(ctx, db, id)
+	}
 	return nil
 }
 

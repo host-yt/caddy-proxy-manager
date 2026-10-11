@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"strconv"
@@ -72,7 +74,8 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	// Just under the node agent's 10s request timeout: the batch is one transaction.
+	ctx, cancel := context.WithTimeout(r.Context(), 9*time.Second)
 	defer cancel()
 
 	// Authenticate the node agent. The endpoint is publicly reachable, so an
@@ -109,7 +112,9 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// json.Decoder loses position on a syntax error and would drop everything
 	// after it). Non-access log lines (no Host) are ignored downstream.
 	sc := bufio.NewScanner(r.Body)
-	sc.Buffer(make([]byte, 0, 64*1024), 1<<20) // tolerate long log lines (1 MiB cap)
+	// Line cap = body cap, so no line inside an accepted body is ever dropped.
+	sc.Buffer(make([]byte, 0, 64*1024), maxIngestBody)
+	var batch []Entry
 	for sc.Scan() {
 		b := bytes.TrimSpace(sc.Bytes())
 		if len(b) == 0 {
@@ -119,12 +124,35 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal(b, &line); err != nil {
 			continue // skip malformed line, keep ingesting the rest
 		}
-		h.ingest(ctx, idx, line)
+		if e, ok := toEntry(idx, line); ok {
+			batch = append(batch, e)
+		}
+	}
+	// Any non-2xx makes the agent resend the whole batch; nothing is stored
+	// unless everything is, so the retry cannot double count.
+	if err := sc.Err(); err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			http.Error(w, "body too large", http.StatusRequestEntityTooLarge)
+			return
+		}
+		http.Error(w, "bad body", http.StatusBadRequest)
+		return
+	}
+	if err := h.Store.InsertBatch(ctx, batch); err != nil {
+		h.Logger.Warn("accesslog insert", "node_id", nodeID, "lines", len(batch), "err", err)
+		http.Error(w, "unavailable", http.StatusServiceUnavailable)
+		return
+	}
+	for _, e := range batch {
+		h.Broker.Publish(e)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *IngestHandler) ingest(ctx context.Context, idx NodeRouteIndex, line caddyLogLine) {
+// toEntry attributes and sanitises one log line. Values are clamped to the
+// column ranges so one odd line cannot fail (and so wedge) a whole batch.
+func toEntry(idx NodeRouteIndex, line caddyLogLine) (Entry, bool) {
 	// Caddy logs the host as request.host (top-level), not in headers.
 	// Fall back to the Host header only for non-Caddy producers.
 	host := stripPort(line.Request.Host)
@@ -134,27 +162,23 @@ func (h *IngestHandler) ingest(ctx context.Context, idx NodeRouteIndex, line cad
 		}
 	}
 	if host == "" {
-		return
+		return Entry{}, false
 	}
 	// Attribute against the authenticated node's own routes, honouring path
 	// routing: several routes may share a domain on different path prefixes.
 	routeID, ok := idx.Resolve(host, line.Request.URI)
 	if !ok {
-		return
+		return Entry{}, false
 	}
 	ts := time.Unix(0, int64(line.TS*1e9))
+	if line.TS <= 0 || ts.Year() > 9999 {
+		ts = time.Now()
+	}
 	ua := ""
 	if vals := line.Request.Headers["User-Agent"]; len(vals) > 0 {
 		ua = vals[0]
 	}
-	if len(ua) > 512 {
-		ua = ua[:512]
-	}
-	uri := line.Request.URI
-	if len(uri) > 2048 {
-		uri = uri[:2048]
-	}
-	latencyMS := int(line.Duration * 1000)
+	latencyMS := int(min(max(line.Duration*1000, 0), math.MaxInt32))
 	// Prefer client_ip (real client after trusted-proxy resolution), then
 	// remote_ip, then remote_addr - Caddy emits client_ip/remote_ip, not remote_addr.
 	remote := line.Request.ClientIP
@@ -165,27 +189,35 @@ func (h *IngestHandler) ingest(ctx context.Context, idx NodeRouteIndex, line cad
 		remote = line.Request.RemoteAddr
 	}
 	remote = stripPort(remote)
+	status := line.Status
+	if status < 0 || status > 999 {
+		status = 0
+	}
 
-	e := Entry{
+	return Entry{
 		RouteID:   routeID,
 		TS:        ts,
-		Method:    line.Request.Method,
-		URI:       uri,
-		Status:    line.Status,
+		Method:    truncUTF8(line.Request.Method, 16),
+		URI:       truncUTF8(line.Request.URI, 2048),
+		Status:    status,
 		LatencyMS: latencyMS,
-		RemoteIP:  remote,
-		UserAgent: ua,
-		BytesResp: line.Size,
-		BytesReq:  line.BytesRead,
+		RemoteIP:  truncUTF8(remote, 45),
+		UserAgent: truncUTF8(ua, 512),
+		BytesResp: max(line.Size, 0),
+		BytesReq:  max(line.BytesRead, 0),
 		Proto:     normalizeProto(line.Request.Proto),
 		Country:   resolveCountry(line.Request.ClientIP, line.Request.RemoteIP),
 		ASNOrg:    resolveASNOrg(line.Request.ClientIP, line.Request.RemoteIP),
+	}, true
+}
+
+// truncUTF8 cuts s to at most n bytes without leaving a split rune behind
+// (MySQL rejects invalid utf8mb4).
+func truncUTF8(s string, n int) string {
+	if len(s) <= n {
+		return s
 	}
-	if err := h.Store.Insert(ctx, e); err != nil {
-		h.Logger.Warn("accesslog insert", "err", err)
-		return
-	}
-	h.Broker.Publish(e)
+	return strings.ToValidUTF8(s[:n], "")
 }
 
 // normalizeProto maps verbose Caddy proto strings to short tokens for storage.
