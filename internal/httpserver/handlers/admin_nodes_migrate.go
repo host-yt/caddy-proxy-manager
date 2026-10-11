@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // nodeAlloc is one destination's share of a node migration.
@@ -75,9 +76,19 @@ func (h *AdminHandlers) migrateNodeRoutes(ctx context.Context, db *sql.DB, src, 
 			if rerr := applyNodeAllocs(ctx, db, src, allocs, true); rerr != nil {
 				return 0, nil, fmt.Errorf("push to node %d failed (%v) and rollback failed: %w", d, perr, rerr)
 			}
-			// Destinations already pushed still carry the moved routes; re-push them.
-			for _, done := range dests[:i] {
-				_ = h.ResyncNode(ctx, done)
+			// Re-push every attempted destination, d included: its /load may have
+			// applied even though the call errored (e.g. response timeout).
+			cctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+			var cerrs []error
+			for _, done := range dests[:i+1] {
+				if err := h.ResyncNode(cctx, done); err != nil {
+					cerrs = append(cerrs, fmt.Errorf("node %d: %w", done, err))
+				}
+			}
+			cancel()
+			if len(cerrs) > 0 {
+				return 0, nil, fmt.Errorf("push to node %d failed (%v), migration rolled back, but re-sync failed (drift reconcile will retry): %w",
+					d, perr, errors.Join(cerrs...))
 			}
 			return 0, nil, fmt.Errorf("push to node %d failed, migration rolled back: %w", d, perr)
 		}

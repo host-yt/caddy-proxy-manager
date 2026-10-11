@@ -104,8 +104,10 @@ func TestMigrateNodeRoutesRefusesOverfill(t *testing.T) {
 // A failed destination push rolls every assignment and counter back.
 func TestMigrateNodeRoutesRollsBackOnPushFailure(t *testing.T) {
 	db, gid, src, peers := migrateFixture(t, 4, 2, 3)
+	calls := map[int64]int{}
 	h := &AdminHandlers{Logger: slog.Default(), ResyncNode: func(_ context.Context, id int64) error {
-		if id == peers[0] { // pushed second, after peers[1]
+		calls[id]++
+		if id == peers[0] && calls[id] == 1 { // pushed second, after peers[1]
 			return errors.New("boom")
 		}
 		return nil
@@ -120,6 +122,10 @@ func TestMigrateNodeRoutesRollsBackOnPushFailure(t *testing.T) {
 		if n, c := nodeLoad(t, db, peers[i]); n != 0 || c != want {
 			t.Fatalf("peer %d not restored: routes=%d counter=%d", i, n, c)
 		}
+	}
+	// The failed destination may have applied its /load; it is re-synced too.
+	if calls[peers[0]] != 2 || calls[peers[1]] != 2 {
+		t.Fatalf("rollback re-sync calls = %v, want 2 each", calls)
 	}
 }
 
