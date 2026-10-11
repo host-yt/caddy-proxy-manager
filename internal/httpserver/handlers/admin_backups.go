@@ -233,7 +233,7 @@ func (h *AdminHandlers) BackupsDeleteDestination(w http.ResponseWriter, r *http.
 // BackupsVerify POST /admin/backups/destinations/{id}/verify.
 // Downloads the most recent successful artifact, verifies sha256/size,
 // decrypts it, and walks the tar to assert dump.sql is present. Records
-// a new backup_jobs row of kind='manual' with the outcome.
+// a new backup_jobs row of kind='verification' with the outcome.
 func (h *AdminHandlers) BackupsVerify(w http.ResponseWriter, r *http.Request) {
 	if h.Backups == nil {
 		http.Error(w, "backup service not wired", http.StatusServiceUnavailable)

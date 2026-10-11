@@ -173,7 +173,7 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	err := db.QueryRowContext(ctx,
 		`SELECT id, destination_id, artifact_key, encrypted
 		 FROM backup_jobs
-		 WHERE status = 'succeeded' AND artifact_key <> ''
+		 WHERE status = 'succeeded' AND kind <> 'verification' AND artifact_key <> ''
 		 ORDER BY id DESC LIMIT 1`,
 	).Scan(&jobID, &destID, &artifactKey, &encInt)
 	if err != nil {
