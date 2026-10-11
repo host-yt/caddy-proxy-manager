@@ -36,6 +36,31 @@ func rbacFixture(t *testing.T, extra ...string) func(uri, certPEM string) int {
 	}
 }
 
+func TestMTLSRBACCheck_EncodedPathsCannotDodgeRule(t *testing.T) {
+	check := rbacFixture(t)
+	cases := map[string]int{
+		"/public":                  http.StatusOK,
+		"/public?x=/admin/":        http.StatusOK,
+		"/admin/panel":             http.StatusForbidden,
+		"/admin%2Fpanel":           http.StatusForbidden,
+		"/admin%252Fpanel":         http.StatusForbidden,
+		"/%61dmin/panel":           http.StatusForbidden,
+		"/public/../admin/panel":   http.StatusForbidden,
+		"/public/%2e%2e/admin/x":   http.StatusForbidden,
+		"//admin/panel":            http.StatusForbidden,
+		"/admin\\panel":            http.StatusForbidden,
+		"/admin%5Cpanel":           http.StatusForbidden,
+		"/admin%zz":                http.StatusForbidden,
+		"http://h.example/admin/x": http.StatusForbidden,
+		"*":                        http.StatusForbidden,
+	}
+	for uri, want := range cases {
+		if got := check(uri, rbacUserPEM); got != want {
+			t.Errorf("%q: status = %d, want %d", uri, got, want)
+		}
+	}
+}
+
 func TestMTLSRBACCheck_MostSpecificRuleWins(t *testing.T) {
 	broad := `INSERT INTO mtls_path_rules (route_id, path_pattern, required_role_id) VALUES (7, '/app/*', 2)`
 	exact := `INSERT INTO mtls_path_rules (route_id, path_pattern, required_role_id) VALUES (7, '/app/secrets', 1)`

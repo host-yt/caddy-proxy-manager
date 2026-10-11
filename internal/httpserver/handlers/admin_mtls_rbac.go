@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -77,15 +79,17 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Strip query string; match on path only.
-	reqPath := origURI
-	if i := strings.Index(reqPath, "?"); i >= 0 {
-		reqPath = reqPath[:i]
+	forms, ok := rbacPathForms(origURI)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
 	}
-
+	// Every form the backend might route on must satisfy its most-specific rule.
 	required := map[string]bool{}
-	for _, role := range mostSpecificRoles(reqPath, rules) {
-		required[role] = true
+	for _, p := range forms {
+		for _, role := range mostSpecificRoles(p, rules) {
+			required[role] = true
+		}
 	}
 	if len(required) == 0 {
 		// No rule matches this path - allow.
@@ -188,6 +192,32 @@ func (h *AdminHandlers) rbacCallerAllowed(ctx context.Context, db *sql.DB, r *ht
 type pathRule struct {
 	Pattern  string
 	RoleName string
+}
+
+// rbacPathForms returns the decoded request path both as sent and cleaned, so
+// percent-encoding or dot segments cannot dodge a rule. ok=false = reject.
+func rbacPathForms(origURI string) ([]string, bool) {
+	u, err := url.ParseRequestURI(origURI)
+	if err != nil || !strings.HasPrefix(u.Path, "/") {
+		return nil, false
+	}
+	p := u.Path
+	// Decode until stable so double-encoded separators are seen as the backend may.
+	for i := 0; i < 3 && strings.Contains(p, "%"); i++ {
+		d, err := url.PathUnescape(p)
+		if err != nil || d == p {
+			break
+		}
+		p = d
+	}
+	if strings.ContainsAny(p, "\\\x00") {
+		return nil, false
+	}
+	clean := path.Clean(p)
+	if strings.HasSuffix(p, "/") && clean != "/" {
+		clean += "/"
+	}
+	return []string{p, clean}, true
 }
 
 // mostSpecificRoles returns the roles of the most specific rules matching p:
