@@ -53,8 +53,7 @@ type statusPageData struct {
 	Brand   Branding
 	Routes  []statusRouteRow
 	Tunnels []statusTunnelRow
-	// Pre-serialised for inline sparkline (14-day per-node request deltas).
-	TrafficLabels template.JS
+	// Pre-serialised for the sparkline's data-values (14-day per-node request deltas).
 	TrafficValues template.JS
 }
 
@@ -105,7 +104,7 @@ func (h *StatusPageHandlers) Page(w http.ResponseWriter, r *http.Request) {
 	d.Routes = h.loadRoutes(ctx, db, clientID)
 	d.Tunnels = h.loadTunnels(ctx, db, clientID)
 	if showTraffic {
-		d.TrafficLabels, d.TrafficValues = h.trafficSparkline(ctx, db, clientID)
+		_, d.TrafficValues = h.trafficSparkline(ctx, db, clientID)
 	}
 	d.AllUp = allUp(d.Routes, d.Tunnels)
 

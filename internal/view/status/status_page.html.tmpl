@@ -117,27 +117,9 @@
   <section>
     <p style="font-size:0.6875rem;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;color:rgb(var(--muted));margin-bottom:0.75rem;">Requests (14 days, approximate)</p>
     <div style="border-radius:0.875rem;border:1px solid rgb(var(--border));background:rgb(var(--surface));padding:1rem;overflow:hidden;">
-      <canvas id="spark" style="width:100%;height:5rem;display:block;"></canvas>
+      <canvas id="spark" data-values="{{.TrafficValues}}" style="width:100%;height:5rem;display:block;"></canvas>
     </div>
-    <script>
-    (function(){
-      var labels = {{.TrafficLabels}};
-      var values = {{.TrafficValues}};
-      var canvas = document.getElementById('spark');
-      if (!canvas) return;
-      var ctx = canvas.getContext('2d');
-      var w = canvas.offsetWidth || 560, h = canvas.offsetHeight || 80;
-      canvas.width = w; canvas.height = h;
-      var max = Math.max.apply(null, values) || 1;
-      var step = w / ((labels.length - 1) || 1);
-      ctx.strokeStyle = 'rgb(180,140,60)'; ctx.lineWidth = 2; ctx.beginPath();
-      values.forEach(function(v, i) {
-        var x = i * step, y = h - (v / max) * (h - 8) - 4;
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      });
-      ctx.stroke();
-    })();
-    </script>
+    <script src="/static/js/status-spark.js" defer></script>
   </section>
   {{end}}
 
