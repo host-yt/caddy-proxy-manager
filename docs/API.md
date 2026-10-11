@@ -1446,6 +1446,7 @@ Superseded by `/api/node/wg/stats`. Kept live for rolling agent upgrades.
 
 | Code | Meaning |
 |------|---------|
+| 400 | Empty or malformed `reports` |
 | 401 | Missing token |
 | 403 | Invalid token |
 

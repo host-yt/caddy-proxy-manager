@@ -477,19 +477,50 @@ func (h *WGBootstrapHandler) NodeHandshakeReport(w http.ResponseWriter, r *http.
 	// size limit), so an authenticated node-token holder could otherwise
 	// stream an unbounded form into memory.
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	// Minimal JSON parse without full struct (one-shot allocation savings).
-	if err := r.ParseForm(); err == nil {
-		// Optional: form-encoded reports for ultra-simple agents.
-		if pubs, ok := r.Form["pubkey"]; ok {
-			when := time.Now()
-			for _, pk := range pubs {
-				_, _ = db.ExecContext(ctx,
-					`UPDATE customer_wg_peer SET last_handshake_at=? WHERE node_id=? AND pubkey=?`,
-					when, nodeID, pk)
-			}
-			w.WriteHeader(http.StatusNoContent)
+	type report struct {
+		Pubkey        string `json:"pubkey"`
+		LastHandshake string `json:"last_handshake"`
+	}
+	var reports []report
+	now := time.Now()
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		var body struct {
+			Reports []report `json:"reports"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
 			return
 		}
+		reports = body.Reports
+	} else if err := r.ParseForm(); err == nil {
+		// Form fallback: pubkey fields only, stamped with receive time.
+		for _, pk := range r.Form["pubkey"] {
+			reports = append(reports, report{Pubkey: pk})
+		}
+	}
+	if len(reports) == 0 {
+		http.Error(w, "no reports", http.StatusBadRequest)
+		return
+	}
+	whens := make([]time.Time, len(reports))
+	for i, rep := range reports {
+		whens[i] = now
+		if rep.LastHandshake == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, rep.LastHandshake)
+		if err != nil {
+			http.Error(w, "bad last_handshake", http.StatusBadRequest)
+			return
+		}
+		if t.Before(now) { // never record a future handshake
+			whens[i] = t
+		}
+	}
+	for i, rep := range reports {
+		_, _ = db.ExecContext(ctx,
+			`UPDATE customer_wg_peer SET last_handshake_at=? WHERE node_id=? AND pubkey=?`,
+			whens[i], nodeID, rep.Pubkey)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
