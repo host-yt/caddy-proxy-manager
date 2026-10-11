@@ -481,6 +481,13 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 			}
 		}()
 	}
+	// Reads go through the same tx as the writes, so the apply pass rotates
+	// exactly the snapshot it read.
+	query := db.Query
+	queryRow := db.QueryRow
+	if apply {
+		query, queryRow = tx.Query, tx.QueryRow
+	}
 	execTX := func(q string, args ...any) (sql.Result, error) {
 		if apply {
 			return tx.Exec(q, args...)
@@ -493,19 +500,22 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 	// configured) is stored as is_encrypted=1 with an empty value; without
 	// this filter the tool hard-fails "ciphertext too short" on every such
 	// install, i.e. almost all of them.
-	rows, err := db.Query("SELECT `key`, value FROM settings WHERE is_encrypted = 1 AND value <> ''")
+	rows, err := query("SELECT `key`, value FROM settings WHERE is_encrypted = 1 AND value <> ''")
 	if err != nil {
 		return s, err
 	}
 	type kv struct{ k, v string }
 	var todo []kv
-	for rows.Next() {
-		var k, v string
-		if err := rows.Scan(&k, &v); err == nil {
-			todo = append(todo, kv{k, v})
+	if err := scanAll(rows, func() error {
+		var e kv
+		if err := rows.Scan(&e.k, &e.v); err != nil {
+			return err
 		}
+		todo = append(todo, e)
+		return nil
+	}); err != nil {
+		return s, fmt.Errorf("settings read: %w", err)
 	}
-	rows.Close()
 	for _, e := range todo {
 		purpose, pt, err := decEnvelope(e.v, oldKey)
 		if err != nil {
@@ -524,7 +534,7 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		s.settings++
 	}
 	// TOTP secrets.
-	urows, err := db.Query("SELECT id, totp_secret_enc FROM users WHERE totp_secret_enc IS NOT NULL AND totp_secret_enc <> ''")
+	urows, err := query("SELECT id, totp_secret_enc FROM users WHERE totp_secret_enc IS NOT NULL AND totp_secret_enc <> ''")
 	if err != nil {
 		return s, err
 	}
@@ -533,13 +543,16 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		enc string
 	}
 	var users []uent
-	for urows.Next() {
+	if err := scanAll(urows, func() error {
 		var u uent
-		if err := urows.Scan(&u.id, &u.enc); err == nil {
-			users = append(users, u)
+		if err := urows.Scan(&u.id, &u.enc); err != nil {
+			return err
 		}
+		users = append(users, u)
+		return nil
+	}); err != nil {
+		return s, fmt.Errorf("users read: %w", err)
 	}
-	urows.Close()
 	for _, u := range users {
 		purpose, pt, err := decEnvelope(u.enc, oldKey)
 		if err != nil {
@@ -571,7 +584,7 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		if c.where != "" {
 			q += " AND " + c.where
 		}
-		crows, qerr := db.Query(q)
+		crows, qerr := query(q)
 		if qerr != nil {
 			return s, fmt.Errorf("%s.%s select: %w", c.table, c.col, qerr)
 		}
@@ -580,13 +593,16 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 			val string
 		}
 		var ents []ent
-		for crows.Next() {
+		if err := scanAll(crows, func() error {
 			var e ent
-			if err := crows.Scan(&e.id, &e.val); err == nil {
-				ents = append(ents, e)
+			if err := crows.Scan(&e.id, &e.val); err != nil {
+				return err
 			}
+			ents = append(ents, e)
+			return nil
+		}); err != nil {
+			return s, fmt.Errorf("%s.%s read: %w", c.table, c.col, err)
 		}
-		crows.Close()
 		for _, e := range ents {
 			b64 := e.val
 			if c.prefix != "" {
@@ -627,9 +643,9 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		n, _ := res.RowsAffected()
 		s.pending = int(n)
 	} else {
-		var n int
-		_ = db.QueryRow("SELECT COUNT(*) FROM users WHERE totp_pending_secret IS NOT NULL").Scan(&n)
-		s.pending = n
+		if err := queryRow("SELECT COUNT(*) FROM users WHERE totp_pending_secret IS NOT NULL").Scan(&s.pending); err != nil {
+			return s, err
+		}
 	}
 
 	// API keys: HMAC is keyed off APP_SECRET, so rotation invalidates the
@@ -644,9 +660,9 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		n, _ := res.RowsAffected()
 		s.apikeys = int(n)
 	} else {
-		var n int
-		_ = db.QueryRow("SELECT COUNT(*) FROM api_keys WHERE key_hmac IS NOT NULL").Scan(&n)
-		s.apikeys = n
+		if err := queryRow("SELECT COUNT(*) FROM api_keys WHERE key_hmac IS NOT NULL").Scan(&s.apikeys); err != nil {
+			return s, err
+		}
 	}
 	// Commit only if every step above ran clean.
 	if apply {
@@ -656,6 +672,18 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		tx = nil // disable deferred rollback
 	}
 	return s, nil
+}
+
+// scanAll drains rows, failing on the first Scan error or a broken result
+// stream: a partially read table must abort the rotation, never commit a subset.
+func scanAll(rows *sql.Rows, scan func() error) error {
+	defer rows.Close()
+	for rows.Next() {
+		if err := scan(); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 var cryptoRand = &randReader{}

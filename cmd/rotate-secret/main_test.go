@@ -275,3 +275,40 @@ func TestRunRotationResumesAfterDBCommit(t *testing.T) {
 		t.Fatal("journal should be removed once the resumed rotation completes")
 	}
 }
+
+// A row that fails to Scan mid-rotation must abort and roll back every
+// earlier re-seal; skipping it would commit a subset under the new key.
+func TestRotateDBScanErrorRollsBack(t *testing.T) {
+	db := openIsolatedTestDB(t)
+	oldKey := deriveStateKey("scan-old-secret-32-chars-long!!!!")
+	newKey := deriveStateKey("scan-new-secret-32-chars-long!!!!")
+
+	sealed, err := encrypt("s3cret-value", oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO settings (`key`, value, is_encrypted) VALUES ('k', ?, 1)", sealed); err != nil {
+		t.Fatal(err)
+	}
+	// NULL id cannot Scan into string: an injected mid-stream read failure.
+	if _, err := db.Exec("CREATE TABLE fault_enc (id VARCHAR(10) NULL, secret_enc TEXT NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO fault_enc VALUES (NULL, ?)", sealed); err != nil {
+		t.Fatal(err)
+	}
+	saved := encColumns
+	encColumns = []encColumn{{"fault_enc", "id", "secret_enc", "", "", false}}
+	t.Cleanup(func() { encColumns = saved })
+
+	if _, err := rotateDB(db, oldKey, newKey, true); err == nil {
+		t.Fatal("expected scan failure to abort the rotation")
+	}
+	var got string
+	if err := db.QueryRow("SELECT value FROM settings WHERE `key` = 'k'").Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != sealed {
+		t.Fatal("settings row was re-sealed despite the aborted rotation")
+	}
+}
