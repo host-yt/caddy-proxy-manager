@@ -151,7 +151,7 @@ func TestBuildLayer4AppProxyProtoIn(t *testing.T) {
 		{
 			ID: 6, Protocol: "tcp", ListenPort: 5432,
 			UpstreamIP: "10.0.3.1", UpstreamPort: 5432,
-			ProxyProtoIn: "v2",
+			ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"192.0.2.10/32"},
 		},
 	}
 	app := buildLayer4App(routes)
@@ -228,7 +228,7 @@ func TestBuildLayer4AppProxyProtocol(t *testing.T) {
 		{
 			ID: 10, Protocol: "tcp", ListenPort: 5432,
 			UpstreamIP: "10.0.0.3", UpstreamPort: 5432,
-			ProxyProtoIn:  "v2",
+			ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"192.0.2.10/32"},
 			ProxyProtoOut: "v2",
 		},
 	}
@@ -256,8 +256,8 @@ func TestBuildLayer4AppProxyProtoBeforeACL(t *testing.T) {
 		{
 			ID: 12, Protocol: "tcp", ListenPort: 7000,
 			UpstreamIP: "10.0.0.1", UpstreamPort: 7000,
-			ProxyProtoIn: "v2",
-			CIDRDeny:     []string{"203.0.113.0/24"},
+			ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"192.0.2.10/32"},
+			CIDRDeny: []string{"203.0.113.0/24"},
 		},
 	}
 	app := buildLayer4App(routes)
@@ -266,7 +266,7 @@ func TestBuildLayer4AppProxyProtoBeforeACL(t *testing.T) {
 
 	pp := strings.Index(s, `"handler":"proxy_protocol"`)
 	sub := strings.Index(s, `"handler":"subroute"`)
-	acl := strings.Index(s, `"remote_ip"`)
+	acl := strings.Index(s, `"remote_ip":{"ranges":["203.0.113.0/24"]}`)
 	if pp == -1 || sub == -1 || acl == -1 {
 		t.Fatalf("expected proxy_protocol + subroute + remote_ip\nfull: %s", s)
 	}
@@ -309,10 +309,10 @@ func TestBuildLayer4AppFullAdvanced(t *testing.T) {
 				{Address: "10.0.10.1:9000", Weight: 3},
 				{Address: "10.0.10.2:9000", Weight: 1},
 			},
-			MatchMode:     "sni",
-			MatchValues:   []string{"db.corp.internal"},
-			LBPolicy:      "least_conn",
-			ProxyProtoIn:  "v2",
+			MatchMode:    "sni",
+			MatchValues:  []string{"db.corp.internal"},
+			LBPolicy:     "least_conn",
+			ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"192.0.2.10/32"},
 			ProxyProtoOut: "v2",
 			CIDRAllow:     []string{"172.16.0.0/12"},
 			CIDRDeny:      []string{"172.31.0.0/24"},

@@ -28,7 +28,8 @@ func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) ([]cadd
 		        COALESCE(sr.proxy_proto_in,'none'),
 		        COALESCE(sr.proxy_proto_out,'none'),
 		        COALESCE(sr.cidr_allow,''),
-		        COALESCE(sr.cidr_deny,'')
+		        COALESCE(sr.cidr_deny,''),
+		        COALESCE(sr.proxy_proto_trusted,'')
 		 FROM stream_routes sr JOIN services sv ON sv.id = sr.service_id
 		 WHERE sr.caddy_node_id = ? AND sr.status = 'active' AND sr.quarantined_at IS NULL
 		 ORDER BY sr.listen_port ASC`, nodeID)
@@ -39,18 +40,19 @@ func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) ([]cadd
 	var out []caddyapi.StreamRoute
 	for rows.Next() {
 		var r caddyapi.StreamRoute
-		var matchValuesCSV, cidrAllow, cidrDeny string
+		var matchValuesCSV, cidrAllow, cidrDeny, ppTrusted string
 		if err := rows.Scan(
 			&r.ID, &r.Protocol, &r.ListenPort, &r.UpstreamPort, &r.UpstreamIP,
 			&r.MatchMode, &matchValuesCSV, &r.LBPolicy,
 			&r.ProxyProtoIn, &r.ProxyProtoOut,
-			&cidrAllow, &cidrDeny,
+			&cidrAllow, &cidrDeny, &ppTrusted,
 		); err != nil {
 			return nil, fmt.Errorf("stream route scan: %w", err)
 		}
 		r.MatchValues = splitCSV(matchValuesCSV)
 		r.CIDRAllow = splitCSV(cidrAllow)
 		r.CIDRDeny = splitCSV(cidrDeny)
+		r.ProxyProtoTrusted = splitCSV(ppTrusted)
 		out = append(out, r)
 	}
 	if err := rows.Err(); err != nil {
