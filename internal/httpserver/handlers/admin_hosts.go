@@ -199,7 +199,7 @@ func (h *AdminHandlers) HostsList(w http.ResponseWriter, r *http.Request) {
 		args = append(args, d.GroupFilter)
 	}
 	// Scope: non-super_admins see only routes owned by their assigned clients.
-	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); ok && !all {
+	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); !ok || !all {
 		if len(allowed) == 0 {
 			where = append(where, "1=0")
 		} else {
@@ -462,7 +462,7 @@ func (h *AdminHandlers) HostsExport(w http.ResponseWriter, r *http.Request) {
 	// Scope: a non-super_admin exports only routes of its assigned clients (twin
 	// of the HostsList filter). Without this a scoped admin could CSV-dump every
 	// tenant's routes.
-	if allowed, all, ok := h.adminClientScope(ctx, sess); ok && !all {
+	if allowed, all, ok := h.adminClientScope(ctx, sess); !ok || !all {
 		if len(allowed) == 0 {
 			where = append(where, "1=0")
 		} else {

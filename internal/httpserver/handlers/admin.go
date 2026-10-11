@@ -477,8 +477,11 @@ func (h *AdminHandlers) dashboardScope(ctx context.Context, sess *auth.Session) 
 	if sess == nil {
 		return dashScope{scoped: true}
 	}
-	if sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return dashScope{}
+	}
+	if h.AdminScope == nil {
+		return dashScope{scoped: true}
 	}
 	ids, all, err := h.AdminScope.ScopeFilter(ctx, sess.UserID)
 	if err != nil {
@@ -2207,7 +2210,7 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 		args = append(args, d.CategoryFilter)
 	}
 	// Scope: non-super_admins see only their assigned clients (empty scope = none).
-	if allowed, all, ok := h.adminClientScope(ctx, sess); ok && !all {
+	if allowed, all, ok := h.adminClientScope(ctx, sess); !ok || !all {
 		if len(allowed) == 0 {
 			where = append(where, "1=0")
 		} else {
@@ -2634,7 +2637,7 @@ func (h *AdminHandlers) ServicesList(w http.ResponseWriter, r *http.Request) {
 	// Scope: non-super_admins see only services/clients they are assigned to.
 	sess := middleware.SessionFromContext(r.Context())
 	scopeIDs, scopeAll, scopeOK := h.adminClientScope(ctx, sess)
-	scoped := scopeOK && !scopeAll
+	scoped := !scopeOK || !scopeAll
 	var scopeArgs []any
 	if scoped {
 		for id := range scopeIDs {

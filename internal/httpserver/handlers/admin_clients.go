@@ -305,7 +305,7 @@ func (h *AdminHandlers) ClientsExport(w http.ResponseWriter, r *http.Request) {
 	// Scope: a non-super_admin exports only its assigned clients (twin of the
 	// ClientsList filter); without it a scoped admin dumps every tenant.
 	var args []any
-	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); ok && !all {
+	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); !ok || !all {
 		if len(allowed) == 0 {
 			query += " WHERE 1=0"
 		} else {

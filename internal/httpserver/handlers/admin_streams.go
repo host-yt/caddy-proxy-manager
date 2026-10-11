@@ -24,7 +24,7 @@ import (
 // scopeCheckStream verifies the caller may act on a stream by resolving its
 // service and deferring to scopeCheckService. True for super_admin / no scope.
 func (h *AdminHandlers) scopeCheckStream(ctx context.Context, sess *auth.Session, streamID int64) bool {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
 	}
 	db := h.DB()
@@ -203,7 +203,7 @@ func (h *AdminHandlers) StreamsList(w http.ResponseWriter, r *http.Request) {
 	// assigned client (streams are self-provisioned per client like hosts).
 	streamWhere := ""
 	var streamArgs []any
-	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); ok && !all {
+	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); !ok || !all {
 		if len(allowed) == 0 {
 			streamWhere = " WHERE 1=0"
 		} else {

@@ -727,9 +727,21 @@ func isSuperAdmin(sess *auth.Session) bool {
 	return sess != nil && sess.Role == "super_admin"
 }
 
+// scopeExempt reports a caller that needs no per-client filter. A tenant-scoped
+// session never is, even if AdminScope is unwired: callers then fail closed.
+func (h *AdminHandlers) scopeExempt(sess *auth.Session) bool {
+	if sess == nil || sess.Role == "super_admin" {
+		return true
+	}
+	return h.AdminScope == nil && !sess.Restricted && sess.ResellerID == 0 && sess.Role != "reseller"
+}
+
 func (h *AdminHandlers) adminClientScope(ctx context.Context, sess *auth.Session) (map[int64]bool, bool, bool) {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return nil, true, true
+	}
+	if h.AdminScope == nil {
+		return nil, false, false
 	}
 	clientIDs, all, err := h.AdminScope.ScopeFilter(ctx, sess.UserID)
 	if err != nil {
@@ -760,8 +772,11 @@ func filterClientOptions(in []clientOption, allowed map[int64]bool, all bool) []
 }
 
 func (h *AdminHandlers) scopeCheckClient(ctx context.Context, sess *auth.Session, clientID int64) bool {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
+	}
+	if h.AdminScope == nil {
+		return false
 	}
 	ok, err := h.AdminScope.CanAccessClient(ctx, sess.UserID, clientID)
 	if err != nil {
@@ -772,8 +787,11 @@ func (h *AdminHandlers) scopeCheckClient(ctx context.Context, sess *auth.Session
 }
 
 func (h *AdminHandlers) scopeCheckPeer(ctx context.Context, sess *auth.Session, peerID int64) bool {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
+	}
+	if h.AdminScope == nil {
+		return false
 	}
 	ok, err := h.AdminScope.CanAccessPeer(ctx, sess.UserID, peerID)
 	if err != nil {
@@ -888,7 +906,7 @@ func (h *AdminHandlers) selfProvisionScope(ctx context.Context, sess *auth.Sessi
 // scopeCheckService resolves a service's owning client and defers to
 // scopeCheckClient. Fail-closed if the service is missing.
 func (h *AdminHandlers) scopeCheckService(ctx context.Context, sess *auth.Session, serviceID int64) bool {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
 	}
 	var clientID int64

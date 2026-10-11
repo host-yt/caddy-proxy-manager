@@ -25,7 +25,7 @@ import (
 // enforcement active) must target a specific route they can access; the
 // unfiltered "all routes" view stays limited to super_admin / single-admin.
 func (h *AdminHandlers) wafScopeOK(ctx context.Context, sess *auth.Session, routeID int64) bool {
-	if sess != nil && sess.Role != "super_admin" && h.AdminScope != nil {
+	if !h.scopeExempt(sess) {
 		return routeID > 0 && h.scopeCheckRoute(ctx, sess, routeID)
 	}
 	return routeID <= 0 || h.scopeCheckRoute(ctx, sess, routeID)
@@ -423,7 +423,7 @@ func (h *AdminHandlers) wafEventScopeOK(ctx context.Context, sess *auth.Session,
 	if sess == nil {
 		return false
 	}
-	if sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
 	}
 	if h.DB == nil {
