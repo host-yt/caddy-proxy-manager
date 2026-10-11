@@ -968,6 +968,8 @@
 }
 #cmdk li:hover, .hpg-cmdk li:hover,
 #cmdk li.is-active, .hpg-cmdk li.is-active { background: rgb(var(--accent-weak)); }
+.hpg-cmdk-label { color: rgb(var(--text)); }
+.hpg-cmdk-sub { color: rgb(var(--muted)); }
 .hpg-cmdk-group { font-size: 0.75rem; color: rgb(var(--muted-2)); }
 
 /* === r-sheet (slide-over panel) === */
@@ -1165,3 +1167,10 @@ a.r-btn-primary, a.r-btn-secondary, a.r-btn-ghost, a.r-btn-danger {
 
 /* Skel shimmer light strip stays white regardless of theme. */
 .hpg-skel::after { background: linear-gradient(90deg, transparent, rgb(255 255 255 / .06), transparent); }
+
+/* Placeholders must read as hints, not values. */
+input::placeholder, textarea::placeholder {
+  color: rgb(var(--muted));
+  opacity: .6;
+  font-style: italic;
+}
