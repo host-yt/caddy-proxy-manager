@@ -400,3 +400,25 @@ func TestRunRotationApplyRequiresDB(t *testing.T) {
 		t.Fatal("state file rewritten by a refused file-only rotation")
 	}
 }
+
+// The password file wins over the deprecated flag and env; a trailing newline
+// from `echo pw > file` must not become part of the password.
+func TestResolveDBPass(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "pw")
+	if err := os.WriteFile(f, []byte("from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ flag, file, env, want string }{
+		{"flag", f, "env", "from-file"},
+		{"flag", "", "env", "flag"},
+		{"", "", "env", "env"},
+	} {
+		got, err := resolveDBPass(tc.flag, tc.file, tc.env)
+		if err != nil || got != tc.want {
+			t.Fatalf("%+v: got (%q, %v)", tc, got, err)
+		}
+	}
+	if _, err := resolveDBPass("", filepath.Join(t.TempDir(), "missing"), ""); err == nil {
+		t.Fatal("missing password file must fail, not fall back silently")
+	}
+}

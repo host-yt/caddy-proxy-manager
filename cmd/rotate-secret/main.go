@@ -26,10 +26,12 @@
 //
 // Usage:
 //
-//	hpg-rotate-secret \
+//	APP_SECRET_OLD=… APP_SECRET_NEW=… DB_PASSWORD=… hpg-rotate-secret \
 //	  --state ./data/install_state.json \
-//	  --old-secret $OLD --new-secret $NEW \
-//	  --db-host 127.0.0.1 --db-port 3306 --db-name hpg --db-user hpg --db-pass …
+//	  --db-host 127.0.0.1 --db-port 3306 --db-name hpg --db-user hpg
+//
+// Secrets go in env (or --db-pass-file), not flags: argv is visible to other
+// local users in process listings.
 //
 // The tool refuses to run when --old equals --new and prints a dry-run
 // summary unless --apply is passed.
@@ -71,9 +73,16 @@ func main() {
 	port := flag.Int("db-port", 3306, "MariaDB port")
 	name := flag.String("db-name", "hostyt_proxy", "MariaDB database name")
 	user := flag.String("db-user", "", "MariaDB user")
-	pass := flag.String("db-pass", "", "MariaDB password (or skip --apply for dry-run)")
+	pass := flag.String("db-pass", "", "DEPRECATED, visible in process listings: use env DB_PASSWORD or --db-pass-file")
+	passFile := flag.String("db-pass-file", "", "file holding the MariaDB password (default: env DB_PASSWORD)")
 	apply := flag.Bool("apply", false, "actually write (default: dry-run)")
 	flag.Parse()
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "db-pass", "old-secret", "new-secret":
+			fmt.Fprintf(os.Stderr, "[warn] --%s is visible to other local users in process listings; use its env variable or file instead\n", f.Name)
+		}
+	})
 
 	if *oldSecret == "" || *newSecret == "" {
 		fail("--old-secret and --new-secret are required")
@@ -91,9 +100,12 @@ func main() {
 	dbRequested := *user != ""
 	var db *sql.DB
 	if dbRequested {
+		dbPass, err := resolveDBPass(*pass, *passFile, os.Getenv("DB_PASSWORD"))
+		if err != nil {
+			fail(err.Error())
+		}
 		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC&charset=utf8mb4&multiStatements=true",
-			*user, *pass, *host, *port, *name)
-		var err error
+			*user, dbPass, *host, *port, *name)
 		db, err = sql.Open("mysql", dsn)
 		if err != nil {
 			fail("db open: " + err.Error())
@@ -109,6 +121,22 @@ func main() {
 	if err := runRotation(*statePath, *oldSecret, *newSecret, oldKey, newKey, db, *apply, os.Stdout); err != nil {
 		fail(err.Error())
 	}
+}
+
+// resolveDBPass picks the DB password: --db-pass-file, then the deprecated
+// --db-pass flag, then env DB_PASSWORD (same variable the panel reads).
+func resolveDBPass(flagPass, file, env string) (string, error) {
+	if file != "" {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return "", fmt.Errorf("--db-pass-file: %w", err)
+		}
+		return strings.TrimRight(string(b), "\r\n"), nil
+	}
+	if flagPass != "" {
+		return flagPass, nil
+	}
+	return env, nil
 }
 
 // runRotation performs the full file+DB rotation protocol. It is a hard
