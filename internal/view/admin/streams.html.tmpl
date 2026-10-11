@@ -182,8 +182,8 @@
       <div data-cpane="upstreams" class="hpg-cpane hidden space-y-3">
         <div>
           <label class="t-eyebrow block mb-1">
-            Additional upstreams (one per line: host:port or host:port weight)          </label>
-          <textarea name="upstreams_raw" rows="4" placeholder="10.0.0.2:3306 2&#10;10.0.0.3:3306 1"
+            Additional upstreams (one per line: host:port)          </label>
+          <textarea name="upstreams_raw" rows="4" placeholder="10.0.0.2:3306&#10;10.0.0.3:3306"
                     class="r-input w-full font-mono text-xs">{{.Form.UpstreamsRaw}}</textarea>
           <p class="t-caption text-[rgb(var(--muted))] mt-1">Leave blank to use only the primary backend above.</p>
         </div>

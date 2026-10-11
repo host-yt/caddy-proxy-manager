@@ -60,7 +60,6 @@ func TestBuildLayer4AppBothProto(t *testing.T) {
 }
 
 // TestBuildLayer4AppMultiUpstreamLB checks multi-upstream + LB policy emission.
-// NOT fixture-validated against real Caddy (load_balancing schema).
 func TestBuildLayer4AppMultiUpstreamLB(t *testing.T) {
 	routes := []StreamRoute{
 		{
@@ -79,12 +78,16 @@ func TestBuildLayer4AppMultiUpstreamLB(t *testing.T) {
 	for _, want := range []string{
 		`"10.0.0.1:3306"`,
 		`"10.0.0.2:3306"`,
-		`"weight":2`,
-		`"load_balancing"`,
-		`"round_robin"`,
+		`"load_balancing":{"selection":{"policy":"round_robin"}}`,
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("multi-upstream LB missing %q\nfull: %s", want, s)
+		}
+	}
+	// caddy-l4 v0.1.1 rejects both of these keys at /load.
+	for _, bad := range []string{`"weight"`, `"selection_policy"`} {
+		if strings.Contains(s, bad) {
+			t.Errorf("multi-upstream LB must not emit %s\nfull: %s", bad, s)
 		}
 	}
 }
@@ -332,7 +335,7 @@ func TestBuildLayer4AppFullAdvanced(t *testing.T) {
 		`"handler":"proxy"`,
 		`"10.0.10.1:9000"`,
 		`"10.0.10.2:9000"`,
-		`"load_balancing":{"selection_policy":{"policy":"least_conn"}}`,
+		`"load_balancing":{"selection":{"policy":"least_conn"}}`,
 		`"proxy_protocol":"v2"`,
 	}
 	for _, want := range wants {

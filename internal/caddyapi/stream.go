@@ -14,7 +14,7 @@ package caddyapi
 // source) and are exercised by TestBuildLayer4* and the /load fixture test in
 // internal/integration (layer4_load_test.go):
 //   - proxy handler:    {"handler":"proxy","upstreams":[{"dial":[...]}],
-//                        "load_balancing":{"selection_policy":{"policy":...}},
+//                        "load_balancing":{"selection":{"policy":...}},
 //                        "proxy_protocol":"v1"|"v2"}            (string, not object)
 //   - proxy_protocol in: {"handler":"proxy_protocol"} prepended to the handle
 //                        chain (it is a handler, not a listener wrapper; the
@@ -28,7 +28,7 @@ package caddyapi
 // StreamUpstream is one entry in the upstream pool for a StreamRoute.
 type StreamUpstream struct {
 	Address string // host:port or ip:port
-	Weight  int    // relative weight for LB; 0 treated as 1
+	Weight  int    // stored only; caddy-l4 v0.1.1 has no upstream weight
 }
 
 // StreamRoute is the panel-side representation of one L4 forward.
@@ -183,8 +183,9 @@ func buildProxyHandler(r StreamRoute) map[string]any {
 
 	// LB policy when more than one upstream or explicitly set.
 	if policy := normLBPolicy(r.LBPolicy); len(upstreams) > 1 || (policy != "" && policy != "round_robin") {
+		// caddy-l4 calls the key "selection", unlike http reverse_proxy's "selection_policy".
 		h["load_balancing"] = map[string]any{
-			"selection_policy": map[string]any{"policy": policy},
+			"selection": map[string]any{"policy": policy},
 		}
 	}
 
@@ -201,15 +202,8 @@ func buildUpstreamList(r StreamRoute) []any {
 	if len(r.Upstreams) > 0 {
 		out := make([]any, 0, len(r.Upstreams))
 		for _, u := range r.Upstreams {
-			entry := map[string]any{"dial": []string{u.Address}}
-			w := u.Weight
-			if w <= 0 {
-				w = 1
-			}
-			if w != 1 {
-				entry["weight"] = w
-			}
-			out = append(out, entry)
+			// No weight: caddy-l4 v0.1.1 rejects it and a stored one would fail the whole /load.
+			out = append(out, map[string]any{"dial": []string{u.Address}})
 		}
 		return out
 	}
