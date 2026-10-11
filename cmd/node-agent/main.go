@@ -1104,6 +1104,9 @@ type peerStat struct {
 func forwardAccessLogs(ctx context.Context, log *slog.Logger, c config) {
 	endpoint := strings.TrimRight(c.PanelURL, "/") + "/internal/access-log"
 	const maxBatch = 8 << 20 // matches the panel ingest body cap
+	// A batch is one DB transaction with a 9s budget; full 8 MiB batches could
+	// miss it on every retry, so ship ~1 MiB of whole lines at a time.
+	const softBatch = 1 << 20
 	posPath := forwardPosPath(c.StateDir, c.AccessLogPath)
 	var offset int64
 	inited := false
@@ -1161,6 +1164,11 @@ func forwardAccessLogs(ctx context.Context, log *slog.Logger, c config) {
 			continue // no complete line yet
 		}
 		batch := buf[:nl+1]
+		if len(batch) > softBatch {
+			if i := bytes.LastIndexByte(batch[:softBatch], '\n'); i >= 0 {
+				batch = batch[:i+1]
+			}
+		}
 		if postAccessLogBatch(ctx, c, endpoint, batch) {
 			offset += int64(len(batch)) // advance only on successful delivery
 			if err := writeForwardPos(posPath, offset); err != nil && !warnedPos {
