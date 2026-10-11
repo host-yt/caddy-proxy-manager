@@ -46,7 +46,8 @@ is deliberately left as published.
 - Restricted and reseller admins fail closed when their scope can't be
   resolved (lists, exports, world map); only super_admin creates global access
   groups; CSV exports neutralise formula cells.
-- Password login carries a CSRF token.
+- Password login carries a CSRF token signed with a key derived from
+  `APP_SECRET`.
 - The install wizard loads only over TLS or from loopback (SSH port-forward);
   `INSTALL_ALLOW_PLAINTEXT=1` opts out.
 - Tunnel and node bootstrap tokens are no longer read from URLs or passed on
@@ -190,6 +191,8 @@ is deliberately left as published.
 
 ### Upgrade notes
 
+- Migration 00171 adds a short-lived ledger that makes access-log batch
+  retries idempotent.
 - Migrations 00169-00170 run on start: stored `/api/wg/*` access-log queries
   are redacted, and every route's GeoIP policy becomes fail-closed (untick it
   per route to keep serving on nodes without GeoIP).
