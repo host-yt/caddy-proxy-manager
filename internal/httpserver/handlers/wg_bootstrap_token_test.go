@@ -1,6 +1,11 @@
 package handlers
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+)
 
 // validBootstrapToken is the last gate before a token is interpolated into a
 // root shell script (renderInstallScript). A length-only check let a 192-char
@@ -56,5 +61,22 @@ func TestValidBootstrapToken(t *testing.T) {
 				t.Errorf("validBootstrapToken(%q) = %v, want %v", c.token, got, c.want)
 			}
 		})
+	}
+}
+
+// The query string is never a token channel: URLs end up in access logs.
+func TestBootstrapTokenChannels(t *testing.T) {
+	r := httptest.NewRequest(http.MethodGet, "/api/wg/status?token=q", nil)
+	if got := bootstrapToken(r); got != "" {
+		t.Fatalf("query token accepted: %q", got)
+	}
+	r.Header.Set("Authorization", "Bearer h")
+	if got := bootstrapToken(r); got != "h" {
+		t.Fatalf("header token = %q", got)
+	}
+	r = httptest.NewRequest(http.MethodPost, "/api/wg/bootstrap?token=q", strings.NewReader("token=f"))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	if got := bootstrapToken(r); got != "f" {
+		t.Fatalf("form token = %q", got)
 	}
 }

@@ -198,7 +198,7 @@ func toEntry(idx NodeRouteIndex, line caddyLogLine) (Entry, bool) {
 		RouteID:   routeID,
 		TS:        ts,
 		Method:    truncUTF8(line.Request.Method, 16),
-		URI:       truncUTF8(line.Request.URI, 2048),
+		URI:       truncUTF8(RedactURI(line.Request.URI), 2048),
 		Status:    status,
 		LatencyMS: latencyMS,
 		RemoteIP:  truncUTF8(remote, 45),
@@ -218,6 +218,17 @@ func truncUTF8(s string, n int) string {
 		return s
 	}
 	return strings.ToValidUTF8(s[:n], "")
+}
+
+// RedactURI drops the query of /api/wg/* requests: older installers carried
+// the tunnel bootstrap token there and the analytics store keeps full URIs.
+func RedactURI(uri string) string {
+	if strings.HasPrefix(uri, "/api/wg/") {
+		if i := strings.IndexByte(uri, '?'); i >= 0 {
+			return uri[:i]
+		}
+	}
+	return uri
 }
 
 // normalizeProto maps verbose Caddy proto strings to short tokens for storage.

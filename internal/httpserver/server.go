@@ -246,6 +246,7 @@ func (s *Server) routes() {
 	// gates the .conf + installer; node-agent uses Bearer node_token.
 	if s.deps.WGBoot != nil {
 		r.Get("/api/wg/bootstrap", s.deps.WGBoot.BootstrapConf)
+		r.Post("/api/wg/bootstrap", s.deps.WGBoot.BootstrapConf)
 		r.Get("/api/wg/install.sh", s.deps.WGBoot.InstallScript)
 		r.Get("/api/wg/status", s.deps.WGBoot.PeerStatus)
 		r.Get("/api/node/wg/peers", s.deps.WGBoot.NodePeersPull)

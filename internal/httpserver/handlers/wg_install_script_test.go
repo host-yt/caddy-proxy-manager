@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"syscall"
 	"testing"
 )
 
@@ -34,5 +35,25 @@ func TestRenderInstallScriptBashSyntax(t *testing.T) {
 		if !strings.Contains(s, "docker_dns_install") {
 			t.Fatalf("mode %s: docker DNS helper missing", tr.Mode)
 		}
+		if strings.Contains(s, "token=") {
+			t.Fatalf("mode %s: token in a URL", tr.Mode)
+		}
+	}
+	stub := renderInstallStub("https://panel.example.com")
+	f, err := os.CreateTemp(t.TempDir(), "stub*.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString(stub)
+	f.Close()
+	if out, err := exec.Command("bash", "-n", f.Name()).CombinedOutput(); err != nil {
+		t.Fatalf("stub: bash -n failed: %v\n%s", err, out)
+	}
+	// No terminal and no --token-file: must refuse instead of fetching anything.
+	cmd := exec.Command("bash", f.Name())
+	cmd.Stdin = strings.NewReader("")
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true} // no controlling terminal
+	if out, err := cmd.CombinedOutput(); err == nil || !strings.Contains(string(out), "missing or malformed") {
+		t.Fatalf("stub without token: err=%v out=%s", err, out)
 	}
 }

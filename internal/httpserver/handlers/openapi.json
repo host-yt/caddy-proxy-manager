@@ -3,7 +3,7 @@
   "info": {
     "title": "Hostyt Proxy Gateway API",
     "version": "0.3.0",
-    "description": "## Introduction\n\nHostyt Proxy Gateway (HPG) is a self-hosted control panel for a fleet of Caddy reverse-proxy nodes.\nCustomers receive a VPS with a fixed backend IP and an allowed port range (e.g. `30000-30019`).\nThrough this API they map their own domains to those ports; Caddy config is pushed automatically.\n\n## Authentication\n\nMost endpoints require a **Bearer API key** issued from `/admin/api-keys` (admin) or `/app/api-keys` (client).\n\n```\nAuthorization: Bearer hpg_live_xxxx...\n```\n\n**Node-agent endpoints** use a per-node agent token stored as a SHA-256 hash in `caddy_nodes.agent_token_hash`.\nPass it in the header only: `Authorization: Bearer <token>`. Query-string tokens are rejected.\n\n**WireGuard bootstrap endpoints** are authenticated by a single-shot 192-hex-char token passed as `?token=`.\nEach token has a 24 h TTL and is invalidated after first use.\n\n## Roles\n\n| Role    | Can do |\n|---------|--------|\n| `admin` | All operations |\n| `client`| Read own services/routes, create/delete own routes |\n\n`backend_ip` is admin-only — clients can never set or change it.\nAllowed ports come from the service record; the server validates membership.\n\n## Rate limits\n\nAll authenticated API endpoints share a per-key quota enforced in Redis.\nBootstrap endpoints are rate-limited to 10 req/min per IP.\nExceeding any limit returns `429 Too Many Requests`.\n\n## Async operations\n\nCaddy config changes (route create/delete, resync) are pushed in the background.\nSSL certificate provisioning is asynchronous — poll `GET /api/v1/services/{id}/routes` and watch `status`.\n"
+    "description": "## Introduction\n\nHostyt Proxy Gateway (HPG) is a self-hosted control panel for a fleet of Caddy reverse-proxy nodes.\nCustomers receive a VPS with a fixed backend IP and an allowed port range (e.g. `30000-30019`).\nThrough this API they map their own domains to those ports; Caddy config is pushed automatically.\n\n## Authentication\n\nMost endpoints require a **Bearer API key** issued from `/admin/api-keys` (admin) or `/app/api-keys` (client).\n\n```\nAuthorization: Bearer hpg_live_xxxx...\n```\n\n**Node-agent endpoints** use a per-node agent token stored as a SHA-256 hash in `caddy_nodes.agent_token_hash`.\nPass it in the header only: `Authorization: Bearer <token>`. Query-string tokens are rejected.\n\n**WireGuard bootstrap endpoints** are authenticated by a single-shot 192-hex-char token in `Authorization: Bearer <token>` (never a query string).\nEach token has a 24 h TTL and is invalidated after first use.\n\n## Roles\n\n| Role    | Can do |\n|---------|--------|\n| `admin` | All operations |\n| `client`| Read own services/routes, create/delete own routes |\n\n`backend_ip` is admin-only — clients can never set or change it.\nAllowed ports come from the service record; the server validates membership.\n\n## Rate limits\n\nAll authenticated API endpoints share a per-key quota enforced in Redis.\nBootstrap endpoints are rate-limited to 10 req/min per IP.\nExceeding any limit returns `429 Too Many Requests`.\n\n## Async operations\n\nCaddy config changes (route create/delete, resync) are pushed in the background.\nSSL certificate provisioning is asynchronous — poll `GET /api/v1/services/{id}/routes` and watch `status`.\n"
   },
   "servers": [
     {
@@ -18,7 +18,7 @@
     },
     {
       "name": "Customer Tunnels",
-      "description": "WireGuard tunnel bootstrap. Auth: single-shot `?token=` (192 hex chars). Rate-limited 10 req/min per IP."
+      "description": "WireGuard tunnel bootstrap. Auth: single-shot token (192 hex chars) as `Authorization: Bearer`. Rate-limited 10 req/min per IP."
     },
     {
       "name": "Node Agent",
@@ -71,6 +71,11 @@
         "type": "http",
         "scheme": "bearer",
         "description": "API key from `/admin/api-keys` or `/app/api-keys`."
+      },
+      "wgBootstrapToken": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Single-shot customer tunnel bootstrap token (192 hex chars, 24 h TTL)."
       },
       "nodeAuthToken": {
         "type": "http",
@@ -285,16 +290,8 @@
         "tags": ["Customer Tunnels"],
         "summary": "Download WireGuard .conf",
         "operationId": "wgBootstrapConf",
-        "description": "Returns a ready-to-use WireGuard config file. The token is single-shot (24 h TTL) — consuming it marks it used.",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": { "type": "string", "minLength": 192, "maxLength": 192 },
-            "description": "Single-shot bootstrap token (192 hex chars)."
-          }
-        ],
+        "description": "Returns a ready-to-use WireGuard config file. The token is single-shot (24 h TTL) — consuming it marks it used. Also accepts `POST` with a form field `token` (the panel's download button).",
+        "security": [{ "wgBootstrapToken": [] }],
         "responses": {
           "200": {
             "description": "WireGuard configuration file",
@@ -316,16 +313,8 @@
         "tags": ["Customer Tunnels"],
         "summary": "Download bash installer",
         "operationId": "wgInstallScript",
-        "description": "Returns a bash script that installs `wireguard-tools`, fetches `/api/wg/bootstrap`, and creates a systemd unit. Designed for `curl … | sudo bash`. Pass `-- remove` to tear down an existing installation.\n\n```bash\n# Install\ncurl 'https://proxy.example.com/api/wg/install.sh?token=<token>' | sudo bash\n\n# Remove\ncurl 'https://proxy.example.com/api/wg/install.sh?token=<token>' | sudo bash -s -- remove\n```",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": { "type": "string", "minLength": 192, "maxLength": 192 },
-            "description": "Bootstrap token — will be consumed by the script when it calls `/api/wg/bootstrap`."
-          }
-        ],
+        "description": "Without a token, returns a small stub that prompts for the bootstrap token on the terminal (or reads `--token-file FILE`) and re-fetches this endpoint with it as a bearer header. With the header, returns the installer: it installs `wireguard-tools`, fetches `/api/wg/bootstrap`, and creates a systemd unit. Pass `-- remove` to tear down an existing installation.\n\n```bash\n# Install (prompts for the token)\ncurl -fsSL https://proxy.example.com/api/wg/install.sh | sudo bash\n\n# Remove\ncurl -fsSL https://proxy.example.com/api/wg/install.sh | sudo bash -s -- remove\n```",
+        "security": [{ "wgBootstrapToken": [] }, {}],
         "responses": {
           "200": {
             "description": "Bash installer script",
@@ -342,14 +331,7 @@
         "summary": "WireGuard peer status",
         "operationId": "wgPeerStatus",
         "description": "Returns whether the peer has an active WireGuard handshake. Polled by the panel UI for a live connection indicator.",
-        "parameters": [
-          {
-            "in": "query",
-            "name": "token",
-            "required": true,
-            "schema": { "type": "string", "minLength": 192, "maxLength": 192 }
-          }
-        ],
+        "security": [{ "wgBootstrapToken": [] }],
         "responses": {
           "200": {
             "description": "Peer status",

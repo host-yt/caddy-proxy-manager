@@ -32,7 +32,16 @@
         <code id="hpg-tun-cmd" class="flex-1 block font-mono text-xs p-3 rounded-lg break-all" style="background:rgb(var(--text));color:rgb(var(--bg))">{{.NewTunnel.InstallCommand}}</code>
         <button type="button" data-copy-target="hpg-tun-cmd" class="r-btn-secondary px-3 text-xs cursor-pointer">Copy</button>
       </div>
-      <p class="t-caption mt-1" style="color:rgb(var(--muted))">Single-use, expires at <time class="font-mono" data-expires="{{.NewTunnel.ExpiresAt}}">{{.NewTunnel.ExpiresAt}}</time>. Alternative: download <a href="{{.NewTunnel.ConfURL}}" class="underline" style="color:rgb(var(--accent))">.conf</a> manually.</p>
+      <label class="t-eyebrow block mt-3 mb-1">Paste this bootstrap token when the installer asks for it:</label>
+      <div class="flex gap-2 items-stretch">
+        <code id="hpg-tun-token" class="flex-1 block font-mono text-xs p-3 rounded-lg break-all" style="background:rgb(var(--text));color:rgb(var(--bg))">{{.NewTunnel.Token}}</code>
+        <button type="button" data-copy-target="hpg-tun-token" class="r-btn-secondary px-3 text-xs cursor-pointer">Copy</button>
+      </div>
+      <p class="t-caption mt-1" style="color:rgb(var(--muted))">Single-use, expires at <time class="font-mono" data-expires="{{.NewTunnel.ExpiresAt}}">{{.NewTunnel.ExpiresAt}}</time>.</p>
+      <form method="POST" action="{{.NewTunnel.ConfURL}}" class="mt-1">
+        <input type="hidden" name="token" value="{{.NewTunnel.Token}}">
+        <button type="submit" class="t-caption underline cursor-pointer" style="color:rgb(var(--accent))">Alternative: download the .conf manually (uses up the token)</button>
+      </form>
     </div>
   </div>
   {{end}}
@@ -254,11 +263,12 @@
   // Live status poll for the just-created tunnel card.
   {{if .NewTunnel}}
   var statusURL = {{.NewTunnel.StatusURL}};
+  var statusToken = {{.NewTunnel.Token}};
   var badge = document.getElementById('hpg-tun-status');
   var pollCount = 0;
   function poll(){
     if (pollCount++ > 60) return; // give up after ~5 min
-    fetch(statusURL).then(function(r){ return r.json(); }).then(function(j){
+    fetch(statusURL, {headers: {'Authorization': 'Bearer ' + statusToken}}).then(function(r){ return r.json(); }).then(function(j){
       if (j.last_handshake) {
         badge.textContent = 'Connected · last handshake ' + j.last_handshake;
         badge.className = 'r-pill r-pill-success';

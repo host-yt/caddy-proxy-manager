@@ -29,7 +29,15 @@
       <code id="hpg-cln-cmd" class="flex-1 block bg-slate-950 text-emerald-200 font-mono text-xs p-3 rounded-lg break-all">{{.NewTunnel.InstallCommand}}</code>
       <button type="button" data-copy-target="hpg-cln-cmd" class="r-btn-secondary px-3 rounded-lg text-xs font-medium">Copy</button>
     </div>
-    <p class="text-xs" style="color:rgb(var(--muted))">Or download <a href="{{.NewTunnel.ConfURL}}" class="underline" style="color:rgb(var(--accent))">WireGuard .conf</a>.</p>
+    <p class="text-xs" style="color:rgb(var(--muted))">Paste this bootstrap token when the installer asks for it:</p>
+    <div class="flex flex-col sm:flex-row gap-2 items-stretch">
+      <code id="hpg-cln-token" class="flex-1 block bg-slate-950 text-emerald-200 font-mono text-xs p-3 rounded-lg break-all">{{.NewTunnel.Token}}</code>
+      <button type="button" data-copy-target="hpg-cln-token" class="r-btn-secondary px-3 rounded-lg text-xs font-medium">Copy</button>
+    </div>
+    <form method="POST" action="{{.NewTunnel.ConfURL}}">
+      <input type="hidden" name="token" value="{{.NewTunnel.Token}}">
+      <button type="submit" class="text-xs underline cursor-pointer" style="color:rgb(var(--accent))">Or download the WireGuard .conf (uses up the token)</button>
+    </form>
   </section>
   {{end}}
 
