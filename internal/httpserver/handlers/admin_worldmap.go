@@ -183,8 +183,7 @@ func aggregateTrafficByCountry(ctx context.Context, db *sql.DB, conds string, ar
 	      GROUP BY hal.remote_ip
 	      ORDER BY c DESC
 	      LIMIT ?`
-	args = append(append([]any(nil), args...), worldmapDistinctIPCap+1)
-	rows, err := db.QueryContext(ctx, q, args...)
+	rows, err := db.QueryContext(ctx, q, append(append([]any(nil), args...), worldmapDistinctIPCap)...)
 	if err != nil {
 		out.dbErr = err
 		return out
@@ -199,11 +198,6 @@ func aggregateTrafficByCountry(ctx context.Context, db *sql.DB, conds string, ar
 		}
 		seen++
 		out.total += cnt
-		// Past the cap: count toward total+unknown but skip the geoip lookup.
-		if seen > worldmapDistinctIPCap {
-			out.unknown += cnt
-			continue
-		}
 		code := resolver.LookupISO2(ip)
 		if code == "" {
 			out.unknown += cnt
@@ -211,7 +205,19 @@ func aggregateTrafficByCountry(ctx context.Context, db *sql.DB, conds string, ar
 		}
 		out.byCountry[code] += cnt
 	}
-	out.dbErr = rows.Err()
+	if out.dbErr = rows.Err(); out.dbErr != nil || seen < worldmapDistinctIPCap {
+		return out
+	}
+	// Cap hit: the tail was never fetched, so count it separately into unknown.
+	var total int64
+	if err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM host_access_log hal WHERE `+conds, args...).Scan(&total); err != nil {
+		out.dbErr = err
+		return out
+	}
+	if total > out.total {
+		out.unknown += total - out.total
+		out.total = total
+	}
 	return out
 }
 
