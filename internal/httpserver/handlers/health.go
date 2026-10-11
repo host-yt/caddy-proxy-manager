@@ -7,6 +7,8 @@ package handlers
 import (
 	"encoding/json"
 	"net/http"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/buildinfo"
 )
 
 func Health(w http.ResponseWriter, _ *http.Request) {
@@ -25,7 +27,7 @@ func Ready(w http.ResponseWriter, _ *http.Request) {
 }
 
 func APIHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": "0.1.174"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": buildinfo.Version})
 }
 
 // Favicon returns 204 No Content so browsers stop logging 404s for /favicon.ico.

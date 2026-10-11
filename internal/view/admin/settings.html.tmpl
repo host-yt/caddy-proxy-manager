@@ -1025,7 +1025,7 @@
       </div>
       {{end}}
       <div class="sm:col-span-2 flex justify-end">
-        <button class="r-btn-primary">Save WireGuard (generates keypair)</button>
+        <button class="r-btn-primary">Save WireGuard</button>
       </div>
     </form>
   </section>
@@ -1615,6 +1615,10 @@
     if (hash && knownTab(hash)) activate(hash);
     else if (qtab && knownTab(qtab)) activate(qtab);
     else if (saved && knownTab(saved)) activate(saved);
+  });
+  window.addEventListener('hashchange', function(){
+    var h = location.hash.slice(1);
+    if (h && knownTab(h)) activate(h);
   });
 
   // Appearance picker
