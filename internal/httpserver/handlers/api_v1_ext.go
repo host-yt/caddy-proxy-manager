@@ -552,10 +552,10 @@ func (h *APIHandlers) PlanCreate(w http.ResponseWriter, r *http.Request) {
 		MaxDomains         int    `json:"max_domains"`
 		MaxPorts           int    `json:"max_ports"`
 		NodeGroupID        int64  `json:"node_group_id"`
-		SSLEnabled         bool   `json:"ssl_enabled"`
+		SSLEnabled         *bool  `json:"ssl_enabled"`
 		PathRoutingEnabled bool   `json:"path_routing_enabled"`
 		WildcardEnabled    bool   `json:"wildcard_enabled"`
-		WebsocketEnabled   bool   `json:"websocket_enabled"`
+		WebsocketEnabled   *bool  `json:"websocket_enabled"`
 		ExternalProxy      bool   `json:"external_proxy_enabled"`
 		AllowEgressIP      bool   `json:"allow_egress_ip"`
 		RateLimitRPM       int    `json:"rate_limit_rpm"`
@@ -586,8 +586,8 @@ func (h *APIHandlers) PlanCreate(w http.ResponseWriter, r *http.Request) {
 		   path_routing_enabled, wildcard_enabled, websocket_enabled,
 		   external_proxy_enabled, allow_egress_ip, rate_limit_rpm, wg_key_rotation_days, node_group_id)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		in.Name, in.Kind, in.MaxDomains, in.MaxPorts, in.SSLEnabled,
-		in.PathRoutingEnabled, in.WildcardEnabled, in.WebsocketEnabled,
+		in.Name, in.Kind, in.MaxDomains, in.MaxPorts, boolOr(in.SSLEnabled, true), // omitted = schema default
+		in.PathRoutingEnabled, in.WildcardEnabled, boolOr(in.WebsocketEnabled, true),
 		in.ExternalProxy, in.AllowEgressIP, rl, wgDays, in.NodeGroupID,
 	)
 	if err != nil {

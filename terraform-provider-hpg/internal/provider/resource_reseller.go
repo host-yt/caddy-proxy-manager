@@ -95,8 +95,8 @@ func (r *resellerResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				MarkdownDescription: "Aggregate quota package id (0 = none; default at creation: the Unlimited package). Sent with the create call.",
 				PlanModifiers:       []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 			},
-			"overselling_allowed": boolAttrOptComputed(),
-			"can_create_plans":    boolAttrOptComputed(),
+			"overselling_allowed": boolAttrOptComputed(""),
+			"can_create_plans":    boolAttrOptComputed(""),
 		},
 	}
 }

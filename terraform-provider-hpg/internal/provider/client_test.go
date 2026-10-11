@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 // TestClientCRUD exercises the REST client against a stub server: auth header,
@@ -93,5 +95,20 @@ func TestValidateEndpoint(t *testing.T) {
 		if _, err := validateEndpoint(in); err == nil {
 			t.Errorf("validateEndpoint(%q) accepted", in)
 		}
+	}
+}
+
+// Omitted optional bools must not be sent, so the server's secure defaults apply.
+func TestPlanBodyOmitsUnknownBools(t *testing.T) {
+	m := planModel{SSLEnabled: types.BoolUnknown(), WebsocketEnabled: types.BoolNull(), WildcardEnabled: types.BoolValue(false)}
+	b := m.body()
+	if _, ok := b["ssl_enabled"]; ok {
+		t.Error("unknown ssl_enabled sent")
+	}
+	if _, ok := b["websocket_enabled"]; ok {
+		t.Error("null websocket_enabled sent")
+	}
+	if v, ok := b["wildcard_enabled"]; !ok || v != false {
+		t.Error("explicit wildcard_enabled=false dropped")
 	}
 }

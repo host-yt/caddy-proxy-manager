@@ -61,9 +61,9 @@ func (r *routeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"domain":        schema.StringAttribute{Required: true, PlanModifiers: []planmodifier.String{stringplanmodifier.RequiresReplace()}},
 			"upstream_port": schema.Int64Attribute{Required: true},
 			"path_prefix":   schema.StringAttribute{Optional: true, Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
-			"ssl":           schema.BoolAttribute{Optional: true, Computed: true},
-			"websocket":     schema.BoolAttribute{Optional: true, Computed: true},
-			"force_https":   schema.BoolAttribute{Optional: true, Computed: true},
+			"ssl":           boolAttrOptComputed("Default `true` (subject to the plan)."),
+			"websocket":     boolAttrOptComputed("Default `false`."),
+			"force_https":   boolAttrOptComputed("Default `true`."),
 			"status":        schema.StringAttribute{Computed: true},
 			"caddy_node_id": schema.Int64Attribute{Computed: true},
 		},
@@ -85,10 +85,10 @@ func (r *routeResource) Create(ctx context.Context, req resource.CreateRequest, 
 		"upstream_port": plan.UpstreamPort.ValueInt64(),
 		"domain":        plan.Domain.ValueString(),
 		"path_prefix":   plan.PathPrefix.ValueString(),
-		"ssl":           plan.SSL.ValueBool(),
-		"websocket":     plan.WebSocket.ValueBool(),
-		"force_https":   plan.ForceHTTPS.ValueBool(),
 	}
+	setKnownBool(body, "ssl", plan.SSL)
+	setKnownBool(body, "websocket", plan.WebSocket)
+	setKnownBool(body, "force_https", plan.ForceHTTPS)
 	var created struct {
 		ID int64 `json:"id"`
 	}
@@ -126,11 +126,11 @@ func (r *routeResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	// Update uses ssl_enabled (create uses ssl); other keys match.
 	body := map[string]any{
 		"upstream_port": plan.UpstreamPort.ValueInt64(),
-		"ssl_enabled":   plan.SSL.ValueBool(),
-		"websocket":     plan.WebSocket.ValueBool(),
-		"force_https":   plan.ForceHTTPS.ValueBool(),
 		"path_prefix":   plan.PathPrefix.ValueString(),
 	}
+	setKnownBool(body, "ssl_enabled", plan.SSL)
+	setKnownBool(body, "websocket", plan.WebSocket)
+	setKnownBool(body, "force_https", plan.ForceHTTPS)
 	if err := r.client.Patch(ctx, "/routes/"+strconv.FormatInt(id, 10), body, nil); err != nil {
 		resp.Diagnostics.AddError("Update route failed", err.Error())
 		return

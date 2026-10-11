@@ -7,6 +7,7 @@ import (
 	"github.com/hashicorp/terraform-plugin-framework/diag"
 	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 // diagSink lets resource read() helpers append errors to the caller's diags.
@@ -38,4 +39,12 @@ func importByID(ctx context.Context, req resource.ImportStateRequest, resp *reso
 		return
 	}
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), id)...)
+}
+
+// setKnownBool adds v to body only when configured, so an omitted attribute
+// falls back to the server default instead of being sent as false.
+func setKnownBool(body map[string]any, key string, v types.Bool) {
+	if !v.IsUnknown() && !v.IsNull() {
+		body[key] = v.ValueBool()
+	}
 }

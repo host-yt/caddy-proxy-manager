@@ -138,6 +138,13 @@ func apiCallerID(r *http.Request) int64 {
 	return 0
 }
 
+func boolOr(p *bool, def bool) bool {
+	if p == nil {
+		return def
+	}
+	return *p
+}
+
 func requireAdmin(r *http.Request) bool {
 	c := middleware.CallerFromContext(r.Context())
 	if c == nil {
@@ -601,9 +608,9 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		UpstreamPort int    `json:"upstream_port"`
 		Domain       string `json:"domain"`
 		PathPrefix   string `json:"path_prefix"`
-		SSL          bool   `json:"ssl"`
+		SSL          *bool  `json:"ssl"`
 		WebSocket    bool   `json:"websocket"`
-		ForceHTTPS   bool   `json:"force_https"`
+		ForceHTTPS   *bool  `json:"force_https"`
 		// External https origin (admin only), its path is prepended upstream.
 		UpstreamURL     string `json:"upstream_url"`
 		StripPathPrefix bool   `json:"strip_path_prefix"`
@@ -666,9 +673,9 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		UpstreamPort:    in.UpstreamPort,
 		Domain:          in.Domain,
 		PathPrefix:      in.PathPrefix,
-		SSL:             in.SSL,
+		SSL:             boolOr(in.SSL, true), // omitted = documented secure default
 		WebSocket:       in.WebSocket,
-		ForceHTTPS:      in.ForceHTTPS,
+		ForceHTTPS:      boolOr(in.ForceHTTPS, true),
 		StripPathPrefix: in.StripPathPrefix,
 		TTLSeconds:      in.TTLSeconds,
 	}
