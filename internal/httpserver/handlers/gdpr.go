@@ -167,13 +167,20 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "user mask failed", http.StatusInternalServerError)
 		return
 	}
-	// Remove derived rows that hold PII directly.
-	_, _ = tx.ExecContext(ctx, "DELETE FROM api_keys WHERE user_id = ?", id)
-	_, _ = tx.ExecContext(ctx, "DELETE FROM recovery_codes WHERE user_id = ?", id)
-	_, _ = tx.ExecContext(ctx, "DELETE FROM password_resets WHERE user_id = ?", id)
-	// Audit rows: keep for legal hold but blank identifiable bits.
-	_, _ = tx.ExecContext(ctx,
-		"UPDATE audit_log SET ip = NULL, user_agent = NULL WHERE user_id = ?", id)
+	// Remove derived rows that hold PII directly; audit rows stay for legal
+	// hold with identifiable bits blanked. Any failure aborts the erasure.
+	for _, q := range []string{
+		"DELETE FROM api_keys WHERE user_id = ?",
+		"DELETE FROM recovery_codes WHERE user_id = ?",
+		"DELETE FROM password_resets WHERE user_id = ?",
+		"UPDATE audit_log SET ip = NULL, user_agent = NULL WHERE user_id = ?",
+	} {
+		if _, err := tx.ExecContext(ctx, q, id); err != nil {
+			h.Logger.Warn("gdpr cleanup failed", "id", id, "err", err)
+			http.Error(w, "cleanup failed", http.StatusInternalServerError)
+			return
+		}
+	}
 	// The epoch bump belongs to the same commit: a masked account whose bump
 	// was lost would keep serving its old session until TTL.
 	if _, err := auth.BumpEpochTx(ctx, tx, id); err != nil {
