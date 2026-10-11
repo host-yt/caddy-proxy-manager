@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"image/png"
 	"strings"
+	"time"
 
 	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
@@ -35,16 +36,29 @@ func GenerateTOTP(issuer, account string) (otpauthURL, secret string, png []byte
 	return key.URL(), key.Secret(), pngBytes, nil
 }
 
-// ValidateTOTP returns nil when code is the current 30s code for secret.
+// ValidateTOTP returns nil when code is valid for secret (+/-1 step skew).
 func ValidateTOTP(secret, code string) error {
+	_, err := MatchTOTP(secret, code, time.Now())
+	return err
+}
+
+// MatchTOTP returns the 30s counter (now +/-1) that produced code, so replay
+// protection can key on the step actually used rather than the current one.
+func MatchTOTP(secret, code string, now time.Time) (int64, error) {
 	code = strings.TrimSpace(code)
 	if len(code) < 6 {
-		return errors.New("code too short")
+		return 0, errors.New("code too short")
 	}
-	if !totp.Validate(code, secret) {
-		return errors.New("invalid code")
+	cur := now.Unix() / 30
+	for _, c := range []int64{cur, cur - 1, cur + 1} {
+		ok, err := totp.ValidateCustom(code, secret, time.Unix(c*30, 0).UTC(), totp.ValidateOpts{
+			Period: 30, Skew: 0, Digits: otp.DigitsSix, Algorithm: otp.AlgorithmSHA1,
+		})
+		if err == nil && ok {
+			return c, nil
+		}
 	}
-	return nil
+	return 0, errors.New("invalid code")
 }
 
 // GenerateRecoveryCodes returns N human-readable recovery codes plus their

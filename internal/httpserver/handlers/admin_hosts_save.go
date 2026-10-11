@@ -62,7 +62,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		kind = "proxy"
 	}
 	redirectURL := strings.TrimSpace(r.FormValue("redirect_url"))
-	redirectCode, _ := strconv.Atoi(r.FormValue("redirect_code"))
+	redirectCode := atoi32(r.FormValue("redirect_code"))
 	ssl := r.FormValue("ssl") == "1"
 	forceHTTPS := r.FormValue("force_https") == "1"
 	websocket := r.FormValue("websocket") == "1"
@@ -1081,6 +1081,15 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback() }() // no-op once committed
 
+	// The port check above ran unlocked; a concurrent range change could have
+	// narrowed the service since.
+	if err := routes.CheckLockedPort(ctx, tx, serviceID, routes.RouteState{
+		Kind: kind, External: external, UpstreamPort: port,
+	}); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", sanitizeErr(err))
+		return
+	}
+
 	// Re-check the hostname claims INSIDE the tx: the pre-checks above race a
 	// concurrent save that could land the same domain or alias in between.
 	if matcherChanged {
@@ -1367,29 +1376,32 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// DNS steering: additive UPDATE (like portal_protect below) so a failure
-	// here can't roll back the rest of the host edit.
-	dnsSteeringEnabled := r.FormValue("dns_steering_enabled") == "1"
-	dnsProviderID, _ := strconv.ParseInt(r.FormValue("dns_provider_id"), 10, 64)
-	dnsSteeringTTL, _ := strconv.Atoi(r.FormValue("dns_steering_ttl"))
-	if dnsSteeringTTL <= 0 {
-		dnsSteeringTTL = 60
-	}
-	var dnsProviderIDVal sql.NullInt64
-	if dnsProviderID > 0 {
-		dnsProviderIDVal = sql.NullInt64{Int64: dnsProviderID, Valid: true}
-	} else {
-		dnsSteeringEnabled = false // can't steer without a provider
-	}
-	if _, derr := h.DB().ExecContext(ctx,
-		`UPDATE routes SET dns_steering_enabled=?, dns_provider_id=?, dns_steering_ttl=? WHERE id=?`,
-		dnsSteeringEnabled, dnsProviderIDVal, dnsSteeringTTL, id); derr != nil {
-		h.Logger.Warn("dns steering update", "id", id, "err", derr)
-	} else if prevDNSSteeringEnabled != dnsSteeringEnabled {
-		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
-			UserID: actorUserID(sess), Action: "host.dns_steering_toggled", Entity: "route",
-			EntityID: itoa64(id),
-			Meta:     map[string]any{"enabled": dnsSteeringEnabled, "provider_id": dnsProviderID, "ttl": dnsSteeringTTL},
-		})
+	// here can't roll back the rest of the host edit. Other roles never see the
+	// fields, so their saves leave the stored steering config untouched.
+	if canManageDNSSteering(sess) {
+		dnsSteeringEnabled := r.FormValue("dns_steering_enabled") == "1"
+		dnsProviderID, _ := strconv.ParseInt(r.FormValue("dns_provider_id"), 10, 64)
+		dnsSteeringTTL, _ := strconv.Atoi(r.FormValue("dns_steering_ttl"))
+		if dnsSteeringTTL <= 0 {
+			dnsSteeringTTL = 60
+		}
+		var dnsProviderIDVal sql.NullInt64
+		if dnsProviderID > 0 {
+			dnsProviderIDVal = sql.NullInt64{Int64: dnsProviderID, Valid: true}
+		} else {
+			dnsSteeringEnabled = false // can't steer without a provider
+		}
+		if _, derr := h.DB().ExecContext(ctx,
+			`UPDATE routes SET dns_steering_enabled=?, dns_provider_id=?, dns_steering_ttl=? WHERE id=?`,
+			dnsSteeringEnabled, dnsProviderIDVal, dnsSteeringTTL, id); derr != nil {
+			h.Logger.Warn("dns steering update", "id", id, "err", derr)
+		} else if prevDNSSteeringEnabled != dnsSteeringEnabled {
+			audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+				UserID: actorUserID(sess), Action: "host.dns_steering_toggled", Entity: "route",
+				EntityID: itoa64(id),
+				Meta:     map[string]any{"enabled": dnsSteeringEnabled, "provider_id": dnsProviderID, "ttl": dnsSteeringTTL},
+			})
+		}
 	}
 
 	// Built-in portal: persist the toggle + replace grants. Scope-safe -

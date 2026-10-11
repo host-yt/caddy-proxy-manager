@@ -46,15 +46,25 @@ func StoreSMSOTP(ctx context.Context, rdb *redis.Client, userID int64, code stri
 
 // VerifySMSOTP verifies the code, deletes the ticket on success, returns userID.
 func VerifySMSOTP(ctx context.Context, rdb *redis.Client, ticket, code string) (int64, error) {
-	key := fmt.Sprintf("hpg:smsotp:%s", ticket)
+	return verifyOTP(ctx, rdb, "smsotp", ticket, code)
+}
+
+// compareAndDel deletes KEYS[1] only if it still holds ARGV[1]; returns 1 for
+// exactly one caller, so concurrent requests cannot both consume one code.
+var compareAndDel = redis.NewScript(`if redis.call("GET", KEYS[1]) == ARGV[1] then return redis.call("DEL", KEYS[1]) end return 0`)
+
+// verifyOTP checks code against the hpg:<kind>:<ticket> entry and consumes it
+// atomically; any Redis error fails closed.
+func verifyOTP(ctx context.Context, rdb *redis.Client, kind, ticket, code string) (int64, error) {
+	key := fmt.Sprintf("hpg:%s:%s", kind, ticket)
 	stored, err := rdb.Get(ctx, key).Result()
 	if err != nil {
-		return 0, fmt.Errorf("smsotp: ticket not found or expired")
+		return 0, fmt.Errorf("%s: ticket not found or expired", kind)
 	}
 	var userID int64
 	var storedHash string
 	if n, _ := fmt.Sscanf(stored, "%d:", &userID); n != 1 {
-		return 0, fmt.Errorf("smsotp: bad store format")
+		return 0, fmt.Errorf("%s: bad store format", kind)
 	}
 	for i, c := range stored {
 		if c == ':' && i > 0 {
@@ -63,8 +73,10 @@ func VerifySMSOTP(ctx context.Context, rdb *redis.Client, ticket, code string) (
 		}
 	}
 	if subtle.ConstantTimeCompare([]byte(SMSOTPHash(code)), []byte(storedHash)) != 1 {
-		return 0, fmt.Errorf("smsotp: invalid code")
+		return 0, fmt.Errorf("%s: invalid code", kind)
 	}
-	_ = rdb.Del(ctx, key).Err()
+	if n, err := compareAndDel.Run(ctx, rdb, []string{key}, stored).Int(); err != nil || n != 1 {
+		return 0, fmt.Errorf("%s: code already used", kind)
+	}
 	return userID, nil
 }

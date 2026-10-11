@@ -259,6 +259,11 @@ HPG_ADMIN_PROXY_KEY={{.TunnelCreds.AdminProxyKey}}{{end}}</textarea>
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                   <button type="submit" class="hpg-act-item is-danger" role="menuitem">Decommission</button>
                 </form>
+                <form class="contents" method="POST" action="/admin/nodes/{{.ID}}/decommission" data-confirm="Force-decommission {{.Name}}? Use only for an unreachable node: it is removed even if its Caddy config cannot be cleared, so stop Caddy on that server by hand." data-confirm-type="{{.Name}}">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <input type="hidden" name="force" value="1">
+                  <button type="submit" class="hpg-act-item is-danger" role="menuitem">Force decommission</button>
+                </form>
               </div>
             </td>
           </tr>

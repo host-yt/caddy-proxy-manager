@@ -479,7 +479,10 @@ func (h *ClientHandlers) ServiceEdit(w http.ResponseWriter, r *http.Request) {
 			bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
 			defer cancel()
 			rows, err := db.QueryContext(bg,
-				`SELECT DISTINCT caddy_node_id FROM routes WHERE service_id = ? AND caddy_node_id IS NOT NULL`, serviceID)
+				`SELECT caddy_node_id FROM routes WHERE service_id = ? AND caddy_node_id IS NOT NULL
+				 UNION
+				 SELECT rna.node_id FROM route_node_assignments rna
+				   JOIN routes r ON r.id = rna.route_id WHERE r.service_id = ?`, serviceID, serviceID)
 			if err != nil {
 				return
 			}
@@ -847,12 +850,7 @@ func (h *ClientHandlers) RouteMaintenance(w http.ResponseWriter, r *http.Request
 			defer recoverBg(h.Logger, "client-maintenance-resync")
 			bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
 			defer cancel()
-			var nid int64
-			if err := db.QueryRowContext(bg,
-				`SELECT caddy_node_id FROM routes WHERE id = ? AND caddy_node_id IS NOT NULL`, routeID,
-			).Scan(&nid); err == nil {
-				h.Routes.SchedulePush(nid)
-			}
+			h.Routes.SchedulePushForRoute(bg, routeID)
 		}(id)
 	}
 	redirectWithFlash(w, r, "/app/routes", msg, "")
@@ -1014,22 +1012,28 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 
 	// Load ownership + plan constraints + caddy node.
 	var ownerClientID, portStart, portEnd, serviceID int64
-	var planWebSocket bool
+	var planWebSocket, planPath bool
 	var caddyNodeID sql.NullInt64
 	var oldDomain, oldPath string
 	if err := db.QueryRowContext(ctx,
-		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket_enabled, r.caddy_node_id, s.id,
+		`SELECT s.client_id, s.allowed_port_start, s.allowed_port_end, p.websocket_enabled, p.path_routing_enabled,
+		        r.caddy_node_id, s.id,
 		        LOWER(r.domain), COALESCE(r.path_prefix,'')
 		 FROM routes r
 		 JOIN services s ON s.id = r.service_id
 		 JOIN plans p ON p.id = s.plan_id
 		 WHERE r.id = ?`, id,
-	).Scan(&ownerClientID, &portStart, &portEnd, &planWebSocket, &caddyNodeID, &serviceID, &oldDomain, &oldPath); err != nil {
+	).Scan(&ownerClientID, &portStart, &portEnd, &planWebSocket, &planPath, &caddyNodeID, &serviceID, &oldDomain, &oldPath); err != nil {
 		redirectWithFlash(w, r, "/app/routes", "", "route not found")
 		return
 	}
 	if ownerClientID != clientID {
 		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	// Same plan gate the route service applies on create and API update.
+	if newPath != "" && !planPath {
+		redirectWithFlash(w, r, editURL, "", mapRouteErr(routes.ErrPathNotInPlan))
 		return
 	}
 	if int64(newPort) < portStart || int64(newPort) > portEnd {
@@ -1066,13 +1070,28 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 	// issue a fresh TXT token so the moved route holds at pending_dns instead
 	// of inheriting the old host's verified flag (cert/serving takeover).
 	domainChanged := newDomain != oldDomain || newPath != oldPath
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, editURL, "", "update failed")
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+	// Re-check the port under the service lock: a concurrent range change may
+	// have narrowed the service since the unlocked read above.
+	if ls, le, lerr := routes.LockServicePortRange(ctx, tx, serviceID); lerr != nil {
+		redirectWithFlash(w, r, editURL, "", "update failed")
+		return
+	} else if newPort < ls || newPort > le {
+		redirectWithFlash(w, r, editURL, "", fmt.Sprintf("port must be in range %d-%d", ls, le))
+		return
+	}
 	if domainChanged {
 		verifyToken, terr := routes.NewVerifyToken()
 		if terr != nil {
 			redirectWithFlash(w, r, editURL, "", "update failed")
 			return
 		}
-		if _, err := db.ExecContext(ctx,
+		if _, err := tx.ExecContext(ctx,
 			`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?,
 			        force_https=(? OR COALESCE(require_client_cert,0)),
 			        domain_verified=0, verify_token=?, status='pending_dns', ssl_issued_at=NULL,
@@ -1082,7 +1101,7 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, editURL, "", "update failed")
 			return
 		}
-	} else if _, err := db.ExecContext(ctx,
+	} else if _, err := tx.ExecContext(ctx,
 		`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?,
 		        force_https=(? OR COALESCE(require_client_cert,0)), updated_at=NOW() WHERE id=?`,
 		newDomain, newPath, newPort, newWS, newFH, id,
@@ -1090,16 +1109,18 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, editURL, "", "update failed")
 		return
 	}
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, editURL, "", "update failed")
+		return
+	}
 
 	// Re-push node so Caddy picks up changes quickly.
 	if h.Routes != nil && caddyNodeID.Valid {
-		nodeID := caddyNodeID.Int64
 		go func() {
 			defer recoverBg(h.Logger, "client-route-edit-resync")
 			bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
 			defer cancel()
-			_ = bg
-			h.Routes.SchedulePush(nodeID)
+			h.Routes.SchedulePushForRoute(bg, id)
 		}()
 	}
 

@@ -102,7 +102,8 @@ jobs:
                       | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | sort -u)
           if [ "$(printf '%s' "$wst_vers" | grep -c .)" -ne 1 ]; then
             echo "::error::wstunnel version pins disagree: $(echo $wst_vers)"; fail=1; fi
-          wst_shas=$(grep -hoE '\b[0-9a-f]{64}\b' deploy/node-agent/Dockerfile internal/httpserver/handlers/wg_bootstrap.go | sort | uniq -c)
+          # Only WST_SHA: the Dockerfile also pins base images by digest.
+          wst_shas=$( { grep -oE 'WST_SHA="[0-9a-f]{64}"' deploy/node-agent/Dockerfile | grep -oE '[0-9a-f]{64}'; grep -hoE '\b[0-9a-f]{64}\b' internal/httpserver/handlers/wg_bootstrap.go; } | sort | uniq -c)
           if [ "$(printf '%s\n' "$wst_shas" | awk '$1 != 2' | grep -c .)" -ne 0 ]; then
             echo "::error::wstunnel sha256 pins disagree between deploy/node-agent/Dockerfile and wg_bootstrap.go"; fail=1; fi
           exit $fail

@@ -894,14 +894,6 @@ func (h *APIHandlers) ClientCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		resellerCol = rid.Int64
-		// Reseller aggregate quota: cap the number of clients.
-		if h.Quota != nil {
-			if qerr := h.Quota.CanCreateClient(ctx, rid.Int64); qerr != nil {
-				h.Logger.Warn("client quota check failed", "err", qerr)
-				apiErr(w, http.StatusForbidden, "client quota reached or check failed")
-				return
-			}
-		}
 	}
 	tx, err := h.DB().BeginTx(ctx, nil)
 	if err != nil {
@@ -909,6 +901,14 @@ func (h *APIHandlers) ClientCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tx.Rollback() //nolint:errcheck
+	// Reseller aggregate quota: cap the number of clients.
+	if rid, ok := resellerCol.(int64); ok && h.Quota != nil {
+		if qerr := h.Quota.CanCreateClient(ctx, tx, rid); qerr != nil {
+			h.Logger.Warn("client quota check failed", "err", qerr)
+			apiErr(w, http.StatusForbidden, "client quota reached or check failed")
+			return
+		}
+	}
 
 	res, err := tx.ExecContext(ctx,
 		"INSERT INTO users (email, password_hash, password_set, role, full_name, is_active) VALUES (?, ?, 1, 'client', ?, 1)",

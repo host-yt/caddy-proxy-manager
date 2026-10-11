@@ -69,11 +69,7 @@ func (h *AdminHandlers) BasicAuthAddUser(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	if h.Routes != nil {
-		var nodeID int64
-		_ = h.DB().QueryRowContext(ctx, "SELECT caddy_node_id FROM routes WHERE id=?", routeID).Scan(&nodeID)
-		if nodeID > 0 {
-			h.Routes.SchedulePush(nodeID)
-		}
+		h.Routes.SchedulePushForRoute(ctx, routeID)
 	}
 	redirectWithFlash(w, r, editURL, "User added", "")
 }
@@ -111,11 +107,7 @@ func (h *AdminHandlers) BasicAuthRemoveUser(w http.ResponseWriter, r *http.Reque
 		return
 	}
 	if h.Routes != nil {
-		var nodeID int64
-		_ = h.DB().QueryRowContext(ctx, "SELECT caddy_node_id FROM routes WHERE id=?", routeID).Scan(&nodeID)
-		if nodeID > 0 {
-			h.Routes.SchedulePush(nodeID)
-		}
+		h.Routes.SchedulePushForRoute(ctx, routeID)
 	}
 	redirectWithFlash(w, r, editURL, "User removed", "")
 }

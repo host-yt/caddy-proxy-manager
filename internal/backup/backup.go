@@ -85,7 +85,7 @@ type Destination struct {
 type Job struct {
 	ID            int64
 	DestinationID int64
-	Kind          string // "manual" | "scheduled"
+	Kind          string // "manual" | "scheduled" | "verification"
 	Status        string // pending | running | succeeded | failed
 	ArtifactKey   string
 	SizeBytes     int64

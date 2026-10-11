@@ -332,6 +332,9 @@ type Route struct {
 	// (SSL off / no active CA / unparsable PEM) and mtls.fail_open=0 - deny
 	// instead of serving the upstream with no client-cert requirement.
 	MTLSDenyOnMisconfig bool
+	// MTLSRevokedFingerprints: SHA-256 (hex) of this CA's revoked, unexpired
+	// leaves; requests presenting one get a 403.
+	MTLSRevokedFingerprints []string
 
 	// TLSPQOnly pins this route's TLS connection policy to the hybrid
 	// post-quantum group (x25519mlkem768) and TLS 1.3. Opt-in: a client
@@ -712,6 +715,24 @@ func BuildRoute(r Route) map[string]any {
 			"delete": []string{"X-Mtls-Subject"},
 		},
 	})
+	// The CA still chains a revoked leaf, so the handshake accepts it; refuse
+	// it here, ahead of every other handler.
+	if r.RequireClientCert && len(r.MTLSRevokedFingerprints) > 0 {
+		handlers = append(handlers, map[string]any{
+			"handler": "subroute",
+			"routes": []any{map[string]any{
+				"match": []any{map[string]any{"vars": map[string]any{
+					"{http.request.tls.client.fingerprint}": r.MTLSRevokedFingerprints,
+				}}},
+				"handle": []any{map[string]any{
+					"handler":     "static_response",
+					"status_code": 403,
+					"headers":     map[string]any{"Cache-Control": []string{"no-store"}},
+					"body":        "Client certificate revoked.\n",
+				}},
+			}},
+		})
+	}
 	// HPG-SEC-005: the panel self-route is reached over the trusted docker
 	// bridge, so nothing downstream re-checks who the caller claims to be -
 	// an inbound True-Client-IP/X-Real-IP would otherwise ride straight
@@ -778,35 +799,9 @@ func BuildRoute(r Route) map[string]any {
 			"load_owasp_crs": true,
 			"directives":     sb.String(),
 		}
-		if !r.WebSocket || r.Kind == "redirect" || r.MaintenanceMode {
-			// No upgrades possible on this route, so inspect everything.
-			handlers = append(handlers, wafHandler)
-		} else {
-			// Coraza wraps the ResponseWriter, which breaks hijacked/upgraded
-			// (101) connections - websockets connect, then drop seconds later.
-			// Skip the WAF only for genuine handshakes: GET + Connection:
-			// Upgrade + Sec-WebSocket-Key, all three required. A forged
-			// combination still bypasses inspection, but the upstream then has
-			// to answer an upgrade it did not get, so ordinary payloads land on
-			// a 400/404 instead of app logic.
-			handlers = append(handlers, map[string]any{
-				"handler": "subroute",
-				"routes": []any{
-					map[string]any{
-						"match": []any{map[string]any{
-							"not": []any{map[string]any{
-								"method": []string{"GET"},
-								"header": map[string]any{
-									"Connection":        []string{"*Upgrade*"},
-									"Sec-Websocket-Key": []string{"*"},
-								},
-							}},
-						}},
-						"handle": []any{wafHandler},
-					},
-				},
-			})
-		}
+		// No header-based upgrade bypass: those headers are client-forgeable.
+		// coraza-caddy >= 2.6.1 passes Hijack through, so WebSockets work inspected.
+		handlers = append(handlers, wafHandler)
 	}
 	// Inbound bearer gate for External upstream routes. This route egresses to
 	// the public internet from the node's clean IP and the data-plane request
@@ -2243,11 +2238,13 @@ func itoa(n int) string {
 }
 
 // authHeaders builds the header set the forward_auth subrequest carries to the
-// panel: the client-cert subject plus, when the control plane issued one, the
+// panel: the client-cert identity (serial + fingerprint; subject is display only) plus, when the control plane issued one, the
 // (node, route) check token that proves this config came from the panel.
 func authHeaders(r Route, certSubjectPlaceholder string) map[string]any {
 	h := map[string]any{
 		"X-Mtls-Subject":     []string{certSubjectPlaceholder},
+		"X-Mtls-Serial":      []string{"{http.request.tls.client.serial}"},
+		"X-Mtls-Fingerprint": []string{"{http.request.tls.client.fingerprint}"},
 		"X-Forwarded-Uri":    []string{"{http.request.orig_uri}"},
 		"X-Forwarded-Method": []string{"{http.request.method}"},
 	}

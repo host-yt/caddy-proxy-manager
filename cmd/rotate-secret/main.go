@@ -26,21 +26,23 @@
 //
 // Usage:
 //
-//	hpg-rotate-secret \
+//	APP_SECRET_OLD=… APP_SECRET_NEW=… DB_PASSWORD=… hpg-rotate-secret \
 //	  --state ./data/install_state.json \
-//	  --old-secret $OLD --new-secret $NEW \
-//	  --db-host 127.0.0.1 --db-port 3306 --db-name hpg --db-user hpg --db-pass …
+//	  --db-host 127.0.0.1 --db-port 3306 --db-name hpg --db-user hpg
+//
+// Secrets go in env (or --db-pass-file), not flags: argv is visible to other
+// local users in process listings.
 //
 // The tool refuses to run when --old equals --new and prints a dry-run
 // summary unless --apply is passed.
 //
 // Rotation protocol (HPG-011): every store is preflighted (decrypt-checked,
-// zero writes) before anything is mutated. On --apply the DB commits first,
-// atomically, then a recovery journal (<state>.rotate-journal) is written,
-// then the state file. If the process dies between those two writes, re-run
-// the SAME command: the journal is detected and only the file step repeats -
-// it will NOT try to re-decrypt the DB under --old-secret, which by then
-// would fail and misreport a working rotation as broken.
+// zero writes) before anything is mutated. On --apply a recovery journal
+// (<state>.rotate-journal, stage "intent") is fsynced, the DB commits
+// atomically, the journal advances to "db_done", then the state file is
+// rewritten. If the process dies anywhere in between, re-run the SAME
+// command: it resumes from the journal (probing the DB when only the intent
+// was recorded) and never re-decrypts an already rotated DB under --old-secret.
 package main
 
 import (
@@ -56,6 +58,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -70,9 +73,16 @@ func main() {
 	port := flag.Int("db-port", 3306, "MariaDB port")
 	name := flag.String("db-name", "hostyt_proxy", "MariaDB database name")
 	user := flag.String("db-user", "", "MariaDB user")
-	pass := flag.String("db-pass", "", "MariaDB password (or skip --apply for dry-run)")
+	pass := flag.String("db-pass", "", "DEPRECATED, visible in process listings: use env DB_PASSWORD or --db-pass-file")
+	passFile := flag.String("db-pass-file", "", "file holding the MariaDB password (default: env DB_PASSWORD)")
 	apply := flag.Bool("apply", false, "actually write (default: dry-run)")
 	flag.Parse()
+	flag.Visit(func(f *flag.Flag) {
+		switch f.Name {
+		case "db-pass", "old-secret", "new-secret":
+			fmt.Fprintf(os.Stderr, "[warn] --%s is visible to other local users in process listings; use its env variable or file instead\n", f.Name)
+		}
+	})
 
 	if *oldSecret == "" || *newSecret == "" {
 		fail("--old-secret and --new-secret are required")
@@ -90,9 +100,12 @@ func main() {
 	dbRequested := *user != ""
 	var db *sql.DB
 	if dbRequested {
+		dbPass, err := resolveDBPass(*pass, *passFile, os.Getenv("DB_PASSWORD"))
+		if err != nil {
+			fail(err.Error())
+		}
 		dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?parseTime=true&loc=UTC&charset=utf8mb4&multiStatements=true",
-			*user, *pass, *host, *port, *name)
-		var err error
+			*user, dbPass, *host, *port, *name)
 		db, err = sql.Open("mysql", dsn)
 		if err != nil {
 			fail("db open: " + err.Error())
@@ -102,7 +115,7 @@ func main() {
 			fail("db ping: " + err.Error())
 		}
 	} else {
-		fmt.Println("[skip] DB rotation: no --db-user supplied; only state file rewritten.")
+		fmt.Println("[warn] no --db-user: database not checked (required with --apply).")
 	}
 
 	if err := runRotation(*statePath, *oldSecret, *newSecret, oldKey, newKey, db, *apply, os.Stdout); err != nil {
@@ -110,17 +123,31 @@ func main() {
 	}
 }
 
+// resolveDBPass picks the DB password: --db-pass-file, then the deprecated
+// --db-pass flag, then env DB_PASSWORD (same variable the panel reads).
+func resolveDBPass(flagPass, file, env string) (string, error) {
+	if file != "" {
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return "", fmt.Errorf("--db-pass-file: %w", err)
+		}
+		return strings.TrimRight(string(b), "\r\n"), nil
+	}
+	if flagPass != "" {
+		return flagPass, nil
+	}
+	return env, nil
+}
+
 // runRotation performs the full file+DB rotation protocol. It is a hard
 // failure to leave the file and DB under different keys, so nothing is
 // written until every store has been preflighted (decrypted successfully
-// under --old-secret without mutating anything). db may be nil (file-only
-// rotation, no cross-store hazard).
+// under --old-secret without mutating anything). db may be nil only for a
+// dry run; --apply refuses without it.
 //
-// A crash between the DB commit and the file write is recorded in a
-// recovery journal next to the state file: re-running with --apply and the
-// SAME --old-secret/--new-secret detects the DB is already done and only
-// finishes the file step, instead of failing to decrypt DB rows that are
-// no longer under --old-secret (HPG-011).
+// A crash at any point after the intent journal is written is resumable:
+// re-running with --apply and the SAME --old-secret/--new-secret finishes
+// whichever steps are left (HPG-011).
 func runRotation(statePath, oldSecret, newSecret string, oldKey, newKey []byte, db *sql.DB, apply bool, out io.Writer) error {
 	jPath := journalPath(statePath)
 	journal, err := readJournal(jPath)
@@ -128,11 +155,11 @@ func runRotation(statePath, oldSecret, newSecret string, oldKey, newKey []byte, 
 		return err
 	}
 	oldHash, newHash := secretHash(oldSecret), secretHash(newSecret)
-	resumeDBDone, err := decideResume(journal, oldHash, newHash, jPath)
+	stage, err := decideResume(journal, oldHash, newHash, jPath)
 	if err != nil {
 		return err
 	}
-	if resumeDBDone {
+	if stage == stageDBDone {
 		fmt.Fprintf(out, "[resume] journal %s: DB already rotated - verifying and finishing the state file step\n", jPath)
 	}
 
@@ -140,68 +167,87 @@ func runRotation(statePath, oldSecret, newSecret string, oldKey, newKey []byte, 
 	// holds, with zero writes. A failure here leaves both stores untouched.
 	if db != nil {
 		checkKey := oldKey
-		if resumeDBDone {
+		if stage == stageDBDone {
 			checkKey = newKey // DB already rotated per the journal; must now open under newKey.
 		}
-		if _, err := rotateDB(db, checkKey, newKey, false); err != nil {
+		_, err := rotateDB(db, checkKey, newKey, false)
+		if err != nil && stage == stageIntent {
+			// Crash around the commit: the ciphertext itself says which side won.
+			if _, nerr := rotateDB(db, newKey, newKey, false); nerr == nil {
+				stage, err = stageDBDone, nil
+				fmt.Fprintf(out, "[resume] journal %s: DB commit had landed - finishing the state file step\n", jPath)
+			}
+		}
+		if err != nil {
 			verb := "preflight"
-			if resumeDBDone {
+			if stage != "" {
 				verb = "resume check"
 			}
 			return fmt.Errorf("db %s: %w", verb, err)
 		}
 	}
+	fileDone := false
 	if err := rotateStateFile(statePath, oldKey, newKey, false); err != nil {
-		return fmt.Errorf("state file preflight: %w", err)
+		// Crash after the file rename but before the journal was removed.
+		if stage != stageDBDone || rotateStateFile(statePath, newKey, newKey, false) != nil {
+			return fmt.Errorf("state file preflight: %w", err)
+		}
+		fileDone = true
 	}
 
 	if !apply {
 		fmt.Fprintln(out, "DRY RUN — pass --apply to commit.")
 		return nil
 	}
+	// The DB holds most APP_SECRET ciphertext; rotating only the file would
+	// orphan all of it on the next boot.
+	if db == nil {
+		return errors.New("--apply requires database access (--db-user): a file-only rotation orphans every encrypted DB secret")
+	}
 
-	// Staged switchover: DB first (single atomic transaction), journal the
-	// boundary, then the file (also atomic, and safely retryable since it
-	// hasn't been touched yet).
-	if db != nil && !resumeDBDone {
+	// Staged switchover: intent journal, DB (single atomic transaction),
+	// db_done journal, then the file. Every journal write is durable before
+	// the next step, so a re-run can always tell where the previous one died.
+	if stage != stageDBDone {
+		if err := writeJournal(jPath, rotateJournal{OldHash: oldHash, NewHash: newHash, Stage: stageIntent}); err != nil {
+			return fmt.Errorf("write rotation journal %s (nothing changed yet): %w", jPath, err)
+		}
 		stats, err := rotateDB(db, oldKey, newKey, true)
 		if err != nil {
-			return fmt.Errorf("db rotate: %w", err)
+			return fmt.Errorf("db rotate (re-run the same command; the journal tells it whether the commit landed): %w", err)
 		}
 		fmt.Fprintf(out, "settings_rows: %d  totp_users: %d  enc_columns: %d  totp_pending_nulled: %d  api_keys_nulled: %d\n",
 			stats.settings, stats.totp, stats.enc, stats.pending, stats.apikeys)
 		if err := writeJournal(jPath, rotateJournal{OldHash: oldHash, NewHash: newHash, Stage: stageDBDone}); err != nil {
-			return fmt.Errorf("CRITICAL: DB committed to the new secret but the recovery journal at %s could not be written (%w) — "+
-				"do not re-run against --old-secret, the DB is already on --new-secret; fix the journal path and re-run with --apply to finish the state file", jPath, err)
+			return fmt.Errorf("DB committed to the new secret but advancing the journal at %s failed (%w) - "+
+				"re-run the same command with --apply to finish the state file", jPath, err)
 		}
 	}
 
-	if err := rotateStateFile(statePath, oldKey, newKey, true); err != nil {
-		if db != nil {
+	if !fileDone {
+		if err := rotateStateFile(statePath, oldKey, newKey, true); err != nil {
 			return fmt.Errorf("state file rotate (DB already committed to --new-secret, do NOT retry with --old-secret — fix this error and re-run --apply to resume): %w", err)
 		}
-		return fmt.Errorf("state file rotate: %w", err)
 	}
-	if db != nil {
-		_ = os.Remove(jPath) // best-effort: a leftover journal only blocks a future rotation to different secrets
-	}
+	_ = os.Remove(jPath) // best-effort: a leftover db_done journal is resumed as a no-op
 
 	fmt.Fprintln(out, "DONE. Restart the panel with the NEW APP_SECRET.")
-	if db != nil {
-		fmt.Fprintln(out, "ACTION REQUIRED: re-issue every API key (their hmac was invalidated).")
-	}
+	fmt.Fprintln(out, "ACTION REQUIRED: re-issue every API key (their hmac was invalidated).")
 	return nil
 }
 
-// rotateJournal marks that the DB half of a rotation has already committed,
-// so a resumed run does not retry (and fail) DB decryption under the old key.
+// rotateJournal records how far an applied rotation got: stageIntent is
+// written before the DB commit, stageDBDone after it.
 type rotateJournal struct {
 	OldHash string `json:"old_hash"`
 	NewHash string `json:"new_hash"`
 	Stage   string `json:"stage"`
 }
 
-const stageDBDone = "db_done"
+const (
+	stageIntent = "intent"
+	stageDBDone = "db_done"
+)
 
 func journalPath(statePath string) string { return statePath + ".rotate-journal" }
 
@@ -230,22 +276,55 @@ func writeJournal(path string, j rotateJournal) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o600)
+	return writeFileDurable(path, data)
+}
+
+// writeFileDurable replaces path atomically and fsyncs file and directory,
+// so after a crash the file is either the old or the new content, never torn.
+func writeFileDurable(path string, data []byte) error {
+	tmp := path + ".tmp"
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	d, err := os.Open(filepath.Dir(path))
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // decideResume interprets a recovery journal against the secrets of the
-// current invocation. A journal for a different secret pair means a prior
-// rotation never finished; running a new one on top would mix three keys
-// across the two stores, so that must be a hard refusal, not a skip.
-func decideResume(journal *rotateJournal, oldHash, newHash, jPath string) (resumeDBDone bool, err error) {
+// current invocation and returns its stage ("" when there is none). A journal
+// for a different secret pair means a prior rotation never finished; running
+// a new one on top would mix three keys across the two stores.
+func decideResume(journal *rotateJournal, oldHash, newHash, jPath string) (string, error) {
 	if journal == nil {
-		return false, nil
+		return "", nil
 	}
 	if journal.OldHash != oldHash || journal.NewHash != newHash {
-		return false, fmt.Errorf("incomplete rotation journal at %s belongs to a different --old-secret/--new-secret pair; "+
+		return "", fmt.Errorf("incomplete rotation journal at %s belongs to a different --old-secret/--new-secret pair; "+
 			"finish that rotation with its original secrets, or remove the journal only after confirming the DB and state file already match", jPath)
 	}
-	return journal.Stage == stageDBDone, nil
+	if journal.Stage != stageIntent && journal.Stage != stageDBDone {
+		return "", fmt.Errorf("rotation journal %s has unknown stage %q - resolve manually before retrying", jPath, journal.Stage)
+	}
+	return journal.Stage, nil
 }
 
 // deriveStateKey reproduces installstate.New: HKDF(secret, info=hpg/install-state/v1) → 32 bytes.
@@ -385,11 +464,7 @@ func rotateStateFile(path string, oldKey, newKey []byte, apply bool) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".rotated"
-	if err := os.WriteFile(tmp, out, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return writeFileDurable(path, out)
 }
 
 type dbStats struct{ settings, totp, enc, pending, apikeys int }
@@ -481,6 +556,13 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 			}
 		}()
 	}
+	// Reads go through the same tx as the writes, so the apply pass rotates
+	// exactly the snapshot it read.
+	query := db.Query
+	queryRow := db.QueryRow
+	if apply {
+		query, queryRow = tx.Query, tx.QueryRow
+	}
 	execTX := func(q string, args ...any) (sql.Result, error) {
 		if apply {
 			return tx.Exec(q, args...)
@@ -493,19 +575,22 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 	// configured) is stored as is_encrypted=1 with an empty value; without
 	// this filter the tool hard-fails "ciphertext too short" on every such
 	// install, i.e. almost all of them.
-	rows, err := db.Query("SELECT `key`, value FROM settings WHERE is_encrypted = 1 AND value <> ''")
+	rows, err := query("SELECT `key`, value FROM settings WHERE is_encrypted = 1 AND value <> ''")
 	if err != nil {
 		return s, err
 	}
 	type kv struct{ k, v string }
 	var todo []kv
-	for rows.Next() {
-		var k, v string
-		if err := rows.Scan(&k, &v); err == nil {
-			todo = append(todo, kv{k, v})
+	if err := scanAll(rows, func() error {
+		var e kv
+		if err := rows.Scan(&e.k, &e.v); err != nil {
+			return err
 		}
+		todo = append(todo, e)
+		return nil
+	}); err != nil {
+		return s, fmt.Errorf("settings read: %w", err)
 	}
-	rows.Close()
 	for _, e := range todo {
 		purpose, pt, err := decEnvelope(e.v, oldKey)
 		if err != nil {
@@ -524,7 +609,7 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		s.settings++
 	}
 	// TOTP secrets.
-	urows, err := db.Query("SELECT id, totp_secret_enc FROM users WHERE totp_secret_enc IS NOT NULL AND totp_secret_enc <> ''")
+	urows, err := query("SELECT id, totp_secret_enc FROM users WHERE totp_secret_enc IS NOT NULL AND totp_secret_enc <> ''")
 	if err != nil {
 		return s, err
 	}
@@ -533,13 +618,16 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		enc string
 	}
 	var users []uent
-	for urows.Next() {
+	if err := scanAll(urows, func() error {
 		var u uent
-		if err := urows.Scan(&u.id, &u.enc); err == nil {
-			users = append(users, u)
+		if err := urows.Scan(&u.id, &u.enc); err != nil {
+			return err
 		}
+		users = append(users, u)
+		return nil
+	}); err != nil {
+		return s, fmt.Errorf("users read: %w", err)
 	}
-	urows.Close()
 	for _, u := range users {
 		purpose, pt, err := decEnvelope(u.enc, oldKey)
 		if err != nil {
@@ -571,7 +659,7 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		if c.where != "" {
 			q += " AND " + c.where
 		}
-		crows, qerr := db.Query(q)
+		crows, qerr := query(q)
 		if qerr != nil {
 			return s, fmt.Errorf("%s.%s select: %w", c.table, c.col, qerr)
 		}
@@ -580,13 +668,16 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 			val string
 		}
 		var ents []ent
-		for crows.Next() {
+		if err := scanAll(crows, func() error {
 			var e ent
-			if err := crows.Scan(&e.id, &e.val); err == nil {
-				ents = append(ents, e)
+			if err := crows.Scan(&e.id, &e.val); err != nil {
+				return err
 			}
+			ents = append(ents, e)
+			return nil
+		}); err != nil {
+			return s, fmt.Errorf("%s.%s read: %w", c.table, c.col, err)
 		}
-		crows.Close()
 		for _, e := range ents {
 			b64 := e.val
 			if c.prefix != "" {
@@ -627,9 +718,9 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		n, _ := res.RowsAffected()
 		s.pending = int(n)
 	} else {
-		var n int
-		_ = db.QueryRow("SELECT COUNT(*) FROM users WHERE totp_pending_secret IS NOT NULL").Scan(&n)
-		s.pending = n
+		if err := queryRow("SELECT COUNT(*) FROM users WHERE totp_pending_secret IS NOT NULL").Scan(&s.pending); err != nil {
+			return s, err
+		}
 	}
 
 	// API keys: HMAC is keyed off APP_SECRET, so rotation invalidates the
@@ -644,9 +735,9 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		n, _ := res.RowsAffected()
 		s.apikeys = int(n)
 	} else {
-		var n int
-		_ = db.QueryRow("SELECT COUNT(*) FROM api_keys WHERE key_hmac IS NOT NULL").Scan(&n)
-		s.apikeys = n
+		if err := queryRow("SELECT COUNT(*) FROM api_keys WHERE key_hmac IS NOT NULL").Scan(&s.apikeys); err != nil {
+			return s, err
+		}
 	}
 	// Commit only if every step above ran clean.
 	if apply {
@@ -656,6 +747,18 @@ func rotateDB(db *sql.DB, oldKey, newKey []byte, apply bool) (dbStats, error) {
 		tx = nil // disable deferred rollback
 	}
 	return s, nil
+}
+
+// scanAll drains rows, failing on the first Scan error or a broken result
+// stream: a partially read table must abort the rotation, never commit a subset.
+func scanAll(rows *sql.Rows, scan func() error) error {
+	defer rows.Close()
+	for rows.Next() {
+		if err := scan(); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 var cryptoRand = &randReader{}

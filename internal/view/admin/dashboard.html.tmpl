@@ -55,6 +55,7 @@
     </div>
   </div>
 
+  {{if not .Scoped}}
   <div class="r-card flex items-center gap-4">
     <span class="icon-chip" style="background:rgb(var(--info,56 189 248)/.12);color:rgb(var(--info,56 189 248))">
       <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3V6a3 3 0 013-3h13.5a3 3 0 013 3v5.25a3 3 0 01-3 3m-13.5 0H3m18.75 0H21m-1.5 0v5.25m-15-5.25v5.25m0 0H3m1.5 0h15m0 0H21M9 18h6"/></svg>
@@ -65,6 +66,7 @@
       <p class="t-caption" {{if lt .Counts.NodesOnline .Counts.NodesTotal}}style="color:rgb(var(--warning))"{{else}}style="color:rgb(var(--success))"{{end}}>{{if lt .Counts.NodesOnline .Counts.NodesTotal}}degraded{{else}}healthy{{end}}</p>
     </div>
   </div>
+  {{end}}
 
   <div class="r-card flex items-center gap-4">
     <span class="icon-chip" style="background:rgb(var(--success)/.12);color:rgb(var(--success))">
@@ -73,7 +75,7 @@
     <div class="min-w-0 flex-1">
       <p class="t-eyebrow">Clients</p>
       <p class="t-display">{{.Counts.Clients}}</p>
-      <p class="t-caption">{{.Counts.Plans}} plan{{if ne .Counts.Plans 1}}s{{end}}</p>
+      {{if not .Scoped}}<p class="t-caption">{{.Counts.Plans}} plan{{if ne .Counts.Plans 1}}s{{end}}</p>{{end}}
       {{if .Counts.SuspendedServices}}
       <a href="/admin/services?status=suspended" class="t-caption cursor-pointer hover:underline" style="color:rgb(var(--warning))">{{.Counts.SuspendedServices}} suspended</a>
       {{end}}
@@ -83,10 +85,12 @@
 
 <!-- System health pills -->
 <div class="flex flex-wrap items-center gap-2 mb-6">
+  {{if not .Scoped}}
   <span class="r-pill {{if lt .Counts.NodesOnline .Counts.NodesTotal}}r-pill-warning{{else}}r-pill-success{{end}}">
     <span class="h-1.5 w-1.5 rounded-full inline-block mr-1 {{if lt .Counts.NodesOnline .Counts.NodesTotal}}bg-current{{else}}bg-current{{end}}"></span>
     {{if lt .Counts.NodesOnline .Counts.NodesTotal}}Fleet degraded{{else}}Fleet healthy{{end}}
   </span>
+  {{end}}
   {{if .Counts.FailedHosts}}
   <a href="/admin/hosts?status=failed" class="r-pill r-pill-danger cursor-pointer transition-colors">
     <span class="h-1.5 w-1.5 rounded-full bg-current inline-block mr-1"></span>

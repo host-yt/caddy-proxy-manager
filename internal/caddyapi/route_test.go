@@ -399,22 +399,10 @@ func TestBuildRouteWAFGated(t *testing.T) {
 	if strings.Contains(s, `SecRuleEngine On`) {
 		t.Errorf("default WAF must be detection-only, not blocking\nfull: %s", s)
 	}
-	// On a WS-enabled route the WAF must sit behind a matcher that skips genuine
-	// handshakes: coraza's ResponseWriter wrapper breaks hijacked connections
-	// (#10). All three conditions must be present or the bypass is too wide.
-	for _, want := range []string{
-		`"Connection":["*Upgrade*"]`, `"Sec-Websocket-Key":["*"]`, `"method":["GET"]`, `"not":[`,
-	} {
-		if !strings.Contains(s, want) {
-			t.Errorf("waf upgrade-bypass matcher missing %q\nfull: %s", want, s)
-		}
-	}
-	// Without WebSocket support there is nothing to upgrade, so the WAF must
-	// inspect every request - no bypass matcher at all.
-	nows := det
-	nows.WebSocket = false
-	if s := mustJSON(nows); strings.Contains(s, `"Sec-Websocket-Key"`) {
-		t.Errorf("non-WS route must not get a WAF bypass matcher\nfull: %s", s)
+	// Upgrade headers are client-forgeable, so a WS-enabled route must not get
+	// any header-matched WAF bypass (#58): the WAF inspects every request.
+	if strings.Contains(s, `"Sec-Websocket-Key"`) || strings.Contains(s, `"not":[`) {
+		t.Errorf("waf must not be skippable by upgrade headers\nfull: %s", s)
 	}
 	// Blocking mode.
 	blk := det

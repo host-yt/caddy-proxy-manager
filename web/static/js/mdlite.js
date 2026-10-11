@@ -154,8 +154,8 @@
 
     // Links [text](url) - href already HTML-escaped by escHtml, need to decode for check
     t = t.replace(/\[([^\]]*)\]\(([^)]*)\)/g, function (_, linkText, href) {
-      // href was escaped by escHtml; decode &amp; back for the check then re-escape
-      var rawHref = href.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
+      // href was escaped by escHtml; decode for the check then re-escape. &amp; goes last so "&amp;lt;" is not decoded twice.
+      var rawHref = href.replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
       var safe = safeHref(rawHref);
       if (!safe) return linkText; // drop link, keep text
       return '<a href="' + escHtml(safe) + '" target="_blank" rel="noopener noreferrer">' + linkText + '</a>';

@@ -170,6 +170,12 @@
             <option value="v2"   {{if eq .Form.ProxyProtoOut "v2"}}selected{{end}}>PROXY v2</option>
           </select>
         </div>
+        <div class="sm:col-span-2">
+          <label class="t-eyebrow block mb-1">Trusted PROXY senders (CIDRs, required for PROXY in)</label>
+          <textarea name="proxy_proto_trusted" rows="2" placeholder="203.0.113.10/32"
+                    class="r-input w-full font-mono text-xs">{{.Form.ProxyProtoTrusted}}</textarea>
+          <p class="t-caption mt-1">Your load balancer's addresses. Connections from anywhere else are closed.</p>
+        </div>
       </div>
 
       <!-- Upstreams pane -->

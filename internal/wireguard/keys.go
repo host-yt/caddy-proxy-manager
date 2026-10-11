@@ -18,6 +18,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/go-sql-driver/mysql"
 	"golang.org/x/crypto/curve25519"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
@@ -154,31 +155,87 @@ func (s *Service) EnsureKeypair(ctx context.Context) (ControlPlane, error) {
 	if c.PrivateKey != "" && c.PublicKey != "" {
 		return c, nil
 	}
-	kp, err := GenerateKeypair()
-	if err != nil {
-		return c, err
-	}
-	encPriv, err := s.State.Encrypt(kp.PrivateKey)
-	if err != nil {
-		return c, err
-	}
 	db := s.DB()
 	if db == nil {
 		return c, errors.New("db not ready")
 	}
-	upserts := map[string]struct {
-		v   string
-		enc int
-	}{
-		"wireguard.public_key":  {kp.PublicKey, 0},
-		"wireguard.private_key": {encPriv, 1},
-	}
-	for k, val := range upserts {
-		if _, err := db.ExecContext(ctx, store.UpsertSettingSQL(), k, val.v, val.enc); err != nil {
-			return c, err
+	// Concurrent first-boot callers can deadlock on the placeholder inserts;
+	// InnoDB aborts one, which simply retries.
+	for attempt := 0; ; attempt++ {
+		err = s.persistKeypair(ctx, db)
+		var me *mysql.MySQLError
+		if err == nil || attempt >= 4 || !errors.As(err, &me) || me.Number != 1213 {
+			break
 		}
 	}
+	if err != nil {
+		return c, err
+	}
 	return s.load(ctx)
+}
+
+// persistKeypair stores a fresh pair unless one is already present, under a
+// row lock so callers cannot persist halves of two different pairs.
+func (s *Service) persistKeypair(ctx context.Context, db *sql.DB) error {
+	// Placeholder rows give FOR UPDATE something to lock.
+	for _, k := range []string{"wireguard.public_key", "wireguard.private_key"} {
+		if _, err := db.ExecContext(ctx,
+			store.InsertOrIgnore()+" INTO settings (`key`, value, is_encrypted) VALUES (?, '', 0)", k); err != nil {
+			return err
+		}
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	rows, err := tx.QueryContext(ctx,
+		"SELECT `key`, value, is_encrypted FROM settings WHERE `key` IN ('wireguard.public_key', 'wireguard.private_key')"+store.ForUpdate())
+	if err != nil {
+		return err
+	}
+	var pub, priv string
+	for rows.Next() {
+		var k, v string
+		var enc bool
+		if err := rows.Scan(&k, &v, &enc); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if enc {
+			if v, err = s.State.Decrypt(v); err != nil {
+				v = ""
+			}
+		}
+		if k == "wireguard.public_key" {
+			pub = strings.TrimSpace(v)
+		} else {
+			priv = strings.TrimSpace(v)
+		}
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if pub == "" || priv == "" {
+		kp, err := GenerateKeypair()
+		if err != nil {
+			return err
+		}
+		encPriv, err := s.State.Encrypt(kp.PrivateKey)
+		if err != nil {
+			return err
+		}
+		for _, kv := range [][3]any{
+			{kp.PublicKey, 0, "wireguard.public_key"},
+			{encPriv, 1, "wireguard.private_key"},
+		} {
+			if _, err := tx.ExecContext(ctx, "UPDATE settings SET value = ?, is_encrypted = ? WHERE `key` = ?", kv[0], kv[1], kv[2]); err != nil {
+				return err
+			}
+		}
+	}
+	return tx.Commit()
 }
 
 // AllocateNodeIP returns the next unused /32 inside subnet, skipping

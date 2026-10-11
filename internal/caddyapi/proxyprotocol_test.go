@@ -60,7 +60,7 @@ func TestProxyProtocolEnabled_WithAllow(t *testing.T) {
 }
 
 // TestProxyProtocolEnabled_EmptyAllow: an empty allow-list must omit the
-// "allow" key entirely (accept from anywhere), not emit an empty array.
+// "allow" key entirely (Caddy then ignores the PROXY address), not emit an empty array.
 func TestProxyProtocolEnabled_EmptyAllow(t *testing.T) {
 	cfg := BuildNodeConfig(baseRoutes(), NodeSettings{
 		ACMEEmail:       "a@b.c",

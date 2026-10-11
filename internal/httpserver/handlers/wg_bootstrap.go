@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -278,7 +280,7 @@ func (h *WGBootstrapHandler) InstallScript(w http.ResponseWriter, r *http.Reques
 	// Transient DB error: 503 + retry, never fall open to a UDP script (a
 	// forced-WSS node's .conf would still be rewritten to the local wstunnel).
 	if transport.LookupFailed {
-		h.Logger.Warn("install script: transport lookup failed", "token_prefix", safePrefix(token))
+		h.Logger.Warn("install script: transport lookup failed", "token_fp", tokenFingerprint(token))
 		w.Header().Set("Retry-After", "5")
 		http.Error(w, "tunnel transport lookup failed, retry in a few seconds", http.StatusServiceUnavailable)
 		return
@@ -286,7 +288,7 @@ func (h *WGBootstrapHandler) InstallScript(w http.ResponseWriter, r *http.Reques
 	// Refuse to ship a forced-WSS installer with no backend port / unhealthy
 	// node - it would rewrite the client to a local wstunnel with nowhere to go.
 	if transport.Misconfigured {
-		h.Logger.Error("install script: wss transport without a serving backend", "token_prefix", safePrefix(token))
+		h.Logger.Error("install script: wss transport without a serving backend", "token_fp", tokenFingerprint(token))
 		http.Error(w, "tunnel transport not ready (node not serving WSS yet, or wstunnel port unset)", http.StatusServiceUnavailable)
 		return
 	}
@@ -319,7 +321,7 @@ func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Reques
 		token).Scan(&nodeID); err != nil {
 		// Log every miss so misconfigured agents are visible instead of
 		// silently looping 403 every 30s with no signal.
-		h.Logger.Warn("node-agent token mismatch", "ip", security.ClientIP(r), "token_prefix", safePrefix(token))
+		h.Logger.Warn("node-agent token mismatch", "ip", security.ClientIP(r), "token_fp", tokenFingerprint(token))
 		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
@@ -467,7 +469,7 @@ func (h *WGBootstrapHandler) NodeHandshakeReport(w http.ResponseWriter, r *http.
 		token).Scan(&nodeID); err != nil {
 		// Log every miss so misconfigured agents are visible instead of
 		// silently looping 403 every 30s with no signal.
-		h.Logger.Warn("node-agent token mismatch", "ip", security.ClientIP(r), "token_prefix", safePrefix(token))
+		h.Logger.Warn("node-agent token mismatch", "ip", security.ClientIP(r), "token_fp", tokenFingerprint(token))
 		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
@@ -475,19 +477,50 @@ func (h *WGBootstrapHandler) NodeHandshakeReport(w http.ResponseWriter, r *http.
 	// size limit), so an authenticated node-token holder could otherwise
 	// stream an unbounded form into memory.
 	r.Body = http.MaxBytesReader(w, r.Body, 64<<10)
-	// Minimal JSON parse without full struct (one-shot allocation savings).
-	if err := r.ParseForm(); err == nil {
-		// Optional: form-encoded reports for ultra-simple agents.
-		if pubs, ok := r.Form["pubkey"]; ok {
-			when := time.Now()
-			for _, pk := range pubs {
-				_, _ = db.ExecContext(ctx,
-					`UPDATE customer_wg_peer SET last_handshake_at=? WHERE node_id=? AND pubkey=?`,
-					when, nodeID, pk)
-			}
-			w.WriteHeader(http.StatusNoContent)
+	type report struct {
+		Pubkey        string `json:"pubkey"`
+		LastHandshake string `json:"last_handshake"`
+	}
+	var reports []report
+	now := time.Now()
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "application/json") {
+		var body struct {
+			Reports []report `json:"reports"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "bad body", http.StatusBadRequest)
 			return
 		}
+		reports = body.Reports
+	} else if err := r.ParseForm(); err == nil {
+		// Form fallback: pubkey fields only, stamped with receive time.
+		for _, pk := range r.Form["pubkey"] {
+			reports = append(reports, report{Pubkey: pk})
+		}
+	}
+	if len(reports) == 0 {
+		http.Error(w, "no reports", http.StatusBadRequest)
+		return
+	}
+	whens := make([]time.Time, len(reports))
+	for i, rep := range reports {
+		whens[i] = now
+		if rep.LastHandshake == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, rep.LastHandshake)
+		if err != nil {
+			http.Error(w, "bad last_handshake", http.StatusBadRequest)
+			return
+		}
+		if t.Before(now) { // never record a future handshake
+			whens[i] = t
+		}
+	}
+	for i, rep := range reports {
+		_, _ = db.ExecContext(ctx,
+			`UPDATE customer_wg_peer SET last_handshake_at=? WHERE node_id=? AND pubkey=?`,
+			whens[i], nodeID, rep.Pubkey)
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -561,7 +594,7 @@ func (h *WGBootstrapHandler) NodePeerStatsReport(w http.ResponseWriter, r *http.
 	if err := db.QueryRowContext(ctx,
 		`SELECT id FROM caddy_nodes WHERE agent_token_hash IS NOT NULL AND agent_token_hash = SHA2(?, 256) LIMIT 1`,
 		token).Scan(&nodeID); err != nil {
-		h.Logger.Warn("node-agent token mismatch (stats)", "ip", security.ClientIP(r), "token_prefix", safePrefix(token))
+		h.Logger.Warn("node-agent token mismatch (stats)", "ip", security.ClientIP(r), "token_fp", tokenFingerprint(token))
 		http.Error(w, "denied", http.StatusForbidden)
 		return
 	}
@@ -1249,13 +1282,14 @@ func nullInt(n int) any {
 	return n
 }
 
-// safePrefix returns the first 8 chars of a token for log correlation
-// without leaking enough material to authenticate.
-func safePrefix(token string) string {
-	if len(token) <= 8 {
+// tokenFingerprint gives a short hash for log correlation; no token bytes
+// reach the log.
+func tokenFingerprint(token string) string {
+	if token == "" {
 		return ""
 	}
-	return token[:8] + "…"
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:6])
 }
 
 func jsonEsc(s string) string {

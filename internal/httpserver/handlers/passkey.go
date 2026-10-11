@@ -116,7 +116,7 @@ func (h *PasskeyHandlers) RegisterFinish(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "registration expired", http.StatusBadRequest)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "hpg_wa_reg", Value: "", Path: "/", MaxAge: -1})
+	h.Sessions.ClearCookie(w, r, "hpg_wa_reg")
 
 	parsed, err := protocol.ParseCredentialCreationResponseBody(r.Body)
 	if err != nil {
@@ -302,7 +302,7 @@ func (h *PasskeyHandlers) LoginFinish(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "login expired", http.StatusBadRequest)
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: "hpg_wa_login", Value: "", Path: "/", MaxAge: -1})
+	h.Sessions.ClearCookie(w, r, "hpg_wa_login")
 
 	parsed, err := protocol.ParseCredentialRequestResponseBody(r.Body)
 	if err != nil {
@@ -424,15 +424,12 @@ func (h *PasskeyHandlers) stash(ctx context.Context, prefix string, sd *webauthn
 }
 
 func (h *PasskeyHandlers) consume(ctx context.Context, key string, out *webauthn.SessionData) error {
-	b, err := h.RDB.Get(ctx, key).Bytes()
+	// GETDEL: exactly one concurrent finisher gets the challenge.
+	b, err := h.RDB.GetDel(ctx, key).Bytes()
 	if err != nil {
 		return err
 	}
-	if err := json.Unmarshal(b, out); err != nil {
-		return err
-	}
-	_ = h.RDB.Del(ctx, key).Err()
-	return nil
+	return json.Unmarshal(b, out)
 }
 
 func currentDescriptors(u *auth.WAUser) []protocol.CredentialDescriptor {

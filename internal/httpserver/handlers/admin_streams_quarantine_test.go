@@ -35,7 +35,7 @@ func quarantineTestDB(t *testing.T) *sql.DB {
 		`CREATE TABLE stream_routes (id INTEGER PRIMARY KEY, service_id INTEGER, caddy_node_id INTEGER,
 		   protocol TEXT, listen_port INTEGER, upstream_port INTEGER, status TEXT,
 		   match_mode TEXT, match_values TEXT, lb_policy TEXT,
-		   proxy_proto_in TEXT, proxy_proto_out TEXT, cidr_allow TEXT, cidr_deny TEXT,
+		   proxy_proto_in TEXT, proxy_proto_out TEXT, proxy_proto_trusted TEXT, cidr_allow TEXT, cidr_deny TEXT,
 		   backend_ip_override TEXT, quarantined_at TIMESTAMP, quarantine_reason TEXT,
 		   updated_at TIMESTAMP)`,
 		`CREATE TABLE stream_upstreams (id INTEGER PRIMARY KEY, stream_route_id INTEGER,

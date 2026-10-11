@@ -294,6 +294,14 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	if err := h.checkPlacement(ctx, sess, nodeGroupID); err != nil {
+		if !errors.Is(err, errPlacementNotGranted) {
+			h.Logger.Error("admin hosts: placement grants", "err", err)
+		}
+		h.renderHostsNewErr(w, r, form, errPlacementNotGranted.Error())
+		return
+	}
+
 	clientID, err := ensureAdminClient(ctx, db, sess.UserID, sess.ResellerID)
 	if err != nil {
 		h.Logger.Error("admin hosts: ensure client", "err", err)
@@ -474,8 +482,12 @@ func (h *AdminHandlers) loadNodeOptions(ctx context.Context) []hostsNewNode {
 	}
 	c, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
+	granted, err := h.placementGrants(c, middleware.SessionFromContext(ctx))
+	if err != nil {
+		return nil
+	}
 	rows, err := db.QueryContext(c,
-		`SELECT n.id, n.name, n.public_hostname, ng.name
+		`SELECT n.id, n.name, n.public_hostname, ng.name, ng.id
 		 FROM caddy_nodes n JOIN node_groups ng ON ng.id = n.node_group_id
 		 WHERE n.approved_at IS NOT NULL AND n.is_enabled = 1
 		 ORDER BY ng.name, n.name`)
@@ -486,7 +498,8 @@ func (h *AdminHandlers) loadNodeOptions(ctx context.Context) []hostsNewNode {
 	var out []hostsNewNode
 	for rows.Next() {
 		var n hostsNewNode
-		if err := rows.Scan(&n.ID, &n.Name, &n.Hostname, &n.Group); err == nil {
+		var gID int64
+		if err := rows.Scan(&n.ID, &n.Name, &n.Hostname, &n.Group, &gID); err == nil && (granted == nil || granted[gID]) {
 			out = append(out, n)
 		}
 	}
@@ -500,6 +513,10 @@ func (h *AdminHandlers) loadNodeGroupOptions(ctx context.Context) []hostsNewNode
 	}
 	c, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
+	granted, err := h.placementGrants(c, middleware.SessionFromContext(ctx))
+	if err != nil {
+		return nil
+	}
 	rows, err := db.QueryContext(c,
 		`SELECT ng.id, ng.name, ng.mode, n.id, n.name, n.public_hostname, COALESCE(n.public_ip,'')
 		 FROM node_groups ng JOIN caddy_nodes n ON n.node_group_id = ng.id
@@ -517,7 +534,7 @@ func (h *AdminHandlers) loadNodeGroupOptions(ctx context.Context) []hostsNewNode
 			gMode string
 			n     hostsNewNode
 		)
-		if err := rows.Scan(&gID, &gName, &gMode, &n.ID, &n.Name, &n.Hostname, &n.IP); err != nil {
+		if err := rows.Scan(&gID, &gName, &gMode, &n.ID, &n.Name, &n.Hostname, &n.IP); err != nil || (granted != nil && !granted[gID]) {
 			continue
 		}
 		if len(out) == 0 || out[len(out)-1].ID != gID {

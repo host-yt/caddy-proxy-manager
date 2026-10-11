@@ -710,7 +710,7 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 		}
 		// Reject a valid code whose 30s counter was already consumed (replay);
 		// treat it exactly like an invalid code.
-		if err := auth.ValidateTOTP(secret, code); err == nil && h.markTOTPConsumed(ctx, pend.UserID, code) {
+		if ctr, err := auth.MatchTOTP(secret, code, time.Now()); err == nil && h.markTOTPConsumed(ctx, pend.UserID, ctr) {
 			success = true
 			if needsMigrate {
 				upgradeTOTPSecret(ctx, db, h.State, pend.UserID, secret)
@@ -732,7 +732,7 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 		cleaned := strings.ReplaceAll(code, "-", "")
 		if uid, verr := auth.VerifySMSOTP(ctx, h.RDB, otpCookie.Value, cleaned); verr == nil && uid == pend.UserID {
 			success = true
-			http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_smsotp")
 		}
 	case "email":
 		otpCookie, err := r.Cookie("hpg_emailotp")
@@ -742,7 +742,7 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 		}
 		if uid, verr := auth.VerifyEmailOTP(ctx, h.RDB, otpCookie.Value, code); verr == nil && uid == pend.UserID {
 			success = true
-			http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 		}
 	default:
 		h.renderTOTPRetry(w, r, http.StatusBadRequest, "Unknown method.")
@@ -759,8 +759,8 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 		h.Metrics.OTPAttempt(mfaTag, "fail")
 		if h.burnAttempt(ctx, ticket) || h.twoFALocked(ctx, pend.UserID) {
 			h.consumePending2FA(r)
-			http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
-			http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_smsotp")
+			h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 			http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 			return
 		}
@@ -770,7 +770,10 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 
 	h.clearAttempts(ctx, ticket)
 	h.clear2FAFails(ctx, pend.UserID) // reset per-user counter only on success
-	h.consumePending2FA(r)
+	if !h.consumePending2FA(r) {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
 	claims, ok := h.claimsForPending(ctx, w, r, pend)
 	if !ok {
 		return
@@ -799,113 +802,116 @@ func (h *AuthHandlers) TwoFASend(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
+	otpTicket, err := h.sendLoginOTP(ctx, r, pend.UserID, pend.Email, method)
+	if err != nil {
+		var se *otpSendError
+		if !errors.As(err, &se) {
+			se = &otpSendError{status: http.StatusInternalServerError, msg: "server error"}
+		}
+		if se.retryAfter > 0 {
+			w.Header().Set("Retry-After", strconv.Itoa(se.retryAfter))
+		}
+		http.Error(w, se.msg, se.status)
+		return
+	}
+	name, ttl := "hpg_smsotp", time.Duration(auth.SMSOTPTTLSeconds)*time.Second
+	if method == "email" {
+		name, ttl = "hpg_emailotp", time.Duration(auth.EmailOTPTTLSeconds)*time.Second
+	}
+	http.SetCookie(w, &http.Cookie{
+		Name: name, Value: otpTicket, Path: "/", HttpOnly: true,
+		Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
+		Expires: time.Now().Add(ttl),
+	})
+	w.Header().Set("X-Resend-After", strconv.Itoa(int(otpResendCooldown.Seconds())))
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// otpSendError is a login-OTP send failure with the status and text to show.
+type otpSendError struct {
+	status     int
+	msg        string
+	retryAfter int
+}
+
+func (e *otpSendError) Error() string { return e.msg }
+
+// sendLoginOTP delivers a login code over an ENROLLED sms|email factor and
+// returns the verification ticket. Shared by the panel and the portal so both
+// apply the same enrolment check, cooldown and daily cap.
+func (h *AuthHandlers) sendLoginOTP(ctx context.Context, r *http.Request, userID int64, email, method string) (string, error) {
 	db := h.DB()
 	if db == nil {
-		http.Error(w, "db unavailable", http.StatusServiceUnavailable)
-		return
+		return "", &otpSendError{status: http.StatusServiceUnavailable, msg: "db unavailable"}
 	}
-
-	_, hasSMS, hasEmail, _, _ := h.twoFAOptions(ctx, pend.UserID)
+	_, hasSMS, hasEmail, _, _ := h.twoFAOptions(ctx, userID)
 	if (method == "sms" && !hasSMS) || (method == "email" && !hasEmail) {
-		http.Error(w, "method not enabled for this account", http.StatusBadRequest)
-		return
+		return "", &otpSendError{status: http.StatusBadRequest, msg: "method not enabled for this account"}
 	}
+	serverErr := &otpSendError{status: http.StatusInternalServerError, msg: "server error"}
 
 	switch method {
 	case "sms":
 		var phone sql.NullString
-		_ = db.QueryRowContext(ctx, "SELECT phone_e164 FROM users WHERE id = ?", pend.UserID).Scan(&phone)
+		_ = db.QueryRowContext(ctx, "SELECT phone_e164 FROM users WHERE id = ?", userID).Scan(&phone)
 		if !phone.Valid || phone.String == "" {
-			http.Error(w, "no phone on file", http.StatusBadRequest)
-			return
+			return "", &otpSendError{status: http.StatusBadRequest, msg: "no phone on file"}
 		}
 		if h.SMS == nil {
-			http.Error(w, "sms not configured", http.StatusServiceUnavailable)
-			return
+			return "", &otpSendError{status: http.StatusServiceUnavailable, msg: "sms not configured"}
 		}
-		if active, retry := h.checkResendCooldown(ctx, pend.UserID, "sms"); active {
-			w.Header().Set("Retry-After", strconv.Itoa(retry))
-			http.Error(w, fmt.Sprintf("wait %ds before resending", retry), http.StatusTooManyRequests)
-			return
+		if active, retry := h.checkResendCooldown(ctx, userID, "sms"); active {
+			return "", &otpSendError{status: http.StatusTooManyRequests, msg: fmt.Sprintf("wait %ds before resending", retry), retryAfter: retry}
 		}
-		sentN, over := h.checkDailyCap(ctx, pend.UserID, "sms")
+		sentN, over := h.checkDailyCap(ctx, userID, "sms")
 		if over {
-			http.Error(w, fmt.Sprintf("daily SMS limit (%d) reached", otpDailyCap), http.StatusTooManyRequests)
-			return
+			return "", &otpSendError{status: http.StatusTooManyRequests, msg: fmt.Sprintf("daily SMS limit (%d) reached", otpDailyCap)}
 		}
 		code, err := auth.GenerateSMSOTP()
 		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
+			return "", serverErr
 		}
-		otpTicket, err := auth.StoreSMSOTP(ctx, h.RDB, pend.UserID, code)
+		otpTicket, err := auth.StoreSMSOTP(ctx, h.RDB, userID, code)
 		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
+			return "", serverErr
 		}
 		body := fmt.Sprintf("Code #%d: %s", sentN, formatSMSCode(code))
 		if err := h.SMS.Send(ctx, phone.String, body); err != nil {
 			h.Logger.Warn("sms send", "err", err)
-			http.Error(w, "sms provider error", http.StatusBadGateway)
-			return
+			return "", &otpSendError{status: http.StatusBadGateway, msg: "sms provider error"}
 		}
-		http.SetCookie(w, &http.Cookie{
-			Name: "hpg_smsotp", Value: otpTicket, Path: "/", HttpOnly: true,
-			Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
-			Expires: time.Now().Add(auth.SMSOTPTTLSeconds * time.Second),
-		})
-		w.Header().Set("X-Resend-After", strconv.Itoa(int(otpResendCooldown.Seconds())))
-		w.WriteHeader(http.StatusNoContent)
+		return otpTicket, nil
 
 	case "email":
 		if h.Mailer == nil {
-			http.Error(w, "mailer not configured", http.StatusServiceUnavailable)
-			return
+			return "", &otpSendError{status: http.StatusServiceUnavailable, msg: "mailer not configured"}
 		}
-		if active, retry := h.checkResendCooldown(ctx, pend.UserID, "email"); active {
-			w.Header().Set("Retry-After", strconv.Itoa(retry))
-			http.Error(w, fmt.Sprintf("wait %ds before resending", retry), http.StatusTooManyRequests)
-			return
+		if active, retry := h.checkResendCooldown(ctx, userID, "email"); active {
+			return "", &otpSendError{status: http.StatusTooManyRequests, msg: fmt.Sprintf("wait %ds before resending", retry), retryAfter: retry}
 		}
-		if _, over := h.checkDailyCap(ctx, pend.UserID, "email"); over {
-			http.Error(w, fmt.Sprintf("daily email limit (%d) reached", otpDailyCap), http.StatusTooManyRequests)
-			return
+		if _, over := h.checkDailyCap(ctx, userID, "email"); over {
+			return "", &otpSendError{status: http.StatusTooManyRequests, msg: fmt.Sprintf("daily email limit (%d) reached", otpDailyCap)}
 		}
 		var fullName sql.NullString
-		_ = db.QueryRowContext(ctx, "SELECT full_name FROM users WHERE id = ?", pend.UserID).Scan(&fullName)
+		_ = db.QueryRowContext(ctx, "SELECT full_name FROM users WHERE id = ?", userID).Scan(&fullName)
 		code, err := auth.GenerateEmailOTP()
 		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
+			return "", serverErr
 		}
-		otpTicket, err := auth.StoreEmailOTP(ctx, h.RDB, pend.UserID, code)
+		otpTicket, err := auth.StoreEmailOTP(ctx, h.RDB, userID, code)
 		if err != nil {
-			http.Error(w, "server error", http.StatusInternalServerError)
-			return
+			return "", serverErr
 		}
-		name := ""
-		if fullName.Valid {
-			name = fullName.String
-		}
-		if err := sendOTPEmail(ctx, h.Mailer, db, r, pend.Email, name, code,
+		if err := sendOTPEmail(ctx, h.Mailer, db, r, email, fullName.String, code,
 			"Sign-in verification code",
 			"Someone (hopefully you) is signing in to your account.",
 			int(auth.EmailOTPTTLSeconds/60)); err != nil {
 			h.Logger.Warn("email send", "err", err)
-			http.Error(w, "smtp send failed", http.StatusBadGateway)
-			return
+			return "", &otpSendError{status: http.StatusBadGateway, msg: "smtp send failed"}
 		}
-		http.SetCookie(w, &http.Cookie{
-			Name: "hpg_emailotp", Value: otpTicket, Path: "/", HttpOnly: true,
-			Secure: h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
-			Expires: time.Now().Add(auth.EmailOTPTTLSeconds * time.Second),
-		})
-		w.Header().Set("X-Resend-After", strconv.Itoa(int(otpResendCooldown.Seconds())))
-		w.WriteHeader(http.StatusNoContent)
-
-	default:
-		http.Error(w, "unknown method", http.StatusBadRequest)
+		return otpTicket, nil
 	}
+	return "", &otpSendError{status: http.StatusBadRequest, msg: "unknown method"}
 }
 
 // pendViaOrPassword returns the recorded via, defaulting to "password" for
@@ -1064,8 +1070,13 @@ func (h *AuthHandlers) tryRecoveryCode(ctx context.Context, db *sql.DB, userID i
 	trimmed := strings.TrimSpace(code)
 	for _, c := range codes {
 		if err := auth.VerifyPassword(c.hash, trimmed); err == nil {
-			_, _ = db.ExecContext(ctx, "UPDATE recovery_codes SET used_at = NOW() WHERE id = ?", c.id)
-			return true
+			// Conditional claim: only one concurrent redeemer gets the row.
+			res, err := db.ExecContext(ctx, "UPDATE recovery_codes SET used_at = NOW() WHERE id = ? AND used_at IS NULL", c.id)
+			if err != nil {
+				return false
+			}
+			n, _ := res.RowsAffected()
+			return n == 1
 		}
 	}
 	return false
@@ -1385,12 +1396,10 @@ func (h *AuthHandlers) emailFailCount(ctx context.Context, email string) int {
 // markTOTPConsumed records a successfully-used TOTP counter so the same code
 // can't be replayed within its validity window. Returns false when the counter
 // was already consumed (replay). Best-effort: Redis errors fall open.
-func (h *AuthHandlers) markTOTPConsumed(ctx context.Context, userID int64, code string) bool {
+func (h *AuthHandlers) markTOTPConsumed(ctx context.Context, userID int64, counter int64) bool {
 	if h.RDB == nil {
 		return true
 	}
-	// 30s counter = unix/period; a code is valid for its own counter (+/- skew).
-	counter := time.Now().Unix() / 30
 	key := fmt.Sprintf("hpg:totp:used:%d:%d", userID, counter)
 	ok, err := h.RDB.SetNX(ctx, key, "1", 90*time.Second).Result()
 	if err != nil {
@@ -1536,12 +1545,15 @@ func (h *AuthHandlers) claimsForPending(ctx context.Context, w http.ResponseWrit
 	return c, true
 }
 
-func (h *AuthHandlers) consumePending2FA(r *http.Request) {
+// consumePending2FA deletes the ticket; true only for the one caller whose DEL
+// removed it, so parallel successful proofs cannot mint two sessions.
+func (h *AuthHandlers) consumePending2FA(r *http.Request) bool {
 	c, err := r.Cookie("hpg_2fa_pending")
 	if err != nil {
-		return
+		return false
 	}
-	_ = h.RDB.Del(r.Context(), pending2FAKeyPrefix+c.Value).Err()
+	n, err := h.RDB.Del(r.Context(), pending2FAKeyPrefix+c.Value).Result()
+	return err == nil && n == 1
 }
 
 // signTrustToken returns an AES-GCM-sealed (userID|exp) token. Sealing key
@@ -1704,7 +1716,7 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	// Link flow: user is already logged in and wants to add this OIDC
 	// provider as an additional login method.
 	if s.LinkUserID != "" {
-		http.SetCookie(w, &http.Cookie{Name: "hpg_oidc_state", Value: "", Path: "/", MaxAge: -1})
+		h.Sessions.ClearCookie(w, r, "hpg_oidc_state")
 		linkUID, linkErr := strconv.ParseInt(s.LinkUserID, 10, 64)
 		if linkErr != nil {
 			http.Error(w, "invalid link state", http.StatusBadRequest)
@@ -1790,11 +1802,6 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 			http.Redirect(w, r, "/auth/login?flash=No+account+for+this+email.+Ask+an+admin+to+create+one.", http.StatusSeeOther)
 			return
 		}
-		// Random non-usable password (login still needs OIDC; reset flow
-		// can issue a real one later if user wants password sign-in too).
-		raw := make([]byte, 32)
-		_, _ = rand.Read(raw)
-		dummy, _ := auth.HashPassword(base64.RawURLEncoding.EncodeToString(raw))
 		// Unset or unexpected -> client, the least-privileged role. The
 		// settings save already refuses admin with auto-provision.
 		role = cfg.DefaultRole
@@ -1808,16 +1815,13 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 		// email_verified=1: the IdP already vouched for this email (the
 		// verified-email gate above ran), so a fresh OIDC-provisioned row is
 		// trusted - unlike a self-registered local row.
-		res, ierr := db.ExecContext(ctx,
-			`INSERT INTO users (email, password_hash, password_set, role, full_name, is_active, email_verified)
-			 VALUES (?, ?, 0, ?, ?, 1, 1)`,
-			email, dummy, role, full)
+		uid, ierr := provisionSSOUser(ctx, db, email, role, full, true, "oidc", info.Subject, info.Email, info.Issuer)
 		if ierr != nil {
 			h.Logger.Error("oidc auto-provision", "err", ierr)
 			http.Redirect(w, r, "/auth/login?flash=Provisioning+failed", http.StatusSeeOther)
 			return
 		}
-		userID, _ = res.LastInsertId()
+		userID = uid
 		isActive = true
 		audit.Write(ctx, db, h.Logger, r, audit.Entry{
 			UserID: &userID, Action: "oidc.user.provisioned", Entity: "user",
@@ -1901,7 +1905,7 @@ func (h *AuthHandlers) OIDCCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clear the state cookie now that we're done with it.
-	http.SetCookie(w, &http.Cookie{Name: "hpg_oidc_state", Value: "", Path: "/", MaxAge: -1})
+	h.Sessions.ClearCookie(w, r, "hpg_oidc_state")
 
 	// SSO IdP already performed any MFA it owns - don't double-prompt with
 	// our local TOTP. Same trust model as passkey login.
@@ -2287,7 +2291,7 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 	// Per-user 2FA lock: independent of the ticket, blocks the fresh-ticket loop.
 	if h.twoFALocked(ctx, pend.UserID) {
 		h.consumePending2FA(r)
-		http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
+		h.Sessions.ClearCookie(w, r, "hpg_smsotp")
 		http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 		return
 	}
@@ -2307,7 +2311,7 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 		h.Metrics.OTPAttempt("sms", "fail")
 		if h.burnAttempt(ctx, ticket) || h.twoFALocked(ctx, pend.UserID) {
 			h.consumePending2FA(r)
-			http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_smsotp")
 			http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 			return
 		}
@@ -2318,8 +2322,11 @@ func (h *AuthHandlers) SMSOTPVerify(w http.ResponseWriter, r *http.Request) {
 	h.clear2FAFails(ctx, pend.UserID)
 
 	// Consume both cookies.
-	h.consumePending2FA(r)
-	http.SetCookie(w, &http.Cookie{Name: "hpg_smsotp", Value: "", Path: "/", MaxAge: -1})
+	if !h.consumePending2FA(r) {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
+	h.Sessions.ClearCookie(w, r, "hpg_smsotp")
 
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &pend.UserID, Action: "2fa.sms.success", Entity: "auth", EntityID: pend.Email,
@@ -2428,7 +2435,7 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 	// Per-user 2FA lock: independent of the ticket, blocks the fresh-ticket loop.
 	if h.twoFALocked(ctx, pend.UserID) {
 		h.consumePending2FA(r)
-		http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+		h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 		http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 		return
 	}
@@ -2447,7 +2454,7 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 		h.Metrics.OTPAttempt("email", "fail")
 		if h.burnAttempt(ctx, ticket) || h.twoFALocked(ctx, pend.UserID) {
 			h.consumePending2FA(r)
-			http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+			h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 			http.Redirect(w, r, "/auth/login?flash=Too+many+failed+codes", http.StatusSeeOther)
 			return
 		}
@@ -2456,8 +2463,11 @@ func (h *AuthHandlers) EmailOTPVerify(w http.ResponseWriter, r *http.Request) {
 	}
 	h.clearAttempts(ctx, ticket)
 	h.clear2FAFails(ctx, pend.UserID)
-	h.consumePending2FA(r)
-	http.SetCookie(w, &http.Cookie{Name: "hpg_emailotp", Value: "", Path: "/", MaxAge: -1})
+	if !h.consumePending2FA(r) {
+		http.Redirect(w, r, "/auth/login", http.StatusSeeOther)
+		return
+	}
+	h.Sessions.ClearCookie(w, r, "hpg_emailotp")
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &pend.UserID, Action: "2fa.email.success", Entity: "auth", EntityID: pend.Email,
 	})

@@ -40,14 +40,17 @@ type StreamRoute struct {
 	UpstreamPort int    // legacy single-upstream
 
 	// Advanced fields (migration 00061).
-	Upstreams     []StreamUpstream // overrides UpstreamIP/UpstreamPort when non-empty
-	MatchMode     string           // "any" (default) | "sni" | "http_host"
-	MatchValues   []string         // SNI names or HTTP Host values to match
-	LBPolicy      string           // "round_robin" | "random" | "least_conn" | "first"
-	ProxyProtoIn  string           // listener-level proxy-protocol: "none"|"v1"|"v2"
-	ProxyProtoOut string           // upstream-level proxy-protocol: "none"|"v1"|"v2"
-	CIDRAllow     []string         // CIDRs that are explicitly permitted
-	CIDRDeny      []string         // CIDRs that are explicitly blocked (checked first)
+	Upstreams    []StreamUpstream // overrides UpstreamIP/UpstreamPort when non-empty
+	MatchMode    string           // "any" (default) | "sni" | "http_host"
+	MatchValues  []string         // SNI names or HTTP Host values to match
+	LBPolicy     string           // "round_robin" | "random" | "least_conn" | "first"
+	ProxyProtoIn string           // listener-level proxy-protocol: "none"|"v1"|"v2"
+	// ProxyProtoTrusted are the balancer CIDRs allowed to send a PROXY header;
+	// empty with ProxyProtoIn set fails closed (every connection is closed).
+	ProxyProtoTrusted []string
+	ProxyProtoOut     string   // upstream-level proxy-protocol: "none"|"v1"|"v2"
+	CIDRAllow         []string // CIDRs that are explicitly permitted
+	CIDRDeny          []string // CIDRs that are explicitly blocked (checked first)
 }
 
 // buildLayer4App turns a list of stream routes into the `apps.layer4`
@@ -63,9 +66,12 @@ func buildLayer4App(routes []StreamRoute) map[string]any {
 	}
 	servers := map[string]any{}
 	for _, r := range routes {
-		protos := protoList(r.Protocol)
-		for _, p := range protos {
+		for _, p := range protoList(r.Protocol) {
 			key := p + "_" + itoa(r.ListenPort)
+			// First route keeps a shared listener; callers reject the clash upstream.
+			if _, taken := servers[key]; taken {
+				continue
+			}
 			servers[key] = buildL4Server(p, r)
 		}
 	}
@@ -92,12 +98,26 @@ func buildL4Server(proto string, r StreamRoute) map[string]any {
 		// decoded connection is handed to a subroute carrying the ACL + proxy
 		// routes. (Matchers on sibling routes would see the raw, pre-decode
 		// connection, which is the access-control bypass we are avoiding.)
-		routes = []any{map[string]any{
-			"handle": []any{
-				map[string]any{"handler": "proxy_protocol", "timeout": "5s"},
-				map[string]any{"handler": "subroute", "routes": inner},
+		// The header is an unauthenticated claim, so only trusted balancers may
+		// reach the decoder; anyone else is closed on their real socket address.
+		closeAll := map[string]any{"handle": []any{map[string]any{"handler": "close"}}}
+		if len(r.ProxyProtoTrusted) == 0 {
+			return map[string]any{"listen": []string{listenAddr}, "routes": []any{closeAll}}
+		}
+		routes = []any{
+			map[string]any{
+				"match": []any{map[string]any{
+					"not": []any{map[string]any{"remote_ip": map[string]any{"ranges": r.ProxyProtoTrusted}}},
+				}},
+				"handle": closeAll["handle"],
 			},
-		}}
+			map[string]any{
+				"handle": []any{
+					map[string]any{"handler": "proxy_protocol", "timeout": "5s", "allow": r.ProxyProtoTrusted},
+					map[string]any{"handler": "subroute", "routes": inner},
+				},
+			},
+		}
 	} else {
 		routes = inner
 	}
@@ -204,6 +224,15 @@ func normLBPolicy(p string) string {
 		return p
 	}
 	return "round_robin"
+}
+
+// StreamListenerKeys returns the "<proto>_<port>" listeners a route binds.
+func StreamListenerKeys(r StreamRoute) []string {
+	var keys []string
+	for _, p := range protoList(r.Protocol) {
+		keys = append(keys, p+"_"+itoa(r.ListenPort))
+	}
+	return keys
 }
 
 func protoList(p string) []string {

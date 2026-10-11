@@ -492,21 +492,32 @@ func (h *AdminHandlers) ClientChangePlan(w http.ResponseWriter, r *http.Request)
 	}
 	// Repointing every service of the client reallocates capacity - the owning
 	// reseller's package must still fit.
+	var rid int64
 	if h.Quota != nil {
-		if rid, qerr := h.Quota.ResellerOfClient(ctx, id); qerr == nil && rid != 0 {
-			if qerr = h.Quota.CanChangeClientPlan(ctx, rid, id, newPlanID); qerr != nil {
-				h.Logger.Warn("client plan quota check failed", "err", qerr)
-				redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "plan exceeds the reseller package quota")
-				return
-			}
+		rid, _ = h.Quota.ResellerOfClient(ctx, id)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "update failed")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if rid != 0 {
+		if qerr := h.Quota.CanChangeClientPlan(ctx, tx, rid, id, newPlanID); qerr != nil {
+			h.Logger.Warn("client plan quota check failed", "err", qerr)
+			redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "plan exceeds the reseller package quota")
+			return
 		}
 	}
 
 	// Update all services for this client to the new plan.
-	_, err := db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		"UPDATE services SET plan_id=?, updated_at=NOW() WHERE client_id=?",
-		newPlanID, id)
-	if err != nil {
+		newPlanID, id); err != nil {
+		redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "update failed")
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		redirectWithFlash(w, r, "/admin/clients/"+strconv.FormatInt(id, 10), "", "update failed")
 		return
 	}

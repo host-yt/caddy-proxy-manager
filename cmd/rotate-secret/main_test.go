@@ -89,9 +89,9 @@ func TestDecideResumeRefusesDifferentSecrets(t *testing.T) {
 
 // HPG-011: no journal means a fresh rotation - nothing to resume.
 func TestDecideResumeNoJournal(t *testing.T) {
-	resume, err := decideResume(nil, secretHash("a"), secretHash("b"), "/tmp/x")
-	if err != nil || resume {
-		t.Fatalf("expected (false, nil) for no journal, got (%v, %v)", resume, err)
+	stage, err := decideResume(nil, secretHash("a"), secretHash("b"), "/tmp/x")
+	if err != nil || stage != "" {
+		t.Fatalf("expected (\"\", nil) for no journal, got (%q, %v)", stage, err)
 	}
 }
 
@@ -100,9 +100,13 @@ func TestDecideResumeNoJournal(t *testing.T) {
 func TestDecideResumeSkipsCompletedDBStage(t *testing.T) {
 	oh, nh := secretHash("old-secret-32-chars-long-enough!!"), secretHash("new-secret-32-chars-long-enough!!")
 	j := &rotateJournal{OldHash: oh, NewHash: nh, Stage: stageDBDone}
-	resume, err := decideResume(j, oh, nh, "/tmp/x")
-	if err != nil || !resume {
-		t.Fatalf("expected (true, nil), got (%v, %v)", resume, err)
+	stage, err := decideResume(j, oh, nh, "/tmp/x")
+	if err != nil || stage != stageDBDone {
+		t.Fatalf("expected (db_done, nil), got (%q, %v)", stage, err)
+	}
+	j.Stage = "bogus"
+	if _, err := decideResume(j, oh, nh, "/tmp/x"); err == nil {
+		t.Fatal("unknown journal stage must be refused")
 	}
 }
 
@@ -273,5 +277,148 @@ func TestRunRotationResumesAfterDBCommit(t *testing.T) {
 	}
 	if _, err := os.Stat(jPath); !os.IsNotExist(err) {
 		t.Fatal("journal should be removed once the resumed rotation completes")
+	}
+}
+
+// A row that fails to Scan mid-rotation must abort and roll back every
+// earlier re-seal; skipping it would commit a subset under the new key.
+func TestRotateDBScanErrorRollsBack(t *testing.T) {
+	db := openIsolatedTestDB(t)
+	oldKey := deriveStateKey("scan-old-secret-32-chars-long!!!!")
+	newKey := deriveStateKey("scan-new-secret-32-chars-long!!!!")
+
+	sealed, err := encrypt("s3cret-value", oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO settings (`key`, value, is_encrypted) VALUES ('k', ?, 1)", sealed); err != nil {
+		t.Fatal(err)
+	}
+	// NULL id cannot Scan into string: an injected mid-stream read failure.
+	if _, err := db.Exec("CREATE TABLE fault_enc (id VARCHAR(10) NULL, secret_enc TEXT NULL)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO fault_enc VALUES (NULL, ?)", sealed); err != nil {
+		t.Fatal(err)
+	}
+	saved := encColumns
+	encColumns = []encColumn{{"fault_enc", "id", "secret_enc", "", "", false}}
+	t.Cleanup(func() { encColumns = saved })
+
+	if _, err := rotateDB(db, oldKey, newKey, true); err == nil {
+		t.Fatal("expected scan failure to abort the rotation")
+	}
+	var got string
+	if err := db.QueryRow("SELECT value FROM settings WHERE `key` = 'k'").Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != sealed {
+		t.Fatal("settings row was re-sealed despite the aborted rotation")
+	}
+}
+
+// A crash after the DB commit but before the journal advanced leaves only the
+// intent journal: the re-run must detect the landed commit and finish the file.
+func TestRunRotationResumesFromIntentJournal(t *testing.T) {
+	db := openIsolatedTestDB(t)
+	const oldSecret = "intent-old-secret-32-chars-long!!"
+	const newSecret = "intent-new-secret-32-chars-long!!"
+	oldKey, newKey := deriveStateKey(oldSecret), deriveStateKey(newSecret)
+
+	sealed, err := encrypt("s3cret-value", oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO settings (`key`, value, is_encrypted) VALUES ('k', ?, 1)", sealed); err != nil {
+		t.Fatal(err)
+	}
+	fileSealed, err := encrypt("db-password", oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeStateFile(t, t.TempDir(), map[string]any{"db": map[string]any{"password_cipher": fileSealed}})
+	jPath := journalPath(path)
+	intent := rotateJournal{OldHash: secretHash(oldSecret), NewHash: secretHash(newSecret), Stage: stageIntent}
+
+	// Intent written, commit never landed: a re-run is a normal rotation.
+	if err := writeJournal(jPath, intent); err != nil {
+		t.Fatal(err)
+	}
+	if err := runRotation(path, oldSecret, newSecret, oldKey, newKey, db, false, io.Discard); err != nil {
+		t.Fatalf("dry run with pre-commit intent journal: %v", err)
+	}
+
+	// Commit landed, crash before db_done.
+	if _, err := rotateDB(db, oldKey, newKey, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := runRotation(path, oldSecret, newSecret, oldKey, newKey, db, true, io.Discard); err != nil {
+		t.Fatalf("resume from intent journal: %v", err)
+	}
+	data, _ := os.ReadFile(path)
+	var m map[string]any
+	if err := json.Unmarshal(data, &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := decEnvelope(m["db"].(map[string]any)["password_cipher"].(string), newKey); err != nil {
+		t.Fatalf("state file not rotated: %v", err)
+	}
+	if _, err := os.Stat(jPath); !os.IsNotExist(err) {
+		t.Fatal("journal should be removed on completion")
+	}
+
+	// File renamed but journal removal lost: re-run must be a clean no-op.
+	if err := writeJournal(jPath, rotateJournal{OldHash: intent.OldHash, NewHash: intent.NewHash, Stage: stageDBDone}); err != nil {
+		t.Fatal(err)
+	}
+	if err := runRotation(path, oldSecret, newSecret, oldKey, newKey, db, true, io.Discard); err != nil {
+		t.Fatalf("re-run after completed file step: %v", err)
+	}
+}
+
+// --apply without DB access must refuse and leave the state file untouched:
+// a file-only rotation orphans every encrypted DB secret.
+func TestRunRotationApplyRequiresDB(t *testing.T) {
+	const oldSecret = "fileonly-old-secret-32-chars-long"
+	const newSecret = "fileonly-new-secret-32-chars-long"
+	oldKey, newKey := deriveStateKey(oldSecret), deriveStateKey(newSecret)
+	sealed, err := encrypt("db-password", oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeStateFile(t, t.TempDir(), map[string]any{"db": map[string]any{"password_cipher": sealed}})
+	before, _ := os.ReadFile(path)
+
+	if err := runRotation(path, oldSecret, newSecret, oldKey, newKey, nil, false, io.Discard); err != nil {
+		t.Fatalf("dry run without DB should still preview: %v", err)
+	}
+	if err := runRotation(path, oldSecret, newSecret, oldKey, newKey, nil, true, io.Discard); err == nil {
+		t.Fatal("expected --apply without DB to be refused")
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("state file rewritten by a refused file-only rotation")
+	}
+}
+
+// The password file wins over the deprecated flag and env; a trailing newline
+// from `echo pw > file` must not become part of the password.
+func TestResolveDBPass(t *testing.T) {
+	f := filepath.Join(t.TempDir(), "pw")
+	if err := os.WriteFile(f, []byte("from-file\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ flag, file, env, want string }{
+		{"flag", f, "env", "from-file"},
+		{"flag", "", "env", "flag"},
+		{"", "", "env", "env"},
+	} {
+		got, err := resolveDBPass(tc.flag, tc.file, tc.env)
+		if err != nil || got != tc.want {
+			t.Fatalf("%+v: got (%q, %v)", tc, got, err)
+		}
+	}
+	if _, err := resolveDBPass("", filepath.Join(t.TempDir(), "missing"), ""); err == nil {
+		t.Fatal("missing password file must fail, not fall back silently")
 	}
 }

@@ -52,10 +52,82 @@ is deliberately left as published.
   overloaded, and plan/reseller domain quotas are checked inside the create
   transaction (#49, #50).
 
+- Revoked mTLS client certificates are refused on the nodes, mTLS roles are
+  bound to one certificate (serial + fingerprint), and deleting a CA pushes the
+  change to every node that trusted it.
+- The forward-auth portal enforces every enrolled second factor (TOTP, SMS,
+  email, recovery code). Portal OAuth finishes on the host it started from and
+  is bound to the browser.
+- SMS/email codes, recovery codes, passkey challenges and TOTP steps are each
+  accepted once, also under concurrent requests.
+- OIDC issuers must use https (no `localhost` exemption).
+- Reseller and restricted admins see only their own clients on the dashboard;
+  resellers can place hosts and streams only on node pools their package
+  grants; DNS steering is super_admin-only and verified domains only.
+- Reseller quotas (clients, services, domains) hold under concurrent creates.
+- Node decommission keeps the configured Caddy admin bind and clears the node
+  before deleting it ("Force decommission" for an offline node).
+- Customer WireGuard peers can only answer connections, not open them to the
+  node, its LAN or the internet (needs the new node-agent image).
+- L4 streams accept inbound PROXY headers only from listed balancer CIDRs.
+- WebSocket requests no longer skip the WAF.
+- The backend test pins the address it screened and refuses managed nodes and
+  the control plane.
+- The restore drill replays only an artifact whose SHA-256 matches its backup
+  record and only statements our own dumps emit.
+- Secret rotation aborts on any unreadable row, can be resumed after a crash
+  at any step, refuses `--apply` without database access and takes the DB
+  password from `DB_PASSWORD` or `--db-pass-file`.
+- SQLite installs enforce foreign keys; WAL and busy_timeout now apply.
+- Auth helper cookies are cleared with HttpOnly/SameSite/Secure; node-token
+  mismatches log a hash instead of a token prefix; `hpg-restore` rejects
+  non-local archive paths; form integers are bounded to 32 bits; remaining
+  Dockerfile base images are pinned by digest; chi and klauspost/compress
+  bumped.
+- The OpenAPI spec no longer advertises `?node_token=` (it was never accepted).
+
 ### Fixed
 
 - SSE log and AI chat streams are no longer cut off by the global 30s request
   timeout (#51).
+- Auto-failover measures an outage from the last successful probe, so it and
+  the `node_offline` alert fire after their grace period.
+- Deleted, disabled or un-steered routes no longer leave managed DNS records
+  live; DNS steering and alias rechecks cover every route, not the first 500;
+  Cloudflare record listing follows pagination.
+- Fan-out peers get wildcard DNS-01 credentials, route edits, maintenance and
+  basic-auth changes, and fleet/client-wide pushes; replacing an unverified
+  route frees capacity on every node.
+- HA WireGuard creation is all-or-nothing, and an install token is used up
+  only when the config download succeeds.
+- A database error while reading stream upstreams or WAF suppressions fails
+  the push (the node keeps its last good config) instead of dropping them.
+- Tenants can't add a path prefix on route edit when their plan lacks path
+  routing; narrowing a service port range is refused while routes use the
+  removed ports (API: 409); the OpenAPI spec lists `POST /api/v1/services`
+  again.
+- Port-range changes and route writes lock the service row, so a concurrent
+  route edit can't land outside a narrowed range; an aborted node migration
+  re-syncs every destination it touched.
+- SSO-created client users get their client record; self-registration is
+  all-or-nothing.
+- Bulk approve enables nodes; drain/decommission spread routes over peers by
+  free capacity and roll back on a failed push; "Send test email" no longer
+  saves SMTP settings; multi-key settings saves (OIDC) are atomic.
+- Overlapping tcp/udp/both streams on one port are rejected instead of
+  silently overwritten; concurrent first-time WireGuard keypair creation can
+  no longer store a mismatched pair.
+- GDPR erasure is all-or-nothing and also removes phone, OTP enrolment, SSO
+  links, passkeys, email verifications, AI chat history and the client's
+  display name, notes and custom fields.
+- MySQL backups keep binary columns (WebAuthn, TOTP) intact; verification no
+  longer poisons later verifications and drills; retention deletes artifacts
+  at the destination too; the drill fails on any SQL error or empty core
+  tables.
+- The install wizard no longer reports completion when the state file can't be
+  written; GeoIP refresh reports undecryptable MaxMind credentials as a
+  failure; WAF events on external routes with prefix stripping go to the right
+  route; the legacy `/api/node/wg/handshakes` endpoint applies JSON reports.
 
 ### Upgrade notes
 
@@ -64,6 +136,33 @@ is deliberately left as published.
   `services,routes,nodes,admin:read,admin:write` for every other owner. Keys
   keep working unchanged; review the migrated keys under Admin > API keys and
   narrow any that should not carry the full set.
+- Migrations 00166-00168 run on start: DNS steering record ownership (backfilled
+  from existing steering state), a `verification` kind for backup jobs, and a
+  per-stream trusted PROXY sender list.
+- After upgrading, DNS records the panel created for routes that are deleted,
+  disabled, unverified or no longer steered are deleted at the provider on the
+  first reconcile pass. Records you created by hand are never touched.
+- Streams with inbound PROXY enabled close every connection until their
+  balancer CIDRs are entered under "Trusted PROXY senders".
+- Release a new node-agent image to every node for the WireGuard peer
+  isolation. WebSockets on WAF routes need the v1.8.0 edge image or newer.
+- Resellers without a package granting node pools can no longer create hosts
+  or streams. Only super_admin can see or change DNS steering.
+- An `http://` OIDC issuer stops OIDC login until it is switched to https.
+- Until a node receives the new config, mTLS paths with role rules return 403;
+  the normal push or drift reconcile clears it.
+- Decommission fails if the node can't be cleared; use "Force decommission"
+  for an offline node and stop Caddy there by hand. Nodes bulk-approved before
+  this release stay disabled until enabled.
+- `hpg-rotate-secret --apply` requires the DB flags; `--db-pass` is deprecated.
+- SQLite: on first start, rows pointing at deleted parents are purged
+  (`sqlite: purged orphan row`) or logged (`orphan row left in place`). Take a
+  backup first.
+- Restore drills on backups with no recorded SHA-256 fail; take a new backup.
+  The first retention run deletes expired artifacts that were left behind.
+  Older MySQL backups may hold binary columns in the wrong encoding.
+- Portal OAuth sign-ins in progress during the upgrade must be retried.
+- Node-token log field `token_prefix` is now `token_fp`.
 
 ## [1.8.0] - 2026-10-05
 

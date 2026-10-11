@@ -59,6 +59,10 @@ func (m *Mailer) Send(ctx context.Context, to, subject, templateName string, dat
 	if err != nil {
 		return fmt.Errorf("load smtp config: %w", err)
 	}
+	return m.sendWith(ctx, cfg, to, subject, templateName, data)
+}
+
+func (m *Mailer) sendWith(ctx context.Context, cfg Config, to, subject, templateName string, data any) error {
 	if cfg.IsZero() {
 		m.Logger.Warn("smtp not configured; email skipped", "to", to, "subject", subject)
 		return errors.New("smtp not configured")
@@ -117,9 +121,18 @@ func (m *Mailer) Send(ctx context.Context, to, subject, templateName string, dat
 	return nil
 }
 
-// SendTest hits the SMTP server with a fixed test message.
-func (m *Mailer) SendTest(ctx context.Context, to string) error {
-	return m.Send(ctx, to, "Hostyt Proxy — SMTP test", "test", map[string]any{
+// SendTestWith sends the test message through cfg without persisting it, so a
+// failed test never replaces the live SMTP settings. Blank password = stored one.
+func (m *Mailer) SendTestWith(ctx context.Context, cfg Config, to string) error {
+	if cfg.Password == "" {
+		if cur, err := m.loadConfig(ctx); err == nil {
+			cfg.Password = cur.Password
+		}
+	}
+	if cfg.FromName == "" {
+		cfg.FromName = "Hostyt Proxy"
+	}
+	return m.sendWith(ctx, cfg, to, "Hostyt Proxy — SMTP test", "test", map[string]any{
 		"AppName": "Hostyt Proxy Gateway",
 	})
 }

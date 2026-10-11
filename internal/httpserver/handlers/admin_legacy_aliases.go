@@ -253,7 +253,6 @@ func (h *AdminHandlers) approveLegacyAliases(ctx context.Context, actor *int64, 
 		jobs = append(jobs, j)
 	}
 	rows.Close()
-	touched := map[int64]struct{}{}
 	for _, j := range jobs {
 		if _, err := db.ExecContext(ctx,
 			"UPDATE routes SET aliases_verified=? WHERE id=?", j.merged, j.id); err != nil {
@@ -264,13 +263,11 @@ func (h *AdminHandlers) approveLegacyAliases(ctx context.Context, actor *int64, 
 			  WHERE route_id=?`, actor, j.id); err != nil {
 			return 0, err
 		}
-		if j.node > 0 {
-			touched[j.node] = struct{}{}
-		}
 	}
 	if h.Routes != nil {
-		for n := range touched {
-			h.Routes.SchedulePush(n)
+		// Fan-out peers serve the aliases too, not just the anchor node.
+		for _, j := range jobs {
+			h.Routes.SchedulePushForRoute(ctx, j.id)
 		}
 	}
 	return len(jobs), nil

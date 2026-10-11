@@ -14,6 +14,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
+	"github.com/host-yt/caddy-proxy-manager/internal/mtls"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
@@ -225,7 +226,10 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 	// cannot be emitted is served open or denied. Loaded once per build.
 	mtlsFailOpen := s.loadMTLSFailOpen(ctx)
 	// Suppressed WAF rules are removed from every route's ruleset (#14).
-	wafSups := s.loadWAFSuppressions(ctx)
+	wafSups, err := s.loadWAFSuppressions(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
 	rows, err := s.DB.QueryContext(ctx,
 		`SELECT r.id, r.domain, COALESCE(r.aliases,''), COALESCE(r.aliases_verified,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
 		        r.websocket, r.force_https,
@@ -768,6 +772,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		s.attachLocationRules(ctx, built, ids),
 		s.attachBasicAuthUsers(ctx, built, ids),
 		s.attachMTLSPathRules(ctx, built, ids),
+		s.attachMTLSRevocations(ctx, built, ids),
 	); err != nil {
 		return nil, nil, err
 	}
@@ -887,6 +892,50 @@ func (s *Service) attachMTLSPathRules(ctx context.Context, built []caddyapi.Rout
 				PathPattern:  pattern,
 				RequiredRole: role,
 			})
+		}
+	}
+	return rows.Err()
+}
+
+// attachMTLSRevocations sets each mTLS route's revoked-leaf fingerprints. Expired
+// leaves are skipped: the handshake already rejects them.
+func (s *Service) attachMTLSRevocations(ctx context.Context, built []caddyapi.Route, ids []int64) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	idx := make(map[int64]int, len(ids))
+	ph := make([]string, len(ids))
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		idx[id] = i
+		ph[i] = "?"
+		args[i] = id
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT r.id, c.cert_pem
+		   FROM routes r
+		   JOIN mtls_issued_certs c ON c.ca_id = r.mtls_ca_id
+		  WHERE r.id IN (`+strings.Join(ph, ",")+`)
+		    AND r.require_client_cert = 1 AND c.status = 'revoked'
+		  ORDER BY r.id, c.id`, args...)
+	if err != nil {
+		// Publishing without the list would re-admit every revoked cert.
+		return fmt.Errorf("mtls revocations load failed: %w", err)
+	}
+	defer rows.Close()
+	now := time.Now()
+	for rows.Next() {
+		var rid int64
+		var certPEM string
+		if err := rows.Scan(&rid, &certPEM); err != nil {
+			return fmt.Errorf("mtls revocations scan: %w", err)
+		}
+		c, err := mtls.ParseCert(certPEM)
+		if err != nil || !now.Before(c.NotAfter) {
+			continue
+		}
+		if i, ok := idx[rid]; ok {
+			built[i].MTLSRevokedFingerprints = append(built[i].MTLSRevokedFingerprints, mtls.FingerprintOf(c))
 		}
 	}
 	return rows.Err()
@@ -1025,10 +1074,12 @@ func (s *Service) buildWildcardPolicies(ctx context.Context, nodeID int64) []cad
 		`SELECT DISTINCT dp.name, dp.provider, dp.api_token_enc
 		   FROM routes r
 		   JOIN dns_providers dp ON dp.name = r.wildcard_zone
-		  WHERE r.caddy_node_id = ?
+		  WHERE (r.caddy_node_id = ?
+		         OR EXISTS (SELECT 1 FROM route_node_assignments rna
+		                     WHERE rna.route_id = r.id AND rna.node_id = ?))
 		    AND r.wildcard_enabled = 1
 		    AND r.status IN ('dns_ok','active','pending_ssl')`+serviceActiveSQL+`
-		  ORDER BY dp.name ASC`, nodeID)
+		  ORDER BY dp.name ASC`, nodeID, nodeID)
 	if err != nil {
 		s.Logger.Error("wildcard: policy query failed, no DNS-01 policy emitted", "node_id", nodeID, "err", err)
 		return nil

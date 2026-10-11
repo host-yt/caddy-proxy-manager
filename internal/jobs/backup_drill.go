@@ -7,13 +7,16 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -167,15 +170,15 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	}
 
 	// 1. Find latest succeeded backup job with an artifact.
-	var jobID, destID int64
-	var artifactKey string
+	var jobID, destID, wantSize int64
+	var artifactKey, wantSHA string
 	var encInt int
 	err := db.QueryRowContext(ctx,
-		`SELECT id, destination_id, artifact_key, encrypted
+		`SELECT id, destination_id, artifact_key, COALESCE(sha256, ''), size_bytes, encrypted
 		 FROM backup_jobs
-		 WHERE status = 'succeeded' AND artifact_key <> ''
+		 WHERE status = 'succeeded' AND kind <> 'verification' AND artifact_key <> ''
 		 ORDER BY id DESC LIMIT 1`,
-	).Scan(&jobID, &destID, &artifactKey, &encInt)
+	).Scan(&jobID, &destID, &artifactKey, &wantSHA, &wantSize, &encInt)
 	if err != nil {
 		return 0, fmt.Errorf("no succeeded backup found: %w", err)
 	}
@@ -211,6 +214,10 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	raw, err := os.ReadFile(artifactPath)
 	if err != nil {
 		return 0, fmt.Errorf("read artifact %s: %w", artifactPath, err)
+	}
+	// The file is replayed as SQL, so it must be byte-identical to what the backup job recorded.
+	if err := checkArtifact(raw, wantSize, wantSHA); err != nil {
+		return 0, err
 	}
 
 	// 4. Decrypt if needed.
@@ -288,7 +295,10 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	// 8. Replay dump.
 	restoreCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
 	defer cancel()
-	rowsReplayed := j.replaySQL(restoreCtx, drillDB, dumpSQL)
+	rowsReplayed, err := j.replaySQL(restoreCtx, drillDB, strings.Split(dumpSQL, ";\n"))
+	if err != nil {
+		return 0, err
+	}
 
 	// 9. Verify core tables — use restoreCtx so it doesn't time out after replay.
 	found, err := j.countCoreTables(restoreCtx, drillDB)
@@ -297,6 +307,9 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	}
 	if found < minTableCount {
 		return 0, fmt.Errorf("only %d/%d core tables present after restore", found, minTableCount)
+	}
+	if err := checkCoreRows(restoreCtx, drillDB); err != nil {
+		return rowsReplayed, err
 	}
 	j.Logger.Info("backup-drill: tables verified", "found", found, "required", minTableCount)
 	return rowsReplayed, nil
@@ -364,18 +377,9 @@ func (j *BackupDrillJob) restoreSQLite(ctx context.Context, dumpSQL string) (int
 
 	// SplitSQLStatements (not the ";\n" split): sqlite dump values keep raw
 	// newlines and semicolons inside their quotes.
-	var rowsReplayed int
-	for _, stmt := range backup.SplitSQLStatements(dumpSQL) {
-		if isDangerousSQL(stmt) {
-			j.Logger.Debug("backup-drill: skipping dangerous stmt", "stmt_prefix", drillTruncate(stmt, 80))
-			continue
-		}
-		if _, err := drillDB.ExecContext(restoreCtx, stmt); err != nil {
-			j.Logger.Debug("backup-drill: stmt error (non-fatal)",
-				"err", err, "stmt_prefix", drillTruncate(stmt, 80))
-		} else {
-			rowsReplayed++
-		}
+	rowsReplayed, err := j.replaySQL(restoreCtx, drillDB, backup.SplitSQLStatements(dumpSQL))
+	if err != nil {
+		return 0, err
 	}
 
 	found := 0
@@ -393,48 +397,104 @@ func (j *BackupDrillJob) restoreSQLite(ctx context.Context, dumpSQL string) (int
 	if found < minTableCount {
 		return rowsReplayed, fmt.Errorf("only %d/%d core tables present after restore", found, minTableCount)
 	}
+	if err := checkCoreRows(restoreCtx, drillDB); err != nil {
+		return rowsReplayed, err
+	}
 	j.Logger.Info("backup-drill: tables verified", "found", found, "required", minTableCount)
 	return rowsReplayed, nil
 }
 
-func (j *BackupDrillJob) replaySQL(ctx context.Context, db *sql.DB, dump string) int {
-	stmts := strings.Split(dump, ";\n")
+// replaySQL executes dump statements into the drill DB. Any statement outside
+// the shapes our own dumpers emit, or any failing statement, fails the drill:
+// a dump that only half restores is not a usable backup.
+// Returns the count of statements executed.
+func (j *BackupDrillJob) replaySQL(ctx context.Context, db *sql.DB, stmts []string) (int, error) {
 	var ok int
 	for _, stmt := range stmts {
-		stmt = strings.TrimSpace(stmt)
-		if stmt == "" || strings.HasPrefix(stmt, "--") {
+		stmt = stripLeadingComments(stmt)
+		if stmt == "" {
 			continue
 		}
-		if isDangerousSQL(stmt) {
-			j.Logger.Debug("backup-drill: skipping dangerous stmt", "stmt_prefix", drillTruncate(stmt, 80))
-			continue
+		if !allowedDrillSQL(stmt) {
+			return ok, fmt.Errorf("dump contains a statement the drill does not replay: %q", drillTruncate(stmt, 60))
 		}
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			j.Logger.Debug("backup-drill: stmt error (non-fatal)",
-				"err", err, "stmt_prefix", drillTruncate(stmt, 80))
-		} else {
-			ok++
+			return ok, fmt.Errorf("replay statement %d (%q): %w", ok+1, drillTruncate(stmt, 60), err)
 		}
+		ok++
 	}
-	return ok
+	return ok, nil
 }
 
-// isDangerousSQL reports whether a SQL statement should never execute in the
-// drill context because it could affect the production server or grant
-// privileges. Comparison is case-insensitive on the first token.
-func isDangerousSQL(stmt string) bool {
-	upper := strings.ToUpper(strings.TrimSpace(stmt))
-	for _, prefix := range []string{
-		"USE ", "USE\t",
-		"DROP DATABASE", "DROP SCHEMA",
-		"GRANT ", "REVOKE ",
-		"CREATE USER", "DROP USER", "ALTER USER", "RENAME USER",
-	} {
-		if strings.HasPrefix(upper, prefix) {
+// checkArtifact pins the artifact to the size and SHA-256 recorded by its backup job.
+func checkArtifact(raw []byte, wantSize int64, wantSHA string) error {
+	if wantSHA == "" {
+		return errors.New("backup job has no recorded sha256; refusing to replay artifact")
+	}
+	if int64(len(raw)) != wantSize {
+		return fmt.Errorf("artifact size mismatch: recorded %d, got %d", wantSize, len(raw))
+	}
+	sum := sha256.Sum256(raw)
+	if got := hex.EncodeToString(sum[:]); !strings.EqualFold(got, wantSHA) {
+		return fmt.Errorf("artifact sha256 mismatch: recorded %s, got %s", wantSHA, got)
+	}
+	return nil
+}
+
+// stripLeadingComments drops blank and "--" lines in front of a statement.
+func stripLeadingComments(stmt string) string {
+	stmt = strings.TrimSpace(stmt)
+	for strings.HasPrefix(stmt, "--") {
+		nl := strings.IndexByte(stmt, '\n')
+		if nl < 0 {
+			return ""
+		}
+		stmt = strings.TrimSpace(stmt[nl+1:])
+	}
+	return stmt
+}
+
+// drillAllowed lists the only statement shapes the MySQL and SQLite dumpers
+// emit; a strict allowlist, so comments, qualified names or extra clauses can't slip by.
+var drillAllowed = []*regexp.Regexp{
+	regexp.MustCompile(`^SET (NAMES utf8mb4|FOREIGN_KEY_CHECKS = [01]|UNIQUE_CHECKS = [01]|SQL_MODE = '[A-Z_,]*')$`),
+	regexp.MustCompile(`^PRAGMA foreign_keys=(ON|OFF)$`),
+	regexp.MustCompile("^DROP TABLE IF EXISTS `\\w+`$"),
+	regexp.MustCompile("^CREATE TABLE (IF NOT EXISTS )?[`\"]?\\w+[`\"]?\\s*\\("),
+	regexp.MustCompile("^CREATE (UNIQUE )?INDEX (IF NOT EXISTS )?[`\"]?\\w+[`\"]? ON [`\"]?\\w+[`\"]?\\s*\\("),
+	regexp.MustCompile("^INSERT INTO `\\w+` \\(`\\w+`(, `\\w+`)*\\) VALUES\\s?\\("),
+}
+
+// drillDeniedDDL catches CREATE TABLE options that reach outside the scratch schema.
+var drillDeniedDDL = regexp.MustCompile(`(?i)\b(DATA|INDEX)\s+DIRECTORY\b|\bCONNECTION\s*=|\bENGINE\s*=\s*(FEDERATED|CONNECT)\b|\bSELECT\b`)
+
+func allowedDrillSQL(stmt string) bool {
+	if strings.HasPrefix(stmt, "CREATE ") && drillDeniedDDL.MatchString(stmt) {
+		return false
+	}
+	for _, re := range drillAllowed {
+		if re.MatchString(stmt) {
 			return true
 		}
 	}
 	return false
+}
+
+// populatedTables must hold rows in any backup of an installed panel.
+var populatedTables = []string{"settings", "users"}
+
+// checkCoreRows fails when a table every installed panel populates came back empty.
+func checkCoreRows(ctx context.Context, db *sql.DB) error {
+	for _, t := range populatedTables {
+		var n int
+		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM `"+t+"`").Scan(&n); err != nil {
+			return fmt.Errorf("count %s: %w", t, err)
+		}
+		if n == 0 {
+			return fmt.Errorf("table %s is empty after restore", t)
+		}
+	}
+	return nil
 }
 
 // countCoreTables counts how many of coreTables exist in the drill schema.

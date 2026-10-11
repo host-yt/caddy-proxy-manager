@@ -128,3 +128,21 @@ func TestWAFIngest_RowGetsRouteID(t *testing.T) {
 			routeID.Int64, routeID.Valid, apiID)
 	}
 }
+
+// Attribution must follow the proxy matcher: plain prefixes match raw (/api*),
+// stripped external prefixes only on a segment boundary.
+func TestWAFRouteIndexResolveBoundary(t *testing.T) {
+	idx := wafRouteIndex{"h.test": {
+		{id: 2, prefix: "/tok", boundary: true},
+		{id: 3, prefix: "/api"},
+		{id: 1, prefix: "/"},
+	}}
+	for uri, want := range map[string]int64{
+		"/tok": 2, "/tok/x?a=1": 2, "/tokX": 1,
+		"/api": 3, "/api2": 3, "/other": 1,
+	} {
+		if got := idx.resolve("H.test:443", uri); got != want {
+			t.Errorf("resolve(%q)=%d want %d", uri, got, want)
+		}
+	}
+}

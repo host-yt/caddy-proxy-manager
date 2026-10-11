@@ -22,5 +22,5 @@ func BuildSQLiteDSN(path string) string {
 	if path == "" {
 		path = "./data/hpg.db"
 	}
-	return "file:" + path + "?_foreign_keys=on&_journal_mode=WAL&_busy_timeout=5000"
+	return "file:" + path + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
 }

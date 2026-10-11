@@ -28,10 +28,11 @@ func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) ([]cadd
 		        COALESCE(sr.proxy_proto_in,'none'),
 		        COALESCE(sr.proxy_proto_out,'none'),
 		        COALESCE(sr.cidr_allow,''),
-		        COALESCE(sr.cidr_deny,'')
+		        COALESCE(sr.cidr_deny,''),
+		        COALESCE(sr.proxy_proto_trusted,'')
 		 FROM stream_routes sr JOIN services sv ON sv.id = sr.service_id
 		 WHERE sr.caddy_node_id = ? AND sr.status = 'active' AND sr.quarantined_at IS NULL
-		 ORDER BY sr.listen_port ASC`, nodeID)
+		 ORDER BY sr.listen_port ASC, sr.id ASC`, nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -39,25 +40,31 @@ func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) ([]cadd
 	var out []caddyapi.StreamRoute
 	for rows.Next() {
 		var r caddyapi.StreamRoute
-		var matchValuesCSV, cidrAllow, cidrDeny string
+		var matchValuesCSV, cidrAllow, cidrDeny, ppTrusted string
 		if err := rows.Scan(
 			&r.ID, &r.Protocol, &r.ListenPort, &r.UpstreamPort, &r.UpstreamIP,
 			&r.MatchMode, &matchValuesCSV, &r.LBPolicy,
 			&r.ProxyProtoIn, &r.ProxyProtoOut,
-			&cidrAllow, &cidrDeny,
+			&cidrAllow, &cidrDeny, &ppTrusted,
 		); err != nil {
-			continue
+			return nil, fmt.Errorf("stream route scan: %w", err)
 		}
 		r.MatchValues = splitCSV(matchValuesCSV)
 		r.CIDRAllow = splitCSV(cidrAllow)
 		r.CIDRDeny = splitCSV(cidrDeny)
+		r.ProxyProtoTrusted = splitCSV(ppTrusted)
 		out = append(out, r)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 	if len(out) == 0 {
 		return out, nil
 	}
 	// Attach multi-upstreams; routes without rows keep the legacy single-upstream.
-	s.attachStreamUpstreams(ctx, out)
+	if err := s.attachStreamUpstreams(ctx, out); err != nil {
+		return nil, err
+	}
 	return s.screenStreams(ctx, out)
 }
 
@@ -87,6 +94,9 @@ type streamReject struct {
 func screenStreamSet(ctx context.Context, infra *streamguard.InfraTargets, in []caddyapi.StreamRoute) ([]caddyapi.StreamRoute, []streamReject) {
 	out := make([]caddyapi.StreamRoute, 0, len(in))
 	var rejected []streamReject
+	// A "both" row shares tcp/udp listeners with tcp or udp rows on its port;
+	// the oldest row keeps the listener instead of a silent last-write-wins.
+	owner := map[string]int64{}
 	for _, r := range in {
 		pinnedIP, perr := infra.ScreenAndPin(ctx, r.UpstreamIP, r.UpstreamPort)
 		if perr != nil {
@@ -103,9 +113,17 @@ func screenStreamSet(ctx context.Context, infra *streamguard.InfraTargets, in []
 			}
 			r.Upstreams[i].Address = pinned
 		}
+		for _, key := range caddyapi.StreamListenerKeys(r) {
+			if id, taken := owner[key]; bad == nil && taken {
+				bad = fmt.Errorf("listener %s already used by stream #%d", key, id)
+			}
+		}
 		if bad != nil {
 			rejected = append(rejected, streamReject{r, bad})
 			continue
+		}
+		for _, key := range caddyapi.StreamListenerKeys(r) {
+			owner[key] = r.ID
 		}
 		out = append(out, r)
 	}
@@ -139,10 +157,11 @@ func (s *Service) quarantineStream(ctx context.Context, r caddyapi.StreamRoute, 
 
 // attachStreamUpstreams loads stream_upstreams rows and maps them onto the
 // built StreamRoute slice by ID. Routes without upstream rows use the
-// legacy UpstreamIP:UpstreamPort path.
-func (s *Service) attachStreamUpstreams(ctx context.Context, built []caddyapi.StreamRoute) {
+// legacy UpstreamIP:UpstreamPort path. A read error must abort the build:
+// empty Upstreams would silently fall back to the legacy single backend.
+func (s *Service) attachStreamUpstreams(ctx context.Context, built []caddyapi.StreamRoute) error {
 	if len(built) == 0 {
-		return
+		return nil
 	}
 	// Collect IDs for IN(...) query - avoids N+1.
 	ids := make([]int64, len(built))
@@ -166,18 +185,18 @@ func (s *Service) attachStreamUpstreams(ctx context.Context, built []caddyapi.St
 		 WHERE stream_route_id IN (`+placeholders+`)
 		 ORDER BY stream_route_id ASC, sort_order ASC, id ASC`, args...)
 	if err != nil {
-		s.Logger.Warn("stream_upstreams load failed; routes stay single-dial", "err", err)
-		return
+		return fmt.Errorf("stream_upstreams load: %w", err)
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var routeID int64
 		var u caddyapi.StreamUpstream
 		if err := rows.Scan(&routeID, &u.Address, &u.Weight); err != nil {
-			continue
+			return fmt.Errorf("stream_upstreams scan: %w", err)
 		}
 		if i, ok := idx[routeID]; ok {
 			built[i].Upstreams = append(built[i].Upstreams, u)
 		}
 	}
+	return rows.Err()
 }

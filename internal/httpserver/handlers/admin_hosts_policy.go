@@ -317,3 +317,70 @@ func (h *AdminHandlers) checkWAFDirectives(ctx context.Context, sess *auth.Sessi
 func sanitizeCustomConfig(raw string) (string, error) {
 	return caddyapi.SanitizeCustomHandlers(raw)
 }
+
+var errPlacementNotGranted = errors.New("node group is not granted by your package")
+
+// placementGrants returns nil for callers that may place on any node group, or
+// the set a reseller-scoped caller's package grants (empty = none, fail closed).
+func (h *AdminHandlers) placementGrants(ctx context.Context, sess *auth.Session) (map[int64]bool, error) {
+	tenantScoped, ok := h.selfProvisionScope(ctx, sess)
+	if ok && !tenantScoped {
+		return nil, nil
+	}
+	granted := map[int64]bool{}
+	if !ok {
+		return granted, nil
+	}
+	rows, err := h.DB().QueryContext(ctx,
+		`SELECT g.node_group_id FROM resellers r
+		   JOIN reseller_plan_node_groups g ON g.reseller_plan_id = r.reseller_plan_id
+		  WHERE r.id = ?`, sess.ResellerID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		granted[id] = true
+	}
+	return granted, rows.Err()
+}
+
+// checkPlacement refuses a node group outside the caller's package pools.
+func (h *AdminHandlers) checkPlacement(ctx context.Context, sess *auth.Session, nodeGroupID int64) error {
+	granted, err := h.placementGrants(ctx, sess)
+	if err != nil {
+		return err
+	}
+	if granted != nil && !granted[nodeGroupID] {
+		return errPlacementNotGranted
+	}
+	return nil
+}
+
+// canManageDNSSteering gates DNS steering: providers are global platform
+// credentials with no tenant ownership, so only super_admin may point a route at one.
+func canManageDNSSteering(sess *auth.Session) bool { return sessRole(sess) == "super_admin" }
+
+// loadDNSProviderOptions lists steering providers for callers allowed to pick one.
+func loadDNSProviderOptions(ctx context.Context, db *sql.DB, sess *auth.Session) []dnsProviderOption {
+	if !canManageDNSSteering(sess) {
+		return nil
+	}
+	rows, err := db.QueryContext(ctx, "SELECT id, name FROM dns_providers ORDER BY name ASC")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []dnsProviderOption
+	for rows.Next() {
+		var o dnsProviderOption
+		if rows.Scan(&o.ID, &o.Label) == nil {
+			out = append(out, o)
+		}
+	}
+	return out
+}

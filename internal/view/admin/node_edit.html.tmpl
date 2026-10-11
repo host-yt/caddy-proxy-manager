@@ -103,7 +103,7 @@
             <label class="t-caption font-medium block mb-1">Allow-list (CIDRs)</label>
             <textarea id="pp_allow" name="proxy_protocol_allow" rows="2"
               placeholder="10.0.0.0/8, 203.0.113.5/32" class="r-input w-full font-mono text-xs">{{.ProxyProtocolAllow}}</textarea>
-            <p class="t-caption mt-1">Comma-separated. Only these peers are trusted to prepend a PROXY header. Leave empty to accept from any source.</p>
+            <p class="t-caption mt-1">Comma-separated. Only these peers are trusted to prepend a PROXY header. Leave empty to ignore PROXY headers (the connecting address is used).</p>
           </div>
           <!-- SECURITY: a PROXY header is an unauthenticated claim of client IP.
                Any peer allowed to speak it can spoof its source IP - always

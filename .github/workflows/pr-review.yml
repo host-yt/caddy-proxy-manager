@@ -1,0 +1,41 @@
+# Requests the org's automated PR review. Nothing from the PR runs here; fork
+# PRs get no secrets and are skipped.
+name: PR review
+
+on:
+  pull_request:
+    types: [opened, ready_for_review, labeled]
+
+concurrency:
+  group: pr-review-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  codex-dispatch:  # job name is referenced by the review gate
+    if: >-
+      !github.event.pull_request.draft &&
+      (github.event.action != 'labeled' || github.event.label.name == 'codex-review') &&
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          owner: host-yt
+          repositories: .github
+          permission-contents: write  # repository_dispatch needs contents:write
+      - env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          gh api repos/host-yt/.github/dispatches -f event_type=pr-review \
+            -f "client_payload[repo]=$REPO" -f "client_payload[pr]=$PR"

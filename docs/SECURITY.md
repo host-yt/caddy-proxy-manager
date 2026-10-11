@@ -261,9 +261,15 @@ own streams and cannot clear a quarantine without fixing the destination.
    interrupted run leaves a `.rotate-journal` beside the state file and
    re-running the same command resumes from it, but a backup is what covers
    the cases the journal cannot.
-3. Run `hpg-rotate-secret --state ./data/install_state.json --old-secret
-   <current> --new-secret <new>` (add `--apply`; without it the run prints a
-   dry-run summary and changes nothing).
+3. Run `APP_SECRET_OLD=<current> APP_SECRET_NEW=<new> DB_PASSWORD=<password>
+   hpg-rotate-secret --state ./data/install_state.json --db-host <host>
+   --db-name <db> --db-user <user>` (add `--apply`; without it the run prints
+   a dry-run summary and changes nothing). Pass secrets through these env
+   variables (or `--db-pass-file`), not `--old-secret`/`--new-secret`/`--db-pass`:
+   command-line arguments are visible to other local users, and those flags
+   now print a warning. `--apply` refuses to run without
+   database access: most secrets live in the DB, and rotating only the state
+   file would leave them undecryptable.
 4. Set the new `APP_SECRET` in `.env` (or the orchestrator's secret store) and
    start the panel.
 5. **Re-issue every API key.** `api_keys.key_hmac` is keyed off `APP_SECRET`
@@ -315,8 +321,8 @@ extra module needed. When enabled on a route:
 ### Path RBAC checks (`/internal/mtls-rbac/{route_id}`)
 
 Routes with mTLS path rules run a Caddy `forward_auth` subrequest against the
-panel. The subrequest carries the client-certificate subject in a header the
-node sets, so the endpoint must be sure the caller is a node the route is
+panel. The subrequest carries the client certificate's serial and fingerprint
+in headers the node sets, so the endpoint must be sure the caller is a node the route is
 actually placed on - reaching it from somewhere inside the mesh CIDR or from a
 configured trusted proxy is not proof of that.
 

@@ -271,12 +271,14 @@ func TestAPIRouteUpdate_MTLSEnabledBetweenCheckAndWrite(t *testing.T) {
 	if rec := patchRoute7(t, db, `{"ssl_enabled":false}`); rec.Code != http.StatusBadRequest {
 		t.Errorf("status = %d, want 400; body %s", rec.Code, rec.Body.String())
 	}
-	var ssl, flag int
-	if err := db.QueryRow("SELECT ssl_enabled, require_client_cert FROM routes WHERE id = 7").Scan(&ssl, &flag); err != nil {
+	// The hook's enable runs on the request's own (single) SQLite connection,
+	// inside its tx, so it rolls back with the refusal; only SSL is asserted.
+	var ssl int
+	if err := db.QueryRow("SELECT ssl_enabled FROM routes WHERE id = 7").Scan(&ssl); err != nil {
 		t.Fatal(err)
 	}
-	if ssl != 1 || flag != 1 {
-		t.Errorf("want ssl=1 require_client_cert=1, got ssl=%d flag=%d", ssl, flag)
+	if ssl != 1 {
+		t.Errorf("want ssl=1, got ssl=%d", ssl)
 	}
 }
 
@@ -545,5 +547,102 @@ func TestClientRouteEditSave_MTLSImpliesForceHTTPS(t *testing.T) {
 	}
 	if fh, _ := forceHTTPSOf(t, db); fh != 1 {
 		t.Error("tenant edit cleared force_https on an mTLS-enforced route")
+	}
+}
+
+// Narrowing a service's port range must see the live route on 10001; redirects
+// never dial, so they do not block.
+func TestRoutesOutsidePorts(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	ctx := context.Background()
+	outside := func(start, end int) (int, error) {
+		tx, err := db.BeginTx(ctx, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = tx.Rollback() }()
+		return routes.RoutesOutsidePorts(ctx, tx, 1, start, end)
+	}
+	if n, err := outside(10000, 10500); err != nil || n != 0 {
+		t.Fatalf("in-range: n=%d err=%v", n, err)
+	}
+	if n, err := outside(15000, 20000); err != nil || n != 1 {
+		t.Fatalf("narrowed: n=%d err=%v, want 1", n, err)
+	}
+	if _, err := db.Exec("UPDATE routes SET kind = 'redirect' WHERE id = 7"); err != nil {
+		t.Fatal(err)
+	}
+	if n, _ := outside(15000, 20000); n != 0 {
+		t.Fatalf("redirect counted: n=%d", n)
+	}
+}
+
+// The range change runs as one locked tx: narrowing past a live route is
+// refused and the service keeps its old range.
+func TestAPIServicePorts_RefusesRangeExcludingRoute(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	h := &APIHandlers{DB: func() *sql.DB { return db }, Logger: logger}
+	put := func(body string) int {
+		req := httptest.NewRequest(http.MethodPut, "/api/v1/services/1/ports", strings.NewReader(body))
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "1")
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+		ctx = middleware.ContextWithAPICaller(ctx, &middleware.APICaller{UserID: 1, Role: "super_admin"})
+		rec := httptest.NewRecorder()
+		h.ServicePorts(rec, req.WithContext(ctx))
+		return rec.Code
+	}
+	rangeOf := func() (s, e int) {
+		if err := db.QueryRow("SELECT allowed_port_start, allowed_port_end FROM services WHERE id = 1").Scan(&s, &e); err != nil {
+			t.Fatal(err)
+		}
+		return s, e
+	}
+	if code := put(`{"allowed_port_start":15000,"allowed_port_end":20000}`); code != http.StatusConflict {
+		t.Fatalf("narrowing past route 7: status %d, want 409", code)
+	}
+	if s, e := rangeOf(); s != 10000 || e != 20000 {
+		t.Fatalf("service changed on refusal: %d-%d", s, e)
+	}
+	if code := put(`{"allowed_port_start":10000,"allowed_port_end":10500}`); code != http.StatusOK {
+		t.Fatalf("narrowing around route 7: status %d, want 200", code)
+	}
+	if s, e := rangeOf(); s != 10000 || e != 10500 {
+		t.Fatalf("range not applied: %d-%d", s, e)
+	}
+}
+
+// A plan without path routing must not gain it through the tenant edit form.
+func TestClientRouteEditSave_PathNeedsPlan(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	post := func() string {
+		h := &ClientHandlers{DB: func() *sql.DB { return db }, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))}
+		form := url.Values{"domain": {"locked.example"}, "upstream_port": {"10001"}, "path_prefix": {"api"}}
+		req := httptest.NewRequest(http.MethodPost, "/app/routes/7/edit", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rctx := chi.NewRouteContext()
+		rctx.URLParams.Add("id", "7")
+		ctx := context.WithValue(req.Context(), chi.RouteCtxKey, rctx)
+		ctx = middleware.ContextWithSession(ctx, &auth.Session{UserID: 1, Role: "client"})
+		rec := httptest.NewRecorder()
+		h.RouteEditSave(rec, req.WithContext(ctx))
+		return rec.Header().Get("Location")
+	}
+	pathOf := func() (p string) {
+		_ = db.QueryRow("SELECT COALESCE(path_prefix,'') FROM routes WHERE id = 7").Scan(&p)
+		return p
+	}
+	if _, err := db.Exec("UPDATE plans SET path_routing_enabled = 0 WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if loc := post(); !strings.Contains(loc, "err=") || pathOf() != "" {
+		t.Fatalf("path saved without plan entitlement: %q path=%q", loc, pathOf())
+	}
+	if _, err := db.Exec("UPDATE plans SET path_routing_enabled = 1 WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if loc := post(); strings.Contains(loc, "err=") || pathOf() != "/api" {
+		t.Fatalf("entitled path edit rejected: %q path=%q", loc, pathOf())
 	}
 }

@@ -129,8 +129,8 @@ func (s *Service) DrainPendingPushes(ctx context.Context) {
 	}
 }
 
-// DropPushMarker removes a deleted node's marker. SQLite runs without
-// foreign_keys, so the CASCADE is inert and a reused node id would inherit it.
+// DropPushMarker removes a deleted node's marker. Explicit so a reused node id
+// never inherits it even where the CASCADE is not enforced.
 func DropPushMarker(ctx context.Context, ex execer, nodeID int64) {
 	_, _ = ex.ExecContext(ctx, `DELETE FROM node_push_pending WHERE node_id = ?`, nodeID)
 }

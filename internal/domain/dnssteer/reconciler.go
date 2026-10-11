@@ -3,6 +3,7 @@ package dnssteer
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"net"
 	"sort"
@@ -14,8 +15,8 @@ import (
 )
 
 // routeLimit bounds one reconcile pass so a large fleet can't starve the
-// leader's tick budget; any remainder is picked up on the next tick.
-const routeLimit = 500
+// leader's tick budget; Reconciler.cursor resumes the remainder next tick.
+var routeLimit = 500
 
 // perRouteTimeout bounds every provider call for a single route so one
 // slow/unreachable DNS API can't stall the whole reconcile loop.
@@ -35,6 +36,10 @@ type Reconciler struct {
 	// NewProvider builds a Provider for (slug, decrypted fields); overridable
 	// in tests to inject a fake. Defaults to the package-level NewProvider.
 	NewProvider func(slug string, fields map[string]string) (Provider, error)
+
+	// cursor is the last route id processed; in-memory is enough since a
+	// leader change just restarts the rotation from the lowest id.
+	cursor int64
 }
 
 func (rc *Reconciler) newProvider(slug string, fields map[string]string) (Provider, error) {
@@ -84,13 +89,17 @@ func (rc *Reconciler) Reconcile(ctx context.Context) {
 	if db == nil {
 		return
 	}
+	// Orphans first, so an IP that moved to another node is freed before re-add.
+	rc.cleanupOrphans(ctx, db)
 	rows, err := db.QueryContext(ctx,
 		`SELECT id, domain, caddy_node_id, dns_provider_id, dns_steering_ttl
 		   FROM routes
 		  WHERE dns_steering_enabled = 1
+		    AND domain_verified = 1
 		    AND dns_provider_id IS NOT NULL
 		    AND status <> 'disabled'
-		  ORDER BY id ASC LIMIT ?`, routeLimit)
+		    AND id > ?
+		  ORDER BY id ASC LIMIT ?`, rc.cursor, routeLimit)
 	if err != nil {
 		rc.logger().Warn("dnssteer: list routes", "err", err)
 		return
@@ -113,20 +122,16 @@ func (rc *Reconciler) Reconcile(ctx context.Context) {
 		rctx, cancel := context.WithTimeout(ctx, perRouteTimeout)
 		rc.reconcileRoute(rctx, db, sr)
 		cancel()
+		rc.cursor = sr.id
+	}
+	if len(targets) < routeLimit {
+		rc.cursor = 0 // reached the end; wrap around next tick
 	}
 }
 
 // reconcileRoute handles one route end to end: load creds + candidates,
 // build the provider client, diff against the live zone, apply, persist.
 func (rc *Reconciler) reconcileRoute(ctx context.Context, db *sql.DB, sr steeredRoute) {
-	var zone, slug, encCreds string
-	if err := db.QueryRowContext(ctx,
-		`SELECT name, provider, api_token_enc FROM dns_providers WHERE id = ?`, sr.dnsProviderID,
-	).Scan(&zone, &slug, &encCreds); err != nil {
-		rc.logger().Warn("dnssteer: provider lookup", "route_id", sr.id, "err", err)
-		return
-	}
-
 	candidates, err := rc.loadCandidates(ctx, db, sr)
 	if err != nil {
 		rc.logger().Warn("dnssteer: load candidate nodes", "route_id", sr.id, "err", err)
@@ -135,22 +140,12 @@ func (rc *Reconciler) reconcileRoute(ctx context.Context, db *sql.DB, sr steered
 	if len(candidates) == 0 {
 		return
 	}
-
-	if rc.DecryptSecret == nil {
-		rc.recordAll(ctx, db, sr.id, candidates, "dns steering: decrypt helper not wired")
+	provider, zone, err := rc.providerFor(ctx, db, sr.dnsProviderID)
+	var lookupErr providerLookupError
+	if errors.As(err, &lookupErr) {
+		rc.logger().Warn("dnssteer: provider lookup", "route_id", sr.id, "err", err)
 		return
 	}
-	blob, err := rc.DecryptSecret(encCreds)
-	if err != nil || blob == "" {
-		rc.recordAll(ctx, db, sr.id, candidates, "credential decrypt failed")
-		return
-	}
-	fields := caddyapi.DecodeDNSFields(slug, blob)
-	if len(fields) == 0 {
-		rc.recordAll(ctx, db, sr.id, candidates, "credential blob unusable")
-		return
-	}
-	provider, err := rc.newProvider(slug, fields)
 	if err != nil {
 		rc.recordAll(ctx, db, sr.id, candidates, err.Error())
 		return
@@ -162,6 +157,165 @@ func (rc *Reconciler) reconcileRoute(ctx context.Context, db *sql.DB, sr steered
 	}
 
 	rc.diffAndApply(ctx, db, provider, zone, sr, candidates, existing)
+}
+
+// providerLookupError wraps a failed dns_providers row read, as opposed to a
+// credential problem worth surfacing in last_error.
+type providerLookupError struct{ err error }
+
+func (e providerLookupError) Error() string { return e.err.Error() }
+func (e providerLookupError) Unwrap() error { return e.err }
+
+// providerFor builds the Provider client and zone name for a dns_providers row.
+func (rc *Reconciler) providerFor(ctx context.Context, db *sql.DB, providerID int64) (Provider, string, error) {
+	var zone, slug, encCreds string
+	if err := db.QueryRowContext(ctx,
+		`SELECT name, provider, api_token_enc FROM dns_providers WHERE id = ?`, providerID,
+	).Scan(&zone, &slug, &encCreds); err != nil {
+		return nil, "", providerLookupError{err}
+	}
+	if rc.DecryptSecret == nil {
+		return nil, "", errors.New("dns steering: decrypt helper not wired")
+	}
+	blob, err := rc.DecryptSecret(encCreds)
+	if err != nil || blob == "" {
+		return nil, "", errors.New("credential decrypt failed")
+	}
+	fields := caddyapi.DecodeDNSFields(slug, blob)
+	if len(fields) == 0 {
+		return nil, "", errors.New("credential blob unusable")
+	}
+	provider, err := rc.newProvider(slug, fields)
+	if err != nil {
+		return nil, "", err
+	}
+	return provider, zone, nil
+}
+
+// ownedRecord is a dns_steering_records row: a record this reconciler created.
+type ownedRecord struct {
+	routeID, nodeID, providerID int64
+	name, value, recordID       string
+}
+
+// cleanupOrphans deletes owned records whose route was deleted, disabled or
+// un-steered, whose provider/domain changed, or whose node no longer serves
+// the route at that IP. Ownership is dropped only once the record is gone.
+func (rc *Reconciler) cleanupOrphans(ctx context.Context, db *sql.DB) {
+	rows, err := db.QueryContext(ctx, `
+		SELECT o.route_id, o.node_id, o.dns_provider_id, o.record_name, o.record_value, o.record_id
+		  FROM dns_steering_records o
+		  LEFT JOIN routes r ON r.id = o.route_id
+		 WHERE r.id IS NULL
+		    OR r.dns_steering_enabled = 0
+		    OR r.domain_verified = 0
+		    OR r.status = 'disabled'
+		    OR r.dns_provider_id IS NULL
+		    OR r.dns_provider_id <> o.dns_provider_id
+		    OR r.domain <> o.record_name
+		    OR (r.caddy_node_id <> o.node_id AND NOT EXISTS (
+		        SELECT 1 FROM route_node_assignments rna WHERE rna.route_id = o.route_id AND rna.node_id = o.node_id))
+		    OR NOT EXISTS (SELECT 1 FROM caddy_nodes n WHERE n.id = o.node_id AND n.public_ip = o.record_value)
+		 ORDER BY o.dns_provider_id LIMIT ?`, routeLimit)
+	if err != nil {
+		rc.logger().Warn("dnssteer: list orphaned records", "err", err)
+		return
+	}
+	byProvider := map[int64][]ownedRecord{}
+	var order []int64
+	for rows.Next() {
+		var o ownedRecord
+		if err := rows.Scan(&o.routeID, &o.nodeID, &o.providerID, &o.name, &o.value, &o.recordID); err != nil {
+			continue
+		}
+		if _, seen := byProvider[o.providerID]; !seen {
+			order = append(order, o.providerID)
+		}
+		byProvider[o.providerID] = append(byProvider[o.providerID], o)
+	}
+	rows.Close()
+
+	for _, pid := range order {
+		if ctx.Err() != nil {
+			return
+		}
+		pctx, cancel := context.WithTimeout(ctx, perRouteTimeout)
+		rc.cleanupProvider(pctx, db, pid, byProvider[pid])
+		cancel()
+	}
+}
+
+func (rc *Reconciler) cleanupProvider(ctx context.Context, db *sql.DB, providerID int64, owned []ownedRecord) {
+	provider, zone, err := rc.providerFor(ctx, db, providerID)
+	if errors.Is(err, sql.ErrNoRows) {
+		// Provider row deleted together with its credentials: nothing can
+		// ever reach that zone again, so stop retrying.
+		rc.logger().Warn("dnssteer: provider gone, abandoning owned records", "dns_provider_id", providerID, "count", len(owned))
+		for _, o := range owned {
+			rc.forgetOwned(ctx, db, o.routeID, o.nodeID, o.value)
+		}
+		return
+	}
+	if err != nil {
+		rc.logger().Warn("dnssteer: cleanup provider", "dns_provider_id", providerID, "err", err)
+		return
+	}
+	live, err := provider.GetRecords(ctx, zone)
+	if err != nil {
+		rc.logger().Warn("dnssteer: cleanup list records", "dns_provider_id", providerID, "err", err)
+		return
+	}
+	for _, o := range owned {
+		rec, found := matchOwned(o, live)
+		if found {
+			if _, err := provider.DeleteRecords(ctx, zone, []Record{rec}); err != nil {
+				rc.logger().Warn("dnssteer: cleanup delete", "route_id", o.routeID, "node_id", o.nodeID, "err", err)
+				continue
+			}
+			auditWrite(ctx, db, rc.logger(), "dns.steering.record_removed", o.routeID, o.nodeID, o.value, o.name)
+		}
+		rc.forgetOwned(ctx, db, o.routeID, o.nodeID, o.value)
+		if _, err := db.ExecContext(ctx,
+			`UPDATE dns_steering_state SET present=0, last_synced_at=CURRENT_TIMESTAMP WHERE route_id=? AND node_id=? AND record_value=?`,
+			o.routeID, o.nodeID, o.value); err != nil {
+			rc.logger().Warn("dnssteer: persist state", "route_id", o.routeID, "node_id", o.nodeID, "err", err)
+		}
+	}
+}
+
+// matchOwned finds the live record for o: by provider ID when we have one, else
+// by name+value (rows backfilled before IDs were stored).
+func matchOwned(o ownedRecord, live []Record) (Record, bool) {
+	for _, rec := range live {
+		if o.recordID != "" {
+			if rec.ID == o.recordID {
+				return rec, true
+			}
+			continue
+		}
+		if rec.Name == o.name && rec.Value == o.value {
+			return rec, true
+		}
+	}
+	return Record{}, false
+}
+
+// rememberOwned records ownership before the provider call, so a record can't
+// exist remotely without a ledger row; cleanup also matches rows by name+value.
+func (rc *Reconciler) rememberOwned(ctx context.Context, db *sql.DB, sr steeredRoute, nodeID int64, value string) error {
+	rc.forgetOwned(ctx, db, sr.id, nodeID, value)
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO dns_steering_records (route_id, node_id, dns_provider_id, record_name, record_value) VALUES (?, ?, ?, ?, ?)`,
+		sr.id, nodeID, sr.dnsProviderID, sr.domain, value)
+	return err
+}
+
+func (rc *Reconciler) forgetOwned(ctx context.Context, db *sql.DB, routeID, nodeID int64, value string) {
+	if _, err := db.ExecContext(ctx,
+		`DELETE FROM dns_steering_records WHERE route_id=? AND node_id=? AND record_value=?`,
+		routeID, nodeID, value); err != nil {
+		rc.logger().Warn("dnssteer: drop owned record", "route_id", routeID, "node_id", nodeID, "err", err)
+	}
 }
 
 // loadCandidates returns every node that can host this route: the anchor
@@ -255,6 +409,12 @@ func (rc *Reconciler) diffAndApply(ctx context.Context, db *sql.DB, provider Pro
 		case "add":
 			rec := a.rec
 			rec.TTL = ttl
+			if err := rc.rememberOwned(ctx, db, sr, a.nodeID, rec.Value); err != nil {
+				rc.recordError(ctx, db, sr.id, a.nodeID, "ownership not persisted: "+err.Error())
+				continue
+			}
+			// On failure the ledger row stays: the call may have applied anyway,
+			// and cleanup drops the row once the record is confirmed absent.
 			created, err := provider.AppendRecords(ctx, zone, []Record{rec})
 			if err != nil || len(created) == 0 {
 				msg := "append failed"
@@ -264,6 +424,11 @@ func (rc *Reconciler) diffAndApply(ctx context.Context, db *sql.DB, provider Pro
 				rc.recordError(ctx, db, sr.id, a.nodeID, msg)
 				continue
 			}
+			if _, err := db.ExecContext(ctx,
+				`UPDATE dns_steering_records SET record_id=? WHERE route_id=? AND node_id=? AND record_value=?`,
+				created[0].ID, sr.id, a.nodeID, rec.Value); err != nil {
+				rc.logger().Warn("dnssteer: store record id", "route_id", sr.id, "node_id", a.nodeID, "err", err)
+			}
 			rc.recordSuccess(ctx, db, sr.id, a.nodeID, rec.Value, true)
 			auditWrite(ctx, db, rc.logger(), "dns.steering.record_added", sr.id, a.nodeID, rec.Value, sr.domain)
 		case "remove":
@@ -271,6 +436,7 @@ func (rc *Reconciler) diffAndApply(ctx context.Context, db *sql.DB, provider Pro
 				rc.recordError(ctx, db, sr.id, a.nodeID, err.Error())
 				continue
 			}
+			rc.forgetOwned(ctx, db, sr.id, a.nodeID, a.rec.Value)
 			rc.recordSuccess(ctx, db, sr.id, a.nodeID, a.rec.Value, false)
 			auditWrite(ctx, db, rc.logger(), "dns.steering.record_removed", sr.id, a.nodeID, a.rec.Value, sr.domain)
 		}

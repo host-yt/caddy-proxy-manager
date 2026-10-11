@@ -108,7 +108,7 @@ func (h *NodeWAFIngestHandler) authNode(w http.ResponseWriter, r *http.Request) 
 	if err := db.QueryRowContext(ctx,
 		`SELECT id FROM caddy_nodes WHERE agent_token_hash IS NOT NULL AND agent_token_hash = SHA2(?, 256) LIMIT 1`,
 		token).Scan(&nodeID); err != nil {
-		h.Logger.Warn("waf ingest node token mismatch", "ip", security.ClientIP(r), "token_prefix", safePrefix(token))
+		h.Logger.Warn("waf ingest node token mismatch", "ip", security.ClientIP(r), "token_fp", tokenFingerprint(token))
 		http.Error(w, "denied", http.StatusForbidden)
 		return 0
 	}
@@ -293,6 +293,9 @@ func (h *NodeWAFIngestHandler) maybePruneSeen() {
 type wafRouteEntry struct {
 	id     int64
 	prefix string
+	// boundary mirrors the proxy matcher for stripped external prefixes:
+	// /tok matches /tok and /tok/..., never /tokX (caddyapi BuildRoute).
+	boundary bool
 }
 
 // wafRouteIndex maps lowercase domain to its routes, longest path_prefix first,
@@ -320,7 +323,8 @@ func (h *NodeWAFIngestHandler) loadRouteIndex(ctx context.Context, nodeID int64)
 		return wafRouteIndex{}, nil
 	}
 	rows, err := db.QueryContext(ctx, `
-		SELECT r.id, LOWER(r.domain), COALESCE(r.path_prefix,''), COALESCE(r.aliases_verified,'')
+		SELECT r.id, LOWER(r.domain), COALESCE(r.path_prefix,''), COALESCE(r.aliases_verified,''),
+		       COALESCE(r.upstream_external,0) <> 0 AND COALESCE(r.strip_path_prefix,0) <> 0
 		  FROM routes r
 		 WHERE r.status <> 'disabled'
 		   AND (r.caddy_node_id = ?
@@ -340,7 +344,7 @@ func (h *NodeWAFIngestHandler) loadRouteIndex(ctx context.Context, nodeID int64)
 	for rows.Next() {
 		var ent wafRouteEntry
 		var dom, aliases string
-		if rows.Scan(&ent.id, &dom, &ent.prefix, &aliases) != nil {
+		if rows.Scan(&ent.id, &dom, &ent.prefix, &aliases, &ent.boundary) != nil {
 			continue
 		}
 		add(dom, ent)
@@ -381,11 +385,18 @@ func (idx wafRouteIndex) resolve(host, uri string) int64 {
 			}
 			continue
 		}
-		if strings.HasPrefix(path, ent.prefix) {
+		if ent.matches(path) {
 			return ent.id // longest prefix first (sorted at load)
 		}
 	}
 	return fallback
+}
+
+func (ent wafRouteEntry) matches(path string) bool {
+	if p := strings.TrimSuffix(ent.prefix, "/"); ent.boundary && p != "" {
+		return path == p || strings.HasPrefix(path, p+"/")
+	}
+	return strings.HasPrefix(path, ent.prefix)
 }
 
 // resolveRoute keeps the one-event API (attribution tests exercise it); Ingest

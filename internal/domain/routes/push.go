@@ -117,14 +117,16 @@ func (s *Service) schedulePush(nodeID int64) {
 // change but don't want to import the full push path directly.
 func (s *Service) SchedulePush(nodeID int64) { s.schedulePush(nodeID) }
 
-// SchedulePushAllNodes re-pushes every node that hosts a route. Used when a
+// SchedulePushAllNodes re-pushes every node that hosts a route (anchor or
+// fan-out assignment). Used when a
 // panel-wide setting baked into generated config (geo-block default, error-page
 // branding) changes and must reach all nodes, not just one client's.
 func (s *Service) SchedulePushAllNodes(ctx context.Context) {
 	if s.DB == nil {
 		return
 	}
-	s.scheduleQueried(ctx, `SELECT DISTINCT caddy_node_id FROM routes WHERE caddy_node_id IS NOT NULL`)
+	s.scheduleQueried(ctx, `SELECT caddy_node_id FROM routes WHERE caddy_node_id IS NOT NULL
+		 UNION SELECT node_id FROM route_node_assignments`)
 }
 
 // scheduleQueried schedules every node id the query returns. Rows are drained
@@ -154,9 +156,14 @@ func (s *Service) SchedulePushForClient(ctx context.Context, clientID int64) {
 	if s.DB == nil || clientID == 0 {
 		return
 	}
-	s.scheduleQueried(ctx, `SELECT DISTINCT r.caddy_node_id FROM routes r
+	s.scheduleQueried(ctx, `SELECT r.caddy_node_id FROM routes r
 		   JOIN services sv ON sv.id = r.service_id
-		  WHERE sv.client_id = ? AND r.caddy_node_id IS NOT NULL`, clientID)
+		  WHERE sv.client_id = ? AND r.caddy_node_id IS NOT NULL
+		 UNION
+		 SELECT rna.node_id FROM route_node_assignments rna
+		   JOIN routes r ON r.id = rna.route_id
+		   JOIN services sv ON sv.id = r.service_id
+		  WHERE sv.client_id = ?`, clientID, clientID)
 }
 
 // SchedulePushForRoute re-pushes every node serving the given route (its direct
@@ -208,6 +215,33 @@ func (s *Service) SchedulePushForRoute(ctx context.Context, routeID int64) {
 	for _, nid := range peers {
 		sched(nid)
 	}
+}
+
+// MTLSCANodes lists every node serving a route that trusts the given mTLS CA
+// (anchor or fan-out peer). Callers need it before a CA delete nulls mtls_ca_id.
+func (s *Service) MTLSCANodes(ctx context.Context, caID int64) ([]int64, error) {
+	if s.DB == nil {
+		return nil, errors.New("db unavailable")
+	}
+	rows, err := s.DB.QueryContext(ctx,
+		`SELECT caddy_node_id FROM routes WHERE mtls_ca_id = ? AND caddy_node_id IS NOT NULL
+		 UNION
+		 SELECT rna.node_id FROM route_node_assignments rna
+		   JOIN routes r ON r.id = rna.route_id
+		  WHERE r.mtls_ca_id = ?`, caID, caID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []int64
+	for rows.Next() {
+		var nid int64
+		if err := rows.Scan(&nid); err != nil {
+			return nil, err
+		}
+		ids = append(ids, nid)
+	}
+	return ids, rows.Err()
 }
 
 // pushWorkers bounds concurrent full /load pushes during fleet-wide sweeps
@@ -1076,6 +1110,12 @@ func ensureStableHash(rs []caddyapi.Route) string {
 	copy(dup, rs)
 	sort.Slice(dup, func(i, j int) bool { return dup[i].ID < dup[j].ID })
 	return hashRoutes(dup)
+}
+
+// ClearNode pushes an empty config to a node being removed, keeping the admin
+// bind the regular push uses (the node-agent proxy may sit on a socket).
+func (s *Service) ClearNode(ctx context.Context, nodeID int64, apiURL string) error {
+	return s.NodeClient(ctx, nodeID, apiURL).Load(ctx, caddyapi.EmptyNodeConfig(s.adminListenFor(nodeID)))
 }
 
 // adminListenFor returns the Caddy Admin API bind to push to one node. The

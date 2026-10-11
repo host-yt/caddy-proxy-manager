@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -28,7 +29,6 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/backup"
-	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/captcha"
 	"github.com/host-yt/caddy-proxy-manager/internal/chatstore"
 	"github.com/host-yt/caddy-proxy-manager/internal/cloudflare"
@@ -447,6 +447,45 @@ type dashboardData struct {
 	TopClients   []dashTopClient
 	// ResellerUsage is set for reseller sessions: own consumption vs package.
 	ResellerUsage *quota.Usage
+	// Scoped hides platform-wide widgets (fleet, plans, audit, node traffic).
+	Scoped bool
+}
+
+// dashScope limits dashboard queries to a confined admin's clients.
+type dashScope struct {
+	scoped bool
+	ids    []int64
+}
+
+// cond returns " AND col IN (...)" for a scoped caller; no ids matches nothing.
+func (sc dashScope) cond(col string) (string, []any) {
+	if !sc.scoped {
+		return "", nil
+	}
+	if len(sc.ids) == 0 {
+		return " AND 1=0", nil
+	}
+	args := make([]any, len(sc.ids))
+	for i, id := range sc.ids {
+		args[i] = id
+	}
+	return " AND " + col + " IN (?" + strings.Repeat(",?", len(sc.ids)-1) + ")", args
+}
+
+// dashboardScope resolves the caller's client scope; errors fail closed.
+func (h *AdminHandlers) dashboardScope(ctx context.Context, sess *auth.Session) dashScope {
+	if sess == nil {
+		return dashScope{scoped: true}
+	}
+	if sess.Role == "super_admin" || h.AdminScope == nil {
+		return dashScope{}
+	}
+	ids, all, err := h.AdminScope.ScopeFilter(ctx, sess.UserID)
+	if err != nil {
+		h.Logger.Warn("dashboard scope", "user_id", sess.UserID, "err", err)
+		return dashScope{scoped: true}
+	}
+	return dashScope{scoped: !all, ids: ids}
 }
 
 // Cap below the max number of distinct attention items (currently 7) so the
@@ -464,37 +503,46 @@ func (h *AdminHandlers) Dashboard(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 
-	d.Counts = h.dashboardCounts(ctx, db)
+	sess := middleware.SessionFromContext(r.Context())
+	sc := h.dashboardScope(ctx, sess)
+	d.Scoped = sc.scoped
+	d.Counts = h.dashboardCounts(ctx, db, sc)
 	// Reseller sessions get their package usage front and center.
-	if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 && h.Quota != nil {
+	if sess != nil && sess.ResellerID > 0 && h.Quota != nil {
 		if u, err := h.Quota.UsageFor(ctx, sess.ResellerID); err == nil {
 			d.ResellerUsage = &u
 		}
 	}
-	d.Attention, d.Truncated = h.dashboardAttention(ctx, db)
-	d.RecentEvents = h.dashboardRecentEvents(ctx, db)
-	d.Traffic = h.dashboardTraffic(ctx, db)
-	d.TopRoutes = h.dashboardTopRoutes(ctx, db)
-	d.TopClients = h.dashboardTopClients(ctx, db)
+	d.Attention, d.Truncated = h.dashboardAttention(ctx, db, sc)
+	if !sc.scoped {
+		d.RecentEvents = h.dashboardRecentEvents(ctx, db)
+		d.Traffic = h.dashboardTraffic(ctx, db)
+	}
+	d.TopRoutes = h.dashboardTopRoutes(ctx, db, sc)
+	d.TopClients = h.dashboardTopClients(ctx, db, sc)
 
 	h.render(w, "dashboard", d)
 }
 
-func (h *AdminHandlers) dashboardCounts(ctx context.Context, db *sql.DB) dashCounts {
+func (h *AdminHandlers) dashboardCounts(ctx context.Context, db *sql.DB, sc dashScope) dashCounts {
 	var c dashCounts
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM routes").Scan(&c.TotalHosts)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM routes WHERE status='active'").Scan(&c.ActiveHosts)
+	rc, ra := sc.cond("s.client_id")
+	const routesQ = "SELECT COUNT(*) FROM routes r JOIN services s ON s.id = r.service_id WHERE 1=1"
+	_ = db.QueryRowContext(ctx, routesQ+rc, ra...).Scan(&c.TotalHosts)
+	_ = db.QueryRowContext(ctx, routesQ+" AND r.status='active'"+rc, ra...).Scan(&c.ActiveHosts)
 	_ = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM routes WHERE status IN ('pending_dns','dns_ok','pending_ssl')").Scan(&c.PendingHosts)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM routes WHERE status='failed'").Scan(&c.FailedHosts)
+		routesQ+" AND r.status IN ('pending_dns','dns_ok','pending_ssl')"+rc, ra...).Scan(&c.PendingHosts)
+	_ = db.QueryRowContext(ctx, routesQ+" AND r.status='failed'"+rc, ra...).Scan(&c.FailedHosts)
+	cc, ca := sc.cond("c.id")
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clients c WHERE 1=1"+cc, ca...).Scan(&c.Clients)
+	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM services s WHERE s.status='suspended'"+rc, ra...).Scan(&c.SuspendedServices)
+	if sc.scoped {
+		return c // nodes, plans and CAs are platform-wide
+	}
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM caddy_nodes").Scan(&c.NodesTotal)
 	_ = db.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM caddy_nodes WHERE health_status='healthy' AND is_enabled=1 AND approved_at IS NOT NULL").Scan(&c.NodesOnline)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM clients").Scan(&c.Clients)
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM plans").Scan(&c.Plans)
-	var susp int
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM services WHERE status='suspended'").Scan(&susp)
-	c.SuspendedServices = susp
 	// Count CA certs expiring within 30 days (includes already expired).
 	var mtlsExpiring int
 	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM mtls_cas WHERE not_after < ("+store.DateAdd(30, "DAY")+")").Scan(&mtlsExpiring)
@@ -504,16 +552,15 @@ func (h *AdminHandlers) dashboardCounts(ctx context.Context, db *sql.DB) dashCou
 
 // dashboardAttention builds the actionable list from real conditions only;
 // a condition with zero rows is omitted. Capped at dashAttentionCap.
-func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB) ([]AttentionItem, bool) {
+func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB, sc dashScope) ([]AttentionItem, bool) {
 	var items []AttentionItem
 
 	var stuckSSL, stuckDNS, failed int
-	_ = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM routes WHERE status='pending_ssl'").Scan(&stuckSSL)
-	_ = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM routes WHERE status IN ('pending_dns','dns_ok')").Scan(&stuckDNS)
-	_ = db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM routes WHERE status='failed'").Scan(&failed)
+	rc, ra := sc.cond("s.client_id")
+	const routesQ = "SELECT COUNT(*) FROM routes r JOIN services s ON s.id = r.service_id WHERE "
+	_ = db.QueryRowContext(ctx, routesQ+"r.status='pending_ssl'"+rc, ra...).Scan(&stuckSSL)
+	_ = db.QueryRowContext(ctx, routesQ+"r.status IN ('pending_dns','dns_ok')"+rc, ra...).Scan(&stuckDNS)
+	_ = db.QueryRowContext(ctx, routesQ+"r.status='failed'"+rc, ra...).Scan(&failed)
 	if failed > 0 {
 		items = append(items, AttentionItem{
 			Severity: "error",
@@ -534,6 +581,15 @@ func (h *AdminHandlers) dashboardAttention(ctx context.Context, db *sql.DB) ([]A
 			Text:     fmt.Sprintf("%d host(s) waiting on DNS validation", stuckDNS),
 			URL:      "/admin/hosts?status=pending_dns",
 		})
+	}
+	if sc.scoped {
+		var susp int
+		_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM services s WHERE s.status='suspended'"+rc, ra...).Scan(&susp)
+		if susp > 0 {
+			items = append(items, AttentionItem{Severity: "warn",
+				Text: fmt.Sprintf("%d service(s) currently suspended", susp), URL: "/admin/services?status=suspended"})
+		}
+		return items, false // the rest is platform-wide
 	}
 
 	// Node health: down, never-probed, then approved-but-disabled.
@@ -684,13 +740,15 @@ func (h *AdminHandlers) dashboardRecentEvents(ctx context.Context, db *sql.DB) [
 }
 
 // dashboardTopRoutes returns the 5 busiest routes by request count in the last 24h.
-func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB) []dashTopRoute {
+func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB, sc dashScope) []dashTopRoute {
+	rc, ra := sc.cond("s.client_id")
 	rows, err := db.QueryContext(ctx,
 		`SELECT lr.route_id, r.domain, SUM(lr.requests) AS reqs
 		 FROM log_rollups lr JOIN routes r ON r.id = lr.route_id
-		 WHERE lr.bucket_start >= `+store.DateSub(24, "HOUR")+`
+		 JOIN services s ON s.id = r.service_id
+		 WHERE lr.bucket_start >= `+store.DateSub(24, "HOUR")+rc+`
 		 GROUP BY lr.route_id, r.domain
-		 ORDER BY reqs DESC LIMIT 5`)
+		 ORDER BY reqs DESC LIMIT 5`, ra...)
 	if err != nil {
 		return nil
 	}
@@ -706,7 +764,8 @@ func (h *AdminHandlers) dashboardTopRoutes(ctx context.Context, db *sql.DB) []da
 }
 
 // dashboardTopClients returns the 5 highest-bandwidth clients over the last 7d.
-func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB) []dashTopClient {
+func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB, sc dashScope) []dashTopClient {
+	rc, ra := sc.cond("s.client_id")
 	rows, err := db.QueryContext(ctx,
 		`SELECT s.client_id, COALESCE(c.display_name, u.full_name, u.email), SUM(lr.bytes_resp) AS bw
 		 FROM log_rollups lr
@@ -714,9 +773,9 @@ func (h *AdminHandlers) dashboardTopClients(ctx context.Context, db *sql.DB) []d
 		 JOIN services s ON s.id = r.service_id
 		 JOIN clients c ON c.id = s.client_id
 		 JOIN users u ON u.id = c.user_id
-		 WHERE lr.bucket_start >= `+store.DateSub(7, "DAY")+`
+		 WHERE lr.bucket_start >= `+store.DateSub(7, "DAY")+rc+`
 		 GROUP BY s.client_id, c.display_name, u.email, u.full_name
-		 ORDER BY bw DESC LIMIT 5`)
+		 ORDER BY bw DESC LIMIT 5`, ra...)
 	if err != nil {
 		return nil
 	}
@@ -1313,8 +1372,8 @@ func (h *AdminHandlers) NodesDelete(w http.ResponseWriter, r *http.Request) {
 	redirectWithFlash(w, r, "/admin/nodes", "Node deleted", "")
 }
 
-// NodesDrain migrates every route off a node onto a healthy peer in
-// the same group AND flips is_enabled=0, but keeps the node row. Used
+// NodesDrain migrates every route off a node onto healthy peers in
+// the same group (see migrateNodeRoutes) AND flips is_enabled=0, but keeps the node row. Used
 // for maintenance windows: operator can re-enable + Resync afterwards
 // without re-doing approval/wg-rekey. Skips routes bound to a WG
 // tunnel on this node - those would 502 elsewhere; operator must
@@ -1336,55 +1395,29 @@ func (h *AdminHandlers) NodesDrain(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/nodes", "", "node not found")
 		return
 	}
-	var destID int64
-	if err := db.QueryRowContext(ctx,
-		`SELECT id FROM caddy_nodes
-		 WHERE node_group_id = ? AND id <> ? AND is_enabled = 1 AND approved_at IS NOT NULL
-		   AND health_status = 'healthy' AND current_routes < max_routes
-		 ORDER BY (current_routes / GREATEST(max_routes,1)) ASC, priority DESC, id ASC
-		 LIMIT 1`, groupID, id).Scan(&destID); err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "",
-			"no healthy peer in the same group - drain aborted")
-		return
-	}
-
-	// Migrate only non-tunneled routes. Tunneled ones stay; the node-row
-	// is flagged disabled so AutoFailover will not pick it up either.
-	res, err := db.ExecContext(ctx,
-		`UPDATE routes SET caddy_node_id = ?
-		   WHERE caddy_node_id = ? AND via_wg_peer_id IS NULL`,
-		destID, id)
+	// Tunneled routes stay; the disabled flag keeps AutoFailover off this node.
+	moved, dests, err := h.migrateNodeRoutes(ctx, db, id, groupID, true)
 	if err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "route move failed: "+sanitizeErr(err))
+		redirectWithFlash(w, r, "/admin/nodes", "", "drain aborted: "+sanitizeErr(err))
 		return
 	}
-	moved, _ := res.RowsAffected()
-
 	if _, err := db.ExecContext(ctx, `UPDATE caddy_nodes SET is_enabled = 0 WHERE id = ?`, id); err != nil {
 		redirectWithFlash(w, r, "/admin/nodes", "", "disable failed: "+sanitizeErr(err))
 		return
-	}
-	_, _ = db.ExecContext(ctx,
-		`UPDATE caddy_nodes SET current_routes = current_routes + ? WHERE id = ?`, moved, destID)
-	_, _ = db.ExecContext(ctx,
-		`UPDATE caddy_nodes SET current_routes = GREATEST(0, current_routes - ?) WHERE id = ?`, moved, id)
-
-	if h.ResyncNode != nil {
-		_ = h.ResyncNode(ctx, destID)
 	}
 
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.drain", Entity: "node", EntityID: fmt.Sprintf("%d", id),
-		Meta: map[string]any{"moved_routes": moved, "dest_node_id": destID},
+		Meta: map[string]any{"moved_routes": moved, "dest_node_ids": dests},
 	})
 	redirectWithFlash(w, r, "/admin/nodes",
-		fmt.Sprintf("Drained node. %d route(s) moved to node %d. Re-enable from this page when maintenance is done.", moved, destID), "")
+		fmt.Sprintf("Drained node. %d route(s) moved to node(s) %v. Re-enable from this page when maintenance is done.", moved, dests), "")
 }
 
-// NodesDecommission migrates every route off a node onto the lowest-usage
-// peer in the same node_group, then pushes an empty config to the leaving
-// node (best-effort), then deletes the row. Required because the
+// NodesDecommission migrates every route off a node onto peers in the same
+// node_group (see migrateNodeRoutes), then pushes an empty config to the leaving
+// node (required unless force=1), then deletes the row. Required because the
 // fk_route_node FK has no ON DELETE cascade - a direct delete fails with
 // a constraint error as soon as one route exists on the node.
 func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request) {
@@ -1406,62 +1439,25 @@ func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	var destID int64
-	if err := db.QueryRowContext(ctx,
-		`SELECT id FROM caddy_nodes
-		 WHERE node_group_id = ? AND id <> ? AND is_enabled = 1 AND approved_at IS NOT NULL
-		   AND current_routes < max_routes
-		 ORDER BY (current_routes / GREATEST(max_routes,1)) ASC, priority DESC, id ASC
-		 LIMIT 1`, groupID, id).Scan(&destID); err != nil {
+	moved, dests, err := h.migrateNodeRoutes(ctx, db, id, groupID, false)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/nodes", "", "decommission aborted: "+sanitizeErr(err))
+		return
+	}
+	// Clear the node while its credential row still exists; a node that kept
+	// its config would keep serving routes outside management.
+	cerr := errors.New("routes service not wired")
+	if h.Routes != nil {
+		cctx, ccancel := context.WithTimeout(ctx, 15*time.Second)
+		cerr = h.Routes.ClearNode(cctx, id, apiURL)
+		ccancel()
+	}
+	force := r.FormValue("force") == "1"
+	if cerr != nil && !force {
 		redirectWithFlash(w, r, "/admin/nodes", "",
-			"no peer node in the same group with capacity - add a replacement before decommissioning")
+			fmt.Sprintf("routes moved (%d) but clearing the node failed: %s - retry, or force-decommission an offline node", moved, sanitizeErr(cerr)))
 		return
 	}
-
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "tx begin failed")
-		return
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	res, err := tx.ExecContext(ctx,
-		"UPDATE routes SET caddy_node_id = ? WHERE caddy_node_id = ?", destID, id)
-	if err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "route move failed: "+sanitizeErr(err))
-		return
-	}
-	moved, _ := res.RowsAffected()
-
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE caddy_nodes SET current_routes = current_routes + ? WHERE id = ?`, moved, destID); err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "counter bump dest failed")
-		return
-	}
-	if _, err := tx.ExecContext(ctx,
-		`UPDATE caddy_nodes SET current_routes = 0 WHERE id = ?`, id); err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "counter zero src failed")
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		redirectWithFlash(w, r, "/admin/nodes", "", "tx commit failed")
-		return
-	}
-
-	if h.ResyncNode != nil {
-		if rerr := h.ResyncNode(ctx, destID); rerr != nil {
-			h.Logger.Warn("decommission resync dest failed", "dest", destID, "err", rerr)
-		}
-	}
-	go func() {
-		bctx, bcancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer bcancel()
-		client := caddyapi.New(apiURL)
-		if h.Routes != nil {
-			client = h.Routes.NodeClient(bctx, id, apiURL)
-		}
-		_ = client.Load(bctx, map[string]any{"admin": map[string]any{"listen": "0.0.0.0:2019"}})
-	}()
 
 	if _, err := db.ExecContext(ctx, "DELETE FROM caddy_nodes WHERE id = ?", id); err != nil {
 		redirectWithFlash(w, r, "/admin/nodes", "", "delete failed after route move: "+sanitizeErr(err))
@@ -1474,10 +1470,13 @@ func (h *AdminHandlers) NodesDecommission(w http.ResponseWriter, r *http.Request
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "node.decommission", Entity: "node", EntityID: fmt.Sprintf("%d", id),
-		Meta: map[string]any{"moved_routes": moved, "dest_node_id": destID},
+		Meta: map[string]any{"moved_routes": moved, "dest_node_ids": dests, "forced": force, "cleared": cerr == nil},
 	})
-	redirectWithFlash(w, r, "/admin/nodes",
-		fmt.Sprintf("Decommissioned. Moved %d route(s) to node %d.", moved, destID), "")
+	msg := fmt.Sprintf("Decommissioned. Moved %d route(s) to node(s) %v.", moved, dests)
+	if cerr != nil {
+		msg += " Node config was NOT cleared - stop Caddy on that server by hand."
+	}
+	redirectWithFlash(w, r, "/admin/nodes", msg, "")
 }
 
 // NodesRekey generates a fresh WireGuard keypair for a node, stores the
@@ -1558,9 +1557,7 @@ func (h *AdminHandlers) NodesApprove(w http.ResponseWriter, r *http.Request) {
 	// break the documented onboarding order, so this warns instead.
 	var joinURL string
 	_ = db.QueryRowContext(ctx, "SELECT api_url FROM caddy_nodes WHERE id = ?", id).Scan(&joinURL)
-	if _, err := db.ExecContext(ctx,
-		"UPDATE caddy_nodes SET is_enabled = 1, approved_at = NOW(), approved_by = ? WHERE id = ? AND approved_at IS NULL",
-		approvedBy, id); err != nil {
+	if _, err := approveNode(ctx, db, id, approvedBy); err != nil {
 		redirectWithFlash(w, r, "/admin/nodes", "", "approve failed")
 		return
 	}
@@ -1580,6 +1577,18 @@ func (h *AdminHandlers) NodesApprove(w http.ResponseWriter, r *http.Request) {
 			"edit page, config pushes to this node are refused"
 	}
 	redirectWithFlash(w, r, "/admin/nodes", msg, "")
+}
+
+// approveNode is the single approval operation: auto-joined nodes are inserted
+// disabled, so approval must enable them too. Returns rows affected.
+func approveNode(ctx context.Context, db *sql.DB, id int64, approvedBy sql.NullInt64) (int64, error) {
+	res, err := db.ExecContext(ctx,
+		"UPDATE caddy_nodes SET is_enabled = 1, approved_at = NOW(), approved_by = ? WHERE id = ? AND approved_at IS NULL",
+		approvedBy, id)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // NodesResync rebuilds the node's full Caddy config from DB and POSTs /load.
@@ -1629,11 +1638,18 @@ func (h *AdminHandlers) NodesBulk(w http.ResponseWriter, r *http.Request) {
 		}
 		switch action {
 		case "approve":
-			if _, derr := db.ExecContext(ctx,
-				"UPDATE caddy_nodes SET approved_at=NOW() WHERE id=? AND approved_at IS NULL", id); derr != nil {
+			var by sql.NullInt64
+			if sess != nil {
+				by = sql.NullInt64{Int64: sess.UserID, Valid: true}
+			}
+			if n, derr := approveNode(ctx, db, id, by); derr != nil || n == 0 {
 				fail++
 				continue
 			}
+			audit.Write(ctx, db, h.Logger, r, audit.Entry{
+				UserID: actorUserID(sess),
+				Action: "node.approve", Entity: "node", EntityID: fmt.Sprintf("%d", id),
+			})
 		case "resync":
 			if h.ResyncNode == nil {
 				fail++
@@ -1922,7 +1938,7 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	maxDomains, _ := strconv.Atoi(r.FormValue("max_domains"))
 	maxPorts, _ := strconv.Atoi(r.FormValue("max_ports"))
-	rateLimit, _ := strconv.Atoi(r.FormValue("rate_limit_rpm"))
+	rateLimit := atoi32(r.FormValue("rate_limit_rpm"))
 	groupID, _ := strconv.ParseInt(r.FormValue("node_group_id"), 10, 64)
 	ssl := r.FormValue("ssl") == "1"
 	pathRouting := r.FormValue("path_routing") == "1"
@@ -1930,7 +1946,7 @@ func (h *AdminHandlers) PlansUpdate(w http.ResponseWriter, r *http.Request) {
 	wildcard := r.FormValue("wildcard") == "1"
 	externalProxy := r.FormValue("external_proxy") == "1"
 	allowEgressIP := r.FormValue("allow_egress_ip") == "1"
-	wgKeyRotDays, _ := strconv.Atoi(r.FormValue("wg_key_rotation_days"))
+	wgKeyRotDays := atoi32(r.FormValue("wg_key_rotation_days"))
 
 	if name == "" || maxDomains <= 0 || maxPorts <= 0 || groupID == 0 {
 		redirectWithFlash(w, r, "/admin/plans", "", "name, limits, and node group are required")
@@ -2010,7 +2026,7 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	maxDomains, _ := strconv.Atoi(r.FormValue("max_domains"))
 	maxPorts, _ := strconv.Atoi(r.FormValue("max_ports"))
-	rateLimit, _ := strconv.Atoi(r.FormValue("rate_limit_rpm"))
+	rateLimit := atoi32(r.FormValue("rate_limit_rpm"))
 	groupID, _ := strconv.ParseInt(r.FormValue("node_group_id"), 10, 64)
 	ssl := r.FormValue("ssl") == "1"
 	pathRouting := r.FormValue("path_routing") == "1"
@@ -2018,7 +2034,7 @@ func (h *AdminHandlers) PlansCreate(w http.ResponseWriter, r *http.Request) {
 	wildcard := r.FormValue("wildcard") == "1"
 	externalProxy := r.FormValue("external_proxy") == "1"
 	allowEgressIP := r.FormValue("allow_egress_ip") == "1"
-	wgKeyRotDays, _ := strconv.Atoi(r.FormValue("wg_key_rotation_days"))
+	wgKeyRotDays := atoi32(r.FormValue("wg_key_rotation_days"))
 
 	if name == "" || maxDomains <= 0 || maxPorts <= 0 || groupID == 0 {
 		redirectWithFlash(w, r, "/admin/plans", "", "name, limits, and node group are required")
@@ -2448,22 +2464,22 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/clients", "", "forbidden: your account is scoped to assigned clients")
 		return
 	}
-	// Reseller aggregate quota: cap the number of clients under the reseller.
-	if h.Quota != nil {
-		if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 {
-			if qerr := h.Quota.CanCreateClient(ctx, sess.ResellerID); qerr != nil {
-				h.Logger.Warn("client quota check failed", "err", qerr)
-				redirectWithFlash(w, r, "/admin/clients", "", "client quota reached or check failed")
-				return
-			}
-		}
-	}
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/clients", "", "tx begin failed")
 		return
 	}
 	defer tx.Rollback() //nolint:errcheck
+	// Reseller aggregate quota: cap the number of clients under the reseller.
+	if h.Quota != nil {
+		if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 {
+			if qerr := h.Quota.CanCreateClient(ctx, tx, sess.ResellerID); qerr != nil {
+				h.Logger.Warn("client quota check failed", "err", qerr)
+				redirectWithFlash(w, r, "/admin/clients", "", "client quota reached or check failed")
+				return
+			}
+		}
+	}
 
 	res, err := tx.ExecContext(ctx,
 		"INSERT INTO users (email, password_hash, password_set, role, full_name, is_active) VALUES (?, ?, 1, 'client', ?, 1)",
@@ -2794,20 +2810,29 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/services", "", "port range overlaps an existing service on this backend IP")
 		return
 	}
+	var rid int64
+	if h.Quota != nil {
+		rid, _ = h.Quota.ResellerOfClient(ctx, clientID)
+	}
+	// SQLite has one connection: everything below must go through tx.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "tx begin failed")
+		return
+	}
+	defer tx.Rollback() //nolint:errcheck
 	// Reseller aggregate quota: subscriptions + (without overselling) the
 	// allocated domain capacity of the attached plan.
-	if h.Quota != nil {
-		if rid, qerr := h.Quota.ResellerOfClient(ctx, clientID); qerr == nil && rid != 0 {
-			if qerr = h.Quota.CanCreateService(ctx, rid, planID); qerr != nil {
-				h.Logger.Warn("service quota check failed", "err", qerr)
-				redirectWithFlash(w, r, "/admin/services", "", "service quota reached or check failed")
-				return
-			}
+	if rid != 0 {
+		if qerr := h.Quota.CanCreateService(ctx, tx, rid, planID); qerr != nil {
+			h.Logger.Warn("service quota check failed", "err", qerr)
+			redirectWithFlash(w, r, "/admin/services", "", "service quota reached or check failed")
+			return
 		}
 	}
 
 	var nodeGroupID int64
-	if err := db.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
 		redirectWithFlash(w, r, "/admin/services", "", "plan not found")
 		return
 	}
@@ -2820,7 +2845,7 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	if notes != "" {
 		notesVal = sql.NullString{String: notes, Valid: true}
 	}
-	res, err := db.ExecContext(ctx,
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO services (client_id, name, backend_ip, allowed_port_start, allowed_port_end,
 		   plan_id, node_group_id, status, external_reference, notes)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
@@ -2831,6 +2856,10 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, _ := res.LastInsertId()
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "commit failed")
+		return
+	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(middleware.SessionFromContext(r.Context())),
 		Action: "service.create", Entity: "service", EntityID: fmt.Sprintf("%d", id),
@@ -2905,9 +2934,25 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/services", "", "port range overlaps an existing service on this backend IP")
 		return
 	}
+	// Lock the service row so no route write can commit a port against the old
+	// range between the check and the UPDATE.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+	if _, _, err := routes.LockServicePortRange(ctx, tx, id); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "service not found")
+		return
+	}
+	if n, err := routes.RoutesOutsidePorts(ctx, tx, id, portStart, portEnd); err != nil || n > 0 {
+		redirectWithFlash(w, r, "/admin/services", "", "port range excludes ports used by existing routes; move or delete them first")
+		return
+	}
 
 	var nodeGroupID int64
-	if err := db.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
 		redirectWithFlash(w, r, "/admin/services", "", "plan not found")
 		return
 	}
@@ -2919,12 +2964,16 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 	if notes != "" {
 		notesVal = sql.NullString{String: notes, Valid: true}
 	}
-	if _, err := db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE services SET client_id = ?, name = ?, backend_ip = ?, allowed_port_start = ?,
 		   allowed_port_end = ?, plan_id = ?, node_group_id = ?, external_reference = ?, notes = ? WHERE id = ?`,
 		clientID, name, backendIP, portStart, portEnd, planID, nodeGroupID, extRef, notesVal, id); err != nil {
 		h.Logger.Error("service update", "err", err)
 		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
 		return
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
@@ -4253,23 +4302,11 @@ func (h *AdminHandlers) SettingsSMTP(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/settings", "", "Set From email first")
 			return
 		}
-		// Save current values BEFORE sending so loader picks them up.
-		ctx2, cancel2 := context.WithTimeout(r.Context(), 5_000_000_000)
+		ctx2, cancel2 := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel2()
-		_ = h.saveSettings(ctx2, db, map[string]string{
-			"smtp.host":       host,
-			"smtp.port":       strconv.Itoa(port),
-			"smtp.encryption": encryption,
-			"smtp.username":   username,
-			"smtp.from_email": fromEmail,
-			"smtp.from_name":  fromName,
-		}, false)
-		if password != "" {
-			if c, err := h.encryptSetting(password); err == nil {
-				_ = h.saveSettings(ctx2, db, map[string]string{"smtp.password": c}, true)
-			}
-		}
-		if err := h.Mailer.SendTest(ctx2, to); err != nil {
+		cfg := mail.Config{Host: host, Port: port, Encryption: encryption, Username: username,
+			Password: password, FromEmail: fromEmail, FromName: fromName}
+		if err := h.Mailer.SendTestWith(ctx2, cfg, to); err != nil {
 			redirectWithFlash(w, r, "/admin/settings", "", "Test failed: "+sanitizeErr(err))
 			return
 		}
@@ -4675,17 +4712,28 @@ func (h *AdminHandlers) loadSettingsRaw(ctx context.Context, db *sql.DB, keys []
 // saveSettings upserts key/value pairs. If encrypted=true, value is stored
 // as-is (caller has already encrypted) and is_encrypted=1.
 func (h *AdminHandlers) saveSettings(ctx context.Context, db *sql.DB, kv map[string]string, encrypted bool) error {
-	encFlag := 0
 	if encrypted {
-		encFlag = 1
+		return saveSettingsTx(ctx, db, nil, kv)
 	}
-	for k, v := range kv {
-		_, err := db.ExecContext(ctx, store.UpsertSettingSQL(), k, v, encFlag)
-		if err != nil {
-			return err
+	return saveSettingsTx(ctx, db, kv, nil)
+}
+
+// saveSettingsTx upserts plain (is_encrypted=0) and secret (is_encrypted=1,
+// already encrypted) rows in one transaction so a failure never half-applies.
+func saveSettingsTx(ctx context.Context, db *sql.DB, plain, secret map[string]string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for encFlag, kv := range []map[string]string{plain, secret} {
+		for k, v := range kv {
+			if _, err := tx.ExecContext(ctx, store.UpsertSettingSQL(), k, v, encFlag); err != nil {
+				return err
+			}
 		}
 	}
-	return nil
+	return tx.Commit()
 }
 
 func (h *AdminHandlers) encryptSetting(plaintext string) (string, error) {
@@ -4702,6 +4750,16 @@ func actorUserID(s *auth.Session) *int64 {
 	}
 	id := s.UserID
 	return &id
+}
+
+// atoi32 parses a form int bounded to 32 bits (the INT columns it lands in);
+// junk or out-of-range input yields 0.
+func atoi32(s string) int {
+	n, err := strconv.ParseInt(s, 10, 32)
+	if err != nil {
+		return 0
+	}
+	return int(n)
 }
 
 func atoiOr(s string, def int) int {
@@ -5234,7 +5292,7 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/settings", "", "OIDC issuer: invalid URL")
 			return
 		}
-		if u.Scheme != "https" && !strings.HasPrefix(u.Host, "localhost") && u.Hostname() != "127.0.0.1" {
+		if u.Scheme != "https" { // no loopback http exemption: SSRF guard blocks loopback anyway
 			redirectWithFlash(w, r, "/admin/settings", "", "OIDC issuer: must use https:// (RFC 8252)")
 			return
 		}
@@ -5287,7 +5345,7 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
-	if err := h.saveSettings(ctx, db, map[string]string{
+	plain := map[string]string{
 		"oidc.enabled":                 enabledStr,
 		"oidc.provider_name":           providerName,
 		"oidc.issuer":                  issuer,
@@ -5298,27 +5356,23 @@ func (h *AdminHandlers) SettingsOIDC(w http.ResponseWriter, r *http.Request) {
 		"oidc.password_login_disabled": pwdDisabledStr,
 		"oidc.allow_unverified_email":  allowUnverifiedStr,
 		"oidc.scopes":                  scopes,
-	}, false); err != nil {
-		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
-		return
 	}
+	var secret map[string]string
 	if clearSecret {
-		// Hard-clear: row stays so we don't fight ON DUPLICATE KEY, value
-		// becomes empty. loadConfig treats "" as "no secret".
-		if err := h.saveSettings(ctx, db, map[string]string{"oidc.client_secret": ""}, false); err != nil {
-			redirectWithFlash(w, r, "/admin/settings", "", "client_secret clear failed")
-			return
-		}
+		// Row stays (value ""), loadConfig treats "" as "no secret".
+		plain["oidc.client_secret"] = ""
 	} else if clientSecret != "" {
+		// Encrypt before any write so a crypto failure leaves the old config intact.
 		ct, err := h.encryptSetting(clientSecret)
 		if err != nil {
 			redirectWithFlash(w, r, "/admin/settings", "", "encrypt client_secret failed")
 			return
 		}
-		if err := h.saveSettings(ctx, db, map[string]string{"oidc.client_secret": ct}, true); err != nil {
-			redirectWithFlash(w, r, "/admin/settings", "", "client_secret save failed")
-			return
-		}
+		secret = map[string]string{"oidc.client_secret": ct}
+	}
+	if err := saveSettingsTx(ctx, db, plain, secret); err != nil {
+		redirectWithFlash(w, r, "/admin/settings", "", "save failed: "+sanitizeErr(err))
+		return
 	}
 	// Drop cached provider so the next /auth/oidc/start re-runs discovery
 	// with the freshly saved issuer/client_id.

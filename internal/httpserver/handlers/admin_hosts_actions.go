@@ -17,8 +17,10 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
 // genProxySecret returns a random URL-safe inbound bearer for an external
@@ -206,12 +208,36 @@ func (h *AdminHandlers) HostsClone(w http.ResponseWriter, r *http.Request) {
 	}
 	cloneSQL := "INSERT INTO routes (" + strings.Join(insertCols, ",") + ") SELECT " +
 		strings.Join(selectExprs, ",") + " FROM routes WHERE id=?"
-	res, err := db.ExecContext(ctx, cloneSQL, id)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+	// The copied port must still be inside the service range, checked under the
+	// same service lock a range change takes.
+	var st routes.RouteState
+	var serviceID int64
+	if err := tx.QueryRowContext(ctx,
+		"SELECT service_id, COALESCE(kind,''), COALESCE(upstream_external,0) = 1, upstream_port FROM routes WHERE id=?", id,
+	).Scan(&serviceID, &st.Kind, &st.External, &st.UpstreamPort); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
+		return
+	}
+	if err := routes.CheckLockedPort(ctx, tx, serviceID, st); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
+		return
+	}
+	res, err := tx.ExecContext(ctx, cloneSQL, id)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
 		return
 	}
 	newID, _ := res.LastInsertId()
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
+		return
+	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.host.clone", Entity: "route",
 		EntityID: itoa64(newID),
@@ -252,7 +278,9 @@ func (h *AdminHandlers) HostsToggleMaintenance(w http.ResponseWriter, r *http.Re
 	}
 	go func() {
 		defer recoverBg(h.Logger, "maint-resync")
-		h.Routes.SchedulePush(nodeID)
+		bg, cancel := context.WithTimeout(h.Routes.BackgroundCtx(), 30*time.Second)
+		defer cancel()
+		h.Routes.SchedulePushForRoute(bg, id)
 	}()
 	onOff := "disabled"
 	if newMode == 1 {
@@ -569,7 +597,7 @@ func dnsTestErrorCategory(err error) string {
 // reachability + latency. Useful for operators debugging why a route isn't
 // forwarding — confirms the panel host can reach the backend before Caddy is
 // even involved. RFC1918 is allowed (WG mesh peers live there); loopback and
-// link-local are blocked via IsDangerousProxyBackend.
+// link-local and control-plane targets are refused by the central screen.
 func (h *AdminHandlers) HostsTestBackend(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
 	if id == 0 {
@@ -598,27 +626,28 @@ func (h *AdminHandlers) HostsTestBackend(w http.ResponseWriter, r *http.Request)
 		apiJSON(w, http.StatusNotFound, map[string]any{"error": "route not found"})
 		return
 	}
-	// Resolve hostname if needed, then SSRF-check the resulting IP.
-	ip := net.ParseIP(backendHost)
-	if ip == nil {
-		// hostname — resolve first so the SSRF check sees the real IP
-		addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", backendHost)
-		if err != nil || len(addrs) == 0 {
-			apiJSON(w, http.StatusOK, map[string]any{
-				"reachable": false,
-				"error":     "hostname resolution failed",
-				"host":      backendHost,
-				"port":      upstreamPort,
-			})
-			return
-		}
-		ip = addrs[0].AsSlice()
+	// Resolve once, screen every answer against the full deny set, and dial the
+	// pinned address so a second DNS answer cannot move the probe.
+	infra, err := streamguard.LoadInfraTargets(ctx, db)
+	if err != nil {
+		apiJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "backend screening unavailable"})
+		return
 	}
-	if security.IsDangerousProxyBackend(ip) {
+	pinned, err := infra.PinHTTPBackend(ctx, backendHost, upstreamPort)
+	if errors.Is(err, streamguard.ErrUnresolved) {
+		apiJSON(w, http.StatusOK, map[string]any{
+			"reachable": false,
+			"error":     "hostname resolution failed",
+			"host":      backendHost,
+			"port":      upstreamPort,
+		})
+		return
+	}
+	if err != nil || pinned == "" {
 		apiJSON(w, http.StatusForbidden, map[string]any{"error": "backend address not allowed"})
 		return
 	}
-	addr := net.JoinHostPort(backendHost, strconv.Itoa(upstreamPort))
+	addr := net.JoinHostPort(pinned, strconv.Itoa(upstreamPort))
 	dialCtx, dialCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer dialCancel()
 	start := time.Now()

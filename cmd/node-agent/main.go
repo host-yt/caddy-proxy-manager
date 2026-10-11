@@ -1,8 +1,8 @@
 // hpg-node-agent runs on each Caddy node as a privileged sidecar. Its
 // sole job is to keep wg-tun0 (customer-tunnel WireGuard interface) in
 // sync with the peer list the control panel exposes at
-// /api/node/wg/peers, plus a static nftables rule that drops cross-peer
-// forwarding (defense-in-depth against AllowedIPs misconfig).
+// /api/node/wg/peers, plus static nftables rules that drop every flow a
+// peer opens (peers only answer node-initiated connections).
 //
 // Configuration is env-based:
 //
@@ -722,32 +722,7 @@ func ensureFirewall(ctx context.Context, log *slog.Logger, c config, dry bool) e
 		delCmd := exec.CommandContext(ctx, "nft", "delete", "table", "inet", tableName)
 		_ = delCmd.Run() // ok to fail on first start when table doesn't exist
 	}
-	// Rule order in our forward chain: explicitly ACCEPT legit
-	// tunnel->backend forwarding first (iif wg-tun0, oif NOT wg-tun0), then
-	// DROP cross-tenant (iif==oif==wg-tun0). Makes intent explicit and ensures
-	// our own chain never drops customer traffic.
-	script := fmt.Sprintf(`
-add table inet %s
-add chain inet %s forward { type filter hook forward priority -10; policy accept; }
-add rule inet %s forward ct state established,related accept comment "hpg: return traffic fast-path"
-add rule inet %s forward iifname "%s" oifname != "%s" ct state new,established,related accept comment "allow tunnel->backend"
-add rule inet %s forward iifname "%s" oifname "%s" drop comment "cross-tenant block"
-add chain inet %s input { type filter hook input priority 0; policy accept; }
-add rule inet %s input udp dport %s ct state new meter hpg_tun_new { ip saddr limit rate over 10/second burst 30 packets } drop comment "wg handshake rate limit"
-add chain inet %s mangle_fwd { type filter hook forward priority -150; policy accept; }
-add rule inet %s mangle_fwd oifname "%s" tcp flags syn tcp option maxseg size set rt mtu comment "MSS clamp out"
-add rule inet %s mangle_fwd iifname "%s" tcp flags syn tcp option maxseg size set rt mtu comment "MSS clamp in"
-`,
-		tableName,
-		tableName,
-		tableName,                           // ct established,related accept
-		tableName, c.Interface, c.Interface, // accept tunnel->backend
-		tableName, c.Interface, c.Interface, // drop cross-tenant
-		tableName,
-		tableName, c.ListenPort, // handshake rate limit (ct state new only)
-		tableName,
-		tableName, c.Interface,
-		tableName, c.Interface)
+	script := tunnelNftScript(tableName, c.Interface, c.ListenPort)
 	// wstunnel server binds 0.0.0.0 (Caddy reaches it via the docker bridge
 	// gateway). Drop everything except loopback + the Docker bridge range so a
 	// LAN/VPC neighbour can't reach the raw WebSocket->WG path outside Caddy/TLS.
@@ -783,6 +758,27 @@ add rule inet %s mangle_fwd iifname "%s" tcp flags syn tcp option maxseg size se
 	}
 	log.Info("nftables drop rule installed", "table", tableName, "iface", c.Interface)
 	return nil
+}
+
+// tunnelNftScript builds the base hpg_tunnel table. Every legit flow over the
+// customer tunnel is opened by the node (Caddy -> peer), so peers may only
+// answer: a peer-opened flow would reach the node's LAN, containers or the
+// internet, and the peer-to-peer hop is the cross-tenant case of the same rule.
+func tunnelNftScript(table, iface, listenPort string) string {
+	return fmt.Sprintf(`
+add table inet %[1]s
+add chain inet %[1]s forward { type filter hook forward priority -10; policy accept; }
+add rule inet %[1]s forward ct state established,related accept comment "hpg: return traffic fast-path"
+add rule inet %[1]s forward iifname "%[2]s" drop comment "tunnel peers never open forwarded flows"
+add chain inet %[1]s input { type filter hook input priority 0; policy accept; }
+add rule inet %[1]s input udp dport %[3]s ct state new meter hpg_tun_new { ip saddr limit rate over 10/second burst 30 packets } drop comment "wg handshake rate limit"
+add rule inet %[1]s input iifname "%[2]s" ct state established,related accept comment "hpg: tunnel return traffic"
+add rule inet %[1]s input iifname "%[2]s" icmp type echo-request accept comment "hpg: tunnel ping"
+add rule inet %[1]s input iifname "%[2]s" drop comment "tunnel peers never open node connections"
+add chain inet %[1]s mangle_fwd { type filter hook forward priority -150; policy accept; }
+add rule inet %[1]s mangle_fwd oifname "%[2]s" tcp flags syn tcp option maxseg size set rt mtu comment "MSS clamp out"
+add rule inet %[1]s mangle_fwd iifname "%[2]s" tcp flags syn tcp option maxseg size set rt mtu comment "MSS clamp in"
+`, table, iface, listenPort)
 }
 
 // forwardPolicyDropDetected inspects the live ruleset for a forward base chain
@@ -846,9 +842,15 @@ func ensureDockerUserRules(ctx context.Context, log *slog.Logger, iface string, 
 	if exec.CommandContext(ctx, "iptables", "-L", "DOCKER-USER", "-n").Run() != nil {
 		return false
 	}
+	// Older agents accepted every packet from the tunnel; drop that rule so a
+	// peer cannot open flows into the node network on legacy-iptables hosts.
+	legacyIn := []string{"DOCKER-USER", "-i", iface, "-j", "ACCEPT"}
+	for i := 0; i < 8 && !dry && exec.CommandContext(ctx, "iptables", append([]string{"-D"}, legacyIn...)...).Run() == nil; i++ {
+		log.Info("iptables DOCKER-USER unrestricted tunnel accept removed", "iface", iface)
+	}
 	ok := true
-	for _, dir := range []string{"-i", "-o"} {
-		ruleArgs := []string{"DOCKER-USER", dir, iface, "-j", "ACCEPT"}
+	for _, ruleArgs := range dockerUserTunnelRules(iface) {
+		dir := ruleArgs[1]
 		if exec.CommandContext(ctx, "iptables", append([]string{"-C"}, ruleArgs...)...).Run() == nil {
 			continue // already present
 		}
@@ -866,6 +868,15 @@ func ensureDockerUserRules(ctx context.Context, log *slog.Logger, iface string, 
 		}
 	}
 	return ok
+}
+
+// dockerUserTunnelRules lets the node open flows into the tunnel and admits
+// only replies coming back out of it (peers never initiate, see tunnelNftScript).
+func dockerUserTunnelRules(iface string) [][]string {
+	return [][]string{
+		{"DOCKER-USER", "-i", iface, "-m", "conntrack", "--ctstate", "RELATED,ESTABLISHED", "-j", "ACCEPT"},
+		{"DOCKER-USER", "-o", iface, "-j", "ACCEPT"},
+	}
 }
 
 // ensureWstunnelHostInputRule lets Caddy's bridge->host hop reach the wstunnel

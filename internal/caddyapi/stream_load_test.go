@@ -61,10 +61,10 @@ func TestLayer4LoadShapes(t *testing.T) {
 		{"sni_match", []StreamRoute{{ID: 3, Protocol: "tcp", ListenPort: 15003, MatchMode: "sni", MatchValues: []string{"db.example.com"}, Upstreams: []StreamUpstream{{Address: "127.0.0.1:9"}}}}},
 		{"http_host_match", []StreamRoute{{ID: 4, Protocol: "tcp", ListenPort: 15004, MatchMode: "http_host", MatchValues: []string{"app.example.com"}, Upstreams: []StreamUpstream{{Address: "127.0.0.1:9"}}}}},
 		{"lb_multi", []StreamRoute{{ID: 5, Protocol: "tcp", ListenPort: 15005, LBPolicy: "least_conn", Upstreams: []StreamUpstream{{Address: "127.0.0.1:9", Weight: 3}, {Address: "127.0.0.1:10", Weight: 1}}}}},
-		{"proxy_proto_in", []StreamRoute{{ID: 6, Protocol: "tcp", ListenPort: 15006, ProxyProtoIn: "v2", Upstreams: []StreamUpstream{{Address: "127.0.0.1:9"}}}}},
+		{"proxy_proto_in", []StreamRoute{{ID: 6, Protocol: "tcp", ListenPort: 15006, ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"127.0.0.1/32"}, Upstreams: []StreamUpstream{{Address: "127.0.0.1:9"}}}}},
 		{"proxy_proto_out", []StreamRoute{{ID: 7, Protocol: "tcp", ListenPort: 15007, ProxyProtoOut: "v1", Upstreams: []StreamUpstream{{Address: "127.0.0.1:9"}}}}},
 		{"cidr_deny_allow", []StreamRoute{{ID: 8, Protocol: "tcp", ListenPort: 15008, CIDRDeny: []string{"192.168.0.0/16"}, CIDRAllow: []string{"10.0.0.0/8"}, Upstreams: []StreamUpstream{{Address: "127.0.0.1:9"}}}}},
-		{"full_advanced", []StreamRoute{{ID: 9, Protocol: "tcp", ListenPort: 15009, MatchMode: "sni", MatchValues: []string{"db.example.com"}, LBPolicy: "least_conn", ProxyProtoIn: "v2", ProxyProtoOut: "v2", CIDRDeny: []string{"172.31.0.0/24"}, CIDRAllow: []string{"172.16.0.0/12"}, Upstreams: []StreamUpstream{{Address: "127.0.0.1:9", Weight: 2}, {Address: "127.0.0.1:10"}}}}},
+		{"full_advanced", []StreamRoute{{ID: 9, Protocol: "tcp", ListenPort: 15009, MatchMode: "sni", MatchValues: []string{"db.example.com"}, LBPolicy: "least_conn", ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"127.0.0.1/32"}, ProxyProtoOut: "v2", CIDRDeny: []string{"172.31.0.0/24"}, CIDRAllow: []string{"172.16.0.0/12"}, Upstreams: []StreamUpstream{{Address: "127.0.0.1:9", Weight: 2}, {Address: "127.0.0.1:10"}}}}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

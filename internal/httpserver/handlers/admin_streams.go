@@ -45,22 +45,23 @@ func (h *AdminHandlers) scopeCheckStream(ctx context.Context, sess *auth.Session
 // ---- data types ----
 
 type streamRow struct {
-	ID               int64
-	Protocol         string
-	ListenPort       int
-	UpstreamPort     int
-	BackendIP        string
-	NodeName         string
-	NodeHostname     string
-	Status           string
-	QuarantineReason string // why the emission screen parked this row; empty when healthy
-	Tag              string
-	CreatedAt        string
-	MatchMode        string
-	MatchValues      string // CSV of SNI/host values; preserved on edit to avoid silent data loss
-	LBPolicy         string
-	ProxyProtoIn     string
-	ProxyProtoOut    string
+	ID                int64
+	Protocol          string
+	ListenPort        int
+	UpstreamPort      int
+	BackendIP         string
+	NodeName          string
+	NodeHostname      string
+	Status            string
+	QuarantineReason  string // why the emission screen parked this row; empty when healthy
+	Tag               string
+	CreatedAt         string
+	MatchMode         string
+	MatchValues       string // CSV of SNI/host values; preserved on edit to avoid silent data loss
+	LBPolicy          string
+	ProxyProtoIn      string
+	ProxyProtoOut     string
+	ProxyProtoTrusted string // CSV of balancer CIDRs allowed to send a PROXY header
 }
 
 // Quarantined reports whether the row is parked by the destination screen.
@@ -89,19 +90,20 @@ type streamsData struct {
 }
 
 type streamForm struct {
-	Protocol      string
-	ListenPort    string
-	UpstreamPort  string
-	BackendIP     string
-	NodeID        string
-	Tag           string
-	MatchMode     string
-	MatchValues   string // newline or comma-separated
-	LBPolicy      string
-	ProxyProtoIn  string
-	ProxyProtoOut string
-	CIDRAllow     string // newline or comma-separated
-	CIDRDeny      string
+	Protocol          string
+	ListenPort        string
+	UpstreamPort      string
+	BackendIP         string
+	NodeID            string
+	Tag               string
+	MatchMode         string
+	MatchValues       string // newline or comma-separated
+	LBPolicy          string
+	ProxyProtoIn      string
+	ProxyProtoOut     string
+	ProxyProtoTrusted string // newline or comma-separated
+	CIDRAllow         string // newline or comma-separated
+	CIDRDeny          string
 	// Upstreams for multi-upstream form (address:weight pairs, one per line)
 	UpstreamsRaw string
 }
@@ -116,6 +118,19 @@ func validMatchMode(s string) bool {
 // validLBPolicy checks the lb_policy enum.
 func validLBPolicy(s string) bool {
 	return s == "round_robin" || s == "random" || s == "least_conn" || s == "first"
+}
+
+// parseProxyProtoTrusted validates the balancer CIDRs allowed to send an
+// inbound PROXY header; enabling PROXY-in without one would trust any client.
+func parseProxyProtoTrusted(ppIn, raw string) ([]string, error) {
+	trusted, err := parseCIDRList(strings.TrimSpace(raw))
+	if err != nil {
+		return nil, fmt.Errorf("proxy_proto_trusted: %v", err)
+	}
+	if ppIn != "none" && len(trusted) == 0 {
+		return nil, errors.New("PROXY protocol in requires at least one trusted balancer CIDR")
+	}
+	return trusted, nil
 }
 
 // validProxyProto checks proxy_proto_in/out enum.
@@ -254,20 +269,21 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	_ = r.ParseForm()
 	form := streamForm{
-		Protocol:      strings.TrimSpace(r.FormValue("protocol")),
-		ListenPort:    strings.TrimSpace(r.FormValue("listen_port")),
-		UpstreamPort:  strings.TrimSpace(r.FormValue("upstream_port")),
-		BackendIP:     strings.TrimSpace(r.FormValue("backend_ip")),
-		NodeID:        strings.TrimSpace(r.FormValue("node_id")),
-		Tag:           strings.TrimSpace(r.FormValue("tag")),
-		MatchMode:     strings.TrimSpace(r.FormValue("match_mode")),
-		MatchValues:   strings.TrimSpace(r.FormValue("match_values")),
-		LBPolicy:      strings.TrimSpace(r.FormValue("lb_policy")),
-		ProxyProtoIn:  strings.TrimSpace(r.FormValue("proxy_proto_in")),
-		ProxyProtoOut: strings.TrimSpace(r.FormValue("proxy_proto_out")),
-		CIDRAllow:     strings.TrimSpace(r.FormValue("cidr_allow")),
-		CIDRDeny:      strings.TrimSpace(r.FormValue("cidr_deny")),
-		UpstreamsRaw:  strings.TrimSpace(r.FormValue("upstreams_raw")),
+		Protocol:          strings.TrimSpace(r.FormValue("protocol")),
+		ListenPort:        strings.TrimSpace(r.FormValue("listen_port")),
+		UpstreamPort:      strings.TrimSpace(r.FormValue("upstream_port")),
+		BackendIP:         strings.TrimSpace(r.FormValue("backend_ip")),
+		NodeID:            strings.TrimSpace(r.FormValue("node_id")),
+		Tag:               strings.TrimSpace(r.FormValue("tag")),
+		MatchMode:         strings.TrimSpace(r.FormValue("match_mode")),
+		MatchValues:       strings.TrimSpace(r.FormValue("match_values")),
+		LBPolicy:          strings.TrimSpace(r.FormValue("lb_policy")),
+		ProxyProtoIn:      strings.TrimSpace(r.FormValue("proxy_proto_in")),
+		ProxyProtoOut:     strings.TrimSpace(r.FormValue("proxy_proto_out")),
+		ProxyProtoTrusted: strings.TrimSpace(r.FormValue("proxy_proto_trusted")),
+		CIDRAllow:         strings.TrimSpace(r.FormValue("cidr_allow")),
+		CIDRDeny:          strings.TrimSpace(r.FormValue("cidr_deny")),
+		UpstreamsRaw:      strings.TrimSpace(r.FormValue("upstreams_raw")),
 	}
 
 	// Validate and normalise enum fields.
@@ -325,6 +341,11 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams", "", "cidr_deny: invalid CIDR")
 		return
 	}
+	ppTrusted, err := parseProxyProtoTrusted(form.ProxyProtoIn, form.ProxyProtoTrusted)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/streams", "", err.Error())
+		return
+	}
 	matchValues := parseCSVList(form.MatchValues)
 	// sni/http_host matchers with no values produce null JSON (Caddy rejects them).
 	if form.MatchMode != "any" && len(matchValues) == 0 {
@@ -373,6 +394,10 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams", "", "node not found or not approved")
 		return
 	}
+	if err := h.checkPlacement(ctx, sess, nodeGroupID); err != nil {
+		redirectWithFlash(w, r, "/admin/streams", "", errPlacementNotGranted.Error())
+		return
+	}
 	clientID, err := ensureAdminClient(ctx, db, sess.UserID, sess.ResellerID)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "could not provision admin client")
@@ -389,6 +414,17 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The unique key only covers identical protocols; "both" also binds the
+	// tcp and udp listeners, so check the effective overlap.
+	var clash int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM stream_routes
+		  WHERE caddy_node_id = ? AND listen_port = ? AND (protocol = ? OR protocol = 'both' OR ? = 'both')`,
+		nodeID, listenPort, form.Protocol, form.Protocol).Scan(&clash); err != nil || clash > 0 {
+		redirectWithFlash(w, r, "/admin/streams", "", fmt.Sprintf("port %d/%s already mapped on this node", listenPort, form.Protocol))
+		return
+	}
+
 	var tagVal sql.NullString
 	if form.Tag != "" {
 		if len(form.Tag) > 64 {
@@ -400,13 +436,13 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		`INSERT INTO stream_routes
 		   (service_id, caddy_node_id, protocol, listen_port, upstream_port, status, tag,
 		    match_mode, match_values, lb_policy, proxy_proto_in, proxy_proto_out,
-		    cidr_allow, cidr_deny)
+		    cidr_allow, cidr_deny, proxy_proto_trusted)
 		 VALUES (?, ?, ?, ?, ?, 'active', ?,
 		         ?, ?, ?, ?, ?,
-		         ?, ?)`,
+		         ?, ?, ?)`,
 		serviceID, nodeID, form.Protocol, listenPort, upstreamPort, tagVal,
 		form.MatchMode, joinCSV(matchValues), form.LBPolicy, form.ProxyProtoIn, form.ProxyProtoOut,
-		joinCSV(cidrAllow), joinCSV(cidrDeny))
+		joinCSV(cidrAllow), joinCSV(cidrDeny), joinCSV(ppTrusted))
 	if err != nil {
 		if strings.Contains(err.Error(), "Duplicate entry") {
 			redirectWithFlash(w, r, "/admin/streams", "", fmt.Sprintf("port %d/%s already mapped on this node", listenPort, form.Protocol))
@@ -473,7 +509,8 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(sr.match_values,''),
 		        COALESCE(sr.lb_policy,'round_robin'),
 		        COALESCE(sr.proxy_proto_in,'none'),
-		        COALESCE(sr.proxy_proto_out,'none')
+		        COALESCE(sr.proxy_proto_out,'none'),
+		        COALESCE(sr.proxy_proto_trusted,'')
 		 FROM stream_routes sr
 		 JOIN services sv ON sv.id = sr.service_id
 		 JOIN caddy_nodes n ON n.id = sr.caddy_node_id
@@ -482,6 +519,7 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.Stream.BackendIP, &d.Stream.NodeName, &d.Stream.NodeHostname, &d.Stream.Status,
 		&d.Stream.QuarantineReason, &d.Stream.Tag, &d.Stream.CreatedAt,
 		&d.Stream.MatchMode, &d.Stream.MatchValues, &d.Stream.LBPolicy, &d.Stream.ProxyProtoIn, &d.Stream.ProxyProtoOut,
+		&d.Stream.ProxyProtoTrusted,
 	); err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
 		return
@@ -557,6 +595,11 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "cidr_deny: invalid CIDR")
 		return
 	}
+	ppTrusted, err := parseProxyProtoTrusted(ppIn, r.FormValue("proxy_proto_trusted"))
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", err.Error())
+		return
+	}
 	matchValues := parseCSVList(r.FormValue("match_values"))
 	// sni/http_host matchers with no values produce null JSON (Caddy rejects them).
 	if matchMode != "any" && len(matchValues) == 0 {
@@ -594,7 +637,7 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 
 	upd := streamUpdate{
 		MatchMode: matchMode, MatchValues: joinCSV(matchValues), LBPolicy: lbPolicy,
-		ProxyProtoIn: ppIn, ProxyProtoOut: ppOut,
+		ProxyProtoIn: ppIn, ProxyProtoOut: ppOut, ProxyProtoTrusted: joinCSV(ppTrusted),
 		CIDRAllow: joinCSV(cidrAllow), CIDRDeny: joinCSV(cidrDeny),
 		Dest: dest, ServiceBackendIP: cur.serviceBackendIP,
 	}
@@ -744,14 +787,15 @@ type streamDestination struct {
 
 // streamUpdate carries every column the edit path writes.
 type streamUpdate struct {
-	MatchMode     string
-	MatchValues   string
-	LBPolicy      string
-	ProxyProtoIn  string
-	ProxyProtoOut string
-	CIDRAllow     string
-	CIDRDeny      string
-	Dest          streamDestination
+	MatchMode         string
+	MatchValues       string
+	LBPolicy          string
+	ProxyProtoIn      string
+	ProxyProtoOut     string
+	ProxyProtoTrusted string
+	CIDRAllow         string
+	CIDRDeny          string
+	Dest              streamDestination
 	// ServiceBackendIP is services.backend_ip; the per-stream override is only
 	// stored when the destination differs, so shared services stay untouched.
 	ServiceBackendIP string
@@ -860,14 +904,14 @@ func saveStreamUpdate(ctx context.Context, db *sql.DB, logger *slog.Logger, id i
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE stream_routes
 		 SET match_mode=?, match_values=?, lb_policy=?,
-		     proxy_proto_in=?, proxy_proto_out=?,
+		     proxy_proto_in=?, proxy_proto_out=?, proxy_proto_trusted=?,
 		     cidr_allow=?, cidr_deny=?,
 		     backend_ip_override=?, upstream_port=?,
 		     quarantined_at=NULL, quarantine_reason=NULL,
 		     updated_at=`+store.Now()+`
 		 WHERE id=?`,
 		u.MatchMode, u.MatchValues, u.LBPolicy,
-		u.ProxyProtoIn, u.ProxyProtoOut,
+		u.ProxyProtoIn, u.ProxyProtoOut, u.ProxyProtoTrusted,
 		u.CIDRAllow, u.CIDRDeny,
 		override, u.Dest.UpstreamPort, id); err != nil {
 		return fmt.Errorf("update failed: %s", sanitizeErr(err))

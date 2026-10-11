@@ -86,3 +86,40 @@ func TestBuildRoutesSkipsUnverifiedDomain(t *testing.T) {
 		t.Error("unverified route reached the Caddy host matcher")
 	}
 }
+
+// routes that never leave the first page (fully proven, or
+// never provable) must not starve pending aliases on later routes.
+func TestRecheckPendingAliasesPagesPastFirstBatch(t *testing.T) {
+	db := migratedSQLite(t)
+	oldBatch, oldTXT := aliasRecheckBatch, aliasTXTContains
+	aliasRecheckBatch = 1
+	aliasTXTContains = func(_ context.Context, name, _ string) bool { return name == "_hpg-verify.late.example" }
+	t.Cleanup(func() { aliasRecheckBatch, aliasTXTContains = oldBatch, oldTXT })
+
+	for _, s := range []string{
+		`INSERT INTO node_groups (id, name) VALUES (1, 'g1')`,
+		`INSERT INTO caddy_nodes (id, name, api_url, is_enabled, node_group_id) VALUES (1, 'edge1', 'http://n1:2019', 1, 1)`,
+		`INSERT INTO plans (id, name, node_group_id) VALUES (1, 'p1', 1)`,
+		`INSERT INTO services (id, client_id, name, backend_ip, allowed_port_start, allowed_port_end, plan_id, node_group_id)
+		   VALUES (1, 1, 'svc', '10.0.0.9', 1, 65535, 1, 1)`,
+		`INSERT INTO routes (id, service_id, caddy_node_id, domain, upstream_port, upstream_scheme, status, kind,
+		   aliases, aliases_verified, verify_token)
+		   VALUES (10, 1, 1, 'a.example', 8080, 'http', 'active', 'proxy', 'done.example', 'done.example', 'tok'),
+		          (11, 1, 1, 'b.example', 8080, 'http', 'active', 'proxy', 'never.example', '', 'tok'),
+		          (12, 1, 1, 'c.example', 8080, 'http', 'active', 'proxy', 'late.example', '', 'tok')`,
+	} {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("exec %q: %v", s, err)
+		}
+	}
+	// Long debounce: an immediate background push would race the reads below on SQLite.
+	svc := &Service{DB: db, Logger: slog.Default(), PushDebounceMs: 3_600_000}
+	svc.RecheckPendingAliases(context.Background())
+	var got string
+	if err := db.QueryRow(`SELECT COALESCE(aliases_verified,'') FROM routes WHERE id = 12`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != "late.example" {
+		t.Fatalf("route 12 alias not verified past the first batch: %q", got)
+	}
+}

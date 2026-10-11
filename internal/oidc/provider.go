@@ -81,12 +81,8 @@ func (s *Service) currentConfig(ctx context.Context) (Config, *oauth2.Config, *g
 	// link-local hosts. Admin-set free text would otherwise let a malicious
 	// admin (or compromised account) point the discovery fetch at
 	// http://10.66.0.1:2019/config/ to probe the WG-only Caddy admin API.
-	if u, perr := url.Parse(cfg.Issuer); perr == nil {
-		if verr := security.ValidateOutboundURL(u); verr != nil {
-			return cfg, nil, nil, fmt.Errorf("oidc issuer rejected: %w", verr)
-		}
-	} else {
-		return cfg, nil, nil, fmt.Errorf("oidc issuer not a URL: %w", perr)
+	if err := validateIssuer(cfg.Issuer); err != nil {
+		return cfg, nil, nil, err
 	}
 	// Use a safe HTTP client for discovery + JWKS fetch. Done WITHOUT the lock.
 	discoCtx := goOIDC.ClientContext(ctx, security.SafeHTTPClient(10*time.Second))
@@ -112,6 +108,22 @@ func (s *Service) currentConfig(ctx context.Context) (Config, *oauth2.Config, *g
 	s.cacheTime = time.Now()
 	s.mu.Unlock()
 	return cfg, oc, p, nil
+}
+
+// validateIssuer re-checks the stored issuer on every load: legacy rows or
+// direct DB writes must not get a cleartext (MITM-able) discovery/JWKS fetch.
+func validateIssuer(issuer string) error {
+	u, err := url.Parse(issuer)
+	if err != nil {
+		return fmt.Errorf("oidc issuer not a URL: %w", err)
+	}
+	if u.Scheme != "https" {
+		return errors.New("oidc issuer rejected: must use https")
+	}
+	if err := security.ValidateOutboundURL(u); err != nil {
+		return fmt.Errorf("oidc issuer rejected: %w", err)
+	}
+	return nil
 }
 
 // CurrentConfigForUI returns the loaded (or stored) config without

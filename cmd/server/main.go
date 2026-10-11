@@ -542,6 +542,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		State:    state,
 		OAuth2X:  oauth2xSvc,
 		AppURL:   cfg.App.URL,
+		Auth:     authH,
 	}
 
 	// Passkey/WebAuthn (nil-safe). Requires a valid App.URL to derive RPID.

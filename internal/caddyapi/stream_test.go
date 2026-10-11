@@ -151,7 +151,7 @@ func TestBuildLayer4AppProxyProtoIn(t *testing.T) {
 		{
 			ID: 6, Protocol: "tcp", ListenPort: 5432,
 			UpstreamIP: "10.0.3.1", UpstreamPort: 5432,
-			ProxyProtoIn: "v2",
+			ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"192.0.2.10/32"},
 		},
 	}
 	app := buildLayer4App(routes)
@@ -228,7 +228,7 @@ func TestBuildLayer4AppProxyProtocol(t *testing.T) {
 		{
 			ID: 10, Protocol: "tcp", ListenPort: 5432,
 			UpstreamIP: "10.0.0.3", UpstreamPort: 5432,
-			ProxyProtoIn:  "v2",
+			ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"192.0.2.10/32"},
 			ProxyProtoOut: "v2",
 		},
 	}
@@ -256,8 +256,8 @@ func TestBuildLayer4AppProxyProtoBeforeACL(t *testing.T) {
 		{
 			ID: 12, Protocol: "tcp", ListenPort: 7000,
 			UpstreamIP: "10.0.0.1", UpstreamPort: 7000,
-			ProxyProtoIn: "v2",
-			CIDRDeny:     []string{"203.0.113.0/24"},
+			ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"192.0.2.10/32"},
+			CIDRDeny: []string{"203.0.113.0/24"},
 		},
 	}
 	app := buildLayer4App(routes)
@@ -266,7 +266,7 @@ func TestBuildLayer4AppProxyProtoBeforeACL(t *testing.T) {
 
 	pp := strings.Index(s, `"handler":"proxy_protocol"`)
 	sub := strings.Index(s, `"handler":"subroute"`)
-	acl := strings.Index(s, `"remote_ip"`)
+	acl := strings.Index(s, `"remote_ip":{"ranges":["203.0.113.0/24"]}`)
 	if pp == -1 || sub == -1 || acl == -1 {
 		t.Fatalf("expected proxy_protocol + subroute + remote_ip\nfull: %s", s)
 	}
@@ -309,10 +309,10 @@ func TestBuildLayer4AppFullAdvanced(t *testing.T) {
 				{Address: "10.0.10.1:9000", Weight: 3},
 				{Address: "10.0.10.2:9000", Weight: 1},
 			},
-			MatchMode:     "sni",
-			MatchValues:   []string{"db.corp.internal"},
-			LBPolicy:      "least_conn",
-			ProxyProtoIn:  "v2",
+			MatchMode:    "sni",
+			MatchValues:  []string{"db.corp.internal"},
+			LBPolicy:     "least_conn",
+			ProxyProtoIn: "v2", ProxyProtoTrusted: []string{"192.0.2.10/32"},
 			ProxyProtoOut: "v2",
 			CIDRAllow:     []string{"172.16.0.0/12"},
 			CIDRDeny:      []string{"172.31.0.0/24"},
@@ -344,5 +344,17 @@ func TestBuildLayer4AppFullAdvanced(t *testing.T) {
 		if strings.Contains(s, bad) {
 			t.Errorf("full-advanced must not emit %q (wrong schema)\nfull: %s", bad, s)
 		}
+	}
+}
+
+// Overlapping listeners must not be last-write-wins: the first route keeps it.
+func TestBuildLayer4AppKeepsFirstListenerOwner(t *testing.T) {
+	app := buildLayer4App([]StreamRoute{
+		{ID: 1, Protocol: "both", ListenPort: 5000, UpstreamIP: "10.0.0.1", UpstreamPort: 1},
+		{ID: 2, Protocol: "tcp", ListenPort: 5000, UpstreamIP: "10.0.0.2", UpstreamPort: 2},
+	})
+	b, _ := json.Marshal(app["servers"].(map[string]any)["tcp_5000"])
+	if s := string(b); !strings.Contains(s, "10.0.0.1:1") {
+		t.Errorf("tcp_5000 must stay with the first route\nfull: %s", s)
 	}
 }

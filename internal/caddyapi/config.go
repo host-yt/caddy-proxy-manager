@@ -241,6 +241,12 @@ func adminListenOr(listen string) string {
 	return listen
 }
 
+// EmptyNodeConfig is the config pushed to a leaving node: no apps, admin bind
+// unchanged so a decommission never re-exposes or relocates the admin API.
+func EmptyNodeConfig(adminListen string) map[string]any {
+	return map[string]any{"admin": map[string]any{"listen": adminListenOr(adminListen)}}
+}
+
 // BuildNodeConfig renders the full Caddy JSON config for one node from
 // the supplied routes. POST this to /load on the node's Admin API.
 //
@@ -740,8 +746,8 @@ func MTLSCAUsable(pemBundle string) bool {
 // caddy.listeners.proxy_protocol wrapper must run BEFORE tls (it strips the
 // PROXY header off the raw connection before the TLS handshake is read), and
 // tls must be listed explicitly once listener_wrappers is set - Caddy does
-// not implicitly append it. "allow" is omitted when empty so an unrestricted
-// node's JSON stays minimal (matches the UI's "accept from anywhere" state).
+// not implicitly append it. "allow" is omitted when empty; Caddy 2.8+ then
+// ignores the PROXY address and keeps the connecting one.
 func buildProxyProtocolWrappers(s NodeSettings) []any {
 	if !s.ProxyProtocolIn {
 		return nil

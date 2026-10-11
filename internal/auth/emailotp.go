@@ -3,7 +3,6 @@ package auth
 import (
 	"context"
 	"crypto/rand"
-	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
 	"time"
@@ -35,25 +34,5 @@ func StoreEmailOTP(ctx context.Context, rdb *redis.Client, userID int64, code st
 
 // VerifyEmailOTP verifies the code, deletes the ticket on success, returns userID.
 func VerifyEmailOTP(ctx context.Context, rdb *redis.Client, ticket, code string) (int64, error) {
-	key := fmt.Sprintf("hpg:emailotp:%s", ticket)
-	stored, err := rdb.Get(ctx, key).Result()
-	if err != nil {
-		return 0, fmt.Errorf("emailotp: ticket not found or expired")
-	}
-	var userID int64
-	var storedHash string
-	if n, _ := fmt.Sscanf(stored, "%d:", &userID); n != 1 {
-		return 0, fmt.Errorf("emailotp: bad store format")
-	}
-	for i, c := range stored {
-		if c == ':' && i > 0 {
-			storedHash = stored[i+1:]
-			break
-		}
-	}
-	if subtle.ConstantTimeCompare([]byte(EmailOTPHash(code)), []byte(storedHash)) != 1 {
-		return 0, fmt.Errorf("emailotp: invalid code")
-	}
-	_ = rdb.Del(ctx, key).Err()
-	return userID, nil
+	return verifyOTP(ctx, rdb, "emailotp", ticket, code)
 }

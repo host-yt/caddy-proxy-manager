@@ -165,6 +165,15 @@ func (m *Manager) SecureForRequest(r *http.Request) bool {
 	return false
 }
 
+// ClearCookie expires a companion cookie with the same attributes it was
+// issued with, so the deletion is not itself a weaker cookie.
+func (m *Manager) ClearCookie(w http.ResponseWriter, r *http.Request, name string) {
+	http.SetCookie(w, &http.Cookie{
+		Name: name, Value: "", Path: "/", HttpOnly: true,
+		Secure: m.SecureForRequest(r), SameSite: http.SameSiteLaxMode, MaxAge: -1,
+	})
+}
+
 // insecureCookieWarn keeps the downgrade warning to one line per process.
 var insecureCookieWarn sync.Once
 

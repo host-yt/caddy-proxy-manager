@@ -17,9 +17,11 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"database/sql"
+	"encoding/hex"
 	"encoding/pem"
 	"errors"
 	"fmt"
@@ -316,18 +318,26 @@ func (s *Service) ListIssued(ctx context.Context, caID int64) ([]IssuedCert, err
 	return out, rows.Err()
 }
 
-// Revoke marks an issued cert revoked (CRL-style). Idempotent.
-func (s *Service) Revoke(ctx context.Context, id int64) error {
+// Revoke marks an issued cert revoked (CRL-style) and returns its CA id so the
+// caller can push the revocation to that CA's nodes. Idempotent.
+func (s *Service) Revoke(ctx context.Context, id int64) (int64, error) {
 	db, err := s.db()
 	if err != nil {
-		return err
+		return 0, err
+	}
+	var caID int64
+	if err := db.QueryRowContext(ctx, "SELECT ca_id FROM mtls_issued_certs WHERE id = ?", id).Scan(&caID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, errors.New("certificate not found")
+		}
+		return 0, err
 	}
 	_, err = db.ExecContext(ctx,
 		`UPDATE mtls_issued_certs
 		    SET status = ?, revoked_at = UTC_TIMESTAMP()
 		  WHERE id = ? AND status <> ?`,
 		StatusRevoked, id, StatusRevoked)
-	return err
+	return caID, err
 }
 
 // GetCA loads a single CA (without decrypting its key).
@@ -427,6 +437,22 @@ func randSerial() (*big.Int, error) {
 		return nil, fmt.Errorf("rand serial: %w", err)
 	}
 	return n.Add(n, big.NewInt(1)), nil
+}
+
+// ParseCert decodes the first CERTIFICATE block of a PEM string.
+func ParseCert(certPEM string) (*x509.Certificate, error) {
+	b, _ := pem.Decode([]byte(certPEM))
+	if b == nil || b.Type != "CERTIFICATE" {
+		return nil, errors.New("invalid certificate PEM")
+	}
+	return x509.ParseCertificate(b.Bytes)
+}
+
+// FingerprintOf is the lowercase hex SHA-256 of the DER, matching Caddy's
+// {http.request.tls.client.fingerprint} placeholder.
+func FingerprintOf(c *x509.Certificate) string {
+	sum := sha256.Sum256(c.Raw)
+	return hex.EncodeToString(sum[:])
 }
 
 func pemEncode(typ string, der []byte) string {

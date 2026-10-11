@@ -157,24 +157,42 @@ func (h *AuthHandlers) RegisterSubmit(w http.ResponseWriter, r *http.Request) {
 	// email_verified=0 + is_active=0 so they cannot log in and cannot be adopted
 	// by an OAuth/OIDC-by-email path until the double opt-in link is followed.
 	// Existing users were backfilled to email_verified=1 and are unaffected.
-	res, err := db.ExecContext(ctx,
+	// User, client row and verify token commit together: a user without its
+	// client row would activate into an unusable ClientID=0 account.
+	internalErr := func(msg string, err error) {
+		h.Logger.Error(msg, "err", err)
+		h.renderRegister(w, http.StatusInternalServerError, h.stampRegister(r, registerViewData{Error: "Server error."}))
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		internalErr("register begin tx", err)
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
 		"INSERT INTO users (email, password_hash, role, is_active, full_name, email_verified) VALUES (?, ?, 'client', 0, ?, 0)",
 		email, hash, email,
 	)
 	if err != nil {
-		h.Logger.Error("register insert user", "err", err)
-		h.renderRegister(w, http.StatusInternalServerError, h.stampRegister(r, registerViewData{Error: "Server error."}))
+		internalErr("register insert user", err)
 		return
 	}
 	userID, _ := res.LastInsertId()
-
-	// Insert corresponding client row.
-	if _, err := db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		"INSERT INTO clients (user_id, display_name) VALUES (?, ?)",
 		userID, email,
 	); err != nil {
-		h.Logger.Error("register insert client", "err", err)
-		// User row exists - don't fail visibly; client row can be fixed via admin.
+		internalErr("register insert client", err)
+		return
+	}
+	token, err := createEmailVerifyToken(ctx, tx, userID)
+	if err != nil {
+		internalErr("register verify token", err)
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		internalErr("register commit", err)
+		return
 	}
 
 	// Record intended default plan in audit; service creation requires
@@ -198,7 +216,7 @@ func (h *AuthHandlers) RegisterSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// Double opt-in: mint a one-time verify token and email the link. The
 	// account stays email_verified=0/is_active=0 until the link is followed.
-	if token, terr := createEmailVerifyToken(ctx, db, userID); terr == nil && h.Mailer != nil {
+	if h.Mailer != nil {
 		verifyURL := strings.TrimRight(h.AppURL, "/") + "/auth/verify?token=" + token
 		if serr := h.Mailer.Send(ctx, email, "Verify your Hostyt Proxy email", "notice", map[string]any{
 			"Subject": "Verify your email",
@@ -206,8 +224,6 @@ func (h *AuthHandlers) RegisterSubmit(w http.ResponseWriter, r *http.Request) {
 		}); serr != nil {
 			h.Logger.Warn("register verify email send", "err", serr, "user_id", userID)
 		}
-	} else if terr != nil {
-		h.Logger.Error("register verify token", "err", terr, "user_id", userID)
 	}
 
 	http.Redirect(w, r, "/auth/login?flash=Check+your+email+to+verify+your+account+before+signing+in", http.StatusSeeOther)
@@ -218,7 +234,7 @@ const emailVerifyTokenTTL = 30 * time.Minute
 
 // createEmailVerifyToken issues a one-time email-verification token. Stores
 // only the sha256 hash (mirrors password_resets); returns the plaintext token.
-func createEmailVerifyToken(ctx context.Context, db *sql.DB, userID int64) (string, error) {
+func createEmailVerifyToken(ctx context.Context, tx *sql.Tx, userID int64) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", err
@@ -228,7 +244,7 @@ func createEmailVerifyToken(ctx context.Context, db *sql.DB, userID int64) (stri
 	hashHex := hex.EncodeToString(sum[:])
 	// DB-side expiry: the consume path compares against NOW(), so a Go-side UTC
 	// timestamp expires the token on issue wherever the DB runs ahead of UTC.
-	if _, err := db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		"INSERT INTO email_verifications (user_id, token_hash, expires_at) VALUES (?, ?, "+
 			store.DateAddSecondsParam()+")",
 		userID, hashHex, int(emailVerifyTokenTTL/time.Second),

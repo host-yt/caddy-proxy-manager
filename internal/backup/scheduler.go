@@ -2,6 +2,8 @@ package backup
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -135,8 +137,62 @@ func (s *Scheduler) pruneOldJobs(ctx context.Context) {
 	if err != nil || days <= 0 {
 		return
 	}
-	_, _ = db.ExecContext(ctx,
-		"DELETE FROM backup_jobs WHERE created_at < ("+store.DateSubParam("DAY")+")", days)
+	type expired struct {
+		id, destID int64
+		key        string
+	}
+	rows, err := db.QueryContext(ctx,
+		`SELECT id, destination_id, COALESCE(artifact_key, '') FROM backup_jobs
+		 WHERE created_at < (`+store.DateSubParam("DAY")+`)`, days)
+	if err != nil {
+		s.Service.Logger.Warn("backup prune: list expired jobs", "err", err)
+		return
+	}
+	var jobs []expired
+	for rows.Next() {
+		var e expired
+		if err := rows.Scan(&e.id, &e.destID, &e.key); err != nil {
+			rows.Close()
+			s.Service.Logger.Warn("backup prune: scan", "err", err)
+			return
+		}
+		jobs = append(jobs, e)
+	}
+	rows.Close()
+
+	type target struct {
+		u   Uploader
+		err error
+	}
+	dests := map[int64]target{}
+	for _, e := range jobs {
+		// Object first, row second: a failed delete keeps the row so the next tick retries.
+		if e.key != "" {
+			tg, ok := dests[e.destID]
+			if !ok {
+				var d Destination
+				if d, tg.err = s.Service.GetDestination(ctx, e.destID); tg.err == nil {
+					tg.u, tg.err = newDestination(d)
+				}
+				dests[e.destID] = tg
+			}
+			err := tg.err
+			if err == nil {
+				// Bounded: a stalled remote must not block the scheduler's next backup.
+				delCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+				err = tg.u.Delete(delCtx, e.key)
+				cancel()
+			}
+			// ErrNoRows: destination is gone, nothing left to clean up but the row.
+			if err != nil && !errors.Is(err, sql.ErrNoRows) {
+				s.Service.Logger.Warn("backup prune: delete artifact", "job_id", e.id, "key", e.key, "err", err)
+				continue
+			}
+		}
+		if _, err := db.ExecContext(ctx, "DELETE FROM backup_jobs WHERE id = ?", e.id); err != nil {
+			s.Service.Logger.Warn("backup prune: delete job row", "job_id", e.id, "err", err)
+		}
+	}
 }
 
 // sweepOrphanedTemp removes backup temp files older than maxAge. Normal

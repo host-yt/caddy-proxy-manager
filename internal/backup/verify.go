@@ -38,7 +38,7 @@ func (s *Service) Verify(ctx context.Context, destID int64) error {
 	err := db.QueryRowContext(ctx,
 		`SELECT id, artifact_key, sha256, size_bytes, encrypted
 		 FROM backup_jobs
-		 WHERE destination_id = ? AND status = 'succeeded' AND artifact_key <> ''
+		 WHERE destination_id = ? AND status = 'succeeded' AND kind <> 'verification' AND artifact_key <> ''
 		 ORDER BY id DESC LIMIT 1`, destID,
 	).Scan(&jobID, &artifactKey, &expectedSHA, &expectedSize, &encrypted)
 	if err != nil {
@@ -53,16 +53,17 @@ func (s *Service) Verify(ctx context.Context, destID int64) error {
 	// Insert verification job row first.
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO backup_jobs (destination_id, kind, status, started_at, encrypted)
-		 VALUES (?, 'manual', 'running', NOW(), ?)`, destID, boolToInt(encrypted))
+		 VALUES (?, 'verification', 'running', NOW(), ?)`, destID, boolToInt(encrypted))
 	if err != nil {
 		return err
 	}
 	verifyID, _ := res.LastInsertId()
+	// No artifact_key: the row uploads nothing and must never look like a source backup.
 	finish := func(status, errText string, sizeBytes int64, sum string) {
 		_, _ = db.ExecContext(context.Background(),
 			`UPDATE backup_jobs SET status=?, error_text=?, finished_at=NOW(),
-			 size_bytes=?, sha256=?, artifact_key=? WHERE id=?`,
-			status, errText, sizeBytes, sum, "verify_"+artifactKey, verifyID)
+			 size_bytes=?, sha256=? WHERE id=?`,
+			status, errText, sizeBytes, sum, verifyID)
 	}
 
 	artPath, size, sum, err := s.downloadAndHash(ctx, dest, artifactKey, expectedSize)
