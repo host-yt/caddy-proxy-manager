@@ -800,3 +800,16 @@ with its original secrets, or remove the journal only after confirming the DB an
 Do not delete the journal to work around this without doing what it says first: finish the original rotation with its own secrets, or manually confirm the DB and `install_state.json` are already consistent with each other (both on the same key) before removing `<state path>.rotate-journal`. Removing it without that check risks leaving the DB and state file on different keys with nothing left to detect it.
 
 If the process reports it committed the DB but could not advance the journal, the intent journal is still on disk: re-running the same command detects the landed commit and finishes the state file.
+
+## 14. Every login fails with "Captcha verification failed"
+
+If the stored CAPTCHA secret can't be decrypted (typically after `APP_SECRET`
+changed without `hpg-rotate-secret`), the panel refuses CAPTCHA checks instead
+of switching CAPTCHA off, and the log shows `captcha: setting decrypt failed`. Fix
+the key first if other secrets are also unreadable. To get back in, clear the
+CAPTCHA settings and restart the panel, then set CAPTCHA up again under
+Settings:
+
+```sql
+DELETE FROM settings WHERE `key` LIKE 'captcha.%';
+```
