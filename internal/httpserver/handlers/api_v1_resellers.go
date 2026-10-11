@@ -109,9 +109,21 @@ func (h *APIHandlers) ResellerCreate(w http.ResponseWriter, r *http.Request) {
 		OwnerPassword string `json:"owner_password"`
 		BrandName     string `json:"brand_name"`
 		SupportEmail  string `json:"support_email"`
+		// Optional initial status/policy, applied in the create transaction.
+		Status         string `json:"status"`
+		ResellerPlanID *int64 `json:"reseller_plan_id"`
+		Overselling    *bool  `json:"overselling_allowed"`
+		CanCreatePlans *bool  `json:"can_create_plans"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		apiErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if in.Status == "" {
+		in.Status = reseller.StatusActive
+	}
+	if in.Status != reseller.StatusActive && in.Status != reseller.StatusSuspended {
+		apiErr(w, http.StatusBadRequest, "status must be active or suspended")
 		return
 	}
 	in.Name = strings.TrimSpace(in.Name)
@@ -135,9 +147,10 @@ func (h *APIHandlers) ResellerCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id, ownerID, err := h.Resellers.CreateWithOwner(r.Context(), reseller.Reseller{
-		Name: in.Name, Slug: in.Slug, Status: reseller.StatusActive,
+		Name: in.Name, Slug: in.Slug, Status: in.Status,
 		BrandName: in.BrandName, SupportEmail: in.SupportEmail,
-	}, in.OwnerEmail, in.Name, hash)
+	}, reseller.PolicyPatch{PlanID: in.ResellerPlanID, Overselling: in.Overselling, CanCreatePlans: in.CanCreatePlans},
+		in.OwnerEmail, in.Name, hash)
 	if errors.Is(err, reseller.ErrDuplicate) {
 		apiErr(w, http.StatusConflict, "slug or owner email already exists")
 		return

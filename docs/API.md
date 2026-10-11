@@ -967,6 +967,10 @@ Create a reseller and its owner login in one atomic operation.
 | `owner_password` | string | yes | >= 12 characters |
 | `brand_name` | string | no | White-label brand name |
 | `support_email` | string | no | Support contact shown to the reseller's own clients |
+| `status` | string | no | `active` (default) or `suspended` |
+| `reseller_plan_id` | int | no | Initial package; `0` = none, omitted = "Unlimited" |
+| `overselling_allowed` | bool | no | Default `false` |
+| `can_create_plans` | bool | no | Default `false` |
 
 ```json
 {
@@ -979,7 +983,7 @@ Create a reseller and its owner login in one atomic operation.
 }
 ```
 
-The owner account is created with `role=reseller` and `users.reseller_id` set to the new reseller, and is subscribed to the default "Unlimited" package.
+The owner account is created with `role=reseller` and `users.reseller_id` set to the new reseller, and is subscribed to the default "Unlimited" package unless `reseller_plan_id` is given. Status and policy are applied in the same transaction.
 
 **Response `201`**
 

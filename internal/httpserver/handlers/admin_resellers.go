@@ -213,7 +213,7 @@ func (h *AdminHandlers) ResellersCreate(w http.ResponseWriter, r *http.Request) 
 		Name: name, Slug: slug, Status: reseller.StatusActive,
 		BrandName:    strings.TrimSpace(r.FormValue("brand_name")),
 		SupportEmail: strings.TrimSpace(r.FormValue("support_email")),
-	}, ownerEmail, name, hash)
+	}, reseller.PolicyPatch{}, ownerEmail, name, hash)
 	if err != nil {
 		if errors.Is(err, reseller.ErrDuplicate) {
 			redirectWithFlash(w, r, "/admin/resellers", "", "slug or owner email already exists")

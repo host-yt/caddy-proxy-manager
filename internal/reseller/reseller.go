@@ -81,8 +81,9 @@ var ErrDuplicate = errors.New("reseller: duplicate")
 // CreateWithOwner atomically creates the reseller, its owner login
 // (role='reseller', bound via users.reseller_id) and the owner backlink, and
 // subscribes the reseller to the default "Unlimited" package. One transaction:
-// a reseller never exists without a working owner account.
-func (s *Store) CreateWithOwner(ctx context.Context, r Reseller, ownerEmail, ownerName, ownerHash string) (resellerID, ownerUserID int64, err error) {
+// a reseller never exists without a working owner account. Non-nil pol fields
+// override the initial package (0 = none) and policy flags in the same tx.
+func (s *Store) CreateWithOwner(ctx context.Context, r Reseller, pol PolicyPatch, ownerEmail, ownerName, ownerHash string) (resellerID, ownerUserID int64, err error) {
 	db := s.db()
 	if db == nil {
 		return 0, 0, errors.New("reseller: no db")
@@ -98,14 +99,19 @@ func (s *Store) CreateWithOwner(ctx context.Context, r Reseller, ownerEmail, own
 	defer tx.Rollback() //nolint:errcheck
 
 	var planID sql.NullInt64
-	_ = tx.QueryRowContext(ctx, `SELECT id FROM reseller_plans WHERE name = 'Unlimited'`).Scan(&planID)
+	if pol.PlanID != nil {
+		planID = sql.NullInt64{Int64: *pol.PlanID, Valid: *pol.PlanID > 0}
+	} else {
+		_ = tx.QueryRowContext(ctx, `SELECT id FROM reseller_plans WHERE name = 'Unlimited'`).Scan(&planID)
+	}
 
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO resellers (name, slug, status, brand_name, logo_url, support_email, primary_color, reseller_plan_id)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO resellers (name, slug, status, brand_name, logo_url, support_email, primary_color, reseller_plan_id,
+		   overselling_allowed, can_create_plans)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		r.Name, r.Slug, status,
 		nullIfEmpty(r.BrandName), nullIfEmpty(r.LogoURL), nullIfEmpty(r.SupportEmail), nullIfEmpty(r.PrimaryColor),
-		planID)
+		planID, pol.Overselling != nil && *pol.Overselling, pol.CanCreatePlans != nil && *pol.CanCreatePlans)
 	if err != nil {
 		if isDuplicate(err) {
 			return 0, 0, ErrDuplicate

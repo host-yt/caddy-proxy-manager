@@ -1539,7 +1539,7 @@
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
           "required": true,
-          "content": { "application/json": { "schema": { "type": "object", "required": ["name", "slug", "owner_email", "owner_password"], "properties": { "name": { "type": "string", "example": "Acme Hosting" }, "slug": { "type": "string", "example": "acme" }, "owner_email": { "type": "string", "format": "email" }, "owner_password": { "type": "string", "format": "password" }, "brand_name": { "type": "string" }, "support_email": { "type": "string", "format": "email" } } } } }
+          "content": { "application/json": { "schema": { "type": "object", "required": ["name", "slug", "owner_email", "owner_password"], "properties": { "name": { "type": "string", "example": "Acme Hosting" }, "slug": { "type": "string", "example": "acme" }, "owner_email": { "type": "string", "format": "email" }, "owner_password": { "type": "string", "format": "password" }, "brand_name": { "type": "string" }, "support_email": { "type": "string", "format": "email" }, "status": { "type": "string", "enum": ["active", "suspended"] }, "reseller_plan_id": { "type": "integer", "description": "0 = no package; omitted = Unlimited" }, "overselling_allowed": { "type": "boolean" }, "can_create_plans": { "type": "boolean" } } } } }
         },
         "responses": {
           "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerObject" } } } },
