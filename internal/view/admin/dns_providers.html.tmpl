@@ -47,7 +47,7 @@
 
   <section class="r-card">
     <h2 class="t-h3 mb-3" style="color:rgb(var(--text))">Add / rotate provider</h2>
-    <form method="POST" action="/admin/settings/dns-providers" class="space-y-3 text-sm max-w-2xl">
+    <form autocomplete="off" method="POST" action="/admin/settings/dns-providers" class="space-y-3 text-sm max-w-2xl">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="grid grid-cols-2 gap-3">
         <div>
@@ -87,7 +87,7 @@
         var inp = document.createElement('input');
         inp.name = 'field_' + f.key;
         inp.type = f.secret ? 'password' : 'text';
-        inp.autocomplete = 'off';
+        inp.autocomplete = f.secret ? 'new-password' : 'off';
         if (f.placeholder) inp.placeholder = f.placeholder;
         if (!f.optional) inp.required = true;
         inp.className = 'r-input w-full font-mono text-xs';

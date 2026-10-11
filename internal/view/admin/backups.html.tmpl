@@ -74,7 +74,7 @@
 
     <details class="p-5" style="border-top:1px solid rgb(var(--border))">
       <summary class="cursor-pointer t-small font-medium" style="color:rgb(var(--text))">Add destination</summary>
-      <form method="POST" action="/admin/backups/destinations" class="mt-4 space-y-3 text-sm max-w-2xl">
+      <form autocomplete="off" method="POST" action="/admin/backups/destinations" class="mt-4 space-y-3 text-sm max-w-2xl">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div class="grid grid-cols-2 gap-3">
           <div>
@@ -103,9 +103,9 @@
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">host</label><input name="cfg_host" class="r-input w-full"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">port</label><input name="cfg_port" class="r-input w-full tabular-nums"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">user / access_key</label><input name="cfg_user" class="r-input w-full"></div>
-          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">password / secret_key</label><input name="cfg_password" type="password" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">password / secret_key</label><input name="cfg_password" type="password" autocomplete="new-password" class="r-input w-full"></div>
           <div class="col-span-2"><label class="block t-small mb-1" style="color:rgb(var(--muted))">private_key (SFTP, PEM)</label><textarea name="cfg_private_key" rows="3" class="r-input w-full font-mono text-xs"></textarea></div>
-          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">private_key_pass</label><input name="cfg_private_key_pass" type="password" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">private_key_pass</label><input name="cfg_private_key_pass" type="password" autocomplete="new-password" class="r-input w-full"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">host_key (SFTP, "ssh-ed25519 …")</label><input name="cfg_host_key" class="r-input w-full"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">insecure_host_key (0/1)</label><input name="cfg_insecure_host_key" value="0" class="r-input w-full tabular-nums"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">tls (FTP) explicit|implicit</label><input name="cfg_tls" class="r-input w-full"></div>
@@ -114,7 +114,7 @@
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">region (S3)</label><input name="cfg_region" class="r-input w-full"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">bucket (S3)</label><input name="cfg_bucket" class="r-input w-full"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">access_key (S3)</label><input name="cfg_access_key" class="r-input w-full"></div>
-          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">secret_key (S3)</label><input name="cfg_secret_key" type="password" class="r-input w-full"></div>
+          <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">secret_key (S3)</label><input name="cfg_secret_key" type="password" autocomplete="new-password" class="r-input w-full"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">prefix (S3)</label><input name="cfg_prefix" class="r-input w-full"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">use_ssl (S3) 0/1</label><input name="cfg_use_ssl" value="1" class="r-input w-full tabular-nums"></div>
           <div><label class="block t-small mb-1" style="color:rgb(var(--muted))">path_style (S3) 0/1</label><input name="cfg_path_style" value="0" class="r-input w-full tabular-nums"></div>

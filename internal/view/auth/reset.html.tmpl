@@ -25,11 +25,11 @@
       <input type="hidden" name="token" value="{{.Token}}">
       <div>
         <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">New password</label>
-        <input name="password" type="password" minlength="12" required autofocus class="r-input w-full">
+        <input name="password" type="password" autocomplete="new-password" minlength="12" required autofocus class="r-input w-full">
       </div>
       <div>
         <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Confirm password</label>
-        <input name="password_confirm" type="password" minlength="12" required class="r-input w-full">
+        <input name="password_confirm" type="password" autocomplete="new-password" minlength="12" required class="r-input w-full">
       </div>
       <button class="r-btn-primary w-full cursor-pointer">Set password</button>
     </form>

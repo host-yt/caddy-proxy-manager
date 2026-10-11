@@ -23,7 +23,7 @@
 </div>
 {{end}}
 
-<form method="POST" action="/install/db" style="display:flex;flex-direction:column;gap:0.875rem;">
+<form autocomplete="off" method="POST" action="/install/db" style="display:flex;flex-direction:column;gap:0.875rem;">
   {{/* --- DB driver radio cards --- */}}
   <div style="margin-bottom:0.5rem;">
     <p class="t-caption" style="font-weight:600;margin-bottom:0.5rem;">Database engine</p>
@@ -77,7 +77,7 @@
       </div>
       <div>
         <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Password</label>
-        <input name="password" type="password" class="r-input">
+        <input name="password" type="password" autocomplete="new-password" class="r-input">
       </div>
     </div>
     <label style="display:flex;align-items:center;gap:0.5rem;cursor:pointer;" class="t-small">
