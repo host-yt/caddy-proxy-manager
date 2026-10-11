@@ -594,7 +594,7 @@
       </button>
     </div>
 
-    <form method="POST" action="/admin/settings/smtp" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <form autocomplete="off" method="POST" action="/admin/settings/smtp" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
         <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="smtp-host">Host</label>
@@ -618,7 +618,7 @@
       </div>
       <div>
         <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-password">Password {{if .SMTP.HasPassword}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-        <input id="f-password" name="password" type="password" placeholder="{{if .SMTP.HasPassword}}leave blank to keep{{end}}" class="r-input">
+        <input id="f-password" name="password" type="password" autocomplete="new-password" placeholder="{{if .SMTP.HasPassword}}leave blank to keep{{end}}" class="r-input">
       </div>
       <div>
         <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-from_email">From email</label>
@@ -640,7 +640,7 @@
     <p class="t-eyebrow mb-1">Auth &amp; access</p>
     <h2 class="t-h3 mb-2">OIDC / Single sign-on</h2>
     <p class="t-small mb-4" style="color:rgb(var(--muted))">Works with Authentik, Microsoft Entra ID, and any standards-compliant OIDC provider.</p>
-    <form id="oidc-form" method="POST" action="/admin/settings/oidc" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <form autocomplete="off" id="oidc-form" method="POST" action="/admin/settings/oidc" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
         <label class="r-toggle">
@@ -729,7 +729,7 @@
     <p class="t-small mb-4" style="color:rgb(var(--muted))">Plain OAuth2 sign-in that runs alongside OIDC. Create an OAuth app on each provider, then paste its client id + secret. The secret is stored encrypted at rest.</p>
     <div class="space-y-6">
       {{range .OAuthProviders}}
-      <form method="POST" action="/admin/settings/oauth-provider/{{.Provider}}" class="grid grid-cols-1 sm:grid-cols-2 gap-4" style="border-top:1px solid rgb(var(--border));padding-top:1.5rem">
+      <form autocomplete="off" method="POST" action="/admin/settings/oauth-provider/{{.Provider}}" class="grid grid-cols-1 sm:grid-cols-2 gap-4" style="border-top:1px solid rgb(var(--border));padding-top:1.5rem">
         <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
         <div class="sm:col-span-2 flex items-center gap-2">
           {{if eq .Provider "github"}}
@@ -792,7 +792,7 @@
     <p class="t-eyebrow mb-1">Auth &amp; access</p>
     <h2 class="t-h3 mb-2">CAPTCHA on login</h2>
     <p class="t-small mb-4" style="color:rgb(var(--muted))">Protect the login form from bots. Pick a provider, paste its keys, save. Pick <b>None</b> to disable.</p>
-    <form method="POST" action="/admin/settings/turnstile" id="captcha-form">
+    <form autocomplete="off" method="POST" action="/admin/settings/turnstile" id="captcha-form">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <input type="hidden" name="provider" id="captcha-provider" value="{{.Turnstile.Provider}}">
 
@@ -825,7 +825,7 @@
         </div>
         <div>
           <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-secret">Secret key {{if .Turnstile.HasSecret}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input id="f-secret" name="secret" type="password" placeholder="{{if .Turnstile.HasSecret}}leave blank to keep{{end}}" class="r-input">
+          <input id="f-secret" name="secret" type="password" autocomplete="new-password" placeholder="{{if .Turnstile.HasSecret}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
@@ -876,7 +876,7 @@
     <p class="t-eyebrow mb-1">Infrastructure</p>
     <h2 class="t-h3 mb-2">Cloudflare account integration</h2>
     <p class="t-small mb-4" style="color:rgb(var(--muted))">Account-level Cloudflare integration: an API token (verified on save) lets the panel call Cloudflare APIs. Use a <strong>user</strong> API token - account-owned tokens and the legacy Global API Key are rejected. This is <strong>not</strong> the same as the per-zone DNS credentials used for ACME DNS-01 wildcard certificates - those are configured per-domain in the DNS providers section.</p>
-    <form method="POST" action="/admin/settings/cloudflare" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <form autocomplete="off" method="POST" action="/admin/settings/cloudflare" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
         <label class="r-toggle">
@@ -891,7 +891,7 @@
       </div>
       <div>
         <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-api_token">API token {{if .Cloudflare.HasToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-        <input id="f-api_token" name="api_token" type="password" placeholder="{{if .Cloudflare.HasToken}}leave blank to keep{{end}}" class="r-input">
+        <input id="f-api_token" name="api_token" type="password" autocomplete="new-password" placeholder="{{if .Cloudflare.HasToken}}leave blank to keep{{end}}" class="r-input">
       </div>
       <div class="sm:col-span-2">
         <label class="r-toggle">
@@ -917,7 +917,7 @@
     </div>
     <h2 class="t-h3 mb-2">AI assistant</h2>
     <p class="t-small mb-4" style="color:rgb(var(--muted))">Configure an LLM provider for the in-app assistant. API keys are stored AES-256-GCM encrypted at rest and never shown again - leave a field blank to keep the existing key. Use <strong>Test</strong> to verify a saved key with a minimal request.</p>
-    <form method="POST" action="/admin/settings/ai" class="space-y-4">
+    <form autocomplete="off" method="POST" action="/admin/settings/ai" class="space-y-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <!-- hidden input kept in sync by the card-picker JS below; Go handler reads "default_provider" -->
       <input type="hidden" id="ai-provider-input" name="default_provider" value="{{.AI.DefaultProvider}}">
@@ -1025,7 +1025,7 @@
       </div>
       {{end}}
       <div class="sm:col-span-2 flex justify-end">
-        <button class="r-btn-primary">Save WireGuard (generates keypair)</button>
+        <button class="r-btn-primary">Save WireGuard</button>
       </div>
     </form>
   </section>
@@ -1034,7 +1034,7 @@
   <section data-settings-pane="acme" class="hpg-settings-pane hidden r-card">
     <p class="t-eyebrow mb-1">Infrastructure</p>
     <h2 class="t-h3 mb-4">ACME / TLS</h2>
-    <form method="POST" action="/admin/settings/acme" class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="acme-form">
+    <form autocomplete="off" method="POST" action="/admin/settings/acme" class="grid grid-cols-1 sm:grid-cols-2 gap-4" id="acme-form">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="sm:col-span-2">
         <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-email">ACME contact email</label>
@@ -1310,7 +1310,7 @@
     <h2 class="t-h3 mb-2">GeoIP database (MaxMind GeoLite2)</h2>
     <p class="t-small mb-4" style="color:rgb(var(--muted))">Enter your free MaxMind account ID + license key. The panel downloads GeoLite2-Country daily and distributes it to every Caddy node over the tunnel, so per-route country blocking works without manual file placement.</p>
 
-    <form method="POST" action="/admin/settings/geoip" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <form autocomplete="off" method="POST" action="/admin/settings/geoip" class="grid grid-cols-1 sm:grid-cols-2 gap-4">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div>
         <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-account_id-2">MaxMind account ID</label>
@@ -1371,7 +1371,7 @@
     <h2 class="t-h3 mb-2">SMS provider</h2>
     <p class="t-small mb-4" style="color:rgb(var(--muted))">Used for security alerts and (optionally) 2FA SMS fallback. Pick a gateway below - only its fields will be shown.</p>
 
-    <form method="POST" action="/admin/settings/sms">
+    <form autocomplete="off" method="POST" action="/admin/settings/sms">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <!-- sms_provider value is kept in sync by the card-picker JS below -->
       <input type="hidden" id="sms_provider_input" name="sms_provider" value="{{if .SMS.Provider}}{{.SMS.Provider}}{{else}}bulkgate{{end}}">
@@ -1424,7 +1424,7 @@
         </div>
         <div>
           <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-bulkgate_app_token">BulkGate Application Token {{if .SMS.HasBulkGateToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input id="f-bulkgate_app_token" name="bulkgate_app_token" type="password" placeholder="{{if .SMS.HasBulkGateToken}}leave blank to keep{{end}}" class="r-input">
+          <input id="f-bulkgate_app_token" name="bulkgate_app_token" type="password" autocomplete="new-password" placeholder="{{if .SMS.HasBulkGateToken}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
@@ -1436,7 +1436,7 @@
         </div>
         <div>
           <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-twilio_auth_token">Twilio Auth Token {{if .SMS.HasTwilioToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input id="f-twilio_auth_token" name="twilio_auth_token" type="password" placeholder="{{if .SMS.HasTwilioToken}}leave blank to keep{{end}}" class="r-input">
+          <input id="f-twilio_auth_token" name="twilio_auth_token" type="password" autocomplete="new-password" placeholder="{{if .SMS.HasTwilioToken}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
@@ -1448,7 +1448,7 @@
         </div>
         <div>
           <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-smsapi_token">SMSAPI OAuth token {{if .SMS.HasSMSAPIToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input id="f-smsapi_token" name="smsapi_token" type="password" placeholder="{{if .SMS.HasSMSAPIToken}}leave blank to keep{{end}}" class="r-input" data-sms-required="smsapi">
+          <input id="f-smsapi_token" name="smsapi_token" type="password" autocomplete="new-password" placeholder="{{if .SMS.HasSMSAPIToken}}leave blank to keep{{end}}" class="r-input" data-sms-required="smsapi">
         </div>
       </div>
 
@@ -1460,7 +1460,7 @@
         </div>
         <div>
           <label class="block t-caption mb-1" style="color:rgb(var(--text))" for="f-webhook_token">Webhook Bearer token {{if .SMS.HasWebhookToken}}<span class="r-pill r-pill-success" style="font-size:.6rem">saved</span>{{end}}</label>
-          <input id="f-webhook_token" name="webhook_token" type="password" placeholder="{{if .SMS.HasWebhookToken}}leave blank to keep{{end}}" class="r-input">
+          <input id="f-webhook_token" name="webhook_token" type="password" autocomplete="new-password" placeholder="{{if .SMS.HasWebhookToken}}leave blank to keep{{end}}" class="r-input">
         </div>
       </div>
 
@@ -1615,6 +1615,10 @@
     if (hash && knownTab(hash)) activate(hash);
     else if (qtab && knownTab(qtab)) activate(qtab);
     else if (saved && knownTab(saved)) activate(saved);
+  });
+  window.addEventListener('hashchange', function(){
+    var h = location.hash.slice(1);
+    if (h && knownTab(h)) activate(h);
   });
 
   // Appearance picker

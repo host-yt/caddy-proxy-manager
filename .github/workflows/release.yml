@@ -71,6 +71,8 @@ jobs:
           context: .
           file: Dockerfile
           platforms: ${{ matrix.platform }}
+          build-args: |
+            VERSION=${{ github.ref_name }}
           # source label auto-links the ghcr package to this repo even when
           # pushed with a PAT (GHCR_TOKEN); without it packages end up unlinked
           labels: |

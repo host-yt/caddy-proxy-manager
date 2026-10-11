@@ -110,10 +110,10 @@ func (h *AdminHandlers) BackupsPage(w http.ResponseWriter, r *http.Request) {
 				ArtifactKey: j.ArtifactKey,
 			}
 			if !j.StartedAt.IsZero() {
-				row.StartedAt = j.StartedAt.Format(time.RFC3339)
+				row.StartedAt = j.StartedAt.Format("2006-01-02 15:04")
 			}
 			if !j.FinishedAt.IsZero() {
-				row.FinishedAt = j.FinishedAt.Format(time.RFC3339)
+				row.FinishedAt = j.FinishedAt.Format("2006-01-02 15:04")
 			}
 			d.Jobs = append(d.Jobs, row)
 		}
@@ -335,8 +335,8 @@ func (h *AdminHandlers) loadDrillStatus(ctx context.Context) drillStatusRow {
 	stale := successInt == 0 || time.Since(finishedAt) > 7*24*time.Hour
 	return drillStatusRow{
 		HasRun:       true,
-		StartedAt:    startedAt.Format(time.RFC3339),
-		FinishedAt:   finishedAt.Format(time.RFC3339),
+		StartedAt:    startedAt.Format("2006-01-02 15:04"),
+		FinishedAt:   finishedAt.Format("2006-01-02 15:04"),
 		Success:      successInt == 1,
 		RowsReplayed: rowsReplayed,
 		ErrorMsg:     errMsg,

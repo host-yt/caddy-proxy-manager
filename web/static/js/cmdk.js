@@ -51,13 +51,13 @@
     var li = document.createElement('li');
     li.setAttribute('role', 'option');
     li.setAttribute('data-idx', i);
-    li.className = 'flex items-center gap-3 px-4 py-2.5 cursor-pointer select-none hover:bg-slate-50 dark:hover:bg-zinc-800 text-sm';
+    li.className = 'flex items-center gap-3 px-4 py-2.5 cursor-pointer select-none text-sm';
     var badge = r.kind === 'nav'
       ? '<svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" class="shrink-0 opacity-40"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>'
       : '<span class="shrink-0 px-1.5 py-0.5 rounded text-[10px] font-medium ' + (kindClass[r.kind] || '') + '">' + escHtml(r.kind) + '</span>';
     li.innerHTML = badge +
-      '<span class="flex-1 min-w-0"><span class="block truncate text-slate-900 dark:text-slate-100">' + escHtml(r.label) + '</span>' +
-      (r.sub ? '<span class="block truncate text-xs text-slate-400 dark:text-slate-500">' + escHtml(r.sub) + '</span>' : '') + '</span>';
+      '<span class="flex-1 min-w-0"><span class="block truncate hpg-cmdk-label">' + escHtml(r.label) + '</span>' +
+      (r.sub ? '<span class="block truncate text-xs hpg-cmdk-sub">' + escHtml(r.sub) + '</span>' : '') + '</span>';
     li.addEventListener('click', function () { navigate(i); });
     li.addEventListener('mouseenter', function () { setCursor(i); });
     return li;
@@ -66,11 +66,11 @@
   function render(results, message) {
     items = results; cursor = -1; list.innerHTML = '';
     if (message) {
-      list.innerHTML = '<li class="px-4 py-3 text-sm text-slate-400 dark:text-slate-600">' + escHtml(message) + '</li>';
+      list.innerHTML = '<li class="px-4 py-3 text-sm hpg-cmdk-sub">' + escHtml(message) + '</li>';
       return;
     }
     if (!results.length) {
-      list.innerHTML = '<li class="px-4 py-3 text-sm text-slate-400 dark:text-slate-600">No results</li>';
+      list.innerHTML = '<li class="px-4 py-3 text-sm hpg-cmdk-sub">No results</li>';
       return;
     }
     results.forEach(function (r, i) { list.appendChild(renderRow(r, i)); });
@@ -79,10 +79,10 @@
 
   function setCursor(idx) {
     var els = list.querySelectorAll('[data-idx]');
-    els.forEach(function (el) { el.classList.remove('bg-slate-50', 'dark:bg-zinc-800'); });
+    els.forEach(function (el) { el.classList.remove('is-active'); });
     cursor = idx;
     if (idx >= 0 && idx < els.length) {
-      els[idx].classList.add('bg-slate-50', 'dark:bg-zinc-800');
+      els[idx].classList.add('is-active');
       els[idx].scrollIntoView({ block: 'nearest' });
     }
   }

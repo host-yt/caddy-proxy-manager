@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	mysqldrv "github.com/go-sql-driver/mysql"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/backup"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -196,5 +197,15 @@ func TestRunDrillRejectsModifiedArtifact(t *testing.T) {
 	}
 	if _, err := j.runDrill(ctx); err == nil || !strings.Contains(err.Error(), "sha256 mismatch") {
 		t.Fatalf("modified artifact: want sha256 mismatch, got %v", err)
+	}
+}
+
+func TestCreateDBErrorAccessDenied(t *testing.T) {
+	err := createDBError("x", &mysqldrv.MySQLError{Number: 1044, Message: "denied"})
+	if !strings.Contains(err.Error(), "set HPG_DRILL_DSN") {
+		t.Fatalf("missing hint: %v", err)
+	}
+	if strings.Contains(createDBError("x", errors.New("boom")).Error(), "HPG_DRILL_DSN") {
+		t.Fatal("unexpected hint")
 	}
 }

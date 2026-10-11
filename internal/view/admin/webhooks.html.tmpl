@@ -58,7 +58,7 @@
 
   <section class="r-card">
     <h2 class="t-h3 mb-3" style="color:rgb(var(--text))">Add endpoint</h2>
-    <form method="POST" action="/admin/webhooks" class="space-y-3 text-sm max-w-2xl">
+    <form autocomplete="off" method="POST" action="/admin/webhooks" class="space-y-3 text-sm max-w-2xl">
       <input type="hidden" name="csrf_token" value="{{.CSRF}}">
       <div class="grid grid-cols-2 gap-3">
         <div>
@@ -76,7 +76,7 @@
       </div>
       <div>
         <label class="block t-small mb-1" style="color:rgb(var(--muted))" for="f-secret">HMAC secret (stored encrypted; receiver verifies <code>X-HPG-Signature</code>)</label>
-        <input id="f-secret" name="secret" type="password" class="r-input w-full">
+        <input id="f-secret" name="secret" type="password" autocomplete="new-password" class="r-input w-full">
       </div>
       <label class="flex items-center gap-2 t-small cursor-pointer" style="color:rgb(var(--text))">
         <input type="checkbox" name="enabled" value="1" checked class="r-toggle"> Enabled

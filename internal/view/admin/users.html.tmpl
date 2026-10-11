@@ -166,7 +166,7 @@
         </div>
         <button type="button" id="usr-modal-close" class="text-[rgb(var(--muted))] hover:text-[rgb(var(--text))] text-xl leading-none cursor-pointer">&times;</button>
       </div>
-      <form id="usr-form" method="POST" action="/admin/users" class="space-y-4 text-sm">
+      <form autocomplete="off" id="usr-form" method="POST" action="/admin/users" class="space-y-4 text-sm">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div>
           <label class="t-eyebrow block mb-1.5">Full name</label>
@@ -178,7 +178,7 @@
         </div>
         <div>
           <label id="usr-pw-label" class="t-eyebrow block mb-1.5">Initial password</label>
-          <input id="usr-pw-input" name="password" type="password" minlength="12" required class="r-input w-full">
+          <input id="usr-pw-input" name="password" type="password" autocomplete="new-password" minlength="12" required class="r-input w-full">
         </div>
         <div>
           <label class="t-eyebrow block mb-1.5">Role</label>

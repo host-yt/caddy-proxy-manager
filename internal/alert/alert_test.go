@@ -34,6 +34,14 @@ func TestDedupeKeyStableAndSorted(t *testing.T) {
 	}
 }
 
+func TestDedupeKeyIgnoresMeasurements(t *testing.T) {
+	a := Alert{RuleID: "wg_tunnel_stale", Labels: map[string]string{"peer_id": "20", "age_sec": "100"}}
+	b := Alert{RuleID: "wg_tunnel_stale", Labels: map[string]string{"peer_id": "20", "age_sec": "160"}}
+	if dedupeKey(a) != dedupeKey(b) {
+		t.Fatalf("growing age_sec must not change the key: %q vs %q", dedupeKey(a), dedupeKey(b))
+	}
+}
+
 func TestDedupeKeyDistinctEntities(t *testing.T) {
 	a := Alert{RuleID: "route_failed", Labels: map[string]string{"route_id": "1"}}
 	b := Alert{RuleID: "route_failed", Labels: map[string]string{"route_id": "2"}}

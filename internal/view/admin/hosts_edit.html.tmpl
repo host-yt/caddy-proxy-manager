@@ -1064,8 +1064,9 @@ X-Authentik-Meta-Version</pre>
           var keys = Object.keys(selected).filter(function(k){return selected[k];});
           input.value = keys.join(',');
           summary.classList.toggle('text-muted', keys.length===0);
-          summary.textContent = keys.length===0 ? ('No '+kind+'s selected')
-            : (keys.length+' '+kind+(keys.length>1?'s':'')+' selected');
+          var plural = kind==='country' ? 'countries' : kind+'s';
+          summary.textContent = keys.length===0 ? ('No '+plural+' selected')
+            : (keys.length+' '+(keys.length>1?plural:kind)+' selected');
         }
         function render(filter){
           filter=(filter||'').trim().toLowerCase();

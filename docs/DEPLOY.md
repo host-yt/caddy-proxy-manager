@@ -224,6 +224,8 @@ All six default to `0`.
 | `app_data` Docker volume | contains the install state file and any uploaded assets |
 | `.env` file | offline, encrypted storage |
 
+`HPG_DRILL_DSN`: restore-drill target for DB users without CREATE DATABASE (shared hosting) - DSN of an existing empty dedicated database; its tables are dropped on every run.
+
 **Daily MariaDB dump (example cron):**
 
 Do not dump as root or put any password on the command line: argv is visible to

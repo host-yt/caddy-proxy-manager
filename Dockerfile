@@ -73,7 +73,7 @@ ARG TARGETOS
 ARG TARGETARCH
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} \
     go build -trimpath \
-      -ldflags="-s -w -X main.version=${VERSION}" \
+      -ldflags="-s -w -X github.com/host-yt/caddy-proxy-manager/internal/buildinfo.Version=${VERSION}" \
       -o /out/server ./cmd/server
 
 # Operator restore tool (issue #6): decrypts .tgz.age backup artifacts.

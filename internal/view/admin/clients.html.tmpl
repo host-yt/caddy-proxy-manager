@@ -184,7 +184,7 @@
       </div>
       <p class="t-caption mb-5">Clients are customer accounts that own services and hosts. Panel login accounts with roles live under Users.</p>
 
-      <form id="cli-form" method="POST" action="/admin/clients" class="space-y-4 text-sm">
+      <form autocomplete="off" id="cli-form" method="POST" action="/admin/clients" class="space-y-4 text-sm">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div>
           <label class="t-eyebrow block mb-1.5">Display name</label>
@@ -197,7 +197,7 @@
         <!-- Create-only: password is set on creation, never touched on edit. -->
         <div id="cli-password-field">
           <label class="t-eyebrow block mb-1.5">Initial password</label>
-          <input name="password" type="password" minlength="12" class="r-input w-full">
+          <input name="password" type="password" autocomplete="new-password" minlength="12" class="r-input w-full">
           <p class="t-caption mt-1">Min 12 chars. Give it to the customer; they'll change it after first login.</p>
         </div>
         <div>

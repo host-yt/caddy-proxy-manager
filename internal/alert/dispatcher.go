@@ -173,12 +173,17 @@ func sendTelegram(ctx context.Context, token, chatID, text string) error {
 	return nil
 }
 
+// volatileLabels are measurements that change every tick; keying on them defeats the cooldown.
+var volatileLabels = map[string]bool{"age_sec": true, "pct": true, "error_pct": true, "blocks": true}
+
 // dedupeKey builds a stable string from rule_id + labels (sorted keys) so
 // the cooldown is per-entity (e.g. "node_offline|node_id=3"), not fleet-wide.
 func dedupeKey(a Alert) string {
 	keys := make([]string, 0, len(a.Labels))
 	for k := range a.Labels {
-		keys = append(keys, k)
+		if !volatileLabels[k] {
+			keys = append(keys, k)
+		}
 	}
 	sort.Strings(keys)
 	var b strings.Builder

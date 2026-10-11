@@ -5,7 +5,7 @@
   Used for password resets and notifications. Leave blank and click Skip to
   configure later from the admin panel.
 </p>
-<form method="POST" action="/install/smtp" style="display:flex;flex-direction:column;gap:0.875rem;">
+<form autocomplete="off" method="POST" action="/install/smtp" style="display:flex;flex-direction:column;gap:0.875rem;">
   <div style="display:grid;grid-template-columns:2fr 1fr;gap:0.75rem;">
     <div>
       <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">SMTP host</label>
@@ -31,7 +31,7 @@
     </div>
     <div>
       <label class="t-caption" style="display:block;font-weight:600;margin-bottom:0.375rem;">Password</label>
-      <input name="password" type="password" class="r-input">
+      <input name="password" type="password" autocomplete="new-password" class="r-input">
     </div>
   </div>
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;">

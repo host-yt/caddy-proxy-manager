@@ -3895,6 +3895,11 @@ func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
 		for rows.Next() {
 			var a auditRow
 			if err := rows.Scan(&a.CreatedAt, &a.ActorLabel, &a.Action, &a.Entity, &a.EntityID, &a.IP); err == nil {
+				if t, e := time.Parse(time.RFC3339, a.CreatedAt); e == nil {
+					a.CreatedAt = t.Format("2006-01-02 15:04")
+				} else if len(a.CreatedAt) > 16 {
+					a.CreatedAt = a.CreatedAt[:16]
+				}
 				d.Entries = append(d.Entries, a)
 			}
 		}
