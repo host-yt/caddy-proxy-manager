@@ -65,8 +65,16 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 	var rules []pathRule
 	for rows.Next() {
 		var p pathRule
-		_ = rows.Scan(&p.Pattern, &p.RoleName)
+		if err := rows.Scan(&p.Pattern, &p.RoleName); err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
 		rules = append(rules, p)
+	}
+	// A partial rule set could omit the rule guarding this path: fail closed.
+	if err := rows.Err(); err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
 	}
 	if len(rules) == 0 {
 		w.WriteHeader(http.StatusOK)
@@ -120,11 +128,10 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var count int
-	_ = db.QueryRowContext(ctx, `
+	if err := db.QueryRowContext(ctx, `
 		SELECT COUNT(*) FROM mtls_cert_roles cr
 		  JOIN mtls_roles ro ON ro.id = cr.role_id
-		 WHERE cr.cert_id = ? AND ro.name = ?`, certID, requiredRole).Scan(&count)
-	if count == 0 {
+		 WHERE cr.cert_id = ? AND ro.name = ?`, certID, requiredRole).Scan(&count); err != nil || count == 0 {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
