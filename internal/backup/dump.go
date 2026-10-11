@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"strings"
@@ -258,7 +259,12 @@ func writeValue(w io.Writer, v any, ct *sql.ColumnType) error {
 	}
 	switch x := v.(type) {
 	case []byte:
-		// MySQL returns most non-numeric columns as []byte.
+		// MySQL returns most non-numeric columns as []byte. Binary data goes out
+		// as hex: a quoted literal is reinterpreted as utf8mb4 on restore.
+		if isBinaryColumn(ct) {
+			_, err := io.WriteString(w, "X'"+hex.EncodeToString(x)+"'")
+			return err
+		}
 		return writeQuoted(w, string(x))
 	case string:
 		return writeQuoted(w, x)
@@ -278,6 +284,18 @@ func writeValue(w io.Writer, v any, ct *sql.ColumnType) error {
 	default:
 		// Fallback: format and quote.
 		return writeQuoted(w, fmt.Sprintf("%v", x))
+	}
+}
+
+func isBinaryColumn(ct *sql.ColumnType) bool {
+	if ct == nil {
+		return false
+	}
+	switch n := ct.DatabaseTypeName(); n {
+	case "BINARY", "VARBINARY", "BIT":
+		return true
+	default:
+		return strings.HasSuffix(n, "BLOB")
 	}
 }
 

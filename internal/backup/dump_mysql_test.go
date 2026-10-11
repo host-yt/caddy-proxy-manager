@@ -164,3 +164,57 @@ func TestDumpMySQLEndToEnd(t *testing.T) {
 		t.Fatalf("post-dump query got %d rows, want 2", n)
 	}
 }
+
+// Binary columns must survive dump+replay byte-for-byte, including bytes that
+// are invalid utf8mb4 or would need escaping in a quoted literal.
+func TestDumpMySQLBinaryColumnsRoundTrip(t *testing.T) {
+	prev := store.Driver()
+	store.SetDriver("mysql")
+	t.Cleanup(func() { store.SetDriver(prev) })
+
+	db := openIsolatedMySQLTestDB(t)
+	ctx := context.Background()
+
+	if _, err := db.ExecContext(ctx, `CREATE TABLE bin (id INT PRIMARY KEY,
+		b BINARY(16), vb VARBINARY(64), bl BLOB, mbl MEDIUMBLOB, txt VARCHAR(32))`); err != nil {
+		t.Fatalf("create table: %v", err)
+	}
+	val := []byte("\x00\xff\xfe'\\\"\n\r\x1a;\x80\xc3(abc")
+	if _, err := db.ExecContext(ctx, "INSERT INTO bin VALUES (1, ?, ?, ?, ?, ?)",
+		val, val, val, val, "plain 'text'"); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var buf bytes.Buffer
+	if err := DumpDatabase(ctx, db, &buf); err != nil {
+		t.Fatalf("DumpDatabase: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "DROP TABLE bin"); err != nil {
+		t.Fatalf("drop: %v", err)
+	}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	for _, stmt := range SplitSQLStatements(buf.String()) {
+		if _, err := conn.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("replay %q: %v", stmt, err)
+		}
+	}
+
+	var b, vb, bl, mbl []byte
+	var txt string
+	if err := db.QueryRowContext(ctx, "SELECT b, vb, bl, mbl, txt FROM bin WHERE id=1").
+		Scan(&b, &vb, &bl, &mbl, &txt); err != nil {
+		t.Fatalf("select: %v", err)
+	}
+	for name, got := range map[string][]byte{"binary": b, "varbinary": vb, "blob": bl, "mediumblob": mbl} {
+		if !bytes.Equal(got, val) {
+			t.Errorf("%s: got %x want %x", name, got, val)
+		}
+	}
+	if txt != "plain 'text'" {
+		t.Errorf("text column: got %q", txt)
+	}
+}
