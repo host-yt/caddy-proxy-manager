@@ -1008,7 +1008,7 @@ X-Authentik-Meta-Version</pre>
         <input type="checkbox" id="geo_fail_closed" name="geo_fail_closed" value="1" {{if .GeoFailClosed}}checked{{end}} class="mt-0.5 cursor-pointer">
         <div>
           <label for="geo_fail_closed" class="block t-caption font-medium text-[rgb(var(--text))] cursor-pointer">Fail closed</label>
-          <span class="t-caption text-muted">Block all traffic when GeoIP database is unavailable (default: allow through).</span>
+          <span class="t-caption text-muted">While the node's GeoIP module or country database is unavailable, block everything except the IP allow-list (default). Unticking serves this host with no country filtering in that case.</span>
         </div>
       </div>
       <div>

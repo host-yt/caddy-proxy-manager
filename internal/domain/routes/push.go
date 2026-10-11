@@ -625,10 +625,28 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 	return np, nil
 }
 
+// logModuleGaps names every route whose enforcement module is missing on this
+// node, so the gap shows in logs and not only on the node page.
+func (s *Service) logModuleGaps(nodeID int64, built []caddyapi.Route, st caddyapi.NodeSettings) {
+	for _, r := range built {
+		mode := strings.ToLower(strings.TrimSpace(r.GeoMode))
+		if (mode == "allow" || mode == "deny") && !st.GeoModuleAvailable {
+			if r.GeoFailClosed {
+				s.Logger.Warn("GeoIP unavailable on node: geo-restricted route is denying traffic until it is restored",
+					"node_id", nodeID, "route_id", r.ID)
+			} else {
+				s.Logger.Warn("GeoIP unavailable on node: geo-restricted route served WITHOUT country filtering (fail-open)",
+					"node_id", nodeID, "route_id", r.ID)
+			}
+		}
+	}
+}
+
 // loadNodeConfig POSTs the full config (/load) and records the per-route drift
 // fingerprint. The caller MUST hold the per-node lock.
 func (s *Service) loadNodeConfig(ctx context.Context, nodeID int64, np *nodePush) error {
 	seq := np.pendingSeq
+	s.logModuleGaps(nodeID, np.built, np.settings)
 	client := s.NodeClient(ctx, nodeID, np.apiURL)
 	if err := client.Load(ctx, np.cfg); err != nil {
 		// One tenant's custom SecLang must not hold a whole node's config

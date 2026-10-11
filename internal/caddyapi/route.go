@@ -1874,7 +1874,8 @@ func geoBlockResponse(r Route) map[string]any {
 }
 
 // GeoAllowCIDRs: IPs/CIDRs added as a NOT remote_ip condition, bypassing the block.
-// GeoFailClosed: when module unavailable, block all traffic instead of passing through.
+// GeoFailClosed: when the module or country DB is unavailable, block everything
+// but the allow-list instead of serving the route unfiltered.
 func buildGeoBlock(r Route) map[string]any {
 	mode := strings.ToLower(strings.TrimSpace(r.GeoMode))
 	if mode != "allow" && mode != "deny" {
@@ -1882,20 +1883,6 @@ func buildGeoBlock(r Route) map[string]any {
 	}
 
 	denyResp := geoBlockResponse(r)
-
-	if !r.GeoModuleAvailable {
-		if !r.GeoFailClosed {
-			return nil
-		}
-		// Fail-closed: block everything when geo module is missing.
-		return map[string]any{
-			"handler": "subroute",
-			"routes": []any{map[string]any{
-				"handle":   []any{denyResp},
-				"terminal": true,
-			}},
-		}
-	}
 
 	// Collect country codes; expand any selected continent to its member ISO
 	// codes (the maxmind module matches only on country, so continents are
@@ -1927,6 +1914,20 @@ func buildGeoBlock(r Route) map[string]any {
 
 	// Parse CIDR allow-list; matching IPs skip the country block.
 	allowRanges := splitCIDRList(r.GeoAllowCIDRs, true)
+
+	if !r.GeoModuleAvailable {
+		if !r.GeoFailClosed {
+			return nil
+		}
+		// Stock remote_ip only: the maxmind matcher is exactly what is missing.
+		deny := map[string]any{"handle": []any{denyResp}, "terminal": true}
+		if len(allowRanges) > 0 {
+			deny["match"] = []any{map[string]any{
+				"not": []any{map[string]any{"remote_ip": map[string]any{"ranges": allowRanges}}},
+			}}
+		}
+		return map[string]any{"handler": "subroute", "routes": []any{deny}}
+	}
 
 	// The maxmind matcher returns TRUE when the request is PERMITTED (country
 	// not in deny list / in allow list), so the terminal-deny route must fire on

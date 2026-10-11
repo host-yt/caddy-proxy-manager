@@ -430,6 +430,10 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 	if d.GroupID.Int64 > 0 {
 		d.GroupID.Valid = true
 	}
+	// Turning geo on should start fail-closed even where the column default could not be changed (SQLite).
+	if d.GeoMode == "" || d.GeoMode == "off" {
+		d.GeoFailClosed = true
+	}
 	d.NodePQCapable = caddyapi.CaddySupportsPQCurve(d.NodeCaddyVersion)
 	if !d.NodePQCapable {
 		d.PQBlockingNode, d.PQBlockingVersion = d.NodeName, d.NodeCaddyVersion
