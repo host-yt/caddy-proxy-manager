@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"database/sql"
 	"net/http"
 	"strconv"
 	"strings"
@@ -406,16 +407,16 @@ func (h *AdminHandlers) BackupsSaveSchedule(w http.ResponseWriter, r *http.Reque
 		http.Error(w, "db not ready", http.StatusServiceUnavailable)
 		return
 	}
-	set := func(k, v string) {
-		_, _ = db.ExecContext(ctx, store.UpsertSettingSQL(), k, v, 0)
-	}
-	set("backup.schedule_interval_hours", strconv.Itoa(intervalH))
-	set("backup.retention_days", strconv.Itoa(retentionD))
 	encVal := "1"
 	if !encrypt {
 		encVal = "0"
 	}
-	set("backup.encrypt", encVal)
+	// One tx: a partial write could silently disable backups or encryption.
+	if err := saveBackupSchedule(ctx, db, strconv.Itoa(intervalH), strconv.Itoa(retentionD), encVal); err != nil {
+		h.Logger.Warn("backup schedule save", "err", err)
+		redirectWithFlash(w, r, "/admin/backups", "", "schedule save failed")
+		return
+	}
 	sess := middleware.SessionFromContext(r.Context())
 	var uid int64
 	if sess != nil {
@@ -426,4 +427,22 @@ func (h *AdminHandlers) BackupsSaveSchedule(w http.ResponseWriter, r *http.Reque
 		Meta: map[string]any{"interval_hours": intervalH, "retention_days": retentionD, "encrypt": encrypt},
 	})
 	redirectWithFlash(w, r, "/admin/backups", "schedule saved", "")
+}
+
+func saveBackupSchedule(ctx context.Context, db *sql.DB, interval, retention, encrypt string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, kv := range [][2]string{
+		{"backup.schedule_interval_hours", interval},
+		{"backup.retention_days", retention},
+		{"backup.encrypt", encrypt},
+	} {
+		if _, err := tx.ExecContext(ctx, store.UpsertSettingSQL(), kv[0], kv[1], 0); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
