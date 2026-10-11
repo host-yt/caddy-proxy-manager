@@ -23,6 +23,16 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-11
+
+Security and reliability release from a full internal code review. **Upgrade
+promptly**, especially on shared, reseller or multi-node installs: many fixes
+tighten tenant scoping, authentication and node isolation. Several defaults
+now fail closed (GeoIP policies, WAF on nodes without Coraza, the plain-HTTP
+installer, scoped admins without a resolvable scope). Read the upgrade notes
+before updating: migrations 00166-00171 run on start, a new node-agent image
+is needed, and a few API and Terraform behaviours change.
+
 ### Added
 
 - Terraform `hpg_reseller.owner_password_wo` (write-only, Terraform 1.11+)
