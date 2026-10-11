@@ -14,6 +14,7 @@ import (
 	"errors"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
@@ -35,6 +36,8 @@ type Service struct {
 	mu  sync.RWMutex
 	cfg Config
 	at  time.Time
+	// refreshing lets one caller reload while the rest serve the cached cfg.
+	refreshing atomic.Bool
 }
 
 func New(db func() *sql.DB, state *installstate.Manager) *Service {
@@ -103,7 +106,8 @@ func (s *Service) maybeRefresh() {
 	s.mu.RLock()
 	stale := time.Since(s.at) > 30*time.Second
 	s.mu.RUnlock()
-	if stale {
+	if stale && s.refreshing.CompareAndSwap(false, true) {
+		defer s.refreshing.Store(false)
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
 		s.Refresh(ctx)
