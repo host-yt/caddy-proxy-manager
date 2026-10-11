@@ -55,6 +55,10 @@ func openResolveTestDB(t *testing.T) *sql.DB {
 			bytes_resp INTEGER, bytes_req INTEGER,
 			PRIMARY KEY (route_id, bucket_start)
 		)`,
+		`CREATE TABLE access_log_batches (
+			batch_hash TEXT NOT NULL PRIMARY KEY,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+		)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -269,5 +273,47 @@ func TestIngest_StoreFailureNotAcked(t *testing.T) {
 func TestTruncUTF8(t *testing.T) {
 	if got := truncUTF8("aé", 2); got != "a" {
 		t.Fatalf("truncUTF8 = %q, want %q", got, "a")
+	}
+}
+
+// TestIngest_RetryAfterLostAckNotDoubleCounted: the agent resends a committed
+// batch when the 204 is lost; the resend must ack without storing it again.
+func TestIngest_RetryAfterLostAckNotDoubleCounted(t *testing.T) {
+	db := openResolveTestDB(t)
+	rid := insertRoute(t, db, 2, "own.example", "", "", "active")
+	h := &IngestHandler{
+		Store:  New(func() *sql.DB { return db }, 100),
+		Broker: NewBroker(),
+		Logger: slog.Default(),
+		ResolveRoutes: func(ctx context.Context, nodeID int64) (NodeRouteIndex, error) {
+			return LoadNodeRouteIndex(ctx, db, nodeID)
+		},
+		AuthNode: func(ctx context.Context, token string) (int64, bool) { return 2, true },
+	}
+	post := func(body string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/internal/access-log", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer x")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", rec.Code)
+		}
+	}
+	a := `{"ts":1700000000,"status":200,"request":{"method":"GET","uri":"/","host":"own.example"}}`
+	b := `{"ts":1700000001,"status":200,"request":{"method":"GET","uri":"/","host":"own.example"}}`
+	post(a + "\n" + a)
+	post(a + "\n" + a) // retry of the same batch
+	post(b)            // a different batch
+
+	var rows, reqs int
+	if err := db.QueryRow("SELECT COUNT(*) FROM host_access_log WHERE route_id = ?", rid).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("SELECT COALESCE(SUM(requests),0) FROM log_rollups WHERE route_id = ?", rid).Scan(&reqs); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 3 || reqs != 3 {
+		t.Fatalf("rows=%d requests=%d, want 3/3", rows, reqs)
 	}
 }

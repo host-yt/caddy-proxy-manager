@@ -6,6 +6,7 @@ package accesslog
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"strings"
 	"time"
 
@@ -59,15 +60,24 @@ type RollupBucket struct {
 	BytesReq     int64
 }
 
+// ErrDuplicateBatch reports a batch id already committed; nothing was written.
+var ErrDuplicateBatch = errors.New("accesslog: duplicate batch")
+
+// batchLedgerTTL bounds how long a batch id is remembered; agent retries come
+// within seconds, so this only has to outlive a long panel outage.
+const batchLedgerTTL = 48 // hours
+
 // Insert appends one entry; see InsertBatch.
 func (s *Store) Insert(ctx context.Context, e Entry) error {
-	return s.InsertBatch(ctx, []Entry{e})
+	return s.InsertBatch(ctx, "", []Entry{e})
 }
 
 // InsertBatch writes the entries and their hourly rollups in one transaction,
 // then trims each touched route to MaxPerRoute rows. All-or-nothing, so a
 // failed batch can be retried whole without double counting; prune is best-effort.
-func (s *Store) InsertBatch(ctx context.Context, es []Entry) error {
+// A non-empty batchID is recorded in the same tx: a resend after a lost ack
+// returns ErrDuplicateBatch instead of counting twice.
+func (s *Store) InsertBatch(ctx context.Context, batchID string, es []Entry) error {
 	db := s.db()
 	if db == nil || len(es) == 0 {
 		return nil
@@ -77,6 +87,15 @@ func (s *Store) InsertBatch(ctx context.Context, es []Entry) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	if batchID != "" {
+		res, err := tx.ExecContext(ctx, store.InsertOrIgnore()+" INTO access_log_batches (batch_hash) VALUES (?)", batchID)
+		if err != nil {
+			return err
+		}
+		if n, _ := res.RowsAffected(); n == 0 {
+			return ErrDuplicateBatch
+		}
+	}
 	ins, err := tx.PrepareContext(ctx,
 		`INSERT INTO host_access_log (route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country,asn_org)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`)
@@ -115,6 +134,9 @@ func (s *Store) InsertBatch(ctx context.Context, es []Entry) error {
 	}
 	for id := range routes {
 		s.prune(ctx, db, id)
+	}
+	if batchID != "" {
+		_, _ = db.ExecContext(ctx, "DELETE FROM access_log_batches WHERE created_at < "+store.DateSubParam("HOUR"), batchLedgerTTL)
 	}
 	return nil
 }

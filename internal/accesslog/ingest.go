@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"math"
 	"net"
@@ -111,7 +114,11 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// malformed/truncated line is skipped, not the rest of the batch (a shared
 	// json.Decoder loses position on a syntax error and would drop everything
 	// after it). Non-access log lines (no Host) are ignored downstream.
-	sc := bufio.NewScanner(r.Body)
+	// Batch id = node + exact body: lines carry timestamps, so an identical
+	// body from the same node is a resend of a batch whose ack was lost.
+	hash := sha256.New()
+	hash.Write([]byte(strconv.FormatInt(nodeID, 10) + "\n"))
+	sc := bufio.NewScanner(io.TeeReader(r.Body, hash))
 	// Line cap = body cap, so no line inside an accepted body is ever dropped.
 	sc.Buffer(make([]byte, 0, 64*1024), maxIngestBody)
 	var batch []Entry
@@ -139,7 +146,12 @@ func (h *IngestHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "bad body", http.StatusBadRequest)
 		return
 	}
-	if err := h.Store.InsertBatch(ctx, batch); err != nil {
+	err = h.Store.InsertBatch(ctx, hex.EncodeToString(hash.Sum(nil)), batch)
+	if errors.Is(err, ErrDuplicateBatch) {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if err != nil {
 		h.Logger.Warn("accesslog insert", "node_id", nodeID, "lines", len(batch), "err", err)
 		http.Error(w, "unavailable", http.StatusServiceUnavailable)
 		return

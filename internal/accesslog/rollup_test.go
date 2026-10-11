@@ -3,6 +3,7 @@ package accesslog
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -248,5 +249,41 @@ func TestInsertRollupFailureRollsBack(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("raw rows = %d, want 0 (rolled back)", n)
+	}
+}
+
+// TestInsertBatchDuplicateID: a batch id already committed is rejected whole
+// on MySQL too, so rows and rollups are counted once.
+func TestInsertBatchDuplicateID(t *testing.T) {
+	db := openRollupTestDB(t)
+	defer db.Close()
+	ctx := context.Background()
+	st := New(func() *sql.DB { return db }, 0)
+	routeID := time.Now().UnixNano()
+	id1, id2 := fmt.Sprintf("a%063d", routeID), fmt.Sprintf("b%063d", routeID)
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM log_rollups WHERE route_id=?", routeID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM host_access_log WHERE route_id=?", routeID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM access_log_batches WHERE batch_hash IN (?,?)", id1, id2)
+	})
+	es := []Entry{{RouteID: routeID, TS: time.Now(), Method: "GET", Status: 200}}
+	if err := st.InsertBatch(ctx, id1, es); err != nil {
+		t.Fatalf("first: %v", err)
+	}
+	if err := st.InsertBatch(ctx, id1, es); !errors.Is(err, ErrDuplicateBatch) {
+		t.Fatalf("retry err = %v, want ErrDuplicateBatch", err)
+	}
+	if err := st.InsertBatch(ctx, id2, es); err != nil {
+		t.Fatalf("other batch: %v", err)
+	}
+	var rows, reqs int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM host_access_log WHERE route_id=?", routeID).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRowContext(ctx, "SELECT COALESCE(SUM(requests),0) FROM log_rollups WHERE route_id=?", routeID).Scan(&reqs); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 2 || reqs != 2 {
+		t.Fatalf("rows=%d requests=%d, want 2/2", rows, reqs)
 	}
 }
