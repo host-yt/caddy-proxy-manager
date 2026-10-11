@@ -120,10 +120,15 @@ func (r *clientResource) Create(ctx context.Context, req resource.CreateRequest,
 		resp.Diagnostics.AddError("Resolve client id failed", err.Error())
 		return
 	}
-	pw := plan.Password // preserve write-only value in state
+	// Persist the id first so a failed read leaves the created object tracked.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), clientID)...)
+	pw := plan.Password
 	if r.read(ctx, clientID, &plan, &resp.Diagnostics) {
 		resp.Diagnostics.AddError("Create client failed", "client vanished immediately after create")
 		return
+	}
+	if resp.Diagnostics.HasError() {
+		return // keep the id-only state
 	}
 	plan.Password = pw
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)

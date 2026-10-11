@@ -76,7 +76,12 @@ func (r *nodePoolResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("Create node_pool failed", err.Error())
 		return
 	}
+	// Persist the id first so a failed read leaves the created object tracked.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), created.ID)...)
 	r.read(ctx, created.ID, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return // keep the id-only state
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 

@@ -354,9 +354,9 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams", "", "match_values required when match_mode is "+form.MatchMode)
 		return
 	}
-	extraUpstreams, badAddr := parseUpstreamsRaw(form.UpstreamsRaw)
-	if badAddr != "" {
-		redirectWithFlash(w, r, "/admin/streams", "", "invalid upstream address: "+badAddr)
+	extraUpstreams, upErr := parseUpstreamsRaw(form.UpstreamsRaw)
+	if upErr != "" {
+		redirectWithFlash(w, r, "/admin/streams", "", upErr)
 		return
 	}
 
@@ -624,9 +624,9 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "match_values required when match_mode is "+matchMode)
 		return
 	}
-	extraUpstreams, badAddr := parseUpstreamsRaw(strings.TrimSpace(r.FormValue("upstreams_raw")))
-	if badAddr != "" {
-		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "invalid upstream address: "+badAddr)
+	extraUpstreams, upErr := parseUpstreamsRaw(strings.TrimSpace(r.FormValue("upstreams_raw")))
+	if upErr != "" {
+		redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", upErr)
 		return
 	}
 
@@ -994,8 +994,8 @@ func screenStreamUpstreamsWith(ctx context.Context, infra *streamguard.InfraTarg
 }
 
 // parseUpstreamsRaw parses the multi-upstream textarea: each non-empty line is
-// "host:port" or "host:port weight". Lines with invalid weight default to 1.
-// Returns (entries, "") on success or (nil, badLine) on the first invalid address.
+// "host:port" or "host:port 1". Returns (entries, "") on success or
+// (nil, flash message) on the first invalid line.
 func parseUpstreamsRaw(raw string) ([]upstreamEntry, string) {
 	if raw == "" {
 		return nil, ""
@@ -1013,8 +1013,11 @@ func parseUpstreamsRaw(raw string) ([]upstreamEntry, string) {
 		if i := strings.LastIndexAny(line, " \t"); i >= 0 {
 			addr = strings.TrimSpace(line[:i])
 			w, err := strconv.Atoi(strings.TrimSpace(line[i+1:]))
-			if err == nil && w > 0 {
-				weight = w
+			if err == nil {
+				// caddy-l4 v0.1.1 has no per-upstream weight; reject rather than silently ignore.
+				if w != 1 {
+					return nil, "upstream weights are not supported for streams (use one line per backend): " + line
+				}
 			} else {
 				// If the part after whitespace is not a number treat whole line as addr.
 				addr = line
@@ -1028,10 +1031,10 @@ func parseUpstreamsRaw(raw string) ([]upstreamEntry, string) {
 		// Validate host:port so malformed dial addresses never reach the Caddy builder.
 		host, port, splitErr := net.SplitHostPort(addr)
 		if splitErr != nil || host == "" || port == "" {
-			return nil, addr
+			return nil, "invalid upstream address: " + addr
 		}
 		if _, err := strconv.Atoi(port); err != nil {
-			return nil, addr
+			return nil, "invalid upstream address: " + addr
 		}
 		out = append(out, upstreamEntry{Address: addr, Weight: weight})
 	}

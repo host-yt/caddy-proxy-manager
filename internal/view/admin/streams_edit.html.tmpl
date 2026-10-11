@@ -135,14 +135,14 @@
       <div class="t-caption text-[rgb(var(--muted))] font-mono space-y-0.5">
         <p class="font-semibold text-[rgb(var(--text))] mb-1">Current upstreams:</p>
         {{range .Upstreams}}
-        <p>{{.Address}} (weight {{.Weight}})</p>
+        <p>{{.Address}}</p>
         {{end}}
       </div>
       {{end}}
       <div>
         <label class="t-eyebrow block mb-1">Replace upstreams (one per line)</label>
         <textarea name="upstreams_raw" rows="5"
-                  placeholder="10.0.0.1:3306 2&#10;10.0.0.2:3306 1"
+                  placeholder="10.0.0.1:3306&#10;10.0.0.2:3306"
                   class="r-input w-full font-mono text-xs"></textarea>
         <p class="t-caption text-[rgb(var(--muted))] mt-1">Saving with an empty textarea removes all additional upstreams (falls back to single-upstream).</p>
       </div>

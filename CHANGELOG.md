@@ -25,6 +25,9 @@ is deliberately left as published.
 
 ### Added
 
+- Terraform `hpg_reseller.owner_password_wo` (write-only, Terraform 1.11+)
+  keeps the reseller owner password out of plan and state;
+  `owner_password` is deprecated.
 - `POST /api/v1/resellers` accepts the initial `status`, `reseller_plan_id`,
   `overselling_allowed` and `can_create_plans`, applied in the create
   transaction. The Terraform provider sends them on create.
@@ -142,6 +145,9 @@ is deliberately left as published.
   read.
 - The Portainer external-DB profile publishes the app on loopback so the
   installer is reachable.
+- Streams with more than one upstream load on nodes again: the panel now sends
+  the load-balancing key caddy-l4 v0.1.1 accepts and no per-upstream weights.
+- Terraform resources keep their id when the read right after create fails.
 - SQLite installs on Go 1.27 builds: the alert cooldown, the stale restore
   drill alert and the alert page's last-fired time read timestamps correctly
   again (repeat alerts were not suppressed).
@@ -193,6 +199,10 @@ is deliberately left as published.
 
 - Migration 00171 adds a short-lived ledger that makes access-log batch
   retries idempotent.
+- Stream upstream weights are no longer sent to nodes; saving a stream with a
+  weight other than 1 is refused. Remove weights from existing streams on
+  their next edit.
+- Terraform: move `hpg_reseller.owner_password` to `owner_password_wo`.
 - Migrations 00169-00170 run on start: stored `/api/wg/*` access-log queries
   are redacted, and every route's GeoIP policy becomes fail-closed (untick it
   per route to keep serving on nodes without GeoIP).
