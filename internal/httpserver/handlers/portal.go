@@ -546,7 +546,7 @@ func (h *PortalHandlers) verifyPortal2FA(ctx context.Context, db *sql.DB, st *po
 	switch method {
 	case "totp":
 		secret, ok, needsUpgrade := readTOTPSecret(ctx, db, h.State, st.UserID)
-		if ok && auth.ValidateTOTP(secret, code) == nil && a.markTOTPConsumed(ctx, st.UserID, code) {
+		if ctr, err := auth.MatchTOTP(secret, code, time.Now()); ok && err == nil && a.markTOTPConsumed(ctx, st.UserID, ctr) {
 			if needsUpgrade {
 				upgradeTOTPSecret(ctx, db, h.State, st.UserID, secret)
 			}

@@ -710,7 +710,7 @@ func (h *AuthHandlers) TOTPVerify(w http.ResponseWriter, r *http.Request) {
 		}
 		// Reject a valid code whose 30s counter was already consumed (replay);
 		// treat it exactly like an invalid code.
-		if err := auth.ValidateTOTP(secret, code); err == nil && h.markTOTPConsumed(ctx, pend.UserID, code) {
+		if ctr, err := auth.MatchTOTP(secret, code, time.Now()); err == nil && h.markTOTPConsumed(ctx, pend.UserID, ctr) {
 			success = true
 			if needsMigrate {
 				upgradeTOTPSecret(ctx, db, h.State, pend.UserID, secret)
@@ -1396,12 +1396,10 @@ func (h *AuthHandlers) emailFailCount(ctx context.Context, email string) int {
 // markTOTPConsumed records a successfully-used TOTP counter so the same code
 // can't be replayed within its validity window. Returns false when the counter
 // was already consumed (replay). Best-effort: Redis errors fall open.
-func (h *AuthHandlers) markTOTPConsumed(ctx context.Context, userID int64, code string) bool {
+func (h *AuthHandlers) markTOTPConsumed(ctx context.Context, userID int64, counter int64) bool {
 	if h.RDB == nil {
 		return true
 	}
-	// 30s counter = unix/period; a code is valid for its own counter (+/- skew).
-	counter := time.Now().Unix() / 30
 	key := fmt.Sprintf("hpg:totp:used:%d:%d", userID, counter)
 	ok, err := h.RDB.SetNX(ctx, key, "1", 90*time.Second).Result()
 	if err != nil {
