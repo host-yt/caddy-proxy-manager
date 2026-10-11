@@ -414,6 +414,17 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// The unique key only covers identical protocols; "both" also binds the
+	// tcp and udp listeners, so check the effective overlap.
+	var clash int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM stream_routes
+		  WHERE caddy_node_id = ? AND listen_port = ? AND (protocol = ? OR protocol = 'both' OR ? = 'both')`,
+		nodeID, listenPort, form.Protocol, form.Protocol).Scan(&clash); err != nil || clash > 0 {
+		redirectWithFlash(w, r, "/admin/streams", "", fmt.Sprintf("port %d/%s already mapped on this node", listenPort, form.Protocol))
+		return
+	}
+
 	var tagVal sql.NullString
 	if form.Tag != "" {
 		if len(form.Tag) > 64 {

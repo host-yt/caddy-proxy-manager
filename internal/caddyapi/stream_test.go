@@ -346,3 +346,15 @@ func TestBuildLayer4AppFullAdvanced(t *testing.T) {
 		}
 	}
 }
+
+// Overlapping listeners must not be last-write-wins: the first route keeps it.
+func TestBuildLayer4AppKeepsFirstListenerOwner(t *testing.T) {
+	app := buildLayer4App([]StreamRoute{
+		{ID: 1, Protocol: "both", ListenPort: 5000, UpstreamIP: "10.0.0.1", UpstreamPort: 1},
+		{ID: 2, Protocol: "tcp", ListenPort: 5000, UpstreamIP: "10.0.0.2", UpstreamPort: 2},
+	})
+	b, _ := json.Marshal(app["servers"].(map[string]any)["tcp_5000"])
+	if s := string(b); !strings.Contains(s, "10.0.0.1:1") {
+		t.Errorf("tcp_5000 must stay with the first route\nfull: %s", s)
+	}
+}

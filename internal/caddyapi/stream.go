@@ -66,9 +66,12 @@ func buildLayer4App(routes []StreamRoute) map[string]any {
 	}
 	servers := map[string]any{}
 	for _, r := range routes {
-		protos := protoList(r.Protocol)
-		for _, p := range protos {
+		for _, p := range protoList(r.Protocol) {
 			key := p + "_" + itoa(r.ListenPort)
+			// First route keeps a shared listener; callers reject the clash upstream.
+			if _, taken := servers[key]; taken {
+				continue
+			}
 			servers[key] = buildL4Server(p, r)
 		}
 	}
@@ -221,6 +224,15 @@ func normLBPolicy(p string) string {
 		return p
 	}
 	return "round_robin"
+}
+
+// StreamListenerKeys returns the "<proto>_<port>" listeners a route binds.
+func StreamListenerKeys(r StreamRoute) []string {
+	var keys []string
+	for _, p := range protoList(r.Protocol) {
+		keys = append(keys, p+"_"+itoa(r.ListenPort))
+	}
+	return keys
 }
 
 func protoList(p string) []string {

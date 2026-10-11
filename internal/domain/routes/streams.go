@@ -32,7 +32,7 @@ func (s *Service) buildStreamsForNode(ctx context.Context, nodeID int64) ([]cadd
 		        COALESCE(sr.proxy_proto_trusted,'')
 		 FROM stream_routes sr JOIN services sv ON sv.id = sr.service_id
 		 WHERE sr.caddy_node_id = ? AND sr.status = 'active' AND sr.quarantined_at IS NULL
-		 ORDER BY sr.listen_port ASC`, nodeID)
+		 ORDER BY sr.listen_port ASC, sr.id ASC`, nodeID)
 	if err != nil {
 		return nil, err
 	}
@@ -94,6 +94,9 @@ type streamReject struct {
 func screenStreamSet(ctx context.Context, infra *streamguard.InfraTargets, in []caddyapi.StreamRoute) ([]caddyapi.StreamRoute, []streamReject) {
 	out := make([]caddyapi.StreamRoute, 0, len(in))
 	var rejected []streamReject
+	// A "both" row shares tcp/udp listeners with tcp or udp rows on its port;
+	// the oldest row keeps the listener instead of a silent last-write-wins.
+	owner := map[string]int64{}
 	for _, r := range in {
 		pinnedIP, perr := infra.ScreenAndPin(ctx, r.UpstreamIP, r.UpstreamPort)
 		if perr != nil {
@@ -110,9 +113,17 @@ func screenStreamSet(ctx context.Context, infra *streamguard.InfraTargets, in []
 			}
 			r.Upstreams[i].Address = pinned
 		}
+		for _, key := range caddyapi.StreamListenerKeys(r) {
+			if id, taken := owner[key]; bad == nil && taken {
+				bad = fmt.Errorf("listener %s already used by stream #%d", key, id)
+			}
+		}
 		if bad != nil {
 			rejected = append(rejected, streamReject{r, bad})
 			continue
+		}
+		for _, key := range caddyapi.StreamListenerKeys(r) {
+			owner[key] = r.ID
 		}
 		out = append(out, r)
 	}
