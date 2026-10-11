@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/coreos/go-oidc/v3 v3.21.0
 	github.com/go-chi/chi/v5 v5.2.5
-	github.com/go-sql-driver/mysql v1.10.0
+	github.com/go-sql-driver/mysql v1.10.1
 	github.com/go-webauthn/webauthn v0.17.3
 	github.com/jlaffaye/ftp v0.2.4
 	github.com/miekg/dns v1.1.73
