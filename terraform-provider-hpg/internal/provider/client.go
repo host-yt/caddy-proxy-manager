@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -26,6 +28,34 @@ func NewClient(endpoint, apiKey string) *Client {
 		apiKey:   apiKey,
 		http:     &http.Client{Timeout: 30 * time.Second},
 	}
+}
+
+// validateEndpoint rejects endpoints that would leak the bearer key: plain HTTP
+// is only allowed to loopback hosts, and credentials/query/fragment are refused.
+func validateEndpoint(raw string) (string, error) {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil || u.Opaque != "" || u.Host == "" || u.Hostname() == "" {
+		return "", fmt.Errorf("endpoint must be an absolute URL like https://panel.example.com")
+	}
+	if u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return "", fmt.Errorf("endpoint must not contain credentials, query or fragment")
+	}
+	switch u.Scheme {
+	case "https":
+	case "http":
+		h := u.Hostname()
+		if ip := net.ParseIP(h); h != "localhost" && (ip == nil || !ip.IsLoopback()) {
+			return "", fmt.Errorf("endpoint must use https (plain http is allowed only for localhost/loopback)")
+		}
+	default:
+		return "", fmt.Errorf("endpoint scheme must be https")
+	}
+	base := strings.TrimRight(u.Path, "/")
+	if strings.HasSuffix(base, "/api/v1") {
+		return "", fmt.Errorf("endpoint must be the panel base URL without the /api/v1 suffix")
+	}
+	u.Path, u.RawPath = base, ""
+	return u.String(), nil
 }
 
 // APIError carries the HTTP status so resources can treat 404 as "gone".

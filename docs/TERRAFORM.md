@@ -27,6 +27,8 @@ provider "hpg" {
 }
 ```
 
+The endpoint must be `https://` (plain `http://` is accepted only for `localhost`/loopback, so the API key never crosses the network in cleartext) and must not carry credentials, a query, a fragment or the `/api/v1` suffix.
+
 The key's reach follows [API key scope](API.md#key-scope-multi-tenant): a
 platform-admin key manages global infrastructure; a reseller-admin key is
 transparently scoped to its own clients/plans and cannot manage nodes.
