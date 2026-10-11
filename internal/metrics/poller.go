@@ -198,17 +198,24 @@ func hostSample(m map[string]*HostSample, host string) *HostSample {
 //
 // Returns the metric name, a map of label key→value pairs, and the numeric value.
 func splitMetric(line string) (string, map[string]string, float64, bool) {
-	// Last space separates value (+ optional timestamp) from the metric identity.
-	sp := strings.LastIndexByte(line, ' ')
-	if sp < 0 {
+	// Identity ends at the label block's '}' (label values may hold spaces) or
+	// the first space; the value is the first field after it, not the last.
+	var head, tail string
+	if j := strings.LastIndexByte(line, '}'); j >= 0 {
+		head, tail = line[:j+1], line[j+1:]
+	} else if sp := strings.IndexAny(line, " \t"); sp >= 0 {
+		head, tail = line[:sp], line[sp:]
+	} else {
 		return "", nil, 0, false
 	}
-	rest := strings.TrimSpace(line[sp+1:])
-	v, err := strconv.ParseFloat(rest, 64)
+	fields := strings.Fields(tail)
+	if len(fields) < 1 || len(fields) > 2 {
+		return "", nil, 0, false
+	}
+	v, err := strconv.ParseFloat(fields[0], 64)
 	if err != nil {
 		return "", nil, 0, false
 	}
-	head := line[:sp]
 
 	var labelStr string
 	name := head
