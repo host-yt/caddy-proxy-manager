@@ -5,8 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -130,20 +132,25 @@ func (e *Evaluator) pruneLog(ctx context.Context, db *sql.DB) {
 
 // sendTelegram posts a message to a Telegram chat via the Bot API.
 func sendTelegram(ctx context.Context, token, chatID, text string) error {
-	url := "https://api.telegram.org/bot" + token + "/sendMessage"
+	endpoint := "https://api.telegram.org/bot" + token + "/sendMessage"
 	body, _ := json.Marshal(map[string]string{
 		"chat_id":    chatID,
 		"text":       text,
 		"parse_mode": "HTML",
 	})
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return err
+		// *url.Error embeds the request URL, which carries the bot token.
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
+		return fmt.Errorf("telegram: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {

@@ -1,6 +1,7 @@
 package alert
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"testing"
@@ -8,6 +9,16 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 )
+
+// Transport errors must not carry the request URL, which embeds the bot token.
+func TestSendTelegramErrorHidesToken(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := sendTelegram(ctx, "123:SECRET-TOKEN", "1", "x")
+	if err == nil || strings.Contains(err.Error(), "SECRET-TOKEN") {
+		t.Fatalf("err = %v, want non-nil without token", err)
+	}
+}
 
 func TestDedupeKeyStableAndSorted(t *testing.T) {
 	a := Alert{RuleID: "node_offline", Labels: map[string]string{"node_name": "eu-1", "node_id": "3"}}
