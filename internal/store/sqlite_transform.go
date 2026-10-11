@@ -456,8 +456,8 @@ func fixAlterTable(input string) string {
 				strings.HasPrefix(upper, "DROP FOREIGN KEY"),
 				strings.HasPrefix(upper, "DROP CHECK"):
 				// SQLite can't add or drop FK/CHECK constraints on an existing
-				// table (needs a full rebuild), and it enforces no FKs here
-				// anyway - the pool never sets PRAGMA foreign_keys=ON.
+				// table (needs a full rebuild), so FKs added this way stay
+				// unenforced on SQLite; only CREATE TABLE constraints apply.
 			case strings.HasPrefix(upper, "ADD COLUMN"), strings.HasPrefix(upper, "ADD ") && !strings.HasPrefix(upper, "ADD PRIMARY"):
 				// Strip AFTER col_name and build individual ADD COLUMN.
 				clause = reAfterClause.ReplaceAllString(clause, "")

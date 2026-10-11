@@ -135,6 +135,8 @@ func TestMigrationSSOStrictBackfill(t *testing.T) {
 	seed := []string{
 		`INSERT INTO node_groups (id, name, mode) VALUES (1, 'default', 'single')`,
 		`INSERT INTO caddy_nodes (id, name, api_url, node_group_id) VALUES (1, 'edge1', 'http://10.0.0.2:2019', 1)`,
+		`INSERT INTO users (id, email, password_hash, role) VALUES (1, 'c@x', 'h', 'client')`,
+		`INSERT INTO plans (id, name, node_group_id) VALUES (1, 'basic', 1)`,
 		`INSERT INTO clients (id, user_id, display_name) VALUES (1, 1, 'tenant')`,
 		`INSERT INTO services (id, client_id, name, backend_ip, allowed_port_start, allowed_port_end, plan_id, node_group_id)
 		 VALUES (1, 1, 'svc', '10.0.0.5', 1, 65535, 1, 1)`,

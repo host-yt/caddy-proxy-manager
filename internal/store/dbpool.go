@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -22,6 +23,9 @@ func sqlDriverName(driver string) string {
 // Open opens a DB pool for the given driver with sensible defaults and pings until
 // timeout. Returns the *sql.DB ready to use.
 func Open(ctx context.Context, driver, dsn string, timeout time.Duration) (*sql.DB, error) {
+	if driver == "sqlite3" {
+		dsn = withSQLiteForeignKeys(dsn)
+	}
 	db, err := sql.Open(sqlDriverName(driver), dsn)
 	if err != nil {
 		return nil, fmt.Errorf("sql open: %w", err)
@@ -56,6 +60,12 @@ func Open(ctx context.Context, driver, dsn string, timeout time.Duration) (*sql.
 	for {
 		err := db.PingContext(pingCtx)
 		if err == nil {
+			if driver == "sqlite3" {
+				if err := requireSQLiteForeignKeys(pingCtx, db); err != nil {
+					_ = db.Close()
+					return nil, err
+				}
+			}
 			return db, nil
 		}
 		if pingCtx.Err() != nil {
@@ -64,6 +74,27 @@ func Open(ctx context.Context, driver, dsn string, timeout time.Duration) (*sql.
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
+}
+
+// withSQLiteForeignKeys enables FK enforcement on every pooled connection.
+// modernc ignores mattn-style "_foreign_keys=on"; only _pragma is honoured.
+func withSQLiteForeignKeys(dsn string) string {
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "_pragma=foreign_keys(1)"
+}
+
+func requireSQLiteForeignKeys(ctx context.Context, db *sql.DB) error {
+	var on int
+	if err := db.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&on); err != nil {
+		return fmt.Errorf("sqlite foreign_keys check: %w", err)
+	}
+	if on != 1 {
+		return fmt.Errorf("sqlite foreign key enforcement is not active")
+	}
+	return nil
 }
 
 // Ping is a one-shot connectivity test without holding the pool.

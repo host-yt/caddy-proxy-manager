@@ -96,7 +96,7 @@ func RunMigrations(ctx context.Context, db *sql.DB, fsys embed.FS, dir string) e
 }
 
 // runMigrations is the shared implementation: upTo == 0 means "all pending".
-func runMigrations(ctx context.Context, db *sql.DB, fsys embed.FS, dir string, upTo int64) error {
+func runMigrations(ctx context.Context, db *sql.DB, fsys embed.FS, dir string, upTo int64) (err error) {
 	subFS, err := fs.Sub(fsys, dir)
 	if err != nil {
 		return fmt.Errorf("migrations sub-fs: %w", err)
@@ -116,7 +116,17 @@ func runMigrations(ctx context.Context, db *sql.DB, fsys embed.FS, dir string, u
 		return fmt.Errorf("goose provider: %w", err)
 	}
 
-	if Driver() != "sqlite3" {
+	if Driver() == "sqlite3" {
+		done, ferr := sqliteMigrationFKBracket(ctx, db)
+		if ferr != nil {
+			return ferr
+		}
+		defer func() {
+			if derr := done(); err == nil {
+				err = derr
+			}
+		}()
+	} else {
 		// Serialize concurrent boots (multi-replica / rolling deploy) so two
 		// processes can't double-apply and race goose_db_version. goose's session
 		// locker is Postgres-only; GET_LOCK is the MariaDB-native equivalent (a
