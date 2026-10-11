@@ -913,17 +913,18 @@ func (h *APIHandlers) NodeCreate(w http.ResponseWriter, r *http.Request) {
 	if in.PublicIP != "" {
 		pubIP = sql.NullString{String: in.PublicIP, Valid: true}
 	}
+	uid := apiCallerID(r)
+	// Approve on create like the admin form: placement skips unapproved nodes.
 	res, err := h.DB().ExecContext(ctx,
 		`INSERT INTO caddy_nodes (name, api_url, public_hostname, public_ip,
-		   node_group_id, max_routes, priority, is_enabled, health_status)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'unknown')`,
-		in.Name, in.APIURL, in.PublicHostname, pubIP, in.NodeGroupID, in.MaxRoutes, in.Priority)
+		   node_group_id, max_routes, priority, is_enabled, health_status, approved_at, approved_by)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'unknown', NOW(), ?)`,
+		in.Name, in.APIURL, in.PublicHostname, pubIP, in.NodeGroupID, in.MaxRoutes, in.Priority, sql.NullInt64{Int64: uid, Valid: uid > 0})
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "insert failed")
 		return
 	}
 	id, _ := res.LastInsertId()
-	uid := apiCallerID(r)
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &uid, ActorType: audit.ActorAPI, Action: "node.create", Entity: "node",
 		EntityID: strconv.FormatInt(id, 10),

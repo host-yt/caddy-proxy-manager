@@ -752,7 +752,7 @@ Register a Caddy node manually.
 
 **Auth:** Bearer token - admin only.
 
-Alternative to the automatic node-join flow. The node starts enabled with `health: unknown`.
+Alternative to the automatic node-join flow. The node starts enabled and approved (eligible for route placement immediately) with `health: unknown`.
 
 **Request body**
 

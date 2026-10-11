@@ -228,16 +228,6 @@ require_2xx "POST /api/v1/nodes (node-2)"
 NODE2_ID=$(printf '%s' "$RESP_BODY" | jq -r '.id')
 [[ -n "$NODE2_ID" && "$NODE2_ID" != "null" ]] || fail "node-2 create did not return an id"
 
-# TODO(api-gap): POST /api/v1/nodes never sets approved_at (unlike the
-# wizard's/admin-web node-add flow, which stamps approved_at=NOW() because
-# "admin manually added node via form, so trust it" - see wizard.go /
-# admin.go). Every route-placement query filters on
-# `approved_at IS NOT NULL`, so an API-created node is silently invisible to
-# single/active_active/failover placement and route creation dies with
-# ErrNoNodeFound ("no node available") - a confusing error totally
-# disconnected from the real cause. Falling back to a direct SQL UPDATE.
-log "TODO(api-gap): approving node-2 via direct SQL (REST NodeCreate leaves approved_at NULL)"
-sql_exec "UPDATE caddy_nodes SET approved_at = NOW() WHERE id = $NODE2_ID;"
 record_pass "both caddy nodes (node-1, node-2) registered in the active_active group"
 
 # ---- 4. client + plan + service ---------------------------------------------
