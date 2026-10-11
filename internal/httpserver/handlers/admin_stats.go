@@ -599,32 +599,12 @@ func (h *AdminHandlers) planViolationsFor(ctx context.Context, db *sql.DB) []pla
 	return out
 }
 
-// requestsErrorsLast24h sums (latest - 24h-ago) across all nodes.
+// requestsErrorsLast24h sums counter deltas across all nodes over 24h.
 func (h *AdminHandlers) requestsErrorsLast24h(ctx context.Context, db *sql.DB) (uint64, uint64) {
-	rows, err := db.QueryContext(ctx,
-		`SELECT node_id,
-		        MAX(requests_total) - MIN(requests_total) AS req_delta,
-		        MAX(errors_total)   - MIN(errors_total)   AS err_delta
-		 FROM node_traffic_samples
-		 WHERE sampled_at > `+store.DateSub(1, "DAY")+`
-		 GROUP BY node_id`)
-	if err != nil {
-		return 0, 0
-	}
-	defer rows.Close()
 	var req, errs uint64
-	for rows.Next() {
-		var nid int64
-		var r, e sql.NullInt64
-		if err := rows.Scan(&nid, &r, &e); err != nil {
-			continue
-		}
-		if r.Valid && r.Int64 > 0 {
-			req += uint64(r.Int64)
-		}
-		if e.Valid && e.Int64 > 0 {
-			errs += uint64(e.Int64)
-		}
+	for _, d := range trafficDeltas(ctx, db) {
+		req += d.Req
+		errs += d.Err
 	}
 	return req, errs
 }
@@ -677,30 +657,11 @@ func (h *AdminHandlers) perNodeStats(ctx context.Context, db *sql.DB) []nodeStat
 }
 
 // trafficTimeseries returns 24h of HTTP requests per hour across all
-// nodes. requests_total in node_traffic_samples is a monotonic Caddy
-// counter, so per-hour activity = max(counter)-min(counter) inside the
-// bucket, summed over nodes. Old impl SUM(requests_total) leaked the
-// cumulative counter into the chart and produced a monotonically rising
-// line that looked like traffic but was really uptime.
+// nodes, from per-sample counter deltas (see trafficDeltas).
 func (h *AdminHandlers) trafficTimeseries(ctx context.Context, db *sql.DB) ([]string, []uint64) {
 	buckets := map[int64]uint64{}
-	rows, err := db.QueryContext(ctx,
-		`SELECT FLOOR(UNIX_TIMESTAMP(sampled_at)/3600)*3600 AS hr,
-		        node_id,
-		        MAX(requests_total) - MIN(requests_total) AS delta
-		 FROM node_traffic_samples
-		 WHERE sampled_at > `+store.DateSub(1, "DAY")+`
-		 GROUP BY hr, node_id`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var hr int64
-			var nodeID int64
-			var v uint64
-			if err := rows.Scan(&hr, &nodeID, &v); err == nil {
-				buckets[hr] += v
-			}
-		}
+	for _, d := range trafficDeltas(ctx, db) {
+		buckets[d.TS/3600*3600] += d.Req
 	}
 	labels := make([]string, 0, 24)
 	values := make([]uint64, 0, 24)
@@ -742,6 +703,59 @@ func (h *AdminHandlers) activityTimeseries(ctx context.Context, db *sql.DB) ([]s
 		values = append(values, counts[t.Unix()])
 	}
 	return labels, values
+}
+
+type trafficSample struct {
+	Node     int64
+	TS       int64
+	Req, Err uint64
+}
+
+// counterDeltas turns cumulative samples (ordered by node, time) into
+// per-sample deltas stamped with the later sample's time. A counter that
+// went down (restart) contributes its new value; first sample per node
+// has no baseline and is skipped.
+func counterDeltas(in []trafficSample) []trafficSample {
+	var out []trafficSample
+	for i := 1; i < len(in); i++ {
+		p, c := in[i-1], in[i]
+		if p.Node != c.Node {
+			continue
+		}
+		d := trafficSample{Node: c.Node, TS: c.TS, Req: c.Req - p.Req, Err: c.Err - p.Err}
+		if c.Req < p.Req {
+			d.Req = c.Req
+		}
+		if c.Err < p.Err {
+			d.Err = c.Err
+		}
+		out = append(out, d)
+	}
+	return out
+}
+
+// trafficDeltas loads the 24h window of samples and returns reset-safe deltas.
+func trafficDeltas(ctx context.Context, db *sql.DB) []trafficSample {
+	rows, err := db.QueryContext(ctx,
+		`SELECT node_id, UNIX_TIMESTAMP(sampled_at), requests_total, errors_total
+		 FROM node_traffic_samples
+		 WHERE sampled_at > `+store.DateSub(1, "DAY")+`
+		 ORDER BY node_id, sampled_at`)
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var in []trafficSample
+	for rows.Next() {
+		var s trafficSample
+		var ts, r, e sql.NullInt64
+		if rows.Scan(&s.Node, &ts, &r, &e) != nil || !ts.Valid {
+			continue
+		}
+		s.TS, s.Req, s.Err = ts.Int64, uint64(max(r.Int64, 0)), uint64(max(e.Int64, 0))
+		in = append(in, s)
+	}
+	return counterDeltas(in)
 }
 
 // ---- helpers -----------------------------------------------------------
