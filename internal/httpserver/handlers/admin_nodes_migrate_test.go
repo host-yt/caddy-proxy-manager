@@ -259,3 +259,36 @@ func TestMigrateNodeRoutesRollsBackOnSourcePushFailure(t *testing.T) {
 		t.Fatalf("rollback re-sync calls = %v, want 2 each", calls)
 	}
 }
+
+// A replica-only source whose route every peer already serves just drops its
+// assignment: no capacity needed, no counter bump on the peer it hands off to.
+func TestMigrateNodeRoutesDropsRedundantReplica(t *testing.T) {
+	db, gid, src, peers, r1, r2 := fanoutFixture(t)
+	for _, q := range []string{
+		fmt.Sprintf("UPDATE routes SET caddy_node_id = %d WHERE id = %d", peers[1], r1), // r1 off the source
+		fmt.Sprintf("DELETE FROM route_node_assignments WHERE route_id = %d AND node_id = %d", r1, src),
+		fmt.Sprintf("INSERT INTO route_node_assignments (route_id, node_id) VALUES (%d, %d)", r2, peers[1]),
+		fmt.Sprintf("UPDATE caddy_nodes SET max_routes = current_routes WHERE id IN (%d, %d)", peers[0], peers[1]), // no free slot
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, p0 := nodeLoad(t, db, peers[0])
+	_, p1 := nodeLoad(t, db, peers[1])
+	h := &AdminHandlers{Logger: slog.Default(), ResyncNode: func(context.Context, int64) error { return nil }}
+	moved, _, err := h.migrateNodeRoutes(context.Background(), db, src, gid, true)
+	if err != nil || moved != 1 {
+		t.Fatalf("moved=%d err=%v", moved, err)
+	}
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM route_node_assignments WHERE route_id = ? AND node_id = ?", r2, src).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("source replica kept: %d (%v)", n, err)
+	}
+	if _, c0 := nodeLoad(t, db, peers[0]); c0 != p0 {
+		t.Fatalf("p0 counter %d -> %d on a shared handoff", p0, c0)
+	}
+	if _, c1 := nodeLoad(t, db, peers[1]); c1 != p1 {
+		t.Fatalf("p1 counter %d -> %d on a shared handoff", p1, c1)
+	}
+}

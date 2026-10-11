@@ -110,9 +110,11 @@ func (h *AdminHandlers) migrateNodeRoutes(ctx context.Context, db *sql.DB, src, 
 				break
 			}
 		}
-		if m.dest == 0 && m.anchor {
+		// No free slot: hand off to a peer that already serves the route. A
+		// replica-only source then just drops its assignment (no capacity needed).
+		if m.dest == 0 {
 			for _, p := range peers {
-				if members[r.id][p.id] {
+				if members[r.id][p.id] || (!m.anchor && p.id == r.anchor) {
 					m.dest, m.shared = p.id, true
 					break
 				}
