@@ -158,3 +158,104 @@ func TestNodesDecommissionRequiresCleanup(t *testing.T) {
 		t.Fatal("force decommission did not delete the node")
 	}
 }
+
+// fanoutFixture: r1 anchored on src with src+p1 assigned, r2 anchored on p0
+// with p0+src assigned. p1 is less loaded, so it sorts first.
+func fanoutFixture(t *testing.T) (db *sql.DB, gid, src int64, peers []int64, r1, r2 int64) {
+	t.Helper()
+	db, gid, src, peers = migrateFixture(t, 1, 5, 7)
+	ctx := context.Background()
+	var dom string
+	if err := db.QueryRowContext(ctx, "SELECT id, domain FROM routes WHERE caddy_node_id = ?", src).Scan(&r1, &dom); err != nil {
+		t.Fatal(err)
+	}
+	res, err := db.ExecContext(ctx,
+		"INSERT INTO routes (service_id, caddy_node_id, domain, upstream_port) VALUES (999999, ?, ?, 80)", peers[0], dom+"x")
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, _ = res.LastInsertId()
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM route_node_assignments WHERE route_id IN (?, ?)", r1, r2)
+	})
+	for _, s := range []string{
+		fmt.Sprintf("INSERT INTO route_node_assignments (route_id, node_id) VALUES (%d,%d),(%d,%d),(%d,%d),(%d,%d)",
+			r1, src, r1, peers[1], r2, peers[0], r2, src),
+		fmt.Sprintf("UPDATE caddy_nodes SET current_routes = current_routes + 1 WHERE id IN (%d,%d,%d)", src, peers[0], peers[1]),
+	} {
+		if _, err := db.ExecContext(ctx, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return
+}
+
+// fanoutState renders anchors, assignments and counters for comparison.
+func fanoutState(t *testing.T, db *sql.DB, src int64, peers []int64, r1, r2 int64) string {
+	t.Helper()
+	name := map[int64]string{src: "src", peers[0]: "p0", peers[1]: "p1"}
+	var b strings.Builder
+	for i, r := range []int64{r1, r2} {
+		var anchor int64
+		_ = db.QueryRow("SELECT caddy_node_id FROM routes WHERE id = ?", r).Scan(&anchor)
+		fmt.Fprintf(&b, "r%d@%s[", i+1, name[anchor])
+		rows, err := db.Query("SELECT node_id FROM route_node_assignments WHERE route_id = ? ORDER BY node_id", r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for rows.Next() {
+			var n int64
+			_ = rows.Scan(&n)
+			b.WriteString(" " + name[n])
+		}
+		rows.Close()
+		b.WriteString("] ")
+	}
+	for _, n := range []int64{src, peers[0], peers[1]} {
+		_, c := nodeLoad(t, db, n)
+		fmt.Fprintf(&b, "%s=%d ", name[n], c)
+	}
+	return b.String()
+}
+
+// Fan-out memberships leave the source for a node not already serving the
+// route; counters move once per membership; a drain re-syncs the source.
+func TestMigrateNodeRoutesMovesFanOutAssignments(t *testing.T) {
+	db, gid, src, peers, r1, r2 := fanoutFixture(t)
+	calls := map[int64]int{}
+	h := &AdminHandlers{Logger: slog.Default(), ResyncNode: func(_ context.Context, id int64) error { calls[id]++; return nil }}
+	moved, _, err := h.migrateNodeRoutes(context.Background(), db, src, gid, true)
+	if err != nil || moved != 2 {
+		t.Fatalf("moved=%d err=%v", moved, err)
+	}
+	if got, want := fanoutState(t, db, src, peers, r1, r2), "r1@p0[ p0 p1] r2@p0[ p0 p1] src=0 p0=7 p1=5 "; got != want {
+		t.Fatalf("state:\n got %s\nwant %s", got, want)
+	}
+	if calls[src] != 1 || calls[peers[0]] != 1 || calls[peers[1]] != 1 {
+		t.Fatalf("resync calls = %v, want source and both peers once", calls)
+	}
+}
+
+// A failed source push rolls anchors, assignments and counters back and
+// re-syncs every node touched.
+func TestMigrateNodeRoutesRollsBackOnSourcePushFailure(t *testing.T) {
+	db, gid, src, peers, r1, r2 := fanoutFixture(t)
+	before := fanoutState(t, db, src, peers, r1, r2)
+	calls := map[int64]int{}
+	h := &AdminHandlers{Logger: slog.Default(), ResyncNode: func(_ context.Context, id int64) error {
+		calls[id]++
+		if id == src && calls[id] == 1 {
+			return errors.New("boom")
+		}
+		return nil
+	}}
+	if _, _, err := h.migrateNodeRoutes(context.Background(), db, src, gid, true); err == nil {
+		t.Fatal("expected push error")
+	}
+	if after := fanoutState(t, db, src, peers, r1, r2); after != before {
+		t.Fatalf("not restored:\n got %s\nwant %s", after, before)
+	}
+	if calls[src] != 2 || calls[peers[0]] != 2 || calls[peers[1]] != 2 {
+		t.Fatalf("rollback re-sync calls = %v, want 2 each", calls)
+	}
+}
