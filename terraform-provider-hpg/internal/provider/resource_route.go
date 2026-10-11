@@ -96,9 +96,14 @@ func (r *routeResource) Create(ctx context.Context, req resource.CreateRequest, 
 		resp.Diagnostics.AddError("Create route failed", err.Error())
 		return
 	}
+	// Persist the id first so a failed read leaves the created object tracked.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), created.ID)...)
 	if r.read(ctx, created.ID, &plan, &resp.Diagnostics) {
 		resp.Diagnostics.AddError("Create route failed", "route vanished immediately after create")
 		return
+	}
+	if resp.Diagnostics.HasError() {
+		return // keep the id-only state
 	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }

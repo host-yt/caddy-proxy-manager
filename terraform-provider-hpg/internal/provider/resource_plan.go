@@ -139,7 +139,12 @@ func (r *planResource) Create(ctx context.Context, req resource.CreateRequest, r
 		resp.Diagnostics.AddError("Create plan failed", err.Error())
 		return
 	}
+	// Persist the id first so a failed read leaves the created object tracked.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), created.ID)...)
 	r.read(ctx, created.ID, &plan, &resp.Diagnostics)
+	if resp.Diagnostics.HasError() {
+		return // keep the id-only state
+	}
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)
 }
 
