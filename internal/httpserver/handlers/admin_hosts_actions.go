@@ -19,6 +19,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
 )
 
 // genProxySecret returns a random URL-safe inbound bearer for an external
@@ -571,7 +572,7 @@ func dnsTestErrorCategory(err error) string {
 // reachability + latency. Useful for operators debugging why a route isn't
 // forwarding — confirms the panel host can reach the backend before Caddy is
 // even involved. RFC1918 is allowed (WG mesh peers live there); loopback and
-// link-local are blocked via IsDangerousProxyBackend.
+// link-local and control-plane targets are refused by the central screen.
 func (h *AdminHandlers) HostsTestBackend(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chiURLParamHosts(r, "id"), 10, 64)
 	if id == 0 {
@@ -600,27 +601,28 @@ func (h *AdminHandlers) HostsTestBackend(w http.ResponseWriter, r *http.Request)
 		apiJSON(w, http.StatusNotFound, map[string]any{"error": "route not found"})
 		return
 	}
-	// Resolve hostname if needed, then SSRF-check the resulting IP.
-	ip := net.ParseIP(backendHost)
-	if ip == nil {
-		// hostname — resolve first so the SSRF check sees the real IP
-		addrs, err := net.DefaultResolver.LookupNetIP(ctx, "ip", backendHost)
-		if err != nil || len(addrs) == 0 {
-			apiJSON(w, http.StatusOK, map[string]any{
-				"reachable": false,
-				"error":     "hostname resolution failed",
-				"host":      backendHost,
-				"port":      upstreamPort,
-			})
-			return
-		}
-		ip = addrs[0].AsSlice()
+	// Resolve once, screen every answer against the full deny set, and dial the
+	// pinned address so a second DNS answer cannot move the probe.
+	infra, err := streamguard.LoadInfraTargets(ctx, db)
+	if err != nil {
+		apiJSON(w, http.StatusServiceUnavailable, map[string]any{"error": "backend screening unavailable"})
+		return
 	}
-	if security.IsDangerousProxyBackend(ip) {
+	pinned, err := infra.PinHTTPBackend(ctx, backendHost, upstreamPort)
+	if errors.Is(err, streamguard.ErrUnresolved) {
+		apiJSON(w, http.StatusOK, map[string]any{
+			"reachable": false,
+			"error":     "hostname resolution failed",
+			"host":      backendHost,
+			"port":      upstreamPort,
+		})
+		return
+	}
+	if err != nil || pinned == "" {
 		apiJSON(w, http.StatusForbidden, map[string]any{"error": "backend address not allowed"})
 		return
 	}
-	addr := net.JoinHostPort(backendHost, strconv.Itoa(upstreamPort))
+	addr := net.JoinHostPort(pinned, strconv.Itoa(upstreamPort))
 	dialCtx, dialCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer dialCancel()
 	start := time.Now()
