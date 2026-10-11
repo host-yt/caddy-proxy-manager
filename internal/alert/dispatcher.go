@@ -27,12 +27,19 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, cfg Config, a Aler
 	key := dedupeKey(a)
 
 	// Cooldown: suppress if the same dedupe key fired within the window.
-	var lastFired sql.NullTime
-	_ = db.QueryRowContext(ctx,
-		`SELECT MAX(fired_at) FROM alert_log
+	// COUNT, not MAX(fired_at): SQLite returns aggregates as text, which Go 1.27
+	// no longer scans into time.Time, and a failed read must not bypass the cooldown.
+	var recent int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM alert_log
 		  WHERE dedupe_key = ? AND fired_at > (`+store.DateSubParam("SECOND")+`)`,
-		key, cfg.CooldownSeconds).Scan(&lastFired)
-	if lastFired.Valid {
+		key, cfg.CooldownSeconds).Scan(&recent); err != nil {
+		if e.Logger != nil {
+			e.Logger.Warn("alert cooldown check failed; not sending", "rule", a.RuleID, "err", err)
+		}
+		return
+	}
+	if recent > 0 {
 		return
 	}
 

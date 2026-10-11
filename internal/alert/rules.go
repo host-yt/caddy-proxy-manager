@@ -171,14 +171,14 @@ func drillStale(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 	if threshold <= 0 {
 		threshold = 7
 	}
-	var lastSuccess sql.NullTime
+	var recent int
 	err := db.QueryRowContext(ctx,
-		`SELECT MAX(finished_at)
+		`SELECT COUNT(*)
 		   FROM restore_drill_status
 		  WHERE success = 1
 		    AND finished_at > (`+store.DateSubParam("DAY")+`)`,
 		threshold,
-	).Scan(&lastSuccess)
+	).Scan(&recent)
 	if err != nil {
 		var me *mysql.MySQLError
 		// Table not yet migrated - suppress false alert on first boot.
@@ -188,7 +188,7 @@ func drillStale(ctx context.Context, db *sql.DB, cfg Config) []Alert {
 		// Any other DB error: suppress to avoid spurious alerts.
 		return nil
 	}
-	if lastSuccess.Valid {
+	if recent > 0 {
 		return nil // recent success exists — no alert
 	}
 	return []Alert{{

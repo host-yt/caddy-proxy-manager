@@ -152,11 +152,15 @@ func (h *AdminHandlers) AlertsPage(w http.ResponseWriter, r *http.Request) {
 		defer aggRows.Close()
 		for aggRows.Next() {
 			var ruleID, sev string
-			var lastFired time.Time
+			var lastFired store.NullTime
 			var cnt int64
 			if err := aggRows.Scan(&ruleID, &lastFired, &cnt, &sev); err == nil {
-				t := lastFired
-				agg[ruleID] = &ruleAgg{lastFired: &t, count: cnt, severity: sev}
+				ra := &ruleAgg{count: cnt, severity: sev}
+				if lastFired.Valid {
+					t := lastFired.Time
+					ra.lastFired = &t
+				}
+				agg[ruleID] = ra
 			}
 		}
 	}
