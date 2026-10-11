@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	mysqldrv "github.com/go-sql-driver/mysql"
 	"github.com/host-yt/caddy-proxy-manager/internal/backup"
 	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -248,49 +249,67 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	if store.Driver() == "sqlite3" {
 		return j.restoreSQLite(ctx, dumpSQL)
 	}
-	// Use full timestamp so re-runs on the same day get a fresh empty schema.
-	drillSchema := "hpg_drill_" + time.Now().UTC().Format("20060102_150405")
-	// Bootstrap connection with NO default schema: putting the not-yet-created
-	// drill schema in the DSN makes the first query fail with Error 1049.
-	bootDSN, err := j.drillDSN("")
-	if err != nil {
-		return 0, fmt.Errorf("build drill dsn: %w", err)
-	}
-	bootDB, err := sql.Open("mysql", bootDSN)
-	if err != nil {
-		return 0, fmt.Errorf("open drill bootstrap db: %w", err)
-	}
-	defer bootDB.Close()
-	bootDB.SetMaxOpenConns(1)
-	bootDB.SetConnMaxLifetime(5 * time.Minute)
-
-	// 7. Create temp schema — fail gracefully if the DB user lacks CREATE privilege.
-	if _, err := bootDB.ExecContext(ctx, "CREATE DATABASE IF NOT EXISTS `"+drillSchema+"`"); err != nil {
-		return 0, fmt.Errorf("CREATE DATABASE %s: %w (ensure DB user has CREATE privilege)", drillSchema, err)
-	}
-	j.Logger.Debug("backup-drill: schema created", "schema", drillSchema)
-
-	defer func() {
-		dropCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if _, err := bootDB.ExecContext(dropCtx, "DROP DATABASE IF EXISTS `"+drillSchema+"`"); err != nil {
-			j.Logger.Warn("backup-drill: DROP schema failed", "schema", drillSchema, "err", err)
-		} else {
-			j.Logger.Debug("backup-drill: schema dropped", "schema", drillSchema)
+	var drillDB *sql.DB
+	if extDSN := os.Getenv("HPG_DRILL_DSN"); extDSN != "" {
+		// Hosting plans without CREATE DATABASE: replay into a dedicated empty DB.
+		db, err := j.openExternalDrillDB(ctx, extDSN)
+		if err != nil {
+			return 0, err
 		}
-	}()
+		drillDB = db
+		defer db.Close()
+		defer func() {
+			dropCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := dropAllTables(dropCtx, db); err != nil {
+				j.Logger.Warn("backup-drill: cleanup failed", "err", err)
+			}
+		}()
+	} else {
+		// Use full timestamp so re-runs on the same day get a fresh empty schema.
+		drillSchema := "hpg_drill_" + time.Now().UTC().Format("20060102_150405")
+		// Bootstrap connection with NO default schema: putting the not-yet-created
+		// drill schema in the DSN makes the first query fail with Error 1049.
+		bootDSN, err := j.drillDSN("")
+		if err != nil {
+			return 0, fmt.Errorf("build drill dsn: %w", err)
+		}
+		bootDB, err := sql.Open("mysql", bootDSN)
+		if err != nil {
+			return 0, fmt.Errorf("open drill bootstrap db: %w", err)
+		}
+		defer bootDB.Close()
+		bootDB.SetMaxOpenConns(1)
+		bootDB.SetConnMaxLifetime(5 * time.Minute)
 
-	drillDSN, err := j.drillDSN(drillSchema)
-	if err != nil {
-		return 0, fmt.Errorf("build drill dsn: %w", err)
+		// 7. Create temp schema - fail gracefully if the DB user lacks CREATE privilege.
+		if _, err := bootDB.ExecContext(ctx, "CREATE DATABASE IF NOT EXISTS `"+drillSchema+"`"); err != nil {
+			return 0, createDBError(drillSchema, err)
+		}
+		j.Logger.Debug("backup-drill: schema created", "schema", drillSchema)
+
+		defer func() {
+			dropCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			if _, err := bootDB.ExecContext(dropCtx, "DROP DATABASE IF EXISTS `"+drillSchema+"`"); err != nil {
+				j.Logger.Warn("backup-drill: DROP schema failed", "schema", drillSchema, "err", err)
+			} else {
+				j.Logger.Debug("backup-drill: schema dropped", "schema", drillSchema)
+			}
+		}()
+
+		drillDSN, err := j.drillDSN(drillSchema)
+		if err != nil {
+			return 0, fmt.Errorf("build drill dsn: %w", err)
+		}
+		drillDB, err = sql.Open("mysql", drillDSN)
+		if err != nil {
+			return 0, fmt.Errorf("open drill db: %w", err)
+		}
+		defer drillDB.Close()
+		drillDB.SetMaxOpenConns(1)
+		drillDB.SetConnMaxLifetime(5 * time.Minute)
 	}
-	drillDB, err := sql.Open("mysql", drillDSN)
-	if err != nil {
-		return 0, fmt.Errorf("open drill db: %w", err)
-	}
-	defer drillDB.Close()
-	drillDB.SetMaxOpenConns(1)
-	drillDB.SetConnMaxLifetime(5 * time.Minute)
 
 	// 8. Replay dump.
 	restoreCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
@@ -586,4 +605,95 @@ func drillTruncate(s string, n int) string {
 		return s[:n] + "..."
 	}
 	return s
+}
+
+// createDBError maps MySQL access-denied (1044/1227) to an actionable hint.
+func createDBError(schema string, err error) error {
+	var me *mysqldrv.MySQLError
+	if errors.As(err, &me) && (me.Number == 1044 || me.Number == 1227) {
+		return fmt.Errorf("DB user cannot create databases; create an empty database and set HPG_DRILL_DSN: %w", err)
+	}
+	return fmt.Errorf("CREATE DATABASE %s: %w", schema, err)
+}
+
+// openExternalDrillDB opens HPG_DRILL_DSN, refuses the production schema and
+// wipes the target's tables so the replay starts clean.
+func (j *BackupDrillJob) openExternalDrillDB(ctx context.Context, dsn string) (*sql.DB, error) {
+	cfg, err := mysqldrv.ParseDSN(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("parse HPG_DRILL_DSN: %w", err)
+	}
+	cfg.ParseTime, cfg.Loc, cfg.Params = true, time.UTC, map[string]string{"charset": "utf8mb4"}
+	db, err := sql.Open("mysql", cfg.FormatDSN())
+	if err != nil {
+		return nil, fmt.Errorf("open HPG_DRILL_DSN: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	var target string
+	if err := db.QueryRowContext(ctx, "SELECT DATABASE()").Scan(&target); err != nil || target == "" {
+		db.Close()
+		return nil, fmt.Errorf("HPG_DRILL_DSN must name a database (err=%v)", err)
+	}
+	prod, err := j.prodSchema(ctx)
+	if err == nil && target == prod {
+		err = errors.New("HPG_DRILL_DSN points at the production database")
+	}
+	if err != nil {
+		db.Close()
+		return nil, err
+	}
+	if err := dropAllTables(ctx, db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("clean drill db: %w", err)
+	}
+	return db, nil
+}
+
+func (j *BackupDrillJob) prodSchema(ctx context.Context) (string, error) {
+	pdb := j.DB()
+	if pdb == nil {
+		return "", errors.New("production db not available")
+	}
+	var name string
+	if err := pdb.QueryRowContext(ctx, "SELECT DATABASE()").Scan(&name); err != nil {
+		return "", fmt.Errorf("resolve production schema: %w", err)
+	}
+	return name, nil
+}
+
+// dropAllTables empties the current schema (FK checks off on one connection).
+func dropAllTables(ctx context.Context, db *sql.DB) error {
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	rows, err := conn.QueryContext(ctx, "SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE()")
+	if err != nil {
+		return err
+	}
+	var names []string
+	for rows.Next() {
+		var n string
+		if err := rows.Scan(&n); err != nil {
+			rows.Close()
+			return err
+		}
+		names = append(names, n)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "SET FOREIGN_KEY_CHECKS=0"); err != nil {
+		return err
+	}
+	defer conn.ExecContext(context.Background(), "SET FOREIGN_KEY_CHECKS=1")
+	for _, n := range names {
+		if _, err := conn.ExecContext(ctx, "DROP TABLE IF EXISTS `"+strings.ReplaceAll(n, "`", "``")+"`"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
