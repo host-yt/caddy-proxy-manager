@@ -243,9 +243,6 @@ func wgKeyNotFetched(ctx context.Context, db *sql.DB, cfg Config, log *slog.Logg
 		if err := rows.Scan(&id, &name); err != nil {
 			continue
 		}
-		// Mark sent to avoid re-firing until the next rotation.
-		_, _ = db.ExecContext(ctx,
-			`UPDATE customer_wg_peer SET rotation_alert_sent_at=NOW() WHERE id=?`, id)
 		out = append(out, Alert{
 			RuleID:   "wg_key_not_fetched",
 			Severity: SeverityWarning,

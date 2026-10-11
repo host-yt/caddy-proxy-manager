@@ -47,6 +47,13 @@ func (e *Evaluator) dispatch(ctx context.Context, db *sql.DB, cfg Config, a Aler
 		}
 		return // do not fan out if we could not record - avoids un-deduped repeat
 	}
+	// Mark only once recorded, so a failed insert leaves the rule free to retry.
+	if a.RuleID == "wg_key_not_fetched" {
+		if _, err := db.ExecContext(ctx,
+			`UPDATE customer_wg_peer SET rotation_alert_sent_at=`+store.Now()+` WHERE id=?`, a.Labels["peer_id"]); err != nil && e.Logger != nil {
+			e.Logger.Warn("wg rotation alert mark failed", "peer", a.Labels["peer_id"], "err", err)
+		}
+	}
 
 	if e.Metrics != nil {
 		e.Metrics.AlertFired(a.RuleID, string(a.Severity))
