@@ -49,6 +49,9 @@ type AppConfig struct {
 type InstallConfig struct {
 	Installed bool
 	Token     string // INSTALL_TOKEN: gate state-changing wizard endpoints
+	// AllowPlaintext (INSTALL_ALLOW_PLAINTEXT=1) serves the wizard over plain
+	// HTTP to non-loopback hosts; off by default.
+	AllowPlaintext bool
 }
 
 type DBConfig struct {
@@ -213,8 +216,9 @@ func loadEnv() *Config {
 			PanelInternalPort:  envInt("APP_INTERNAL_PORT", 8080),
 		},
 		Install: InstallConfig{
-			Installed: envBool("INSTALLED", false),
-			Token:     os.Getenv("INSTALL_TOKEN"),
+			Installed:      envBool("INSTALLED", false),
+			Token:          os.Getenv("INSTALL_TOKEN"),
+			AllowPlaintext: envBool("INSTALL_ALLOW_PLAINTEXT", false),
 		},
 		DB: DBConfig{
 			Host:       envOr("DB_HOST", "mariadb"),

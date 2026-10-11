@@ -84,7 +84,7 @@ docker compose -f deploy/docker-compose.yml --env-file .env --profile mesh up -d
 docker compose -f deploy/docker-compose.yml logs -f --tail=100
 ```
 
-Open the install wizard at `http://<server-ip>:8080/install` to create the admin account and register the first Caddy node.
+Open the install wizard through an SSH port-forward (`ssh -L 8080:127.0.0.1:8080 <server>`, then `http://127.0.0.1:8080/install`) or over HTTPS to create the admin account and register the first Caddy node. Plain HTTP to a remote address is refused - see [INSTALL.md](INSTALL.md#24-open-the-install-wizard).
 
 **Environment file tips:**
 

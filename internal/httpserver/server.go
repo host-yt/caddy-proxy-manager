@@ -274,6 +274,7 @@ func (s *Server) routes() {
 
 	// Install wizard. State-changing routes go through InstallGuard.
 	r.Route("/install", func(r chi.Router) {
+		r.Use(mw.InstallTransportGuard(s.deps.InstallState.IsInstalled, s.deps.Config.Install.AllowPlaintext))
 		r.Get("/", s.deps.Wizard.Index)
 		r.Group(func(r chi.Router) {
 			r.Use(mw.InstallGuard(s.deps.InstallState.IsInstalled, s.deps.Config.Install.Token))
