@@ -147,10 +147,11 @@ func (h *AdminHandlers) NodesPSKClear(w http.ResponseWriter, r *http.Request) {
 	// database never claims the key is gone while our wg0.conf still carries
 	// it. Recovery advice is only safe once our own side really changed.
 	var prevActive, prevPending, prevTokenHash, prevTokenEnc sql.NullString
+	var prevTokenExpires sql.NullTime
 	if err := db.QueryRowContext(ctx,
-		`SELECT wg_psk_enc, wg_psk_pending_enc, wg_psk_token_hash, wg_psk_token_enc
+		`SELECT wg_psk_enc, wg_psk_pending_enc, wg_psk_token_hash, wg_psk_token_enc, wg_psk_token_expires
 		 FROM caddy_nodes WHERE id = ?`, id,
-	).Scan(&prevActive, &prevPending, &prevTokenHash, &prevTokenEnc); err != nil {
+	).Scan(&prevActive, &prevPending, &prevTokenHash, &prevTokenEnc, &prevTokenExpires); err != nil {
 		redirectWithFlash(w, r, dest, "", "node not found")
 		return
 	}
@@ -167,8 +168,8 @@ func (h *AdminHandlers) NodesPSKClear(w http.ResponseWriter, r *http.Request) {
 			defer ccancel()
 			if _, cerr := db.ExecContext(cctx,
 				`UPDATE caddy_nodes SET wg_psk_enc = ?, wg_psk_pending_enc = ?, wg_psk_token_hash = ?,
-				   wg_psk_token_enc = ? WHERE id = ?`,
-				prevActive, prevPending, prevTokenHash, prevTokenEnc, id); cerr != nil {
+				   wg_psk_token_enc = ?, wg_psk_token_expires = ? WHERE id = ?`,
+				prevActive, prevPending, prevTokenHash, prevTokenEnc, prevTokenExpires, id); cerr != nil {
 				h.Logger.Error("node psk clear: RESTORE FAILED - panel config and database disagree on this node's PSK",
 					"node_id", id, "err", cerr)
 				audit.Write(cctx, db, h.Logger, r, audit.Entry{
