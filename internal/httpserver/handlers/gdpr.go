@@ -160,7 +160,11 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 	mask := fmt.Sprintf("deleted-user-%d@hpg.invalid", id)
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE users SET email = ?, password_hash = '', password_set = 0, full_name = NULL,
+		 phone_e164 = NULL, email_verified = 0, has_passkey = 0,
 		 totp_secret = NULL, totp_secret_enc = NULL, totp_enabled = 0,
+		 totp_pending_secret = NULL, totp_pending_exp = NULL, totp_pending_attempts = 0,
+		 sms_otp_enabled = 0, sms_otp_pending_hash = NULL, sms_otp_pending_exp = NULL,
+		 email_otp_enabled = 0, email_otp_pending_hash = NULL, email_otp_pending_exp = NULL,
 		 is_active = 0
 		 WHERE id = ?`, mask, id); err != nil {
 		h.Logger.Warn("gdpr user mask failed", "id", id, "err", err)
@@ -173,6 +177,13 @@ func (h *AdminHandlers) GDPRDelete(w http.ResponseWriter, r *http.Request) {
 		"DELETE FROM api_keys WHERE user_id = ?",
 		"DELETE FROM recovery_codes WHERE user_id = ?",
 		"DELETE FROM password_resets WHERE user_id = ?",
+		"DELETE FROM email_verifications WHERE user_id = ?",
+		"DELETE FROM oauth_identities WHERE user_id = ?",
+		"DELETE FROM webauthn_credentials WHERE user_id = ?",
+		// Explicit child delete: SQLite may run without FK cascades.
+		"DELETE FROM ai_chat_messages WHERE session_id IN (SELECT id FROM ai_chat_sessions WHERE user_id = ?)",
+		"DELETE FROM ai_chat_sessions WHERE user_id = ?",
+		"UPDATE clients SET display_name = NULL, notes = NULL, custom_fields = NULL WHERE user_id = ?",
 		"UPDATE audit_log SET ip = NULL, user_agent = NULL WHERE user_id = ?",
 	} {
 		if _, err := tx.ExecContext(ctx, q, id); err != nil {
