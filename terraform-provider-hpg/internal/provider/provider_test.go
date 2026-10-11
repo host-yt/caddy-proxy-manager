@@ -56,6 +56,24 @@ func TestClientPasswordWriteOnly(t *testing.T) {
 	t.Fatal("hpg_client has no password_wo attribute")
 }
 
+// The reseller owner password must be write-only too.
+func TestResellerOwnerPasswordWriteOnlySchema(t *testing.T) {
+	srv := providerserver.NewProtocol6(New("test")())()
+	resp, err := srv.GetProviderSchema(context.Background(), &tfprotov6.GetProviderSchemaRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range resp.ResourceSchemas["hpg_reseller"].Block.Attributes {
+		if a.Name == "owner_password_wo" {
+			if !a.WriteOnly || !a.Sensitive {
+				t.Fatalf("owner_password_wo must be write-only and sensitive: %+v", a)
+			}
+			return
+		}
+	}
+	t.Fatal("hpg_reseller has no owner_password_wo attribute")
+}
+
 // TestAccPlaceholder documents the acceptance-test entry point. Real acceptance
 // tests (resource.Test with TF_ACC=1) require a live panel + admin API key at
 // HPG_ENDPOINT/HPG_API_KEY; they live here once a CI panel is available.

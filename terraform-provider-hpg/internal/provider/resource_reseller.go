@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
@@ -20,18 +21,19 @@ type resellerResource struct{ client *Client }
 func NewResellerResource() resource.Resource { return &resellerResource{} }
 
 type resellerModel struct {
-	ID             types.Int64  `tfsdk:"id"`
-	Name           types.String `tfsdk:"name"`
-	Slug           types.String `tfsdk:"slug"`
-	OwnerEmail     types.String `tfsdk:"owner_email"`
-	OwnerPassword  types.String `tfsdk:"owner_password"`
-	OwnerUserID    types.Int64  `tfsdk:"owner_user_id"`
-	Status         types.String `tfsdk:"status"`
-	BrandName      types.String `tfsdk:"brand_name"`
-	SupportEmail   types.String `tfsdk:"support_email"`
-	ResellerPlanID types.Int64  `tfsdk:"reseller_plan_id"`
-	Overselling    types.Bool   `tfsdk:"overselling_allowed"`
-	CanCreatePlans types.Bool   `tfsdk:"can_create_plans"`
+	ID              types.Int64  `tfsdk:"id"`
+	Name            types.String `tfsdk:"name"`
+	Slug            types.String `tfsdk:"slug"`
+	OwnerEmail      types.String `tfsdk:"owner_email"`
+	OwnerPassword   types.String `tfsdk:"owner_password"`
+	OwnerPasswordWO types.String `tfsdk:"owner_password_wo"`
+	OwnerUserID     types.Int64  `tfsdk:"owner_user_id"`
+	Status          types.String `tfsdk:"status"`
+	BrandName       types.String `tfsdk:"brand_name"`
+	SupportEmail    types.String `tfsdk:"support_email"`
+	ResellerPlanID  types.Int64  `tfsdk:"reseller_plan_id"`
+	Overselling     types.Bool   `tfsdk:"overselling_allowed"`
+	CanCreatePlans  types.Bool   `tfsdk:"can_create_plans"`
 }
 
 // apiReseller mirrors the GET/PATCH response shape of /api/v1/resellers.
@@ -72,10 +74,17 @@ func (r *resellerResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.RequiresReplace()},
 			},
 			"owner_password": schema.StringAttribute{
-				Required:            true,
+				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "Initial reseller-admin password (>= 12 chars). Create-only: the API has no owner-password rotate endpoint, so later changes are ignored (rotate in-panel).",
+				MarkdownDescription: "Deprecated: stored in state in cleartext; use `owner_password_wo`. Initial reseller-admin password (>= 12 chars), create-only.",
+				DeprecationMessage:  "owner_password is persisted in Terraform state; use owner_password_wo (Terraform >= 1.11) instead.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"owner_password_wo": schema.StringAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				WriteOnly:           true,
+				MarkdownDescription: "Initial reseller-admin password (>= 12 chars), write-only: sent once at create, never stored in plan or state (Terraform >= 1.11). Later changes are ignored; rotate in-panel. Remove it from config after the first apply if you like.",
 			},
 			"owner_user_id": schema.Int64Attribute{
 				Computed:      true,
@@ -111,11 +120,28 @@ func (r *resellerResource) Create(ctx context.Context, req resource.CreateReques
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	// Write-only values are only in config, never in the plan.
+	var wo types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("owner_password_wo"), &wo)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	password := plan.OwnerPassword.ValueString()
+	switch {
+	case wo.ValueString() != "" && password != "":
+		resp.Diagnostics.AddAttributeError(path.Root("owner_password_wo"), "Conflicting passwords", "Set only one of owner_password_wo or owner_password.")
+		return
+	case wo.ValueString() != "":
+		password = wo.ValueString()
+	case password == "":
+		resp.Diagnostics.AddAttributeError(path.Root("owner_password_wo"), "Missing password", "Set owner_password_wo (the initial reseller-admin password) to create a reseller.")
+		return
+	}
 	body := map[string]any{
 		"name":           plan.Name.ValueString(),
 		"slug":           plan.Slug.ValueString(),
 		"owner_email":    plan.OwnerEmail.ValueString(),
-		"owner_password": plan.OwnerPassword.ValueString(),
+		"owner_password": password,
 		"brand_name":     plan.BrandName.ValueString(),
 		"support_email":  plan.SupportEmail.ValueString(),
 	}
@@ -143,7 +169,7 @@ func (r *resellerResource) Create(ctx context.Context, req resource.CreateReques
 	// Persist the id first: if the read below fails, Terraform still tracks the
 	// (tainted) reseller and can refresh or destroy it instead of orphaning it.
 	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), created.ID)...)
-	pw := plan.OwnerPassword // preserve write-only value in state
+	pw := plan.OwnerPassword
 	if r.read(ctx, created.ID, &plan, &resp.Diagnostics) {
 		resp.Diagnostics.AddError("Create reseller failed", "reseller vanished immediately after create")
 		return

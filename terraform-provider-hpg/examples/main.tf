@@ -59,6 +59,14 @@ resource "hpg_client" "acme" {
   external_ref = "billing-acme-001"        # idempotent external mapping
 }
 
+# Platform-admin key only.
+resource "hpg_reseller" "northwind" {
+  name              = "Northwind Hosting"
+  slug              = "northwind"
+  owner_email       = "admin@northwind.example"
+  owner_password_wo = var.northwind_owner_password # write-only (Terraform >= 1.11), never stored in state; >= 12 chars
+}
+
 resource "hpg_service" "acme_web" {
   client_id          = hpg_client.acme.id
   name               = "acme-web"
@@ -80,6 +88,12 @@ resource "hpg_route" "acme_www" {
 }
 
 variable "acme_initial_password" {
+  type      = string
+  sensitive = true
+  ephemeral = true # never written to plan or state
+}
+
+variable "northwind_owner_password" {
   type      = string
   sensitive = true
   ephemeral = true # never written to plan or state
