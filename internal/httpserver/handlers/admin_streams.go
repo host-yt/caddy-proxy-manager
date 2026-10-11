@@ -373,6 +373,10 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams", "", "node not found or not approved")
 		return
 	}
+	if err := h.checkPlacement(ctx, sess, nodeGroupID); err != nil {
+		redirectWithFlash(w, r, "/admin/streams", "", errPlacementNotGranted.Error())
+		return
+	}
 	clientID, err := ensureAdminClient(ctx, db, sess.UserID, sess.ResellerID)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "could not provision admin client")
