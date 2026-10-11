@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -101,6 +102,23 @@ func TestAllowedDrillSQLAcceptsRealDumps(t *testing.T) {
 	}
 	store.SetDriver("sqlite3")
 	check("mysql", strings.Split(buf.String(), ";\n"))
+
+	// Replay must also run clean now that statement errors are fatal.
+	scratch := "hpg_drill_test_" + time.Now().UTC().Format("150405")
+	if _, err := my.Exec("CREATE DATABASE " + scratch); err != nil {
+		t.Skipf("cannot create scratch schema: %v", err)
+	}
+	defer my.Exec("DROP DATABASE IF EXISTS " + scratch)
+	sdb, err := sql.Open("mysql", regexp.MustCompile(`/[^/?]+(\?|$)`).ReplaceAllString(dsn, "/"+scratch+"$1"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sdb.Close()
+	sdb.SetMaxOpenConns(1)
+	j := &BackupDrillJob{Logger: slog.Default()}
+	if _, err := j.replaySQL(ctx, sdb, strings.Split(buf.String(), ";\n")); err != nil {
+		t.Fatalf("mysql replay: %v", err)
+	}
 }
 
 func openDrillSQLite(t *testing.T) *sql.DB {
@@ -114,6 +132,31 @@ func openDrillSQLite(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	return db
+}
+
+// A failing statement or an empty core table must fail the drill, not just get logged.
+func TestDrillFailsOnReplayErrorsAndEmptyData(t *testing.T) {
+	ctx := context.Background()
+	j := &BackupDrillJob{Logger: slog.Default()}
+	scratch, err := sql.Open("sqlite", filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer scratch.Close()
+	_, err = j.replaySQL(ctx, scratch, []string{
+		"CREATE TABLE `settings` (k TEXT)",
+		"INSERT INTO `settings` (`k`) VALUES ('a')",
+		"INSERT INTO `settingz` (`k`) VALUES ('a')",
+	})
+	if err == nil || !strings.Contains(err.Error(), "replay statement 3") {
+		t.Fatalf("want replay error on statement 3, got %v", err)
+	}
+	if _, err := scratch.Exec("CREATE TABLE users (id INT)"); err != nil {
+		t.Fatal(err)
+	}
+	if err := checkCoreRows(ctx, scratch); err == nil || !strings.Contains(err.Error(), "users is empty") {
+		t.Fatalf("want empty users error, got %v", err)
+	}
 }
 
 // End-to-end on SQLite: a real backup passes the drill, a modified artifact does not.

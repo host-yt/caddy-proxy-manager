@@ -308,6 +308,9 @@ func (j *BackupDrillJob) runDrill(ctx context.Context) (int, error) {
 	if found < minTableCount {
 		return 0, fmt.Errorf("only %d/%d core tables present after restore", found, minTableCount)
 	}
+	if err := checkCoreRows(restoreCtx, drillDB); err != nil {
+		return rowsReplayed, err
+	}
 	j.Logger.Info("backup-drill: tables verified", "found", found, "required", minTableCount)
 	return rowsReplayed, nil
 }
@@ -394,14 +397,17 @@ func (j *BackupDrillJob) restoreSQLite(ctx context.Context, dumpSQL string) (int
 	if found < minTableCount {
 		return rowsReplayed, fmt.Errorf("only %d/%d core tables present after restore", found, minTableCount)
 	}
+	if err := checkCoreRows(restoreCtx, drillDB); err != nil {
+		return rowsReplayed, err
+	}
 	j.Logger.Info("backup-drill: tables verified", "found", found, "required", minTableCount)
 	return rowsReplayed, nil
 }
 
 // replaySQL executes dump statements into the drill DB. Any statement outside
-// the shapes our own dumpers emit aborts the drill. Statement errors are
-// logged but non-fatal - the table-count verify step catches real failures.
-// Returns the count of statements that executed without error.
+// the shapes our own dumpers emit, or any failing statement, fails the drill:
+// a dump that only half restores is not a usable backup.
+// Returns the count of statements executed.
 func (j *BackupDrillJob) replaySQL(ctx context.Context, db *sql.DB, stmts []string) (int, error) {
 	var ok int
 	for _, stmt := range stmts {
@@ -413,11 +419,9 @@ func (j *BackupDrillJob) replaySQL(ctx context.Context, db *sql.DB, stmts []stri
 			return ok, fmt.Errorf("dump contains a statement the drill does not replay: %q", drillTruncate(stmt, 60))
 		}
 		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			j.Logger.Debug("backup-drill: stmt error (non-fatal)",
-				"err", err, "stmt_prefix", drillTruncate(stmt, 80))
-		} else {
-			ok++
+			return ok, fmt.Errorf("replay statement %d (%q): %w", ok+1, drillTruncate(stmt, 60), err)
 		}
+		ok++
 	}
 	return ok, nil
 }
@@ -474,6 +478,23 @@ func allowedDrillSQL(stmt string) bool {
 		}
 	}
 	return false
+}
+
+// populatedTables must hold rows in any backup of an installed panel.
+var populatedTables = []string{"settings", "users"}
+
+// checkCoreRows fails when a table every installed panel populates came back empty.
+func checkCoreRows(ctx context.Context, db *sql.DB) error {
+	for _, t := range populatedTables {
+		var n int
+		if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM `"+t+"`").Scan(&n); err != nil {
+			return fmt.Errorf("count %s: %w", t, err)
+		}
+		if n == 0 {
+			return fmt.Errorf("table %s is empty after restore", t)
+		}
+	}
+	return nil
 }
 
 // countCoreTables counts how many of coreTables exist in the drill schema.
