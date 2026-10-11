@@ -774,11 +774,11 @@ Each archive's `manifest.json` lists every component instead of a flat file list
 
 ## 13. Secret rotation blocked or interrupted
 
-`cmd/rotate-secret` (see [`SECURITY.md` § Rotating APP_SECRET](SECURITY.md#rotating-app_secret)) stages a rotation as DB first (one atomic transaction), then a recovery journal, then the state file - so a crash between those last two steps is resumable instead of leaving the DB and state file on different keys.
+`cmd/rotate-secret` (see [`SECURITY.md` § Rotating APP_SECRET](SECURITY.md#rotating-app_secret)) writes a recovery journal before touching anything, commits the DB (one atomic transaction), advances the journal, then rewrites the state file - so a crash at any step is resumable instead of leaving the DB and state file on different keys.
 
 ### Telling what state you're in
 
-A journal file next to the state file (`<state path>.rotate-journal`, e.g. `./data/install_state.json.rotate-journal`) means a previous `--apply` run did not finish. If it's there, the DB has already committed to the new secret; the state file has not.
+A journal file next to the state file (`<state path>.rotate-journal`, e.g. `./data/install_state.json.rotate-journal`) means a previous `--apply` run did not finish. Stage `db_done` means the DB has committed to the new secret and the state file may not have; stage `intent` means the run died around the DB commit, and the re-run checks the DB to see which side of it landed.
 
 ### Resuming an interrupted rotation
 
@@ -797,4 +797,4 @@ with its original secrets, or remove the journal only after confirming the DB an
 ```
 Do not delete the journal to work around this without doing what it says first: finish the original rotation with its own secrets, or manually confirm the DB and `install_state.json` are already consistent with each other (both on the same key) before removing `<state path>.rotate-journal`. Removing it without that check risks leaving the DB and state file on different keys with nothing left to detect it.
 
-If the process ever reports it committed the DB but could not write the journal, the message says so explicitly and warns not to retry against `--old-secret` - follow the printed instructions rather than re-running blind.
+If the process reports it committed the DB but could not advance the journal, the intent journal is still on disk: re-running the same command detects the landed commit and finishes the state file.

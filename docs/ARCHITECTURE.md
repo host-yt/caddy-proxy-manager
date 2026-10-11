@@ -66,10 +66,10 @@ peer lists from the manager and writes the local `wg0.conf`.
 ### `cmd/rotate-secret/`
 CLI tool for rotating `APP_SECRET` - re-encrypts all AES-256-GCM blobs in
 the DB under the new key. Staged behind a preflight (decrypt-check every
-store under the old key, zero writes); on `--apply` it commits the DB first,
-then writes a recovery journal (`<state>.rotate-journal`) before the state
-file, so a crash between those two steps is resumed by re-running the same
-command instead of leaving the DB and file on different keys.
+store under the old key, zero writes); on `--apply` it fsyncs a recovery
+journal (`<state>.rotate-journal`), commits the DB, advances the journal,
+then rewrites the state file, so a crash at any step is resumed by
+re-running the same command instead of leaving the DB and file on different keys.
 
 ### `cmd/restore/`
 CLI tool to restore a DB backup from a configured destination (S3/SFTP/FTP).
