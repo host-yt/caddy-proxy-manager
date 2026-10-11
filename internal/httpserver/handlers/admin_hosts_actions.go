@@ -17,6 +17,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/streamguard"
@@ -207,12 +208,36 @@ func (h *AdminHandlers) HostsClone(w http.ResponseWriter, r *http.Request) {
 	}
 	cloneSQL := "INSERT INTO routes (" + strings.Join(insertCols, ",") + ") SELECT " +
 		strings.Join(selectExprs, ",") + " FROM routes WHERE id=?"
-	res, err := db.ExecContext(ctx, cloneSQL, id)
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+	// The copied port must still be inside the service range, checked under the
+	// same service lock a range change takes.
+	var st routes.RouteState
+	var serviceID int64
+	if err := tx.QueryRowContext(ctx,
+		"SELECT service_id, COALESCE(kind,''), COALESCE(upstream_external,0) = 1, upstream_port FROM routes WHERE id=?", id,
+	).Scan(&serviceID, &st.Kind, &st.External, &st.UpstreamPort); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
+		return
+	}
+	if err := routes.CheckLockedPort(ctx, tx, serviceID, st); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
+		return
+	}
+	res, err := tx.ExecContext(ctx, cloneSQL, id)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
 		return
 	}
 	newID, _ := res.LastInsertId()
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts", "", "clone failed: "+sanitizeErr(err))
+		return
+	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.host.clone", Entity: "route",
 		EntityID: itoa64(newID),

@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 var (
@@ -110,14 +111,43 @@ func (s *Service) checkRouteState(ctx context.Context, serviceID, routeID int64,
 
 // RoutesOutsidePorts counts the service's dialing routes (same rule as
 // checkRouteState) whose port falls outside [start,end]. A range change must
-// not leave them live on ports the service no longer owns.
-func RoutesOutsidePorts(ctx context.Context, db *sql.DB, serviceID int64, start, end int) (int, error) {
+// not leave them live on ports the service no longer owns. Run it on the tx that
+// holds LockServicePortRange so no route write slips in before the range UPDATE.
+func RoutesOutsidePorts(ctx context.Context, tx *sql.Tx, serviceID int64, start, end int) (int, error) {
 	var n int
-	err := db.QueryRowContext(ctx,
+	err := tx.QueryRowContext(ctx,
 		`SELECT COUNT(*) FROM routes WHERE service_id = ? AND kind <> 'redirect'
 		    AND COALESCE(upstream_external,0) = 0 AND (upstream_port < ? OR upstream_port > ?)`,
 		serviceID, start, end).Scan(&n)
 	return n, err
+}
+
+// LockServicePortRange row-locks the service and returns its port range. Route
+// writes and range changes both take it, so neither commits against a stale range.
+func LockServicePortRange(ctx context.Context, tx *sql.Tx, serviceID int64) (start, end int, err error) {
+	err = tx.QueryRowContext(ctx,
+		"SELECT allowed_port_start, allowed_port_end FROM services WHERE id = ?"+store.ForUpdate(),
+		serviceID).Scan(&start, &end)
+	if errors.Is(err, sql.ErrNoRows) {
+		err = ErrServiceNotFound
+	}
+	return start, end, err
+}
+
+// CheckLockedPort re-validates a dialing route's port under the service lock,
+// inside the tx that writes the route.
+func CheckLockedPort(ctx context.Context, tx *sql.Tx, serviceID int64, st RouteState) error {
+	if st.Kind == "redirect" || st.External {
+		return nil
+	}
+	start, end, err := LockServicePortRange(ctx, tx, serviceID)
+	if err != nil {
+		return err
+	}
+	if st.UpstreamPort < start || st.UpstreamPort > end {
+		return ErrPortOutOfRange
+	}
+	return nil
 }
 
 // ScreenTenantString rejects a tenant-supplied string Caddy would expand as a
@@ -236,7 +266,15 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 	if !next.SSL {
 		where += " AND COALESCE(require_client_cert, 0) = 0"
 	}
-	res, err := s.DB.ExecContext(ctx,
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback() //nolint:errcheck
+	if err := CheckLockedPort(ctx, tx, serviceID, next); err != nil {
+		return false, err
+	}
+	res, err := tx.ExecContext(ctx,
 		`UPDATE routes SET upstream_port=?, path_prefix=?, ssl_enabled=?, websocket=?,
 		        force_https=(? OR COALESCE(require_client_cert,0)), updated_at=NOW()
 		  WHERE `+where,
@@ -248,7 +286,7 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 		// Either the row went away or the mTLS guard held the write back; a
 		// re-read that fails still rejects.
 		var live int
-		switch err := s.DB.QueryRowContext(ctx,
+		switch err := tx.QueryRowContext(ctx,
 			"SELECT COALESCE(require_client_cert,0) FROM routes WHERE id = ?", routeID).Scan(&live); {
 		case errors.Is(err, sql.ErrNoRows):
 			return false, ErrRouteNotFound
@@ -260,6 +298,9 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 		// Row exists, guard did not fire: another writer already stored this
 		// exact state. Still a no-op success.
 		return false, nil
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("route update: %w", err)
 	}
 	s.SchedulePushForRoute(ctx, routeID)
 	return true, nil

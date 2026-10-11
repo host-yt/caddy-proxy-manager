@@ -486,16 +486,35 @@ func (h *APIHandlers) ServicePorts(w http.ResponseWriter, r *http.Request) {
 	if !h.serviceInScope(ctx, w, r, id) {
 		return
 	}
-	if n, err := routes.RoutesOutsidePorts(ctx, h.DB(), id, in.AllowedPortStart, in.AllowedPortEnd); err != nil {
+	// Lock the service row so no route write can commit a port against the old
+	// range between the check and the UPDATE.
+	tx, err := h.DB().BeginTx(ctx, nil)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+	if _, _, err := routes.LockServicePortRange(ctx, tx, id); errors.Is(err, routes.ErrServiceNotFound) {
+		apiErr(w, http.StatusNotFound, "service not found")
+		return
+	} else if err != nil {
+		apiErr(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	if n, err := routes.RoutesOutsidePorts(ctx, tx, id, in.AllowedPortStart, in.AllowedPortEnd); err != nil {
 		apiErr(w, http.StatusInternalServerError, "route check failed")
 		return
 	} else if n > 0 {
 		apiErr(w, http.StatusConflict, strconv.Itoa(n)+" route(s) use ports outside the new range; move or delete them first")
 		return
 	}
-	if _, err := h.DB().ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		"UPDATE services SET allowed_port_start = ?, allowed_port_end = ? WHERE id = ?",
 		in.AllowedPortStart, in.AllowedPortEnd, id); err != nil {
+		apiErr(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		apiErr(w, http.StatusInternalServerError, "update failed")
 		return
 	}

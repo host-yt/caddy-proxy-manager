@@ -2934,13 +2934,25 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/services", "", "port range overlaps an existing service on this backend IP")
 		return
 	}
-	if n, err := routes.RoutesOutsidePorts(ctx, db, id, portStart, portEnd); err != nil || n > 0 {
+	// Lock the service row so no route write can commit a port against the old
+	// range between the check and the UPDATE.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+	if _, _, err := routes.LockServicePortRange(ctx, tx, id); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "service not found")
+		return
+	}
+	if n, err := routes.RoutesOutsidePorts(ctx, tx, id, portStart, portEnd); err != nil || n > 0 {
 		redirectWithFlash(w, r, "/admin/services", "", "port range excludes ports used by existing routes; move or delete them first")
 		return
 	}
 
 	var nodeGroupID int64
-	if err := db.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
+	if err := tx.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
 		redirectWithFlash(w, r, "/admin/services", "", "plan not found")
 		return
 	}
@@ -2952,12 +2964,16 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 	if notes != "" {
 		notesVal = sql.NullString{String: notes, Valid: true}
 	}
-	if _, err := db.ExecContext(ctx,
+	if _, err := tx.ExecContext(ctx,
 		`UPDATE services SET client_id = ?, name = ?, backend_ip = ?, allowed_port_start = ?,
 		   allowed_port_end = ?, plan_id = ?, node_group_id = ?, external_reference = ?, notes = ? WHERE id = ?`,
 		clientID, name, backendIP, portStart, portEnd, planID, nodeGroupID, extRef, notesVal, id); err != nil {
 		h.Logger.Error("service update", "err", err)
 		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "update failed: "+sanitizeErr(err))
 		return
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{

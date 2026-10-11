@@ -1070,13 +1070,28 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 	// issue a fresh TXT token so the moved route holds at pending_dns instead
 	// of inheriting the old host's verified flag (cert/serving takeover).
 	domainChanged := newDomain != oldDomain || newPath != oldPath
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, editURL, "", "update failed")
+		return
+	}
+	defer func() { _ = tx.Rollback() }() // no-op once committed
+	// Re-check the port under the service lock: a concurrent range change may
+	// have narrowed the service since the unlocked read above.
+	if ls, le, lerr := routes.LockServicePortRange(ctx, tx, serviceID); lerr != nil {
+		redirectWithFlash(w, r, editURL, "", "update failed")
+		return
+	} else if newPort < ls || newPort > le {
+		redirectWithFlash(w, r, editURL, "", fmt.Sprintf("port must be in range %d-%d", ls, le))
+		return
+	}
 	if domainChanged {
 		verifyToken, terr := routes.NewVerifyToken()
 		if terr != nil {
 			redirectWithFlash(w, r, editURL, "", "update failed")
 			return
 		}
-		if _, err := db.ExecContext(ctx,
+		if _, err := tx.ExecContext(ctx,
 			`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?,
 			        force_https=(? OR COALESCE(require_client_cert,0)),
 			        domain_verified=0, verify_token=?, status='pending_dns', ssl_issued_at=NULL,
@@ -1086,11 +1101,15 @@ func (h *ClientHandlers) RouteEditSave(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, editURL, "", "update failed")
 			return
 		}
-	} else if _, err := db.ExecContext(ctx,
+	} else if _, err := tx.ExecContext(ctx,
 		`UPDATE routes SET domain=?, path_prefix=?, upstream_port=?, websocket=?,
 		        force_https=(? OR COALESCE(require_client_cert,0)), updated_at=NOW() WHERE id=?`,
 		newDomain, newPath, newPort, newWS, newFH, id,
 	); err != nil {
+		redirectWithFlash(w, r, editURL, "", "update failed")
+		return
+	}
+	if err := tx.Commit(); err != nil {
 		redirectWithFlash(w, r, editURL, "", "update failed")
 		return
 	}

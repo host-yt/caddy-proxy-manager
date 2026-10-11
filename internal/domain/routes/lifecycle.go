@@ -257,6 +257,11 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		return 0, err
 	}
 	defer tx.Rollback() //nolint:errcheck
+	if err := CheckLockedPort(ctx, tx, in.ServiceID, RouteState{
+		Kind: in.Kind, External: in.External, UpstreamPort: in.UpstreamPort,
+	}); err != nil {
+		return 0, err
+	}
 	if err := s.checkDomainQuotas(ctx, tx, in.ServiceID, planMaxDom, resellerID); err != nil {
 		return 0, err
 	}

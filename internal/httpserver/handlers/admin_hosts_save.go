@@ -1081,6 +1081,15 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	defer func() { _ = tx.Rollback() }() // no-op once committed
 
+	// The port check above ran unlocked; a concurrent range change could have
+	// narrowed the service since.
+	if err := routes.CheckLockedPort(ctx, tx, serviceID, routes.RouteState{
+		Kind: kind, External: external, UpstreamPort: port,
+	}); err != nil {
+		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", sanitizeErr(err))
+		return
+	}
+
 	// Re-check the hostname claims INSIDE the tx: the pre-checks above race a
 	// concurrent save that could land the same domain or alias in between.
 	if matcherChanged {
