@@ -112,7 +112,8 @@ func TestRecheckPendingAliasesPagesPastFirstBatch(t *testing.T) {
 			t.Fatalf("exec %q: %v", s, err)
 		}
 	}
-	svc := &Service{DB: db, Logger: slog.Default()}
+	// Long debounce: an immediate background push would race the reads below on SQLite.
+	svc := &Service{DB: db, Logger: slog.Default(), PushDebounceMs: 3_600_000}
 	svc.RecheckPendingAliases(context.Background())
 	var got string
 	if err := db.QueryRow(`SELECT COALESCE(aliases_verified,'') FROM routes WHERE id = 12`).Scan(&got); err != nil {
