@@ -27,4 +27,12 @@ func TestCreate_DefaultsSSOStrictMode(t *testing.T) {
 	if strict != 1 {
 		t.Errorf("sso_strict_mode = %d, want 1 (new routes must default to strict)", strict)
 	}
+	// SQLite never sees the 00170 DEFAULT 1, so the insert must set it itself.
+	var geoFailClosed int
+	if err := db.QueryRow("SELECT geo_fail_closed FROM routes WHERE id = ?", routeID).Scan(&geoFailClosed); err != nil {
+		t.Fatal(err)
+	}
+	if geoFailClosed != 1 {
+		t.Errorf("geo_fail_closed = %d, want 1 (new routes must fail closed without GeoIP)", geoFailClosed)
+	}
 }
