@@ -221,3 +221,32 @@ func TestRollupPruneSafety(t *testing.T) {
 		t.Errorf("rollup requests = %d, want %d (prune-safety failed)", series[0].Requests, total)
 	}
 }
+
+// A failed rollup must fail Insert and leave no raw row behind, so the caller
+// can retry without the entry silently missing from analytics.
+func TestInsertRollupFailureRollsBack(t *testing.T) {
+	db := openRollupTestDB(t)
+	defer db.Close()
+	ensureRollupTable(t, db)
+
+	ctx := context.Background()
+	store := New(func() *sql.DB { return db }, 0)
+	routeID := time.Now().UnixNano() + 2
+	t.Cleanup(func() {
+		_, _ = db.ExecContext(ctx, "DELETE FROM log_rollups WHERE route_id=?", routeID)
+		_, _ = db.ExecContext(ctx, "DELETE FROM host_access_log WHERE route_id=?", routeID)
+	})
+
+	// Negative latency fits host_access_log (signed) but not log_rollups (unsigned).
+	err := store.Insert(ctx, Entry{RouteID: routeID, TS: time.Now(), Method: "GET", Status: 200, LatencyMS: -5})
+	if err == nil {
+		t.Fatal("Insert succeeded despite rollup failure")
+	}
+	var n int
+	if err := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM host_access_log WHERE route_id=?", routeID).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("raw rows = %d, want 0 (rolled back)", n)
+	}
+}

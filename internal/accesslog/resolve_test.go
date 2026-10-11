@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -21,6 +22,11 @@ func openResolveTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	// One conn: each :memory: connection is its own empty DB, and Insert uses a tx.
+	db.SetMaxOpenConns(1)
+	prev := store.Driver()
+	store.SetDriver("sqlite3")
+	t.Cleanup(func() { store.SetDriver(prev) })
 	stmts := []string{
 		`CREATE TABLE routes (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,

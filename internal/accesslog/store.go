@@ -59,22 +59,56 @@ type RollupBucket struct {
 	BytesReq     int64
 }
 
-// Insert appends one entry and trims older rows beyond maxPerHost.
-// The insert and the prune run in separate statements so a transient prune
-// failure never silently discards the new log entry.
+// Insert appends one entry with its hourly rollup, then trims older rows
+// beyond MaxPerRoute. Raw row and rollup commit together so an acknowledged
+// entry is never missing from analytics; the prune stays best-effort.
 func (s *Store) Insert(ctx context.Context, e Entry) error {
 	db := s.db()
 	if db == nil {
 		return nil
 	}
-	if _, err := db.ExecContext(ctx,
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx,
 		`INSERT INTO host_access_log (route_id,ts,method,uri,status,latency_ms,remote_ip,user_agent,bytes_resp,bytes_req,proto,country,asn_org)
 		 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		e.RouteID, e.TS, e.Method, e.URI, e.Status, e.LatencyMS, e.RemoteIP, e.UserAgent, e.BytesResp, e.BytesReq, e.Proto, e.Country, e.ASNOrg,
 	); err != nil {
 		return err
 	}
-	// Best-effort prune: keep only MaxPerRoute most recent rows per route.
+	var e4xx, e5xx int
+	if e.Status >= 400 && e.Status <= 499 {
+		e4xx = 1
+	} else if e.Status >= 500 {
+		e5xx = 1
+	}
+	bucket := e.TS.UTC().Truncate(time.Hour)
+	if _, err := tx.ExecContext(ctx, rollupUpsertQuery(),
+		e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS, e.BytesResp, e.BytesReq,
+	); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	s.prune(ctx, db, e.RouteID)
+	return nil
+}
+
+func rollupUpsertQuery() string {
+	if store.Driver() == "sqlite3" {
+		return `INSERT INTO log_rollups (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp,bytes_req) VALUES (?,?,1,?,?,?,?,?,?)
+ ON CONFLICT(route_id,bucket_start) DO UPDATE SET requests=requests+1,errors_4xx=errors_4xx+excluded.errors_4xx,errors_5xx=errors_5xx+excluded.errors_5xx,latency_sum_ms=latency_sum_ms+excluded.latency_sum_ms,latency_max_ms=MAX(latency_max_ms,excluded.latency_max_ms),bytes_resp=bytes_resp+excluded.bytes_resp,bytes_req=bytes_req+excluded.bytes_req`
+	}
+	return `INSERT INTO log_rollups (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp,bytes_req) VALUES (?,?,1,?,?,?,?,?,?)
+ ON DUPLICATE KEY UPDATE requests=requests+1,errors_4xx=errors_4xx+VALUES(errors_4xx),errors_5xx=errors_5xx+VALUES(errors_5xx),latency_sum_ms=latency_sum_ms+VALUES(latency_sum_ms),latency_max_ms=GREATEST(latency_max_ms,VALUES(latency_max_ms)),bytes_resp=bytes_resp+VALUES(bytes_resp),bytes_req=bytes_req+VALUES(bytes_req)`
+}
+
+// prune keeps only the MaxPerRoute most recent rows of a route (best-effort).
+func (s *Store) prune(ctx context.Context, db *sql.DB, routeID int64) {
 	_, _ = db.ExecContext(ctx,
 		`DELETE FROM host_access_log
 		 WHERE route_id = ?
@@ -86,28 +120,8 @@ func (s *Store) Insert(ctx context.Context, e Entry) error {
 		           LIMIT ?
 		       ) sub
 		   )`,
-		e.RouteID, e.RouteID, s.MaxPerRoute,
+		routeID, routeID, s.MaxPerRoute,
 	)
-	// Best-effort rollup upsert into the hourly bucket; survives the prune above.
-	var e4xx, e5xx int
-	if e.Status >= 400 && e.Status <= 499 {
-		e4xx = 1
-	} else if e.Status >= 500 {
-		e5xx = 1
-	}
-	bucket := e.TS.UTC().Truncate(time.Hour)
-	var rollupQ string
-	if store.Driver() == "sqlite3" {
-		rollupQ = `INSERT INTO log_rollups (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp,bytes_req) VALUES (?,?,1,?,?,?,?,?,?)
- ON CONFLICT(route_id,bucket_start) DO UPDATE SET requests=requests+1,errors_4xx=errors_4xx+excluded.errors_4xx,errors_5xx=errors_5xx+excluded.errors_5xx,latency_sum_ms=latency_sum_ms+excluded.latency_sum_ms,latency_max_ms=MAX(latency_max_ms,excluded.latency_max_ms),bytes_resp=bytes_resp+excluded.bytes_resp,bytes_req=bytes_req+excluded.bytes_req`
-	} else {
-		rollupQ = `INSERT INTO log_rollups (route_id,bucket_start,requests,errors_4xx,errors_5xx,latency_sum_ms,latency_max_ms,bytes_resp,bytes_req) VALUES (?,?,1,?,?,?,?,?,?)
- ON DUPLICATE KEY UPDATE requests=requests+1,errors_4xx=errors_4xx+VALUES(errors_4xx),errors_5xx=errors_5xx+VALUES(errors_5xx),latency_sum_ms=latency_sum_ms+VALUES(latency_sum_ms),latency_max_ms=GREATEST(latency_max_ms,VALUES(latency_max_ms)),bytes_resp=bytes_resp+VALUES(bytes_resp),bytes_req=bytes_req+VALUES(bytes_req)`
-	}
-	_, _ = db.ExecContext(ctx, rollupQ,
-		e.RouteID, bucket, e4xx, e5xx, e.LatencyMS, e.LatencyMS, e.BytesResp, e.BytesReq,
-	)
-	return nil
 }
 
 // RollupSeries returns hourly buckets in [from,to] for one route, ascending.
