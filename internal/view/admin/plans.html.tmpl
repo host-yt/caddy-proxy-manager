@@ -45,8 +45,8 @@
           <td>
             {{if eq .Kind "npm"}}<span class="r-pill r-pill-info">NPM</span>{{else}}<span class="r-pill r-pill-neutral">restricted</span>{{end}}
           </td>
-          <td>{{.MaxDomains}}</td>
-          <td>{{.MaxPorts}}</td>
+          <td>{{if ge .MaxDomains 1000000}}&infin;{{else}}{{.MaxDomains}}{{end}}</td>
+          <td>{{if ge .MaxPorts 1000000}}&infin;{{else}}{{.MaxPorts}}{{end}}</td>
           <td>{{if .SSL}}<span class="r-pill r-pill-success">yes</span>{{else}}<span class="r-pill r-pill-neutral">no</span>{{end}}</td>
           <td>{{if .PathRouting}}<span class="r-pill r-pill-success">yes</span>{{else}}<span class="r-pill r-pill-neutral">no</span>{{end}}</td>
           <td>{{if .WebSocket}}<span class="r-pill r-pill-success">yes</span>{{else}}<span class="r-pill r-pill-neutral">no</span>{{end}}</td>
