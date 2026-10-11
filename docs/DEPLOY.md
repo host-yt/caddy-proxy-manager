@@ -220,22 +220,45 @@ All six default to `0`.
 
 | What | How |
 |------|-----|
-| MariaDB database | `mysqldump` (see below) |
+| MariaDB database | `mariadb-dump` (see below) |
 | `app_data` Docker volume | contains the install state file and any uploaded assets |
 | `.env` file | offline, encrypted storage |
 
 **Daily MariaDB dump (example cron):**
 
+Do not dump as root or put any password on the command line: argv is visible to
+every host user and process monitor. Create a read-only backup account once,
+typing the SQL at the interactive prompt (not via `-e`):
+
+```bash
+docker exec -it $(docker ps -qf name=mariadb) mariadb -u root -p
+```
+
+```sql
+CREATE USER 'hpg_backup'@'localhost' IDENTIFIED BY '<strong-random-password>';
+GRANT SELECT, SHOW VIEW, TRIGGER, LOCK TABLES ON hostyt_proxy.* TO 'hpg_backup'@'localhost';
+```
+
+Store its credential in a root-only option file on the host
+(`sudo install -m 0600 -o root -g root /dev/null /root/.hpg-backup.cnf`, then
+edit it):
+
+```ini
+[client]
+user=hpg_backup
+password=<strong-random-password>
+```
+
+The dump reads that file over stdin, so the password never appears in argv,
+the cron file, or the container filesystem:
+
 ```bash
 # /etc/cron.d/hostyt-backup
-0 3 * * * root docker exec $(docker ps -qf name=mariadb) \
-  mysqldump -u root -p"${MARIADB_ROOT_PASSWORD}" --single-transaction hostyt_proxy \
-  | gzip > /var/backups/hostyt_proxy_$(date +\%F).sql.gz
+# cron has no line continuation: keep the job on one line.
+0 3 * * * root docker exec -i $(docker ps -qf name=mariadb) mariadb-dump --defaults-extra-file=/dev/stdin --single-transaction hostyt_proxy < /root/.hpg-backup.cnf | gzip > /var/backups/hostyt_proxy_$(date +\%F).sql.gz
 # Prune backups older than 14 days
 5 3 * * * root find /var/backups -name 'hostyt_proxy_*.sql.gz' -mtime +14 -delete
 ```
-
-Replace `${MARIADB_ROOT_PASSWORD}` with the literal value (or source the env file in the cron wrapper script).
 
 **Back up the `app_data` volume:**
 
@@ -253,7 +276,7 @@ The volume name prefix matches the Docker Compose project name (`hostyt-proxy-ga
 ```bash
 gunzip < /var/backups/hostyt_proxy_2026-01-01.sql.gz \
   | docker exec -i $(docker ps -qf name=mariadb) \
-      mysql -u root -p"${MARIADB_ROOT_PASSWORD}" hostyt_proxy
+      sh -c 'MYSQL_PWD="$MARIADB_ROOT_PASSWORD" exec mariadb -u root hostyt_proxy'
 ```
 
 ---
