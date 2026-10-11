@@ -360,3 +360,27 @@ func (h *AdminHandlers) checkPlacement(ctx context.Context, sess *auth.Session, 
 	}
 	return nil
 }
+
+// canManageDNSSteering gates DNS steering: providers are global platform
+// credentials with no tenant ownership, so only super_admin may point a route at one.
+func canManageDNSSteering(sess *auth.Session) bool { return sessRole(sess) == "super_admin" }
+
+// loadDNSProviderOptions lists steering providers for callers allowed to pick one.
+func loadDNSProviderOptions(ctx context.Context, db *sql.DB, sess *auth.Session) []dnsProviderOption {
+	if !canManageDNSSteering(sess) {
+		return nil
+	}
+	rows, err := db.QueryContext(ctx, "SELECT id, name FROM dns_providers ORDER BY name ASC")
+	if err != nil {
+		return nil
+	}
+	defer rows.Close()
+	var out []dnsProviderOption
+	for rows.Next() {
+		var o dnsProviderOption
+		if rows.Scan(&o.ID, &o.Label) == nil {
+			out = append(out, o)
+		}
+	}
+	return out
+}

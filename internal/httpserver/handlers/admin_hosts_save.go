@@ -1367,29 +1367,32 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	// DNS steering: additive UPDATE (like portal_protect below) so a failure
-	// here can't roll back the rest of the host edit.
-	dnsSteeringEnabled := r.FormValue("dns_steering_enabled") == "1"
-	dnsProviderID, _ := strconv.ParseInt(r.FormValue("dns_provider_id"), 10, 64)
-	dnsSteeringTTL, _ := strconv.Atoi(r.FormValue("dns_steering_ttl"))
-	if dnsSteeringTTL <= 0 {
-		dnsSteeringTTL = 60
-	}
-	var dnsProviderIDVal sql.NullInt64
-	if dnsProviderID > 0 {
-		dnsProviderIDVal = sql.NullInt64{Int64: dnsProviderID, Valid: true}
-	} else {
-		dnsSteeringEnabled = false // can't steer without a provider
-	}
-	if _, derr := h.DB().ExecContext(ctx,
-		`UPDATE routes SET dns_steering_enabled=?, dns_provider_id=?, dns_steering_ttl=? WHERE id=?`,
-		dnsSteeringEnabled, dnsProviderIDVal, dnsSteeringTTL, id); derr != nil {
-		h.Logger.Warn("dns steering update", "id", id, "err", derr)
-	} else if prevDNSSteeringEnabled != dnsSteeringEnabled {
-		audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
-			UserID: actorUserID(sess), Action: "host.dns_steering_toggled", Entity: "route",
-			EntityID: itoa64(id),
-			Meta:     map[string]any{"enabled": dnsSteeringEnabled, "provider_id": dnsProviderID, "ttl": dnsSteeringTTL},
-		})
+	// here can't roll back the rest of the host edit. Other roles never see the
+	// fields, so their saves leave the stored steering config untouched.
+	if canManageDNSSteering(sess) {
+		dnsSteeringEnabled := r.FormValue("dns_steering_enabled") == "1"
+		dnsProviderID, _ := strconv.ParseInt(r.FormValue("dns_provider_id"), 10, 64)
+		dnsSteeringTTL, _ := strconv.Atoi(r.FormValue("dns_steering_ttl"))
+		if dnsSteeringTTL <= 0 {
+			dnsSteeringTTL = 60
+		}
+		var dnsProviderIDVal sql.NullInt64
+		if dnsProviderID > 0 {
+			dnsProviderIDVal = sql.NullInt64{Int64: dnsProviderID, Valid: true}
+		} else {
+			dnsSteeringEnabled = false // can't steer without a provider
+		}
+		if _, derr := h.DB().ExecContext(ctx,
+			`UPDATE routes SET dns_steering_enabled=?, dns_provider_id=?, dns_steering_ttl=? WHERE id=?`,
+			dnsSteeringEnabled, dnsProviderIDVal, dnsSteeringTTL, id); derr != nil {
+			h.Logger.Warn("dns steering update", "id", id, "err", derr)
+		} else if prevDNSSteeringEnabled != dnsSteeringEnabled {
+			audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+				UserID: actorUserID(sess), Action: "host.dns_steering_toggled", Entity: "route",
+				EntityID: itoa64(id),
+				Meta:     map[string]any{"enabled": dnsSteeringEnabled, "provider_id": dnsProviderID, "ttl": dnsSteeringTTL},
+			})
+		}
 	}
 
 	// Built-in portal: persist the toggle + replace grants. Scope-safe -

@@ -173,6 +173,7 @@ type hostEditData struct {
 	DNSSteeringProvider int64
 	DNSSteeringTTL      int
 	DNSProviders        []dnsProviderOption
+	DNSSteeringEditable bool
 
 	// ViaWGPeerID == 0 means "no tunnel". When non-zero, build resolves
 	// backend host to that peer's tunnel IP at push time.
@@ -510,15 +511,8 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		`SELECT COALESCE(dns_steering_enabled,0), COALESCE(dns_provider_id,0), COALESCE(dns_steering_ttl,60)
 		   FROM routes WHERE id = ?`, id,
 	).Scan(&d.DNSSteeringEnabled, &d.DNSSteeringProvider, &d.DNSSteeringTTL)
-	if pr, prerr := db.QueryContext(ctx, "SELECT id, name FROM dns_providers ORDER BY name ASC"); prerr == nil {
-		for pr.Next() {
-			var o dnsProviderOption
-			if pr.Scan(&o.ID, &o.Label) == nil {
-				d.DNSProviders = append(d.DNSProviders, o)
-			}
-		}
-		pr.Close()
-	}
+	d.DNSSteeringEditable = canManageDNSSteering(sess)
+	d.DNSProviders = loadDNSProviderOptions(ctx, db, sess)
 	// Additional backends for the Load balancing tab (best-effort).
 	if urows, uerr := db.QueryContext(ctx,
 		`SELECT host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1)
@@ -862,15 +856,8 @@ func (h *AdminHandlers) renderHostEditValidationError(w http.ResponseWriter, r *
 			}
 			zr.Close()
 		}
-		if pr, prerr := db.QueryContext(ctx, "SELECT id, name FROM dns_providers ORDER BY name ASC"); prerr == nil {
-			for pr.Next() {
-				var o dnsProviderOption
-				if pr.Scan(&o.ID, &o.Label) == nil {
-					d.DNSProviders = append(d.DNSProviders, o)
-				}
-			}
-			pr.Close()
-		}
+		d.DNSSteeringEditable = canManageDNSSteering(sess)
+		d.DNSProviders = loadDNSProviderOptions(ctx, db, sess)
 		if urows, uerr := db.QueryContext(ctx,
 			`SELECT host, port, weight, COALESCE(max_requests,0), COALESCE(enabled,1)
 			   FROM route_upstreams WHERE route_id = ? ORDER BY sort_order ASC, id ASC`, id); uerr == nil {

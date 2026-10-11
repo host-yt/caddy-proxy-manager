@@ -164,6 +164,7 @@ func newTestDB(t *testing.T) *sql.DB {
 			dns_steering_enabled INTEGER NOT NULL DEFAULT 0,
 			dns_provider_id INTEGER,
 			dns_steering_ttl INTEGER NOT NULL DEFAULT 60,
+			domain_verified INTEGER NOT NULL DEFAULT 1,
 			status TEXT NOT NULL DEFAULT 'active'
 		)`,
 		`CREATE TABLE route_node_assignments (

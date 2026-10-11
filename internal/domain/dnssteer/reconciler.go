@@ -95,6 +95,7 @@ func (rc *Reconciler) Reconcile(ctx context.Context) {
 		`SELECT id, domain, caddy_node_id, dns_provider_id, dns_steering_ttl
 		   FROM routes
 		  WHERE dns_steering_enabled = 1
+		    AND domain_verified = 1
 		    AND dns_provider_id IS NOT NULL
 		    AND status <> 'disabled'
 		    AND id > ?
@@ -207,6 +208,7 @@ func (rc *Reconciler) cleanupOrphans(ctx context.Context, db *sql.DB) {
 		  LEFT JOIN routes r ON r.id = o.route_id
 		 WHERE r.id IS NULL
 		    OR r.dns_steering_enabled = 0
+		    OR r.domain_verified = 0
 		    OR r.status = 'disabled'
 		    OR r.dns_provider_id IS NULL
 		    OR r.dns_provider_id <> o.dns_provider_id
