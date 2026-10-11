@@ -6,10 +6,14 @@
 
   var openMenu = null;   // currently open .hpg-act-menu element
   var openBtn = null;    // its toggle button
+  var homeParent = null; // original parent, restored on close
+  var homeNext = null;
 
   function close() {
     if (!openMenu) return;
     openMenu.classList.remove('is-open');
+    if (homeParent && openMenu.parentNode === document.body) homeParent.insertBefore(openMenu, homeNext);
+    homeParent = homeNext = null;
     if (openBtn) openBtn.setAttribute('aria-expanded', 'false');
     openMenu = null;
     openBtn = null;
@@ -21,10 +25,13 @@
     var top = rect.bottom + 4;
     var menuW = menu.offsetWidth;
     var menuH = menu.offsetHeight;
-    var left = Math.max(8, rect.right - menuW);
+    var left = Math.min(Math.max(8, rect.right - menuW), window.innerWidth - menuW - 8);
     // Flip upward if it would overflow the viewport bottom.
     if (top + menuH > window.innerHeight) {
       top = Math.max(8, rect.top - menuH - 4);
+    }
+    if (top + menuH > window.innerHeight) {
+      top = Math.max(8, window.innerHeight - menuH - 8);
     }
     menu.style.top = top + 'px';
     menu.style.left = left + 'px';
@@ -32,6 +39,10 @@
 
   function open(menu, btn) {
     close();
+    // Portal to body: a transformed/filtered ancestor would make fixed coords relative to it.
+    homeParent = menu.parentNode;
+    homeNext = menu.nextSibling;
+    document.body.appendChild(menu);
     menu.classList.add('is-open');
     btn.setAttribute('aria-expanded', 'true');
     openMenu = menu;
