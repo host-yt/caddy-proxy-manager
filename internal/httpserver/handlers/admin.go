@@ -4094,6 +4094,8 @@ type settingsData struct {
 	AI aiView
 	// MTLSFailOpen mirrors the mtls.fail_open setting for the mTLS tab.
 	MTLSFailOpen bool
+	// WAFFailOpen mirrors waf.fail_open (same break-glass form as mTLS).
+	WAFFailOpen bool
 	// RollupRetentionDays controls log_rollups pruning; 0 = keep forever.
 	RollupRetentionDays int
 	// AutoFailoverEnabled mirrors the failover.auto_enabled DB setting.
@@ -4227,8 +4229,9 @@ func (h *AdminHandlers) SettingsPage(w http.ResponseWriter, r *http.Request) {
 		d.SMS = h.LoadSMSConfigView(ctx)
 		d.CustomerFields = h.LoadCustomerFieldsView(ctx)
 		d.AI = h.loadAIView(ctx)
-		mtlsKV := h.loadSettings(ctx, db, []string{"mtls.fail_open"})
+		mtlsKV := h.loadSettings(ctx, db, []string{"mtls.fail_open", "waf.fail_open"})
 		d.MTLSFailOpen = mtlsKV["mtls.fail_open"] == "1"
+		d.WAFFailOpen = mtlsKV["waf.fail_open"] == "1"
 		if v := kv["analytics.rollup_retention_days"]; v != "" {
 			d.RollupRetentionDays, _ = strconv.Atoi(v)
 		}
@@ -4444,13 +4447,17 @@ func (h *AdminHandlers) SettingsMTLS(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
-	if err := h.saveSettings(ctx, db, map[string]string{"mtls.fail_open": failOpen}, false); err != nil {
+	wafFailOpen := "0"
+	if r.FormValue("waf_fail_open") == "1" {
+		wafFailOpen = "1"
+	}
+	if err := h.saveSettings(ctx, db, map[string]string{"mtls.fail_open": failOpen, "waf.fail_open": wafFailOpen}, false); err != nil {
 		redirectWithFlash(w, r, "/admin/settings#mtls", "", "save failed")
 		return
 	}
 	audit.Write(ctx, db, h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "settings.mtls.save", Entity: "settings",
-		EntityID: "mtls", Meta: map[string]any{"fail_open": failOpen == "1"},
+		EntityID: "mtls", Meta: map[string]any{"fail_open": failOpen == "1", "waf_fail_open": wafFailOpen == "1"},
 	})
 	redirectWithFlash(w, r, "/admin/settings#mtls", "mTLS settings saved.", "")
 }

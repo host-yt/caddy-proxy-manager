@@ -265,6 +265,9 @@ type Route struct {
 	WAFBlocking        bool
 	WAFDirectives      string // extra SecLang, emitted after the CRS include so overrides apply
 	WAFModuleAvailable bool
+	// WAFFailOpen (waf.fail_open): serve a blocking-mode route without the WAF
+	// when the node lacks Coraza. Default false = the route answers 503.
+	WAFFailOpen bool
 
 	// Geo blocking (maxmind/caddy-maxmind-geolocation, non-stock). GeoMode is
 	// "off" | "allow" | "deny"; GeoCountries is a CSV of ISO alpha-2 codes.
@@ -457,7 +460,7 @@ func BuildRoute(r Route) map[string]any {
 	// the domain resolves to a 503 error page instead of the naked upstream.
 	// PortalProtect without a dial target is the same condition even if the
 	// caller forgot to flag it - the gate cannot be built, so nothing serves.
-	if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig || (r.PortalProtect && r.PortalDial == "") {
+	if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig || (r.PortalProtect && r.PortalDial == "") || WAFUnenforceable(r) {
 		return map[string]any{
 			"@id":    "route_" + r.ID,
 			"match":  []any{match},
@@ -1408,11 +1411,20 @@ func routeAudienceRestricted(r Route) bool {
 	return mode == "allow" || mode == "deny"
 }
 
+// WAFUnenforceable: a blocking-mode WAF route on a node without Coraza. Only
+// that route is quarantined; detection-only routes lose nothing and serve.
+func WAFUnenforceable(r Route) bool {
+	return r.WAFEnabled && r.WAFBlocking && !r.WAFModuleAvailable && !r.WAFFailOpen
+}
+
 // misconfigDenyHandler is the fail-closed response for a route whose enabled
 // auth gate could not be emitted. 503 (not 403) so it reads as "server side
 // broken", and no-store so nothing caches the denial.
 func misconfigDenyHandler(r Route) map[string]any {
 	reason := "client certificate enforcement is unavailable"
+	if WAFUnenforceable(r) && !r.MTLSDenyOnMisconfig && !r.PortalDenyOnMisconfig && !r.PortalProtect {
+		reason = "the web application firewall is unavailable"
+	}
 	if r.PortalDenyOnMisconfig || r.PortalProtect {
 		reason = "access portal verifier is unavailable"
 		if r.PortalNoGrants {

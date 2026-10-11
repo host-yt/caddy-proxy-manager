@@ -10,8 +10,20 @@ first in the handler chain, before any upstream proxying.
 
 Coraza is not part of stock Caddy. You need a custom Caddy build that includes
 `corazawaf/coraza-caddy` on every node in the fleet, and the env flag
-`WAF_MODULE_AVAILABLE=1` set on the HPG process. Without the flag, WAF settings are
-saved but no WAF block is pushed to Caddy (routes still work normally).
+`WAF_MODULE_AVAILABLE=1` set on the HPG process. Without the flag (or on a node whose
+probe reports no coraza) no WAF block is pushed to Caddy, and what happens to the route
+depends on its mode:
+
+- **Detection-only** routes are served normally - they lose logging, not protection.
+- **Blocking-mode** routes **fail closed**: that host answers `503 Service unavailable:
+  the web application firewall is unavailable` until the module is back. Only that host
+  is affected - the rest of the node's config loads as usual. The node's detail page
+  lists it under *Module mismatch*, the host's WAF tab shows a warning, and every push
+  logs it.
+
+Serving blocking-mode hosts unfiltered instead is an explicit choice:
+**Settings → mTLS → WAF fail-open** (`waf.fail_open`, super_admin only).
+Earlier releases always did that silently.
 
 Use the provided `deploy/caddy/Dockerfile` as the base; it already includes the module.
 

@@ -66,6 +66,8 @@ type NodeSettings struct {
 	// WAFModuleAvailable gates the per-route coraza WAF handler. Env:
 	// WAF_MODULE_AVAILABLE=1. Non-stock (corazawaf/coraza-caddy).
 	WAFModuleAvailable bool
+	// WAFFailOpen mirrors the waf.fail_open setting onto every route.
+	WAFFailOpen bool
 
 	// GeoModuleAvailable gates the per-route maxmind_geolocation matcher + geo
 	// blocking. Env: GEOIP_AVAILABLE=1 (config.GeoIPAvailable). Non-stock
@@ -265,6 +267,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		pr.CacheModuleAvailable = s.CacheModuleAvailable
 		pr.RateLimitModuleAvailable = s.RateLimitModuleAvailable
 		pr.WAFModuleAvailable = s.WAFModuleAvailable
+		pr.WAFFailOpen = s.WAFFailOpen
 		pr.GeoModuleAvailable = s.GeoModuleAvailable
 		out = append(out, BuildRoute(pr))
 	}
@@ -275,6 +278,7 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 		r.CacheModuleAvailable = s.CacheModuleAvailable
 		r.RateLimitModuleAvailable = s.RateLimitModuleAvailable
 		r.WAFModuleAvailable = s.WAFModuleAvailable
+		r.WAFFailOpen = s.WAFFailOpen
 		r.GeoModuleAvailable = s.GeoModuleAvailable
 		out = append(out, BuildRoute(r))
 	}

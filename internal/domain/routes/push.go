@@ -603,6 +603,7 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 		Layer4ModuleAvailable:    probedOr(nodeHasL4, s.Layer4ModuleAvailable),
 		RateLimitModuleAvailable: probedOr(nodeHasRateLimit, s.RateLimitModuleAvailable),
 		WAFModuleAvailable:       probedOr(nodeHasWAF, s.WAFModuleAvailable),
+		WAFFailOpen:              s.loadWAFFailOpen(ctx),
 		GeoModuleAvailable:       probedOr(nodeHasGeoIP, s.GeoModuleAvailable) && geoip.NodeHasCountryDB(nodeGeoDB),
 		DNS01ModuleAvailable:     probedOr(nodeHasDNS, s.DNS01ModuleAvailable),
 		WildcardPolicies:         s.buildWildcardPolicies(ctx, nodeID),
@@ -629,6 +630,15 @@ func (s *Service) buildNodePush(ctx context.Context, nodeID int64) (*nodePush, e
 // node, so the gap shows in logs and not only on the node page.
 func (s *Service) logModuleGaps(nodeID int64, built []caddyapi.Route, st caddyapi.NodeSettings) {
 	for _, r := range built {
+		if r.WAFEnabled && r.WAFBlocking && !st.WAFModuleAvailable {
+			if st.WAFFailOpen {
+				s.Logger.Warn("WAF module missing on node: blocking-mode route served WITHOUT the WAF (waf.fail_open=1)",
+					"node_id", nodeID, "route_id", r.ID)
+			} else {
+				s.Logger.Error("WAF module missing on node: blocking-mode route answers 503 until Coraza is back",
+					"node_id", nodeID, "route_id", r.ID)
+			}
+		}
 		mode := strings.ToLower(strings.TrimSpace(r.GeoMode))
 		if (mode == "allow" || mode == "deny") && !st.GeoModuleAvailable {
 			if r.GeoFailClosed {
