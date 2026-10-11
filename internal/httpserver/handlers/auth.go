@@ -212,14 +212,20 @@ const loginCSRFCookie = "hpg_login_csrf"
 // loginCSRFToken reuses the visitor's login token (keeps other open tabs valid)
 // or mints and sets a new one.
 func (h *AuthHandlers) loginCSRFToken(w http.ResponseWriter, r *http.Request) string {
-	if c, err := r.Cookie(loginCSRFCookie); err == nil && len(c.Value) == 43 {
+	key := h.loginCSRFKey()
+	if c, err := r.Cookie(loginCSRFCookie); err == nil && validLoginCSRF(key, c.Value) {
 		return c.Value
 	}
-	b := make([]byte, 32)
+	if key == nil {
+		return ""
+	}
+	b := make([]byte, 32, 64)
 	if _, err := rand.Read(b); err != nil {
 		return ""
 	}
-	tok := base64.RawURLEncoding.EncodeToString(b)
+	mac := hmac.New(sha256.New, key)
+	mac.Write(b)
+	tok := base64.RawURLEncoding.EncodeToString(mac.Sum(b))
 	http.SetCookie(w, &http.Cookie{
 		Name: loginCSRFCookie, Value: tok, Path: "/auth/login", HttpOnly: true,
 		Secure: h.Sessions != nil && h.Sessions.SecureForRequest(r), SameSite: http.SameSiteLaxMode,
@@ -227,10 +233,34 @@ func (h *AuthHandlers) loginCSRFToken(w http.ResponseWriter, r *http.Request) st
 	return tok
 }
 
-// verifyLoginCSRF fails closed unless the form token matches the login cookie.
-func verifyLoginCSRF(r *http.Request) bool {
+// loginCSRFKey signs login tokens so a cookie tossed from a sibling subdomain
+// cannot be forged; nil (no state manager) fails closed.
+func (h *AuthHandlers) loginCSRFKey() []byte {
+	if h.State == nil {
+		return nil
+	}
+	k, err := h.State.DeriveKey("login-csrf")
+	if err != nil {
+		return nil
+	}
+	return k
+}
+
+// validLoginCSRF checks tok is random(32) || HMAC-SHA256(key, random).
+func validLoginCSRF(key []byte, tok string) bool {
+	b, err := base64.RawURLEncoding.DecodeString(tok)
+	if key == nil || err != nil || len(b) != 64 {
+		return false
+	}
+	mac := hmac.New(sha256.New, key)
+	mac.Write(b[:32])
+	return hmac.Equal(mac.Sum(nil), b[32:])
+}
+
+// verifyLoginCSRF fails closed unless the form token matches a server-signed login cookie.
+func (h *AuthHandlers) verifyLoginCSRF(r *http.Request) bool {
 	c, err := r.Cookie(loginCSRFCookie)
-	if err != nil || c.Value == "" {
+	if err != nil || !validLoginCSRF(h.loginCSRFKey(), c.Value) {
 		return false
 	}
 	got := r.FormValue("csrf_token")
@@ -289,7 +319,7 @@ func (h *AuthHandlers) LoginPage(w http.ResponseWriter, r *http.Request) {
 
 func (h *AuthHandlers) LoginSubmit(w http.ResponseWriter, r *http.Request) {
 	_ = r.ParseForm()
-	if !verifyLoginCSRF(r) {
+	if !h.verifyLoginCSRF(r) {
 		h.renderLogin(w, r, http.StatusForbidden, h.stampLogin(r, loginViewData{Error: "Your login form expired. Please try again."}))
 		return
 	}
