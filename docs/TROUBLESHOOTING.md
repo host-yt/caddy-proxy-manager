@@ -291,8 +291,10 @@ side.
 
    ```bash
    curl -fsSL https://panel.example.com/install/node-psk.sh | sudo bash -s -- \
-     --panel https://panel.example.com --token <64-hex token>
+     --panel https://panel.example.com
    ```
+
+   and paste the token when prompted.
 
    If the token has expired, click **Rotate PSK** for a fresh one first.
 

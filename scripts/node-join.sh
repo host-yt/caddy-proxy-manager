@@ -2,10 +2,14 @@
 # Hostyt Proxy Gateway - remote Caddy node bootstrap.
 #
 #   curl -fsSL https://panel.example.com/install/node.sh | sudo bash -s -- \
-#     --manager https://panel.example.com \
-#     --token   hpg_join_xxxxxxxxxxxxxxxxxxxxxxxx
+#     --manager https://panel.example.com
+#
+# The join token is prompted for on the terminal (or read from
+# --token-file PATH), never passed on the command line: argv is readable
+# by every local user under /proc.
 #
 # Optional:
+#     --token-file      /root/hpg-join-token
 #     --public-hostname fra.proxy.example.com
 #     --public-ip       203.0.113.10
 #     --install-dir     /opt/hostyt-node
@@ -18,6 +22,7 @@ set -euo pipefail
 INSTALL_DIR="/opt/hostyt-node"
 MANAGER=""
 TOKEN=""
+TOKEN_FILE=""
 PUBLIC_HOSTNAME=""
 PUBLIC_IP=""
 # Mesh wg0 must have a FIXED source port: without ListenPort the kernel picks a
@@ -30,21 +35,31 @@ WG_LISTEN_PORT="51820"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --manager)         MANAGER="$2"; shift 2 ;;
-    --token)           TOKEN="$2"; shift 2 ;;
+    --token)           TOKEN="$2"; shift 2
+                       echo "[!] --token is deprecated: it is visible in the process list; use --token-file or the prompt" >&2 ;;
+    --token-file)      TOKEN_FILE="$2"; shift 2 ;;
     --public-hostname) PUBLIC_HOSTNAME="$2"; shift 2 ;;
     --public-ip)       PUBLIC_IP="$2"; shift 2 ;;
     --install-dir)     INSTALL_DIR="$2"; shift 2 ;;
     --wg-listen-port)  WG_LISTEN_PORT="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,16p' "$0"
+      sed -n '2,20p' "$0"
       exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
 done
 
+if [[ -n "$TOKEN_FILE" ]]; then
+  TOKEN=$(tr -d '[:space:]' < "$TOKEN_FILE") || { echo "cannot read --token-file $TOKEN_FILE" >&2; exit 2; }
+elif [[ -z "$TOKEN" ]] && { exec 3</dev/tty; } 2>/dev/null; then
+  # stdin is this script (curl | bash), so prompt on the terminal itself.
+  read -rsp "Join token: " TOKEN <&3 || true
+  echo >&2
+  exec 3<&-
+fi
 [[ -z "$MANAGER" || -z "$TOKEN" ]] && {
-  echo "missing --manager or --token" >&2
-  echo "usage: $0 --manager https://panel --token hpg_join_..." >&2
+  echo "missing --manager or join token" >&2
+  echo "usage: $0 --manager https://panel [--token-file FILE]   (prompts for the token otherwise)" >&2
   exit 2
 }
 [[ "$WG_LISTEN_PORT" =~ ^[0-9]{1,5}$ ]] && [[ "$WG_LISTEN_PORT" -ge 1 ]] && [[ "$WG_LISTEN_PORT" -le 65535 ]] || {
@@ -86,13 +101,14 @@ fi
 
 # 2. Request bootstrap payload from the manager --------------------------
 log "Asking $MANAGER to register this node"
-payload=$(jq -n \
-  --arg t "$TOKEN" --arg h "$PUBLIC_HOSTNAME" --arg i "$PUBLIC_IP" \
-  '{token:$t, public_hostname:$h, public_ip:$i, supports_psk:true}')
+# Token via the environment, not --arg: /proc/<pid>/environ is owner-only, argv is not.
+payload=$(HPG_JOIN_TOKEN="$TOKEN" jq -n \
+  --arg h "$PUBLIC_HOSTNAME" --arg i "$PUBLIC_IP" \
+  '{token:env.HPG_JOIN_TOKEN, public_hostname:$h, public_ip:$i, supports_psk:true}')
 resp=$(curl -fsS --max-time 30 \
   -H 'Content-Type: application/json' \
   -X POST "$MANAGER/api/v1/nodes/join" \
-  -d "$payload") || die "manager rejected the join request - check token + URL"
+  --data-binary @- <<<"$payload") || die "manager rejected the join request - check token + URL"
 # Strip CR defensively: a \r smuggled inside any JSON value (e.g. an endpoint
 # pasted into the panel on Windows) corrupts wg0.conf, docker-compose.yml and
 # the Caddyfile below ("Invalid handshake initiation" and friends).

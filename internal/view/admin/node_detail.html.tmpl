@@ -256,7 +256,9 @@
     {{if .PSK.Token}}
     <div class="mb-3">
       <p class="t-caption mb-1">Run this on the node within 30 minutes. The current key stays active until the node confirms:</p>
-      <pre class="r-card text-xs font-mono whitespace-pre-wrap break-all p-3" style="background:rgb(var(--bg));border-color:rgb(var(--warning)/0.3)">curl -fsSL {{.PSK.PanelURL}}/install/node-psk.sh | sudo bash -s -- --panel {{.PSK.PanelURL}} --token {{.PSK.Token}}</pre>
+      <pre class="r-card text-xs font-mono whitespace-pre-wrap break-all p-3" style="background:rgb(var(--bg));border-color:rgb(var(--warning)/0.3)">curl -fsSL {{.PSK.PanelURL}}/install/node-psk.sh | sudo bash -s -- --panel {{.PSK.PanelURL}}</pre>
+      <p class="t-caption mt-2 mb-1">Paste this token when the script prompts for it (or use <code>--token-file PATH</code>):</p>
+      <pre class="r-card text-xs font-mono whitespace-pre-wrap break-all p-3" style="background:rgb(var(--bg));border-color:rgb(var(--warning)/0.3)">{{.PSK.Token}}</pre>
     </div>
     {{end}}
     <div class="flex items-center gap-3 flex-wrap">

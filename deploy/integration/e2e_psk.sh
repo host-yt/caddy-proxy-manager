@@ -239,10 +239,10 @@ cc exec -T wg-panel grep -q "PresharedKey = $OLD_PSK" /config/wg0.conf \
 	|| fail "staging a rotation already changed the panel's wg0.conf"
 pass "staging left the panel's live key untouched"
 TOKEN=$(curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$PANEL/admin/nodes/$NODE_A" \
-	| grep -oE '\-\-token [0-9a-f]{64}' | head -1 | awk '{print $2}')
+	| grep -oE '>[0-9a-f]{64}</pre>' | head -1 | sed -E 's|^>([0-9a-f]{64})</pre>$|\1|')
 [[ -n "$TOKEN" ]] || fail "node detail page printed no rekey token"
 cc exec -T node-a bash -c \
-	"curl -fsSL http://panel:8080/install/node-psk.sh | bash -s -- --panel http://panel:8080 --token $TOKEN" \
+	"umask 077; echo $TOKEN > /root/psk-token; curl -fsSL http://panel:8080/install/node-psk.sh | bash -s -- --panel http://panel:8080 --token-file /root/psk-token" \
 	|| fail "node-psk.sh failed"
 T1=$(date +%s)
 NEW_A=$(cc exec -T node-a sed -n 's/^PresharedKey = //p' /etc/wireguard/wg0.conf | tr -d '\r')
@@ -290,7 +290,7 @@ deny_proxy node-a
 BEFORE_ACTIVE=$(sqlq "SELECT SHA2(wg_psk_enc,256) FROM caddy_nodes WHERE id=$NODE_A;")
 admin_post "admin/nodes/$NODE_A/psk/rotate" "" >/dev/null
 TOKEN=$(curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$PANEL/admin/nodes/$NODE_A" \
-	| grep -oE '\-\-token [0-9a-f]{64}' | head -1 | awk '{print $2}')
+	| grep -oE '>[0-9a-f]{64}</pre>' | head -1 | sed -E 's|^>([0-9a-f]{64})</pre>$|\1|')
 if cc exec -T node-a bash -c \
 	"curl -fsSL http://panel:8080/install/node-psk.sh | bash -s -- --panel http://127.0.0.1:9999 --token $TOKEN"; then
 	fail "node-psk.sh reported success against a 403 confirm"
@@ -365,7 +365,7 @@ log "SCENARIO 6: denied confirm on a FIRST-TIME enable (node-b, no prior key)"
 deny_proxy node-b
 admin_post "admin/nodes/$NODE_B/psk/enable" "" >/dev/null
 TOKEN=$(curl -sS -b "$COOKIE_JAR" -c "$COOKIE_JAR" "$PANEL/admin/nodes/$NODE_B" \
-	| grep -oE '\-\-token [0-9a-f]{64}' | head -1 | awk '{print $2}')
+	| grep -oE '>[0-9a-f]{64}</pre>' | head -1 | sed -E 's|^>([0-9a-f]{64})</pre>$|\1|')
 if cc exec -T node-b bash -c \
 	"curl -fsSL http://panel:8080/install/node-psk.sh | bash -s -- --panel http://127.0.0.1:9999 --token $TOKEN"; then
 	fail "node-psk.sh reported success against a 403 confirm"
