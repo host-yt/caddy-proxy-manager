@@ -207,6 +207,7 @@
 
     {{if eq .Page "dashboard"}}{{template "dashboard" .Data}}{{end}}
     {{if eq .Page "services"}}{{template "services" .Data}}{{end}}
+    {{if eq .Page "service_detail"}}{{template "service_detail" .Data}}{{end}}
     {{if eq .Page "routes_list"}}{{template "routes_list" .Data}}{{end}}
     {{if eq .Page "route_new"}}{{template "route_new" .Data}}{{end}}
     {{if eq .Page "route_edit"}}{{template "route_edit" .Data}}{{end}}
