@@ -824,22 +824,33 @@ func (w *Wizard) CaddySubmit(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// approved_at bound as param: operator entered node manually in wizard, so trust it
-	// (vs auto-join flow which leaves approved_at NULL until explicit Approve).
-	res, err := w.DB().ExecContext(ctx,
-		`INSERT INTO caddy_nodes (name, api_url, public_hostname, public_ip, node_group_id, max_routes, is_enabled, health_status, approved_at)
-		 VALUES (?, ?, ?, ?, ?, 1000, 1, 'unknown', ?)`,
-		form.Name, form.APIURL, form.PublicHostname, form.PublicIP, groupID, time.Now().UTC(),
-	)
-	if err != nil {
-		if strings.Contains(err.Error(), "Duplicate entry") {
-			w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Node name already exists."))
-			return
-		}
-		w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Insert node failed: "+sanitizeErr(err))) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
+	// A retry after a failed final state save finds its own node already
+	// inserted; reuse it so the step stays recoverable instead of "name exists".
+	var newNodeID int64
+	err = w.DB().QueryRowContext(ctx,
+		"SELECT id FROM caddy_nodes WHERE name = ? AND api_url = ?", form.Name, form.APIURL).Scan(&newNodeID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "DB query failed: "+sanitizeErr(err)))
 		return
 	}
-	newNodeID, _ := res.LastInsertId()
+	if newNodeID == 0 {
+		// approved_at bound as param: operator entered node manually in wizard, so trust it
+		// (vs auto-join flow which leaves approved_at NULL until explicit Approve).
+		res, err := w.DB().ExecContext(ctx,
+			`INSERT INTO caddy_nodes (name, api_url, public_hostname, public_ip, node_group_id, max_routes, is_enabled, health_status, approved_at)
+			 VALUES (?, ?, ?, ?, ?, 1000, 1, 'unknown', ?)`,
+			form.Name, form.APIURL, form.PublicHostname, form.PublicIP, groupID, time.Now().UTC(),
+		)
+		if err != nil {
+			if strings.Contains(err.Error(), "Duplicate entry") {
+				w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Node name already exists."))
+				return
+			}
+			w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Insert node failed: "+sanitizeErr(err))) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
+			return
+		}
+		newNodeID, _ = res.LastInsertId()
+	}
 
 	// Self-bootstrap: push the panel route to the brand-new node so the
 	// operator can hit https://<panel-domain> immediately. Best-effort -
@@ -878,7 +889,12 @@ func (w *Wizard) CaddySubmit(rw http.ResponseWriter, r *http.Request) {
 	s.SetupCompletedAt = time.Now().UTC().Format(time.RFC3339)
 	s.Installed = true
 	s.CurrentStep = installstate.StepDone
-	_ = w.State.Save(&s)
+	// Unpersisted, the wizard stays unlocked: never report completion then.
+	if err := w.State.Save(&s); err != nil {
+		w.Logger.Error("install: final state save failed", "err", err)
+		w.renderR(rw, r, installstate.StepCaddy, w.view(installstate.StepCaddy, form, "Save failed; fix the state file location and submit again."))
+		return
+	}
 
 	w.clearInstallTokenCookie(rw, r)
 	w.Logger.Info("install: complete", "admin_email", maskEmail(s.Admin.Email))
