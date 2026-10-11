@@ -265,6 +265,9 @@ type Route struct {
 	WAFBlocking        bool
 	WAFDirectives      string // extra SecLang, emitted after the CRS include so overrides apply
 	WAFModuleAvailable bool
+	// WAFFailOpen (waf.fail_open): serve a blocking-mode route without the WAF
+	// when the node lacks Coraza. Default false = the route answers 503.
+	WAFFailOpen bool
 
 	// Geo blocking (maxmind/caddy-maxmind-geolocation, non-stock). GeoMode is
 	// "off" | "allow" | "deny"; GeoCountries is a CSV of ISO alpha-2 codes.
@@ -457,7 +460,7 @@ func BuildRoute(r Route) map[string]any {
 	// the domain resolves to a 503 error page instead of the naked upstream.
 	// PortalProtect without a dial target is the same condition even if the
 	// caller forgot to flag it - the gate cannot be built, so nothing serves.
-	if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig || (r.PortalProtect && r.PortalDial == "") {
+	if r.MTLSDenyOnMisconfig || r.PortalDenyOnMisconfig || (r.PortalProtect && r.PortalDial == "") || WAFUnenforceable(r) {
 		return map[string]any{
 			"@id":    "route_" + r.ID,
 			"match":  []any{match},
@@ -1408,11 +1411,20 @@ func routeAudienceRestricted(r Route) bool {
 	return mode == "allow" || mode == "deny"
 }
 
+// WAFUnenforceable: a blocking-mode WAF route on a node without Coraza. Only
+// that route is quarantined; detection-only routes lose nothing and serve.
+func WAFUnenforceable(r Route) bool {
+	return r.WAFEnabled && r.WAFBlocking && !r.WAFModuleAvailable && !r.WAFFailOpen
+}
+
 // misconfigDenyHandler is the fail-closed response for a route whose enabled
 // auth gate could not be emitted. 503 (not 403) so it reads as "server side
 // broken", and no-store so nothing caches the denial.
 func misconfigDenyHandler(r Route) map[string]any {
 	reason := "client certificate enforcement is unavailable"
+	if WAFUnenforceable(r) && !r.MTLSDenyOnMisconfig && !r.PortalDenyOnMisconfig && !r.PortalProtect {
+		reason = "the web application firewall is unavailable"
+	}
 	if r.PortalDenyOnMisconfig || r.PortalProtect {
 		reason = "access portal verifier is unavailable"
 		if r.PortalNoGrants {
@@ -1874,7 +1886,8 @@ func geoBlockResponse(r Route) map[string]any {
 }
 
 // GeoAllowCIDRs: IPs/CIDRs added as a NOT remote_ip condition, bypassing the block.
-// GeoFailClosed: when module unavailable, block all traffic instead of passing through.
+// GeoFailClosed: when the module or country DB is unavailable, block everything
+// but the allow-list instead of serving the route unfiltered.
 func buildGeoBlock(r Route) map[string]any {
 	mode := strings.ToLower(strings.TrimSpace(r.GeoMode))
 	if mode != "allow" && mode != "deny" {
@@ -1882,20 +1895,6 @@ func buildGeoBlock(r Route) map[string]any {
 	}
 
 	denyResp := geoBlockResponse(r)
-
-	if !r.GeoModuleAvailable {
-		if !r.GeoFailClosed {
-			return nil
-		}
-		// Fail-closed: block everything when geo module is missing.
-		return map[string]any{
-			"handler": "subroute",
-			"routes": []any{map[string]any{
-				"handle":   []any{denyResp},
-				"terminal": true,
-			}},
-		}
-	}
 
 	// Collect country codes; expand any selected continent to its member ISO
 	// codes (the maxmind module matches only on country, so continents are
@@ -1927,6 +1926,20 @@ func buildGeoBlock(r Route) map[string]any {
 
 	// Parse CIDR allow-list; matching IPs skip the country block.
 	allowRanges := splitCIDRList(r.GeoAllowCIDRs, true)
+
+	if !r.GeoModuleAvailable {
+		if !r.GeoFailClosed {
+			return nil
+		}
+		// Stock remote_ip only: the maxmind matcher is exactly what is missing.
+		deny := map[string]any{"handle": []any{denyResp}, "terminal": true}
+		if len(allowRanges) > 0 {
+			deny["match"] = []any{map[string]any{
+				"not": []any{map[string]any{"remote_ip": map[string]any{"ranges": allowRanges}}},
+			}}
+		}
+		return map[string]any{"handler": "subroute", "routes": []any{deny}}
+	}
 
 	// The maxmind matcher returns TRUE when the request is PERMITTED (country
 	// not in deny list / in allow list), so the terminal-deny route must fire on

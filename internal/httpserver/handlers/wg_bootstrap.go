@@ -27,18 +27,16 @@ import (
 
 // WGBootstrapHandler serves the customer-side WG tunnel configuration:
 //
-//	GET /api/wg/bootstrap?token=<64-hex>      → text/plain WireGuard .conf
-//	GET /api/wg/install.sh?token=<64-hex>     → bash installer (iter 7)
-//	GET /api/wg/qr.png?token=<64-hex>         → QR PNG of .conf (iter 10)
+//	GET|POST /api/wg/bootstrap                → text/plain WireGuard .conf
+//	GET /api/wg/install.sh                    → bash installer (stub that prompts for the token without one)
+//	GET /api/wg/status                        → handshake status for the create-tunnel card
 //	GET /api/node/wg/peers                    → node-agent pulls peer list (Authorization: Bearer only)
 //
 // All endpoints are unauthenticated by session/cookie - they rely on
 // the single-shot bootstrap token (24h TTL) or per-node API token.
 // Rate-limited per IP via Redis to slow brute-force enumeration.
-// Node-to-manager endpoints accept the durable per-node token ONLY via the
-// Authorization header, never a query string, so it can't leak into access
-// logs (NODE_WG-03). The customer bootstrap token stays in the URL - it's
-// single-shot/short-TTL and required for the one-command curl|bash install UX.
+// Tokens are never accepted from a query string: URLs land in access logs,
+// shell history and process listings (NODE_WG-03).
 type WGBootstrapHandler struct {
 	DB          func() *sql.DB
 	Logger      *slog.Logger
@@ -53,18 +51,18 @@ type WGBootstrapHandler struct {
 	OnWstunnelHealthy func(nodeID int64)
 }
 
-// bootstrapToken prefers the token from an `Authorization: Bearer <token>`
-// header (never logged, never in browser/proxy history) and falls back to the
-// `?token=` query only for the one-command curl|bash UX. Callers that can set a
-// header (API clients, scripts) should - the query form stays a deprecated
-// fallback because the token is single-shot/short-TTL (F-14).
+// bootstrapToken reads the token from an `Authorization: Bearer` header, or
+// from a POSTed form body (the panel's .conf download button). Never the query.
 func bootstrapToken(r *http.Request) string {
 	if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 		if t := strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")); t != "" {
 			return t
 		}
 	}
-	return strings.TrimSpace(r.URL.Query().Get("token"))
+	if r.Method == http.MethodPost {
+		return strings.TrimSpace(r.PostFormValue("token"))
+	}
+	return ""
 }
 
 // validBootstrapToken checks the token matches its known shape: 192 lowercase
@@ -101,7 +99,7 @@ func (h *WGBootstrapHandler) rateLimited(r *http.Request) bool {
 	return int(n) > h.PerIPPerMin
 }
 
-// BootstrapConf serves GET /api/wg/bootstrap?token=X.
+// BootstrapConf serves GET|POST /api/wg/bootstrap.
 func (h *WGBootstrapHandler) BootstrapConf(w http.ResponseWriter, r *http.Request) {
 	if h.rateLimited(r) {
 		http.Error(w, "rate limited", http.StatusTooManyRequests)
@@ -237,18 +235,18 @@ func validWSSHost(h string) bool {
 	return true
 }
 
-// InstallScript serves GET /api/wg/install.sh?token=X. The script is
-// rendered server-side with the token embedded so `curl … | bash`
-// installs WireGuard, downloads .conf via the bootstrap endpoint, and
-// brings the tunnel up + persists a systemd unit.
+// InstallScript serves GET /api/wg/install.sh. Without a token it returns a
+// stub that prompts for one and re-fetches with it in a header, so the
+// one-command `curl … | sudo bash` never carries the token in a URL or argv.
+// With a valid bearer token it returns the installer with the token embedded.
 func (h *WGBootstrapHandler) InstallScript(w http.ResponseWriter, r *http.Request) {
 	if h.rateLimited(r) {
 		http.Error(w, "rate limited", http.StatusTooManyRequests)
 		return
 	}
 	token := bootstrapToken(r)
-	if !validBootstrapToken(token) {
-		http.Error(w, "missing token", http.StatusBadRequest)
+	if token != "" && !validBootstrapToken(token) {
+		http.Error(w, "malformed token", http.StatusBadRequest)
 		return
 	}
 	// Base URL MUST come from configured AppURL, not request headers,
@@ -269,6 +267,12 @@ func (h *WGBootstrapHandler) InstallScript(w http.ResponseWriter, r *http.Reques
 		}
 	} else {
 		http.Error(w, "install URL not configured (operator must set APP_URL)", http.StatusServiceUnavailable)
+		return
+	}
+	if token == "" {
+		w.Header().Set("Content-Type", "text/x-shellscript; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(renderInstallStub(base)))
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
@@ -406,7 +410,7 @@ func (h *WGBootstrapHandler) NodePeersPull(w http.ResponseWriter, r *http.Reques
 	_, _ = w.Write([]byte(b.String()))
 }
 
-// PeerStatus serves GET /api/wg/status?token=X used by the create-tunnel
+// PeerStatus serves GET /api/wg/status (bearer token) used by the create-tunnel
 // wizard to live-poll whether the customer has finished install. Returns
 // minimal JSON: { "status": "pending|active", "last_handshake": "RFC3339|null" }
 func (h *WGBootstrapHandler) PeerStatus(w http.ResponseWriter, r *http.Request) {
@@ -857,12 +861,68 @@ func publicBaseURL(r *http.Request, appURL string) string {
 	return scheme + "://" + r.Host
 }
 
+// wgRemoveBlock tears an installed tunnel down; shared by the stub and the
+// installer so `remove` works without a token.
+const wgRemoveBlock = `# Removal mode: "curl -fsSL .../api/wg/install.sh | sudo bash -s -- remove" tears the
+# tunnel down (WG + wstunnel sidecar + conf) so a stale conf can't hang the
+# rerun. No token needed; reinstall with a FRESH token afterwards.
+case "${1:-}" in
+  remove|uninstall|--remove|--uninstall)
+    echo "Removing hostyt tunnel…"
+    systemctl disable --now wg-quick@hostyt 2>/dev/null || true
+    systemctl disable --now hostyt-wstunnel.service 2>/dev/null || true
+    systemctl disable --now hostyt-dns-sync.timer 2>/dev/null || true
+    rm -f /etc/systemd/system/hostyt-wstunnel.service /etc/systemd/system/hostyt-dns-sync.service /etc/systemd/system/hostyt-dns-sync.timer
+    rm -f /etc/dnsmasq.d/hostyt-tunnel.conf /usr/local/bin/hostyt-dns-sync
+    rm -rf /etc/hostyt-dns
+    systemctl restart dnsmasq 2>/dev/null || true
+    systemctl daemon-reload 2>/dev/null || true
+    wg-quick down hostyt 2>/dev/null || true
+    rm -f /etc/wireguard/hostyt.conf
+    echo "Removed. Reinstall with a fresh installer URL from the panel."
+    exit 0
+    ;;
+esac
+`
+
+// renderInstallStub is served when install.sh is fetched without a token. It
+// reads the token from the terminal (or --token-file) and fetches the real
+// installer with it in a header fed on stdin, so it never appears in argv.
+func renderInstallStub(baseURL string) string {
+	return `#!/usr/bin/env bash
+set -euo pipefail
+` + wgRemoveBlock + `
+TOKEN=""
+if [ "${1:-}" = "--token-file" ] && [ -n "${2:-}" ]; then
+  TOKEN=$(tr -d '[:space:]' < "$2")
+  shift 2
+elif { exec 3</dev/tty; } 2>/dev/null; then
+  # stdin is this script (curl | bash), so prompt on the terminal itself.
+  read -rsp "Tunnel bootstrap token (from the panel): " TOKEN <&3 || true
+  echo >&2
+  exec 3<&-
+fi
+case "$TOKEN" in
+  ""|*[!0-9a-f]*) echo "missing or malformed bootstrap token (run on a terminal, or pass --token-file FILE)" >&2; exit 1 ;;
+esac
+umask 077
+INSTALLER=$(mktemp)
+trap 'rm -f "$INSTALLER"' EXIT
+if ! curl -fsSL -o "$INSTALLER" -K - "` + baseURL + `/api/wg/install.sh" <<<"header = \"Authorization: Bearer $TOKEN\""; then
+  echo "The panel refused the token (expired, consumed or mistyped)." >&2
+  exit 1
+fi
+bash "$INSTALLER" "$@"
+`
+}
+
 // renderInstallScript returns the bash one-liner installer body. The
 // script is intentionally small and dependency-light so it runs on any
 // modern Linux. Currently Linux-only; we surface a friendly message on
 // non-Linux platforms.
 func renderInstallScript(baseURL, token string, tr installTransport) string {
-	confURL := baseURL + "/api/wg/bootstrap?token=" + token
+	// The token rides in a header fed to curl on stdin, never the URL or argv.
+	confURL := baseURL + "/api/wg/bootstrap"
 
 	// wstunnel fallback block - injected when mode is "wss" or "auto".
 	// Version + per-arch checksums are PINNED: this script runs as root, so an
@@ -970,8 +1030,7 @@ set -euo pipefail
 
 if [ "$(uname -s)" != "Linux" ]; then
   echo "hostyt-tunnel installer: only Linux is supported by this script."
-  echo "On macOS/Windows download the .conf manually from the panel:"
-  echo "  ` + confURL + `"
+  echo "On macOS/Windows download the .conf from the panel's tunnel page."
   exit 1
 fi
 
@@ -980,27 +1039,7 @@ if [ "$(id -u)" -ne 0 ]; then
   exec sudo -E bash "$0" "$@"
 fi
 
-# Removal mode: ` + "`" + `curl ...install.sh?token=X | sudo bash -s -- remove` + "`" + ` tears the
-# tunnel down (WG + wstunnel sidecar + conf) so a stale conf can't hang the
-# rerun. No token needed; reinstall with a FRESH installer URL afterwards.
-case "${1:-}" in
-  remove|uninstall|--remove|--uninstall)
-    echo "Removing hostyt tunnel…"
-    systemctl disable --now wg-quick@hostyt 2>/dev/null || true
-    systemctl disable --now hostyt-wstunnel.service 2>/dev/null || true
-    systemctl disable --now hostyt-dns-sync.timer 2>/dev/null || true
-    rm -f /etc/systemd/system/hostyt-wstunnel.service /etc/systemd/system/hostyt-dns-sync.service /etc/systemd/system/hostyt-dns-sync.timer
-    rm -f /etc/dnsmasq.d/hostyt-tunnel.conf /usr/local/bin/hostyt-dns-sync
-    rm -rf /etc/hostyt-dns
-    systemctl restart dnsmasq 2>/dev/null || true
-    systemctl daemon-reload 2>/dev/null || true
-    wg-quick down hostyt 2>/dev/null || true
-    rm -f /etc/wireguard/hostyt.conf
-    echo "Removed. Reinstall with a fresh installer URL from the panel."
-    exit 0
-    ;;
-esac
-
+` + wgRemoveBlock + `
 echo "[1/4] Installing wireguard-tools…"
 if command -v apt >/dev/null 2>&1; then
   DEBIAN_FRONTEND=noninteractive apt-get update -qq
@@ -1189,7 +1228,7 @@ if [ -f /etc/wireguard/${IFACE}.conf ]; then
 fi
 
 TMP="$(mktemp)"
-HTTP=$(curl -fsSL -o "$TMP" -w "%{http_code}" "` + confURL + `" || true)
+HTTP=$(curl -fsSL -o "$TMP" -w "%{http_code}" -K - "` + confURL + `" <<<'header = "Authorization: Bearer ` + token + `"' || true)
 if [ "$HTTP" = "403" ]; then
   echo "Bootstrap token rejected (HTTP 403)."
   echo "Likely cause: already consumed (single-shot) OR expired (TTL 1h)."

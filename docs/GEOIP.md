@@ -89,11 +89,19 @@ all three ship in `deploy/remote-node/` + `deploy/node-agent/`:
 
 The agent also reports on every stats tick whether the mmdb is present on its
 node, and the panel gates the geo matcher per node on that report: a node
-whose agent says the file is missing gets **no geo rules** (the rest of its
-config still loads) instead of a rejected `/load`. That is fail-open on geo,
-chosen over taking every route on the node down; the host's Geo tab and the
-node's detail page show a `GeoIP DB` warning while it lasts, and the node is
-resynced as soon as the file lands. A node with no agent, or an agent older
+whose agent says the file is missing gets **no maxmind matcher** (the rest of
+its config still loads) instead of a rejected `/load`. Routes with a country
+policy on that node **fail closed**: they answer with their geo-block response
+to everyone except the host's IP allow-list until the database is back. Other
+routes on the node are untouched. The host's Geo tab and the node's detail
+page show a `GeoIP DB` warning while it lasts, every push logs the affected
+routes, and the node is resynced as soon as the file lands.
+
+The same applies when the node lacks the GeoIP module altogether. A host can
+opt out per route by unticking **Fail closed** on its Geo tab - it is then
+served with no country filtering while GeoIP is unavailable. Earlier releases
+defaulted to that; the upgrade migration turns **Fail closed** on for every
+existing route. A node with no agent, or an agent older
 than this report, keeps the previous behaviour: the matcher is emitted when
 the panel itself has the DB.
 

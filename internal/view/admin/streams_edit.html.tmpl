@@ -177,7 +177,7 @@
             Deny CIDRs (comma or newline)
           </label>
           <textarea name="cidr_deny" rows="4" placeholder="10.99.0.0/16&#10;192.0.2.0/24"
-                    class="r-input w-full font-mono text-xs"></textarea>
+                    class="r-input w-full font-mono text-xs">{{.Stream.CIDRDeny}}</textarea>
         </div>
         <div>
           <label class="t-eyebrow block mb-1">
@@ -187,7 +187,7 @@
             Allow CIDRs (comma or newline; empty = allow all)
           </label>
           <textarea name="cidr_allow" rows="4" placeholder="10.0.0.0/8&#10;172.16.0.0/12"
-                    class="r-input w-full font-mono text-xs"></textarea>
+                    class="r-input w-full font-mono text-xs">{{.Stream.CIDRAllow}}</textarea>
         </div>
       </div>
     </section>

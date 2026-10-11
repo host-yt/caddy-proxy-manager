@@ -363,6 +363,7 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 	// (sso_provider_url empty) until the operator sets it up via edit; this
 	// only decides what they get once they do. Existing rows are untouched -
 	// this is an INSERT-time default, not a migration/backfill.
+	// geo_fail_closed = 1 explicitly: SQLite drops the 00170 DEFAULT change.
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO routes (service_id, caddy_node_id, domain, path_prefix, upstream_port, upstream_scheme,
 		   ssl_enabled, websocket, force_https, http2_enabled, http3_enabled, status,
@@ -371,9 +372,9 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 		   wildcard_enabled, wildcard_zone, group_id, custom_fields,
 		   via_wg_peer_id, dns_resolver_via_wg_peer_id,
 		   require_client_cert, mtls_ca_id,
-		   domain_verified, verify_token, sso_strict_mode, backend_resolve_node_side,
+		   domain_verified, verify_token, sso_strict_mode, geo_fail_closed, backend_resolve_node_side,
 		   strip_path_prefix, upstream_path, expires_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?, 1, ?,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 0, 'pending_dns', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, 0), NULLIF(?, ''), ?, ?, ?, NULLIF(?, 0), ?, ?, 1, 1, ?,
 		   ?, NULLIF(?, ''), CASE WHEN ? > 0 THEN `+store.DateAddSecondsParam()+` END)`,
 		in.ServiceID, nodeID, domain, pathPrefix, in.UpstreamPort, scheme,
 		in.SSL, in.WebSocket, in.ForceHTTPS,

@@ -26,9 +26,10 @@ func TestAdminTunnelsRenderWithNewTunnel(t *testing.T) {
 			ClientEmail:    "client@example.test",
 			NodeName:       "edge-1",
 			AssignedIP:     "100.96.0.10",
-			InstallCommand: "curl -fsSL https://proxy.example.test/api/wg/install.sh?token=abc | sudo bash",
-			ConfURL:        "https://proxy.example.test/api/wg/bootstrap?token=abc",
-			StatusURL:      "https://proxy.example.test/api/wg/status?token=abc",
+			Token:          "abc",
+			InstallCommand: "curl -fsSL https://proxy.example.test/api/wg/install.sh | sudo bash",
+			ConfURL:        "/api/wg/bootstrap",
+			StatusURL:      "/api/wg/status",
 			ExpiresAt:      "2026-06-26T12:00:00Z",
 		},
 	})
@@ -39,8 +40,11 @@ func TestAdminTunnelsRenderWithNewTunnel(t *testing.T) {
 	if !strings.Contains(html, "Tunnel ready") {
 		t.Fatalf("rendered page does not include new tunnel card")
 	}
-	if !strings.Contains(html, `var statusURL = "https://proxy.example.test/api/wg/status?token=abc";`) {
-		t.Fatalf("status URL was not emitted as a JavaScript string")
+	if !strings.Contains(html, `var statusURL = "/api/wg/status";`) || !strings.Contains(html, `var statusToken = "abc";`) {
+		t.Fatalf("status URL/token were not emitted as JavaScript strings")
+	}
+	if strings.Contains(html, "token=abc") {
+		t.Fatalf("bootstrap token rendered into a URL")
 	}
 }
 
@@ -60,8 +64,9 @@ func TestClientTunnelsRenderWithNewTunnel(t *testing.T) {
 			Name:           "prod-backend",
 			NodeName:       "edge-1",
 			AssignedIP:     "100.96.0.10",
-			InstallCommand: "curl -fsSL https://proxy.example.test/api/wg/install.sh?token=abc | sudo bash",
-			ConfURL:        "https://proxy.example.test/api/wg/bootstrap?token=abc",
+			Token:          "abc",
+			InstallCommand: "curl -fsSL https://proxy.example.test/api/wg/install.sh | sudo bash",
+			ConfURL:        "/api/wg/bootstrap",
 		},
 	})
 	if err != nil {

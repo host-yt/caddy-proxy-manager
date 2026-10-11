@@ -537,8 +537,11 @@ func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) 
 }
 
 func (h *AdminHandlers) scopeCheckRoute(ctx context.Context, sess *auth.Session, routeID int64) bool {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
+	}
+	if h.AdminScope == nil {
+		return false
 	}
 	ok, err := h.AdminScope.CanAccessRoute(ctx, sess.UserID, routeID)
 	if err != nil {

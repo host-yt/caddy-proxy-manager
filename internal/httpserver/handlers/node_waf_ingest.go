@@ -41,6 +41,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
 	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 )
@@ -481,7 +482,7 @@ func toWAFEvent(item wafIngestItem) (wafevents.Event, bool) {
 		Action:   item.Action,
 		RemoteIP: trunc(item.RemoteIP, 64),
 		Host:     trunc(item.Host, 255),
-		URI:      trunc(item.URI, 512),
+		URI:      trunc(accesslog.RedactURI(item.URI), 512),
 		Message:  trunc(item.Message, 512),
 	}
 	if item.RouteID > 0 {

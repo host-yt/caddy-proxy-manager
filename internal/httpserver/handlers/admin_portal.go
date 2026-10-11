@@ -108,7 +108,7 @@ func (h *AdminHandlers) AccessGroupsCreate(w http.ResponseWriter, r *http.Reques
 	// a global (client_id=0) group.
 	if sess == nil || sess.Role != "super_admin" {
 		allowed, all, ok := h.adminClientScope(ctx, sess)
-		if !ok || all == false && (clientID <= 0 || !allowed[clientID]) {
+		if clientID <= 0 || !ok || !all && !allowed[clientID] {
 			redirectWithFlash(w, r, "/admin/access-groups", "", "you can only create groups for your own clients")
 			return
 		}

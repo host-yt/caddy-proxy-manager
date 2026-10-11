@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"net/http"
+	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -47,10 +49,6 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Load path rules for this route. No rules = no restriction.
-	type pathRule struct {
-		Pattern  string
-		RoleName string
-	}
 	rows, err := db.QueryContext(ctx, `
 		SELECT pr.path_pattern, ro.name
 		  FROM mtls_path_rules pr
@@ -65,29 +63,35 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 	var rules []pathRule
 	for rows.Next() {
 		var p pathRule
-		_ = rows.Scan(&p.Pattern, &p.RoleName)
+		if err := rows.Scan(&p.Pattern, &p.RoleName); err != nil {
+			http.Error(w, "db error", http.StatusInternalServerError)
+			return
+		}
 		rules = append(rules, p)
+	}
+	// A partial rule set could omit the rule guarding this path: fail closed.
+	if err := rows.Err(); err != nil {
+		http.Error(w, "db error", http.StatusInternalServerError)
+		return
 	}
 	if len(rules) == 0 {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
-	// Strip query string; match on path only.
-	reqPath := origURI
-	if i := strings.Index(reqPath, "?"); i >= 0 {
-		reqPath = reqPath[:i]
+	forms, ok := rbacPathForms(origURI)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
 	}
-
-	// First matching rule wins.
-	var requiredRole string
-	for _, rule := range rules {
-		if pathMatchesPattern(reqPath, rule.Pattern) {
-			requiredRole = rule.RoleName
-			break
+	// Every form the backend might route on must satisfy its most-specific rule.
+	required := map[string]bool{}
+	for _, p := range forms {
+		for _, role := range mostSpecificRoles(p, rules) {
+			required[role] = true
 		}
 	}
-	if requiredRole == "" {
+	if len(required) == 0 {
 		// No rule matches this path - allow.
 		w.WriteHeader(http.StatusOK)
 		return
@@ -119,14 +123,15 @@ func (h *AdminHandlers) MTLSRBACCheck(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	var count int
-	_ = db.QueryRowContext(ctx, `
-		SELECT COUNT(*) FROM mtls_cert_roles cr
-		  JOIN mtls_roles ro ON ro.id = cr.role_id
-		 WHERE cr.cert_id = ? AND ro.name = ?`, certID, requiredRole).Scan(&count)
-	if count == 0 {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
+	for role := range required {
+		var count int
+		if err := db.QueryRowContext(ctx, `
+			SELECT COUNT(*) FROM mtls_cert_roles cr
+			  JOIN mtls_roles ro ON ro.id = cr.role_id
+			 WHERE cr.cert_id = ? AND ro.name = ?`, certID, role).Scan(&count); err != nil || count == 0 {
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusOK)
 }
@@ -182,6 +187,60 @@ func (h *AdminHandlers) rbacCallerAllowed(ctx context.Context, db *sql.DB, r *ht
 		return false
 	}
 	return true
+}
+
+type pathRule struct {
+	Pattern  string
+	RoleName string
+}
+
+// rbacPathForms returns the decoded request path both as sent and cleaned, so
+// percent-encoding or dot segments cannot dodge a rule. ok=false = reject.
+func rbacPathForms(origURI string) ([]string, bool) {
+	u, err := url.ParseRequestURI(origURI)
+	if err != nil || !strings.HasPrefix(u.Path, "/") {
+		return nil, false
+	}
+	p := u.Path
+	// Decode until stable so double-encoded separators are seen as the backend may.
+	for i := 0; i < 3 && strings.Contains(p, "%"); i++ {
+		d, err := url.PathUnescape(p)
+		if err != nil || d == p {
+			break
+		}
+		p = d
+	}
+	if strings.ContainsAny(p, "\\\x00") {
+		return nil, false
+	}
+	clean := path.Clean(p)
+	if strings.HasSuffix(p, "/") && clean != "/" {
+		clean += "/"
+	}
+	return []string{p, clean}, true
+}
+
+// mostSpecificRoles returns the roles of the most specific rules matching p:
+// exact beats wildcard, longer prefix beats shorter, equal ties all apply.
+func mostSpecificRoles(p string, rules []pathRule) []string {
+	best := -1
+	var roles []string
+	for _, rule := range rules {
+		if !pathMatchesPattern(p, rule.Pattern) {
+			continue
+		}
+		score := len(rule.Pattern)
+		if !strings.HasSuffix(rule.Pattern, "/*") {
+			score += 1 << 20 // exact match outranks any prefix
+		}
+		switch {
+		case score > best:
+			best, roles = score, []string{rule.RoleName}
+		case score == best:
+			roles = append(roles, rule.RoleName)
+		}
+	}
+	return roles
 }
 
 // pathMatchesPattern matches a request path against a rule pattern.

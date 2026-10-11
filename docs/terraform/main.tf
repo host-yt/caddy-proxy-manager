@@ -55,7 +55,7 @@ resource "hpg_plan" "pro" {
 resource "hpg_client" "acme" {
   email        = "ops@acme.example"
   name         = "Acme Corp"
-  password     = var.acme_initial_password # write-only, >= 12 chars
+  password_wo  = var.acme_initial_password # write-only (Terraform >= 1.11), never stored in state; >= 12 chars
   external_ref = "billing-acme-001"        # idempotent external mapping
 }
 
@@ -82,4 +82,5 @@ resource "hpg_route" "acme_www" {
 variable "acme_initial_password" {
   type      = string
   sensitive = true
+  ephemeral = true # never written to plan or state
 }

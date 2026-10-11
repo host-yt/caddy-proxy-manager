@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 
+	"github.com/hashicorp/terraform-plugin-framework/path"
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
@@ -25,6 +26,7 @@ type clientModel struct {
 	Email       types.String `tfsdk:"email"`
 	Name        types.String `tfsdk:"name"`
 	Password    types.String `tfsdk:"password"`
+	PasswordWO  types.String `tfsdk:"password_wo"`
 	ExternalRef types.String `tfsdk:"external_ref"`
 }
 
@@ -55,10 +57,17 @@ func (r *clientResource) Schema(_ context.Context, _ resource.SchemaRequest, res
 			"email": schema.StringAttribute{Required: true},
 			"name":  schema.StringAttribute{Required: true},
 			"password": schema.StringAttribute{
-				Required:            true,
+				Optional:            true,
 				Sensitive:           true,
-				MarkdownDescription: "Initial password (>= 12 chars). Create-only: the API has no password-update endpoint, so later changes are ignored (rotate in-panel).",
+				MarkdownDescription: "Deprecated: stored in state in cleartext; use `password_wo`. Initial password (>= 12 chars), create-only.",
+				DeprecationMessage:  "password is persisted in Terraform state; use password_wo (Terraform >= 1.11) instead.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"password_wo": schema.StringAttribute{
+				Optional:            true,
+				Sensitive:           true,
+				WriteOnly:           true,
+				MarkdownDescription: "Initial password (>= 12 chars), write-only: sent once at create, never stored in plan or state (Terraform >= 1.11). Later changes are ignored; rotate in-panel. Remove it from config after the first apply if you like.",
 			},
 			"external_ref": schema.StringAttribute{Optional: true, Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
 		},
@@ -75,10 +84,27 @@ func (r *clientResource) Create(ctx context.Context, req resource.CreateRequest,
 	if resp.Diagnostics.HasError() {
 		return
 	}
+	// Write-only values are only in config, never in the plan.
+	var wo types.String
+	resp.Diagnostics.Append(req.Config.GetAttribute(ctx, path.Root("password_wo"), &wo)...)
+	if resp.Diagnostics.HasError() {
+		return
+	}
+	password := plan.Password.ValueString()
+	switch {
+	case wo.ValueString() != "" && password != "":
+		resp.Diagnostics.AddAttributeError(path.Root("password_wo"), "Conflicting passwords", "Set only one of password_wo or password.")
+		return
+	case wo.ValueString() != "":
+		password = wo.ValueString()
+	case password == "":
+		resp.Diagnostics.AddAttributeError(path.Root("password_wo"), "Missing password", "Set password_wo (the initial login password) to create a client.")
+		return
+	}
 	body := map[string]any{
 		"email":        plan.Email.ValueString(),
 		"name":         plan.Name.ValueString(),
-		"password":     plan.Password.ValueString(),
+		"password":     password,
 		"external_ref": plan.ExternalRef.ValueString(),
 	}
 	var created struct {

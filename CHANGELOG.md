@@ -23,6 +23,16 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+### Added
+
+- `POST /api/v1/resellers` accepts the initial `status`, `reseller_plan_id`,
+  `overselling_allowed` and `can_create_plans`, applied in the create
+  transaction. The Terraform provider sends them on create.
+- Terraform `hpg_client.password_wo` (write-only, Terraform 1.11+) keeps the
+  client password out of plan and state; `password` is deprecated.
+- Webhook POSTs carry `X-HPG-Delivery: <id>`, stable across retries, so
+  receivers can drop duplicates.
+
 ### Documentation
 
 - Community health files: `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `CODEOWNERS`, release-note
@@ -31,6 +41,30 @@ is deliberately left as published.
 
 ### Security
 
+- mTLS path rules match the decoded, cleaned request path; the most specific
+  rule wins over rule order; unreadable rules block the request.
+- Restricted and reseller admins fail closed when their scope can't be
+  resolved (lists, exports, world map); only super_admin creates global access
+  groups; CSV exports neutralise formula cells.
+- Password login carries a CSRF token signed with a key derived from
+  `APP_SECRET`.
+- The install wizard loads only over TLS or from loopback (SSH port-forward);
+  `INSTALL_ALLOW_PLAINTEXT=1` opts out.
+- Tunnel and node bootstrap tokens are no longer read from URLs or passed on
+  the command line; `/api/wg/*` query strings are redacted from stored access
+  logs and WAF events.
+- Routes with a country policy deny on a node without GeoIP, and blocking-mode
+  WAF routes answer 503 on a node without Coraza, instead of serving
+  unfiltered. Only the affected route changes; `waf.fail_open` and the
+  per-route geo setting are the explicit opt-outs.
+- An undecryptable CAPTCHA secret refuses verification instead of switching
+  CAPTCHA off; Telegram errors no longer log the bot token.
+- The Terraform provider requires an https endpoint outside loopback, and
+  omitted route/plan flags keep the secure server defaults. API route create
+  without `ssl`/`force_https` now enables both, as documented.
+- The provider release workflow pins actions by SHA with least privilege.
+- Backup docs use a read-only `hpg_backup` user with an option file instead
+  of the root password on the command line.
 - Caddy node image 2.11.4 -> 2.11.7 (builder on Go 1.27.2) with
   `golang.org/x/net` forced to v0.60.0 via xcaddy `--replace` (Caddy resolves
   v0.59.0): CVE-2026-78667, CVE-2026-78669, CVE-2026-97031 (HIGH, DoS). All
@@ -88,6 +122,32 @@ is deliberately left as published.
 
 ### Fixed
 
+- Editing a stream keeps its CIDR lists; creating a stream with extra
+  upstreams is all-or-nothing; reissuing a tunnel keeps its key-rotation age;
+  a failed PSK clear keeps the rekey token usable.
+- Backup schedule saves are atomic; world map totals include traffic beyond
+  the first 5000 IPs.
+- Access-log ingest is all-or-nothing per batch (503 on a storage error, the
+  agent resends), raw rows and rollups are written together, and the agent
+  ships ~1 MiB batches. Prometheus samples with timestamps parse correctly;
+  live log unsubscribe no longer races publication.
+- Webhook deliveries are claimed atomically before sending; WireGuard
+  rotation alerts are marked only after they are recorded; alert cooldown
+  changes apply without a restart; the Cloudflare settings cache reloads once
+  per expiry.
+- The client service detail page renders; the status page traffic chart works
+  under the CSP; registration states the real 12-character minimum.
+- Nodes created through `POST /api/v1/nodes` are approved and receive routes;
+  reseller creation from Terraform no longer orphans the tenant on a failed
+  read.
+- The Portainer external-DB profile publishes the app on loopback so the
+  installer is reachable.
+- SQLite installs on Go 1.27 builds: the alert cooldown, the stale restore
+  drill alert and the alert page's last-fired time read timestamps correctly
+  again (repeat alerts were not suppressed).
+- Drain and decommission move a node's active-active/failover replica
+  assignments too, without double-counting a destination that already serves
+  the route; a drain re-syncs the drained node and rolls back if it can't.
 - SSE log and AI chat streams are no longer cut off by the global 30s request
   timeout (#51).
 - Auto-failover measures an outage from the last successful probe, so it and
@@ -131,6 +191,32 @@ is deliberately left as published.
 
 ### Upgrade notes
 
+- Migration 00171 adds a short-lived ledger that makes access-log batch
+  retries idempotent.
+- Migrations 00169-00170 run on start: stored `/api/wg/*` access-log queries
+  are redacted, and every route's GeoIP policy becomes fail-closed (untick it
+  per route to keep serving on nodes without GeoIP).
+- Plain-HTTP access to `/install` from a remote address gets 403. Use
+  `ssh -L 8080:127.0.0.1:8080`, HTTPS, or `INSTALL_ALLOW_PLAINTEXT=1`.
+- Non-browser clients posting `/auth/login` must first GET the page and send
+  back `csrf_token` with its cookie.
+- Blocking-mode WAF routes on nodes without Coraza answer 503 until the node
+  runs the WAF image or `waf.fail_open` is set.
+- Old `install.sh?token=` commands prompt for the token; scripts calling
+  `/api/wg/*` with `?token=` must send `Authorization: Bearer`. Node scripts'
+  `--token` is deprecated in favour of the prompt or `--token-file`.
+- API callers relying on omitted `ssl`/`force_https` (routes) or
+  `ssl_enabled`/`websocket_enabled` (plans) meaning off must send `false`.
+- Terraform: switch `http://` endpoints to https and move
+  `hpg_client.password` to `password_wo`.
+- Rotate the Telegram bot token if older logs may contain it.
+- If every login fails after an `APP_SECRET` change, see
+  [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md#14-every-login-fails-with-captcha-verification-failed).
+- The Portainer external-DB profile now binds 127.0.0.1:8080; set `APP_PORT`
+  or `APP_BIND_HOST` if that clashes.
+- Path rules on mTLS routes: the most specific rule now decides. Review rule
+  sets that relied on an older broad rule taking precedence.
+- Release the new node-agent image for the smaller access-log batches.
 - Migration 00165 gives every existing unscoped API key the explicit scopes it
   effectively had: `client:read,client:write` for customer-owned keys,
   `services,routes,nodes,admin:read,admin:write` for every other owner. Keys

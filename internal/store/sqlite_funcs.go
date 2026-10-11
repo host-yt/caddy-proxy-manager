@@ -362,3 +362,26 @@ func toFloat(v driver.Value) (float64, bool) {
 	}
 	return 0, false
 }
+
+// NullTime scans a timestamp from either driver. SQLite returns aggregates such
+// as MAX(ts) as text, which database/sql (Go 1.27+) won't scan into time.Time.
+type NullTime struct {
+	Time  time.Time
+	Valid bool
+}
+
+func (n *NullTime) Scan(src any) error {
+	if src == nil {
+		*n = NullTime{}
+		return nil
+	}
+	if b, ok := src.([]byte); ok {
+		src = string(b)
+	}
+	t, err := parseSQLiteTime(src)
+	if err != nil {
+		return err
+	}
+	*n = NullTime{Time: t, Valid: true}
+	return nil
+}

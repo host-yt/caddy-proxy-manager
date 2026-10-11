@@ -19,10 +19,11 @@ For multi-node and production hardening see [`DEPLOY.md`](DEPLOY.md) and [`MULTI
 |---|---|---|
 | 80 | TCP | HTTP + ACME HTTP-01 challenge |
 | 443 | TCP + UDP | HTTPS + HTTP/3 |
-| 8080 | TCP | Panel web UI (can be changed via `APP_PORT`) |
 | 51820 | UDP | WireGuard mesh (only needed for multi-node) |
 
 Port 2019 (Caddy Admin API) must **not** be exposed - it is internal-only.
+Port 8080 (panel app, `APP_PORT`) stays bound to `127.0.0.1` - do not open it
+in the firewall; the panel is reached through Caddy on 443.
 
 ---
 
@@ -89,7 +90,18 @@ docker compose -f deploy/docker-compose.yml logs -f --tail=100
 
 ### 2.4 Open the install wizard
 
-Navigate to `http://<your-server-ip>:8080/install` (or the URL set in `APP_URL`).
+The wizard takes the install token and the first `super_admin` password, so it
+is only served over HTTPS or through the browser's own loopback. From your
+workstation, forward the loopback-bound port over SSH:
+
+```bash
+ssh -L 8080:127.0.0.1:8080 root@<your-server-ip>
+```
+
+then open `http://127.0.0.1:8080/install`. Once `APP_URL` resolves and Caddy
+has a certificate, `https://<APP_URL>/install` works too. A plain-HTTP request
+to any other address gets a `403` with these instructions;
+`INSTALL_ALLOW_PLAINTEXT=1` lifts that (only on a network you trust).
 
 The wizard is only reachable while `INSTALLED=0`. It flips itself to `1` on completion.
 
@@ -138,6 +150,7 @@ All variables live in `.env` (copied from `.env.example`). Values in the **Defau
 | Variable | Default | Required | Description |
 |---|---|---|---|
 | `INSTALLED` | `0` | no | `0` = wizard accessible; wizard sets this to `1` on completion. Do not flip manually before running the wizard. |
+| `INSTALL_ALLOW_PLAINTEXT` | `0` | no | `1` serves the wizard over plain HTTP to non-loopback addresses (install token and admin password then cross the network in cleartext). |
 
 ### Database
 
@@ -271,7 +284,7 @@ These flags must remain `0` until **every** Caddy node in the fleet (central and
 
 ## 4. Install wizard walkthrough
 
-Open `http://<server-ip>:8080/install` (or `APP_URL/install`).
+Open `http://127.0.0.1:8080/install` through an SSH port-forward, or `https://<APP_URL>/install` (see 2.4).
 
 The wizard runs the following ordered steps (`internal/installstate/state.go`):
 

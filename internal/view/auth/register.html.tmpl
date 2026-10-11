@@ -36,13 +36,13 @@
       </div>
       <div>
         <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Password</label>
-        <input name="password" type="password" required autocomplete="new-password"
+        <input name="password" type="password" required minlength="12" autocomplete="new-password"
                class="r-input w-full">
-        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Minimum 10 characters.</p>
+        <p class="t-caption mt-1" style="color:rgb(var(--muted))">Minimum 12 characters.</p>
       </div>
       <div>
         <label class="block t-caption font-medium mb-1" style="color:rgb(var(--text))">Confirm password</label>
-        <input name="confirm_password" type="password" required autocomplete="new-password"
+        <input name="confirm_password" type="password" required minlength="12" autocomplete="new-password"
                class="r-input w-full">
       </div>
       <button class="r-btn-primary w-full cursor-pointer">Create account</button>

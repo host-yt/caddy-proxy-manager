@@ -6,6 +6,7 @@ import (
 
 	"github.com/hashicorp/terraform-plugin-framework/resource"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema"
+	"github.com/hashicorp/terraform-plugin-framework/resource/schema/boolplanmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/int64planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/planmodifier"
 	"github.com/hashicorp/terraform-plugin-framework/resource/schema/stringplanmodifier"
@@ -53,8 +54,12 @@ type apiPlan struct {
 	WGKeyRotationDays  *int   `json:"wg_key_rotation_days"`
 }
 
-func boolAttrOptComputed() schema.BoolAttribute {
-	return schema.BoolAttribute{Optional: true, Computed: true}
+// boolAttrOptComputed: omitted on create = server default; later plans keep state.
+func boolAttrOptComputed(desc string) schema.BoolAttribute {
+	return schema.BoolAttribute{
+		Optional: true, Computed: true, MarkdownDescription: desc,
+		PlanModifiers: []planmodifier.Bool{boolplanmodifier.UseStateForUnknown()},
+	}
 }
 
 func (r *planResource) Metadata(_ context.Context, req resource.MetadataRequest, resp *resource.MetadataResponse) {
@@ -78,12 +83,12 @@ func (r *planResource) Schema(_ context.Context, _ resource.SchemaRequest, resp 
 				MarkdownDescription: "`restricted` (default) or `npm`.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
-			"ssl_enabled":            boolAttrOptComputed(),
-			"path_routing_enabled":   boolAttrOptComputed(),
-			"wildcard_enabled":       boolAttrOptComputed(),
-			"websocket_enabled":      boolAttrOptComputed(),
-			"external_proxy_enabled": boolAttrOptComputed(),
-			"allow_egress_ip":        boolAttrOptComputed(),
+			"ssl_enabled":            boolAttrOptComputed("Default `true`."),
+			"path_routing_enabled":   boolAttrOptComputed("Default `false`."),
+			"wildcard_enabled":       boolAttrOptComputed("Default `false`."),
+			"websocket_enabled":      boolAttrOptComputed("Default `true`."),
+			"external_proxy_enabled": boolAttrOptComputed("Default `false`."),
+			"allow_egress_ip":        boolAttrOptComputed("Default `false`."),
 			"rate_limit_rpm": schema.Int64Attribute{
 				Optional: true, Computed: true,
 				MarkdownDescription: "Requests/min cap; 0 = no limit.",
@@ -103,21 +108,22 @@ func (r *planResource) Configure(_ context.Context, req resource.ConfigureReques
 }
 
 func (m *planModel) body() map[string]any {
-	return map[string]any{
-		"name":                   m.Name.ValueString(),
-		"kind":                   m.Kind.ValueString(),
-		"max_domains":            m.MaxDomains.ValueInt64(),
-		"max_ports":              m.MaxPorts.ValueInt64(),
-		"node_group_id":          m.NodeGroupID.ValueInt64(),
-		"ssl_enabled":            m.SSLEnabled.ValueBool(),
-		"path_routing_enabled":   m.PathRoutingEnabled.ValueBool(),
-		"wildcard_enabled":       m.WildcardEnabled.ValueBool(),
-		"websocket_enabled":      m.WebsocketEnabled.ValueBool(),
-		"external_proxy_enabled": m.ExternalProxy.ValueBool(),
-		"allow_egress_ip":        m.AllowEgressIP.ValueBool(),
-		"rate_limit_rpm":         m.RateLimitRPM.ValueInt64(),
-		"wg_key_rotation_days":   m.WGKeyRotationDays.ValueInt64(),
+	b := map[string]any{
+		"name":                 m.Name.ValueString(),
+		"kind":                 m.Kind.ValueString(),
+		"max_domains":          m.MaxDomains.ValueInt64(),
+		"max_ports":            m.MaxPorts.ValueInt64(),
+		"node_group_id":        m.NodeGroupID.ValueInt64(),
+		"rate_limit_rpm":       m.RateLimitRPM.ValueInt64(),
+		"wg_key_rotation_days": m.WGKeyRotationDays.ValueInt64(),
 	}
+	setKnownBool(b, "ssl_enabled", m.SSLEnabled)
+	setKnownBool(b, "path_routing_enabled", m.PathRoutingEnabled)
+	setKnownBool(b, "wildcard_enabled", m.WildcardEnabled)
+	setKnownBool(b, "websocket_enabled", m.WebsocketEnabled)
+	setKnownBool(b, "external_proxy_enabled", m.ExternalProxy)
+	setKnownBool(b, "allow_egress_ip", m.AllowEgressIP)
+	return b
 }
 
 func (r *planResource) Create(ctx context.Context, req resource.CreateRequest, resp *resource.CreateResponse) {

@@ -427,8 +427,7 @@ func (h *AdminHandlers) TunnelsReissue(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/tunnels", "", "reissue failed: "+sanitizeErr(err))
 		return
 	}
-	// Stamp the rotation time so the "key age" view resets after a reissue.
-	_, _ = h.DB().ExecContext(ctx, "UPDATE customer_wg_peer SET last_key_rotation_at = NOW() WHERE id = ?", id)
+	// No rotation-timestamp stamp: the keypair is unchanged, so key age must not reset.
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.tunnel.reissue", Entity: "wg_peer",
 		EntityID: itoa64(id),
@@ -728,9 +727,21 @@ func isSuperAdmin(sess *auth.Session) bool {
 	return sess != nil && sess.Role == "super_admin"
 }
 
+// scopeExempt reports a caller that needs no per-client filter. A tenant-scoped
+// session never is, even if AdminScope is unwired: callers then fail closed.
+func (h *AdminHandlers) scopeExempt(sess *auth.Session) bool {
+	if sess == nil || sess.Role == "super_admin" {
+		return true
+	}
+	return h.AdminScope == nil && !sess.Restricted && sess.ResellerID == 0 && sess.Role != "reseller"
+}
+
 func (h *AdminHandlers) adminClientScope(ctx context.Context, sess *auth.Session) (map[int64]bool, bool, bool) {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return nil, true, true
+	}
+	if h.AdminScope == nil {
+		return nil, false, false
 	}
 	clientIDs, all, err := h.AdminScope.ScopeFilter(ctx, sess.UserID)
 	if err != nil {
@@ -761,8 +772,11 @@ func filterClientOptions(in []clientOption, allowed map[int64]bool, all bool) []
 }
 
 func (h *AdminHandlers) scopeCheckClient(ctx context.Context, sess *auth.Session, clientID int64) bool {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
+	}
+	if h.AdminScope == nil {
+		return false
 	}
 	ok, err := h.AdminScope.CanAccessClient(ctx, sess.UserID, clientID)
 	if err != nil {
@@ -773,8 +787,11 @@ func (h *AdminHandlers) scopeCheckClient(ctx context.Context, sess *auth.Session
 }
 
 func (h *AdminHandlers) scopeCheckPeer(ctx context.Context, sess *auth.Session, peerID int64) bool {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
+	}
+	if h.AdminScope == nil {
+		return false
 	}
 	ok, err := h.AdminScope.CanAccessPeer(ctx, sess.UserID, peerID)
 	if err != nil {
@@ -889,7 +906,7 @@ func (h *AdminHandlers) selfProvisionScope(ctx context.Context, sess *auth.Sessi
 // scopeCheckService resolves a service's owning client and defers to
 // scopeCheckClient. Fail-closed if the service is missing.
 func (h *AdminHandlers) scopeCheckService(ctx context.Context, sess *auth.Session, serviceID int64) bool {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
 	}
 	var clientID int64
@@ -999,12 +1016,12 @@ func (h *AdminHandlers) lookupNewTunnel(ctx context.Context, db *sql.DB, r *http
 		NodeName:    nodeName,
 		AssignedIP:  assignedIP,
 		Token:       token,
-		// NODE_WG-03: token-in-URL is required for the one-command curl|bash
-		// install UX; token is single-shot + short-TTL, unlike the durable
-		// per-node agent token (which no longer accepts query-string auth).
-		ConfURL:        base + "/api/wg/bootstrap?token=" + token,
-		StatusURL:      base + "/api/wg/status?token=" + token,
-		InstallCommand: "curl -fsSL " + base + "/api/wg/install.sh?token=" + token + " | sudo bash",
+		// The token never goes in a URL (NODE_WG-03): the installer prompts for
+		// it, the .conf form POSTs it, the status poll sends it as a header.
+		// Relative: browser-only, so CSP form-action/connect-src self always holds.
+		ConfURL:        "/api/wg/bootstrap",
+		StatusURL:      "/api/wg/status",
+		InstallCommand: "curl -fsSL " + base + "/api/wg/install.sh | sudo bash",
 		ExpiresAt:      expiresAt.UTC().Format(time.RFC3339),
 	}
 }

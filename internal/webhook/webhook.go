@@ -22,6 +22,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -149,7 +150,34 @@ func (s *Service) Dispatch(ctx context.Context) {
 	}
 	rows.Close()
 	for _, j := range jobs {
-		s.attempt(ctx, j.id, j.epID, j.payload, j.attempts)
+		if s.claim(ctx, db, j.id) {
+			s.attempt(ctx, j.id, j.epID, j.payload, j.attempts)
+		}
+	}
+}
+
+// claimLease outlives one attempt (10s client timeout incl. redirects).
+const claimLease = 2 * time.Minute
+
+// claim leases a due row by compare-and-set on next_retry_at, so overlapping
+// dispatchers never POST it twice; a crashed holder's lease just expires.
+func (s *Service) claim(ctx context.Context, db *sql.DB, id int64) bool {
+	res, err := db.ExecContext(ctx,
+		"UPDATE webhook_deliveries SET next_retry_at = "+store.DateAddSecondsParam()+
+			" WHERE id = ? AND status = 'pending' AND (next_retry_at IS NULL OR next_retry_at <= NOW())",
+		int(claimLease.Seconds()), id)
+	if err != nil {
+		return false
+	}
+	n, err := res.RowsAffected()
+	return err == nil && n == 1
+}
+
+// update applies a delivery state change; a lost write would re-deliver after
+// the lease, so it is at least logged.
+func (s *Service) update(ctx context.Context, db *sql.DB, deliveryID int64, q string, args ...any) {
+	if _, err := db.ExecContext(ctx, q, args...); err != nil && s.Logger != nil {
+		s.Logger.Warn("webhook delivery state update", "delivery_id", deliveryID, "err", err)
 	}
 }
 
@@ -165,7 +193,7 @@ func (s *Service) attempt(ctx context.Context, deliveryID, epID int64, body stri
 		"SELECT url, COALESCE(secret_enc,'') FROM webhook_endpoints WHERE id = ? AND is_enabled = 1",
 		epID,
 	).Scan(&endpointURL, &secretEnc); err != nil {
-		_, _ = db.ExecContext(ctx,
+		s.update(ctx, db, deliveryID,
 			"UPDATE webhook_deliveries SET status='failed', last_error=? WHERE id = ?",
 			"endpoint missing or disabled", deliveryID)
 		return
@@ -195,6 +223,8 @@ func (s *Service) attempt(ctx context.Context, deliveryID, epID int64, body stri
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "hostyt-proxy-webhook/1")
+	// Stable across retries: delivery is at-least-once, receivers dedupe on it.
+	req.Header.Set("X-HPG-Delivery", strconv.FormatInt(deliveryID, 10))
 	secret, derr := s.State.Decrypt(secretEnc.String)
 	if derr != nil {
 		// Cannot recover the signing secret - refuse rather than send unsigned.
@@ -215,7 +245,7 @@ func (s *Service) attempt(ctx context.Context, deliveryID, epID int64, body stri
 	defer resp.Body.Close()
 	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-		_, _ = db.ExecContext(ctx,
+		s.update(ctx, db, deliveryID,
 			`UPDATE webhook_deliveries SET status='success', http_code=?, delivered_at=NOW(),
 			 attempts=attempts+1, last_error=NULL WHERE id = ?`,
 			resp.StatusCode, deliveryID)
@@ -238,7 +268,7 @@ func (s *Service) markFail(ctx context.Context, deliveryID int64, attempts, http
 	nextAttempts := attempts + 1
 	// Exponential backoff: 1m, 5m, 25m, 2h. After 4 attempts, give up.
 	if nextAttempts >= 4 {
-		_, _ = db.ExecContext(ctx,
+		s.update(ctx, db, deliveryID,
 			"UPDATE webhook_deliveries SET status='failed', attempts=?, http_code=?, last_error=? WHERE id = ?",
 			nextAttempts, httpCode, truncateErr(msg), deliveryID)
 		return
@@ -247,7 +277,7 @@ func (s *Service) markFail(ctx context.Context, deliveryID int64, attempts, http
 	if backoff < time.Minute {
 		backoff = time.Minute
 	}
-	_, _ = db.ExecContext(ctx,
+	s.update(ctx, db, deliveryID,
 		"UPDATE webhook_deliveries"+
 			" SET status='pending', attempts=?, http_code=?, last_error=?,"+
 			"     next_retry_at = "+store.DateAddSecondsParam()+

@@ -259,6 +259,13 @@ type Policy struct {
 	CanCreatePlans bool
 }
 
+// PolicyPatch is a Policy where nil fields keep their current (or default) value.
+type PolicyPatch struct {
+	PlanID         *int64
+	Overselling    *bool
+	CanCreatePlans *bool
+}
+
 // SetPolicy assigns the package + policy flags for one reseller.
 func (s *Store) SetPolicy(ctx context.Context, resellerID int64, pol Policy) error {
 	db := s.db()

@@ -83,9 +83,11 @@ drives the rekey:
 
    ```bash
    curl -fsSL https://panel.example.com/install/node-psk.sh | sudo bash -s -- \
-     --panel https://panel.example.com \
-     --token <64-hex token>
+     --panel https://panel.example.com
    ```
+
+   and paste the 64-hex token when prompted (or use `--token-file PATH`;
+   never put it on the command line).
 
    The script requires `bash`, `curl`, `jq`, `wg`, `wg-quick` and root, and it
    needs the panel reachable over **public HTTPS** - the same requirement as

@@ -45,6 +45,7 @@ services:
       # collapsing every client to Caddy's IP (breaks per-IP rate-limit).
       APP_TRUSTED_PROXIES: ${APP_TRUSTED_PROXIES:-172.18.0.0/16}
       INSTALL_TOKEN: ${INSTALL_TOKEN}
+      INSTALL_ALLOW_PLAINTEXT: ${INSTALL_ALLOW_PLAINTEXT:-0}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_HOST: ${DB_HOST}
       DB_PORT: ${DB_PORT:-3306}
@@ -76,6 +77,10 @@ services:
         condition: service_healthy
       geoip-init:
         condition: service_completed_successfully
+    ports:
+      # Loopback-only: the bootstrap Caddy serves a maintenance page, so this is
+      # the only way to reach /install on a fresh stack (SSH tunnel to it).
+      - "${APP_BIND_HOST:-127.0.0.1}:${APP_PORT:-8080}:8080"
     volumes:
       - app_data:/app/data
       # Caddy's admin socket when CADDY_ADMIN_URL is the unix:// form.

@@ -45,7 +45,8 @@ func (b *Broker) Unsubscribe(routeID int64, ch chan Entry) {
 // subscribers are skipped (their buffer full = they can't keep up).
 func (b *Broker) Publish(e Entry) {
 	b.mu.Lock()
-	list := b.subs[e.RouteID]
+	// Copy the elements: Unsubscribe shifts the shared backing array in place.
+	list := append([]chan Entry(nil), b.subs[e.RouteID]...)
 	b.mu.Unlock()
 	for _, ch := range list {
 		select {

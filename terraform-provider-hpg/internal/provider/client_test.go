@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/hashicorp/terraform-plugin-framework/types"
 )
 
 // TestClientCRUD exercises the REST client against a stub server: auth header,
@@ -69,5 +71,44 @@ func TestClientCRUD(t *testing.T) {
 	// Non-404 error surfaces the status + body.
 	if err := c.Delete(ctx, "/plans/1"); err == nil || IsNotFound(err) {
 		t.Fatalf("expected non-404 error, got %v", err)
+	}
+}
+
+func TestValidateEndpoint(t *testing.T) {
+	ok := map[string]string{
+		"https://panel.example.com/":    "https://panel.example.com",
+		"https://panel.example.com/hpg": "https://panel.example.com/hpg",
+		"http://localhost:8080":         "http://localhost:8080",
+		"http://127.0.0.1:18080":        "http://127.0.0.1:18080",
+		"http://[::1]:8080":             "http://[::1]:8080",
+	}
+	for in, want := range ok {
+		if got, err := validateEndpoint(in); err != nil || got != want {
+			t.Errorf("validateEndpoint(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{
+		"http://panel.example.com", "http://10.0.0.5", "ftp://panel.example.com",
+		"panel.example.com", "https://user:pw@panel.example.com", "https://panel.example.com?x=1",
+		"https://panel.example.com#f", "https://panel.example.com/api/v1", "https://",
+	} {
+		if _, err := validateEndpoint(in); err == nil {
+			t.Errorf("validateEndpoint(%q) accepted", in)
+		}
+	}
+}
+
+// Omitted optional bools must not be sent, so the server's secure defaults apply.
+func TestPlanBodyOmitsUnknownBools(t *testing.T) {
+	m := planModel{SSLEnabled: types.BoolUnknown(), WebsocketEnabled: types.BoolNull(), WildcardEnabled: types.BoolValue(false)}
+	b := m.body()
+	if _, ok := b["ssl_enabled"]; ok {
+		t.Error("unknown ssl_enabled sent")
+	}
+	if _, ok := b["websocket_enabled"]; ok {
+		t.Error("null websocket_enabled sent")
+	}
+	if v, ok := b["wildcard_enabled"]; !ok || v != false {
+		t.Error("explicit wildcard_enabled=false dropped")
 	}
 }

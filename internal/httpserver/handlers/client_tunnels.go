@@ -203,11 +203,10 @@ func (h *ClientHandlers) lookupClientNewTunnel(ctx context.Context, db *sql.DB, 
 		AssignedIP: assignedIP,
 		NodeName:   nodeName,
 		Token:      token,
-		// NODE_WG-03: token-in-URL is required for the one-command curl|bash
-		// install UX; token is single-shot + short-TTL, unlike the durable
-		// per-node agent token (which no longer accepts query-string auth).
-		ConfURL:        base + "/api/wg/bootstrap?token=" + token,
-		InstallCommand: "curl -fsSL " + base + "/api/wg/install.sh?token=" + token + " | sudo bash",
+		// The token never goes in a URL (NODE_WG-03): the installer prompts for
+		// it and the .conf form POSTs it (relative: CSP form-action self).
+		ConfURL:        "/api/wg/bootstrap",
+		InstallCommand: "curl -fsSL " + base + "/api/wg/install.sh | sudo bash",
 	}
 }
 

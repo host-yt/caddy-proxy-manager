@@ -1,6 +1,56 @@
 package captcha
 
-import "testing"
+import (
+	"context"
+	"database/sql"
+	"strings"
+	"testing"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/installstate"
+	_ "modernc.org/sqlite"
+)
+
+// A secret that no longer decrypts must keep the last-known-good secret, or,
+// with none, fail Verify closed instead of silently disabling CAPTCHA.
+func TestRefreshDecryptFailureFailsClosed(t *testing.T) {
+	good, _ := installstate.New(t.TempDir(), strings.Repeat("a", 32))
+	bad, _ := installstate.New(t.TempDir(), strings.Repeat("b", 32))
+	enc, err := bad.Encrypt("other-key-secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	defer db.Close()
+	if _, err := db.Exec("CREATE TABLE settings (`key` TEXT, value TEXT, is_encrypted BOOL)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec("INSERT INTO settings VALUES ('captcha.provider','turnstile',0), ('captcha.secret',?,1)", enc); err != nil {
+		t.Fatal(err)
+	}
+
+	v := New("", "")
+	v.DB, v.State = func() *sql.DB { return db }, good
+	v.Refresh(context.Background())
+	if !v.Enabled() {
+		t.Fatal("Enabled() = false with an undecryptable secret; CAPTCHA silently off")
+	}
+	if err := v.Verify(context.Background(), "tok", ""); err == nil {
+		t.Fatal("Verify passed with no usable secret")
+	}
+
+	v = New("turnstile", "last-good")
+	v.DB, v.State = func() *sql.DB { return db }, good
+	v.Refresh(context.Background())
+	v.mu.RLock()
+	defer v.mu.RUnlock()
+	if v.secret != "last-good" {
+		t.Fatalf("secret = %q, want last-known-good kept", v.secret)
+	}
+}
 
 // Enabled must accept every known provider (when a secret is set) and reject
 // unknown/empty providers - the latter is the safety net that keeps a stale or

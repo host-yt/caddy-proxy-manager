@@ -151,17 +151,22 @@ The panel mints a one-time token with the prefix `hpg_join_` (24 random bytes,
 base64url-encoded; stored as a SHA-256 hash). The token expires in **30 minutes**
 and can only be used once.
 
-The UI displays a complete `curl | sudo bash` command, e.g.:
+The UI displays the `curl | sudo bash` command and, separately, the token:
 
 ```bash
 curl -fsSL https://panel.example.com/install/node.sh | sudo bash -s -- \
-  --manager https://panel.example.com \
-  --token   hpg_join_XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+  --manager https://panel.example.com
 ```
+
+The script prompts for the token on the terminal. It is never passed as an
+argument: `/proc/<pid>/cmdline` is readable by every local user. For
+unattended runs write it to a root-only file and pass `--token-file PATH`.
+`--token` still works but is deprecated and prints a warning.
 
 Optional flags you can append:
 
 ```
+--token-file      /root/hpg-join-token   # read the token from a file instead of prompting
 --public-hostname fra.proxy.example.com  # sets caddy_nodes.public_hostname
 --public-ip       203.0.113.10           # sets caddy_nodes.public_ip
 --install-dir     /opt/hostyt-node       # default: /opt/hostyt-node
@@ -1089,9 +1094,11 @@ existing key.
 
    ```bash
    curl -fsSL https://panel.example.com/install/node-psk.sh | sudo bash -s -- \
-     --panel https://panel.example.com \
-     --token <64-hex token>
+     --panel https://panel.example.com
    ```
+
+   and paste the 64-hex token when prompted (or use `--token-file PATH`;
+   never put it on the command line).
 
    Needs root and `curl`, `jq`, `wg`, `wg-quick`, and the panel reachable over
    public HTTPS - the same requirements as the join script. `--interface`

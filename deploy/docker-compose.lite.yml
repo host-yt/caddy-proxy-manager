@@ -40,6 +40,7 @@ services:
       APP_SECRET: ${APP_SECRET:?APP_SECRET must be set (openssl rand -hex 32)}
       APP_TRUSTED_PROXIES: ${APP_TRUSTED_PROXIES:-172.18.0.0/16}
       INSTALL_TOKEN: ${INSTALL_TOKEN}
+      INSTALL_ALLOW_PLAINTEXT: ${INSTALL_ALLOW_PLAINTEXT:-0}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       DB_HOST: ${DB_HOST:-mariadb}
       DB_PORT: ${DB_PORT:-3306}

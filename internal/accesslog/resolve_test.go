@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 	_ "modernc.org/sqlite"
 )
 
@@ -21,6 +22,11 @@ func openResolveTestDB(t *testing.T) *sql.DB {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	t.Cleanup(func() { _ = db.Close() })
+	// One conn: each :memory: connection is its own empty DB, and Insert uses a tx.
+	db.SetMaxOpenConns(1)
+	prev := store.Driver()
+	store.SetDriver("sqlite3")
+	t.Cleanup(func() { store.SetDriver(prev) })
 	stmts := []string{
 		`CREATE TABLE routes (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,6 +54,10 @@ func openResolveTestDB(t *testing.T) *sql.DB {
 			latency_sum_ms INTEGER, latency_max_ms INTEGER,
 			bytes_resp INTEGER, bytes_req INTEGER,
 			PRIMARY KEY (route_id, bucket_start)
+		)`,
+		`CREATE TABLE access_log_batches (
+			batch_hash TEXT NOT NULL PRIMARY KEY,
+			created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 		)`,
 	}
 	for _, s := range stmts {
@@ -223,5 +233,87 @@ func TestIngest_UnauthenticatedRejected(t *testing.T) {
 	h.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", rec.Code)
+	}
+}
+
+// TestIngest_StoreFailureNotAcked: a failed write must answer non-2xx (so the
+// agent retries) and leave no partial batch behind to be double counted.
+func TestIngest_StoreFailureNotAcked(t *testing.T) {
+	db := openResolveTestDB(t)
+	rid := insertRoute(t, db, 2, "own.example", "", "", "active")
+	if _, err := db.Exec(`DROP TABLE log_rollups`); err != nil {
+		t.Fatal(err)
+	}
+	h := &IngestHandler{
+		Store:  New(func() *sql.DB { return db }, 100),
+		Broker: NewBroker(),
+		Logger: slog.Default(),
+		ResolveRoutes: func(ctx context.Context, nodeID int64) (NodeRouteIndex, error) {
+			return LoadNodeRouteIndex(ctx, db, nodeID)
+		},
+		AuthNode: func(ctx context.Context, token string) (int64, bool) { return 2, true },
+	}
+	line := `{"ts":1700000000,"status":200,"request":{"method":"GET","uri":"/","host":"own.example"}}`
+	req := httptest.NewRequest(http.MethodPost, "/internal/access-log", strings.NewReader(line+"\n"+line))
+	req.Header.Set("Authorization", "Bearer x")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code < 300 {
+		t.Fatalf("status = %d, want non-2xx", rec.Code)
+	}
+	var n int
+	if err := db.QueryRow("SELECT COUNT(*) FROM host_access_log WHERE route_id = ?", rid).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 0 {
+		t.Fatalf("raw rows = %d, want 0", n)
+	}
+}
+
+func TestTruncUTF8(t *testing.T) {
+	if got := truncUTF8("aé", 2); got != "a" {
+		t.Fatalf("truncUTF8 = %q, want %q", got, "a")
+	}
+}
+
+// TestIngest_RetryAfterLostAckNotDoubleCounted: the agent resends a committed
+// batch when the 204 is lost; the resend must ack without storing it again.
+func TestIngest_RetryAfterLostAckNotDoubleCounted(t *testing.T) {
+	db := openResolveTestDB(t)
+	rid := insertRoute(t, db, 2, "own.example", "", "", "active")
+	h := &IngestHandler{
+		Store:  New(func() *sql.DB { return db }, 100),
+		Broker: NewBroker(),
+		Logger: slog.Default(),
+		ResolveRoutes: func(ctx context.Context, nodeID int64) (NodeRouteIndex, error) {
+			return LoadNodeRouteIndex(ctx, db, nodeID)
+		},
+		AuthNode: func(ctx context.Context, token string) (int64, bool) { return 2, true },
+	}
+	post := func(body string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPost, "/internal/access-log", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer x")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		if rec.Code != http.StatusNoContent {
+			t.Fatalf("status = %d, want 204", rec.Code)
+		}
+	}
+	a := `{"ts":1700000000,"status":200,"request":{"method":"GET","uri":"/","host":"own.example"}}`
+	b := `{"ts":1700000001,"status":200,"request":{"method":"GET","uri":"/","host":"own.example"}}`
+	post(a + "\n" + a)
+	post(a + "\n" + a) // retry of the same batch
+	post(b)            // a different batch
+
+	var rows, reqs int
+	if err := db.QueryRow("SELECT COUNT(*) FROM host_access_log WHERE route_id = ?", rid).Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.QueryRow("SELECT COALESCE(SUM(requests),0) FROM log_rollups WHERE route_id = ?", rid).Scan(&reqs); err != nil {
+		t.Fatal(err)
+	}
+	if rows != 3 || reqs != 3 {
+		t.Fatalf("rows=%d requests=%d, want 3/3", rows, reqs)
 	}
 }

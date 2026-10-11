@@ -752,7 +752,7 @@ Register a Caddy node manually.
 
 **Auth:** Bearer token - admin only.
 
-Alternative to the automatic node-join flow. The node starts enabled with `health: unknown`.
+Alternative to the automatic node-join flow. The node starts enabled and approved (eligible for route placement immediately) with `health: unknown`.
 
 **Request body**
 
@@ -967,6 +967,10 @@ Create a reseller and its owner login in one atomic operation.
 | `owner_password` | string | yes | >= 12 characters |
 | `brand_name` | string | no | White-label brand name |
 | `support_email` | string | no | Support contact shown to the reseller's own clients |
+| `status` | string | no | `active` (default) or `suspended` |
+| `reseller_plan_id` | int | no | Initial package; `0` = none, omitted = "Unlimited" |
+| `overselling_allowed` | bool | no | Default `false` |
+| `can_create_plans` | bool | no | Default `false` |
 
 ```json
 {
@@ -979,7 +983,7 @@ Create a reseller and its owner login in one atomic operation.
 }
 ```
 
-The owner account is created with `role=reseller` and `users.reseller_id` set to the new reseller, and is subscribed to the default "Unlimited" package.
+The owner account is created with `role=reseller` and `users.reseller_id` set to the new reseller, and is subscribed to the default "Unlimited" package unless `reseller_plan_id` is given. Status and policy are applied in the same transaction.
 
 **Response `201`**
 
@@ -1236,15 +1240,15 @@ These are business limits, not authorization failures - they only trigger for re
 
 These endpoints serve customer-side WireGuard tunnel setup. They are **not** under `/api/v1` and use a different authentication scheme.
 
-Authentication is via a single-shot **192-hex-char bootstrap token** passed as `?token=`. Tokens have a 24-hour TTL and are invalidated on first use. All endpoints are rate-limited to 10 requests per minute per source IP.
+Authentication is via a single-shot **192-hex-char bootstrap token** sent as `Authorization: Bearer <token>`. It is never accepted from a query string: URLs end up in access logs, shell history and process listings. Tokens have a 24-hour TTL and are invalidated on first use. All endpoints are rate-limited to 10 requests per minute per source IP.
 
 ---
 
-#### `GET /api/wg/bootstrap?token=<token>`
+#### `GET /api/wg/bootstrap`
 
 Download the WireGuard `.conf` file for a customer tunnel.
 
-The token is consumed on first call. Subsequent calls with the same token return `403`. Use the installer script endpoint instead of calling this directly.
+The token is consumed on first call. Subsequent calls with the same token return `403`. Use the installer script endpoint instead of calling this directly. `POST` with a form field `token` is accepted too (the panel's .conf download button).
 
 **Response `200`** - `text/plain` WireGuard configuration file
 
@@ -1270,21 +1274,28 @@ Response header: `Content-Disposition: attachment; filename="hostyt-tunnel-<id>.
 
 ---
 
-#### `GET /api/wg/install.sh?token=<token>`
+#### `GET /api/wg/install.sh`
 
 Download the bash installer script.
 
-The script installs `wireguard-tools`, fetches `/api/wg/bootstrap`, and creates a systemd unit.
+Without a token this returns a small stub that asks for the bootstrap token on
+the terminal (or reads `--token-file FILE`) and fetches this endpoint again with
+it as a bearer header, so the token never appears in a URL, `argv` or shell
+history. With the header it returns the installer, which installs
+`wireguard-tools`, fetches `/api/wg/bootstrap`, and creates a systemd unit.
 
 ```bash
-# Install
-curl 'https://your-panel.example.com/api/wg/install.sh?token=<token>' | sudo bash
+# Install - paste the token from the panel when prompted
+curl -fsSL https://your-panel.example.com/api/wg/install.sh | sudo bash
 
-# Remove
-curl 'https://your-panel.example.com/api/wg/install.sh?token=<token>' | sudo bash -s -- remove
+# Unattended: token in a root-only file
+curl -fsSL https://your-panel.example.com/api/wg/install.sh | sudo bash -s -- --token-file /root/wg-token
+
+# Remove (no token needed)
+curl -fsSL https://your-panel.example.com/api/wg/install.sh | sudo bash -s -- remove
 ```
 
-The bootstrap token is embedded in the script and consumed when the script calls `/api/wg/bootstrap`. Running the script a second time with the same URL is safe - it detects the existing config and validates/repairs the tunnel instead of re-downloading.
+The bootstrap token is consumed when the installer calls `/api/wg/bootstrap`. Running it a second time is safe - it detects the existing config and validates/repairs the tunnel instead of re-downloading.
 
 **Response `200`** - `text/x-shellscript`
 
@@ -1298,7 +1309,7 @@ The bootstrap token is embedded in the script and consumed when the script calls
 
 ---
 
-#### `GET /api/wg/status?token=<token>`
+#### `GET /api/wg/status`
 
 Poll whether the customer WireGuard peer has established a handshake.
 

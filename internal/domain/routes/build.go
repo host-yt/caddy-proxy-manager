@@ -74,6 +74,7 @@ func (s *Service) buildOneRoute(ctx context.Context, nodeID, routeID int64) (cad
 			r.CacheModuleAvailable = s.CacheModuleAvailable
 			r.RateLimitModuleAvailable = probedOr(nHasRate, s.RateLimitModuleAvailable)
 			r.WAFModuleAvailable = probedOr(nHasWAF, s.WAFModuleAvailable)
+			r.WAFFailOpen = s.loadWAFFailOpen(ctx)
 			r.GeoModuleAvailable = probedOr(nHasGeoIP, s.GeoModuleAvailable) && geoip.NodeHasCountryDB(nGeoDB)
 			return r, true, nil
 		}
@@ -188,6 +189,19 @@ func (s *Service) loadMTLSFailOpen(ctx context.Context) bool {
 	defer cancel()
 	var v string
 	_ = s.DB.QueryRowContext(c, "SELECT value FROM settings WHERE `key` = 'mtls.fail_open'").Scan(&v)
+	return v == "1"
+}
+
+// loadWAFFailOpen reads the global waf.fail_open setting (default false = a
+// blocking-mode route on a node without Coraza is quarantined, not unfiltered).
+func (s *Service) loadWAFFailOpen(ctx context.Context) bool {
+	if s.DB == nil {
+		return false
+	}
+	c, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	var v string
+	_ = s.DB.QueryRowContext(c, "SELECT value FROM settings WHERE `key` = 'waf.fail_open'").Scan(&v)
 	return v == "1"
 }
 

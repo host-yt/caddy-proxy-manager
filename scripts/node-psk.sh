@@ -3,11 +3,14 @@
 # that joined before preshared keys existed.
 #
 #   curl -fsSL https://panel.example.com/install/node-psk.sh | sudo bash -s -- \
-#     --panel https://panel.example.com \
-#     --token <64-hex rekey token from the node detail page>
+#     --panel https://panel.example.com
+#
+# The rekey token (node detail page) is prompted for on the terminal, or read
+# from --token-file PATH; never on the command line, where /proc exposes it.
 #
 # Optional:
 #     --interface wg0
+#     --token-file /root/hpg-psk-token
 #
 # Idempotent: re-running with the same (or a fresh) token is safe. wg0.conf
 # is backed up first and restored if anything past the rewrite definitely
@@ -19,6 +22,7 @@ set -euo pipefail
 
 PANEL=""
 TOKEN=""
+TOKEN_FILE=""
 IFACE="wg0"
 # See scripts/node-join.sh: the mesh interface needs a fixed source port.
 WG_LISTEN_PORT="51820"
@@ -26,10 +30,12 @@ WG_LISTEN_PORT="51820"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --panel)     PANEL="$2"; shift 2 ;;
-    --token)     TOKEN="$2"; shift 2 ;;
+    --token)     TOKEN="$2"; shift 2
+                 echo "[!] --token is deprecated: it is visible in the process list; use --token-file or the prompt" >&2 ;;
+    --token-file) TOKEN_FILE="$2"; shift 2 ;;
     --interface) IFACE="$2"; shift 2 ;;
     -h|--help)
-      sed -n '2,16p' "$0"
+      sed -n '2,21p' "$0"
       exit 0 ;;
     *) echo "unknown arg: $1" >&2; exit 2 ;;
   esac
@@ -39,7 +45,17 @@ log()  { printf '\033[1;32m==>\033[0m %s\n' "$*"; }
 warn() { printf '\033[1;33m[!]\033[0m %s\n' "$*"; }
 die()  { printf '\033[1;31mERR\033[0m %s\n' "$*" >&2; exit 1; }
 
-[[ -n "$PANEL" && -n "$TOKEN" ]] || die "missing --panel or --token (usage: $0 --panel https://panel --token <hex>)"
+if [[ -n "$TOKEN_FILE" ]]; then
+  TOKEN=$(tr -d '[:space:]' < "$TOKEN_FILE") || die "cannot read --token-file $TOKEN_FILE"
+elif [[ -z "$TOKEN" ]] && { exec 3</dev/tty; } 2>/dev/null; then
+  # stdin is this script (curl | bash), so prompt on the terminal itself.
+  read -rsp "Rekey token: " TOKEN <&3 || true
+  echo >&2
+  exec 3<&-
+fi
+[[ -n "$PANEL" && -n "$TOKEN" ]] || die "missing --panel or token (usage: $0 --panel https://panel [--token-file FILE])"
+# The token is spliced into a curl config line below; refuse anything that could break out of it.
+[[ "$TOKEN" =~ ^[A-Za-z0-9_-]+$ ]] || die "malformed token"
 [[ "$(id -u)" -eq 0 ]] || die "must run as root (re-run with sudo)"
 [[ "$IFACE" =~ ^[a-zA-Z0-9_-]{1,15}$ ]] || die "invalid --interface"
 PANEL="${PANEL%/}"
@@ -56,7 +72,10 @@ CONF="/etc/wireguard/${IFACE}.conf"
 #    the Authorization header, not the URL: a query string ends up in every
 #    upstream access log and in this process's argv under /proc.
 log "Fetching the staged preshared key from $PANEL"
-resp=$(curl -fsS --max-time 30 -H "Authorization: Bearer ${TOKEN}" "${PANEL}/api/node/psk") \
+# auth_header feeds the header to curl on stdin (-K -): an -H argument would
+# put the token back into curl's own argv.
+auth_header() { printf 'header = "Authorization: Bearer %s"\n' "$TOKEN"; }
+resp=$(curl -fsS --max-time 30 -K - "${PANEL}/api/node/psk" < <(auth_header)) \
   || die "panel refused the token (bad, expired, or already confirmed)"
 psk=$(printf '%s' "$resp" | jq -r '.psk // ""')
 peer_pub=$(printf '%s' "$resp" | jq -r '.peer_public_key // ""')
@@ -186,9 +205,8 @@ ok=0
 denied=0
 code=000
 for attempt in 1 2 3 4 5; do
-  code=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -X POST \
-           -H "Authorization: Bearer ${TOKEN}" \
-           "${PANEL}/api/node/psk/confirm" 2>/dev/null) || code=000
+  code=$(curl -sS --max-time 30 -o /dev/null -w '%{http_code}' -X POST -K - \
+           "${PANEL}/api/node/psk/confirm" < <(auth_header) 2>/dev/null) || code=000
   case "$code" in
     2??)          ok=1; break ;;
     408|429|5??)  warn "confirm attempt ${attempt}: HTTP ${code} - retrying" ;;

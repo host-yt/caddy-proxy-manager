@@ -24,7 +24,7 @@ import (
 // scopeCheckStream verifies the caller may act on a stream by resolving its
 // service and deferring to scopeCheckService. True for super_admin / no scope.
 func (h *AdminHandlers) scopeCheckStream(ctx context.Context, sess *auth.Session, streamID int64) bool {
-	if sess == nil || sess.Role == "super_admin" || h.AdminScope == nil {
+	if h.scopeExempt(sess) {
 		return true
 	}
 	db := h.DB()
@@ -62,6 +62,8 @@ type streamRow struct {
 	ProxyProtoIn      string
 	ProxyProtoOut     string
 	ProxyProtoTrusted string // CSV of balancer CIDRs allowed to send a PROXY header
+	CIDRAllow         string // CSV; rendered on edit so a save doesn't wipe access control
+	CIDRDeny          string
 }
 
 // Quarantined reports whether the row is parked by the destination screen.
@@ -201,7 +203,7 @@ func (h *AdminHandlers) StreamsList(w http.ResponseWriter, r *http.Request) {
 	// assigned client (streams are self-provisioned per client like hosts).
 	streamWhere := ""
 	var streamArgs []any
-	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); ok && !all {
+	if allowed, all, ok := h.adminClientScope(ctx, middleware.SessionFromContext(r.Context())); !ok || !all {
 		if len(allowed) == 0 {
 			streamWhere = " WHERE 1=0"
 		} else {
@@ -432,7 +434,15 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		tagVal = sql.NullString{String: form.Tag, Valid: true}
 	}
-	res, err := db.ExecContext(ctx,
+	// Route and upstreams commit together: a partial upstream set would silently
+	// drop backends from a load-balanced/failover stream.
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		redirectWithFlash(w, r, "/admin/streams", "", "create failed: "+sanitizeErr(err))
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
 		`INSERT INTO stream_routes
 		   (service_id, caddy_node_id, protocol, listen_port, upstream_port, status, tag,
 		    match_mode, match_values, lb_policy, proxy_proto_in, proxy_proto_out,
@@ -454,9 +464,15 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	streamID, _ := res.LastInsertId()
 
-	// Insert additional upstreams when provided.
-	if err := insertStreamUpstreams(ctx, db, streamID, extraUpstreams); err != nil {
+	if err := insertStreamUpstreams(ctx, tx, streamID, extraUpstreams); err != nil {
 		h.Logger.Warn("stream_upstreams insert", "err", err)
+		redirectWithFlash(w, r, "/admin/streams", "", "create failed: "+sanitizeErr(err)) // nosemgrep: go.lang.security.injection.tainted-sql-string.tainted-sql-string -- flash text, not SQL
+		return
+	}
+	if err := tx.Commit(); err != nil {
+		h.Logger.Warn("stream create commit", "err", err)
+		redirectWithFlash(w, r, "/admin/streams", "", "create failed: "+sanitizeErr(err))
+		return
 	}
 
 	go func() {
@@ -510,7 +526,8 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 		        COALESCE(sr.lb_policy,'round_robin'),
 		        COALESCE(sr.proxy_proto_in,'none'),
 		        COALESCE(sr.proxy_proto_out,'none'),
-		        COALESCE(sr.proxy_proto_trusted,'')
+		        COALESCE(sr.proxy_proto_trusted,''),
+		        COALESCE(sr.cidr_allow,''), COALESCE(sr.cidr_deny,'')
 		 FROM stream_routes sr
 		 JOIN services sv ON sv.id = sr.service_id
 		 JOIN caddy_nodes n ON n.id = sr.caddy_node_id
@@ -520,6 +537,7 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 		&d.Stream.QuarantineReason, &d.Stream.Tag, &d.Stream.CreatedAt,
 		&d.Stream.MatchMode, &d.Stream.MatchValues, &d.Stream.LBPolicy, &d.Stream.ProxyProtoIn, &d.Stream.ProxyProtoOut,
 		&d.Stream.ProxyProtoTrusted,
+		&d.Stream.CIDRAllow, &d.Stream.CIDRDeny,
 	); err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "stream not found")
 		return

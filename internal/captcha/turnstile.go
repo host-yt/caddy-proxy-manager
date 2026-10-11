@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -42,6 +43,8 @@ type Verifier struct {
 	provider string
 	siteKey  string
 	secret   string
+	// secretErr: the stored secret failed to decrypt; Verify fails closed.
+	secretErr bool
 
 	// Optional dependencies for DB-backed Refresh.
 	DB         func() *sql.DB
@@ -77,7 +80,7 @@ func (v *Verifier) Enabled() bool {
 	v.maybeReload()
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	return knownProvider(v.provider) && v.secret != ""
+	return knownProvider(v.provider) && (v.secret != "" || v.secretErr)
 }
 
 // Provider returns the active provider id ("turnstile"|"hcaptcha"|"recaptcha"|"")
@@ -109,7 +112,7 @@ func (v *Verifier) Refresh(ctx context.Context) {
 	// Track which rows exist so an admin who blanks a value (e.g. disables
 	// CAPTCHA -> provider="") actually clears the in-memory verifier, while a
 	// missing row keeps any env-seeded value.
-	var haveProvider, haveSite, haveSecret bool
+	var haveProvider, haveSite, haveSecret, secretErr bool
 	for rows.Next() {
 		var k, val string
 		var enc bool
@@ -117,11 +120,14 @@ func (v *Verifier) Refresh(ctx context.Context) {
 			continue
 		}
 		if enc && v.State != nil {
-			if dec, derr := v.State.Decrypt(val); derr == nil {
-				val = dec
-			} else {
-				val = ""
+			dec, derr := v.State.Decrypt(val)
+			if derr != nil {
+				// Skip the row so the last-known-good value stays live.
+				slog.Warn("captcha: setting decrypt failed", "key", k, "err", derr)
+				secretErr = secretErr || k == "captcha.secret"
+				continue
 			}
+			val = dec
 		}
 		switch k {
 		case "captcha.provider":
@@ -142,6 +148,7 @@ func (v *Verifier) Refresh(ctx context.Context) {
 	if haveSecret {
 		v.secret = secret
 	}
+	v.secretErr = secretErr
 	v.lastReload = time.Now()
 	v.mu.Unlock()
 }
@@ -172,6 +179,9 @@ func (v *Verifier) Verify(ctx context.Context, token, ip string) error {
 	v.mu.RUnlock()
 	if endpoint == "" {
 		return nil // unknown provider -> treat as disabled
+	}
+	if secret == "" {
+		return errors.New("captcha secret unavailable")
 	}
 	form := url.Values{
 		"secret":   {secret},

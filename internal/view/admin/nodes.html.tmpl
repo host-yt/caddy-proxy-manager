@@ -93,7 +93,9 @@ HPG_ADMIN_PROXY_KEY={{.TunnelCreds.AdminProxyKey}}{{end}}</textarea>
 <div class="mb-6 r-card" style="background:rgb(var(--warning)/0.08);border-color:rgb(var(--warning)/0.3)">
   <h3 class="t-h3 mb-1" style="color:rgb(var(--warning))">Join command - copy now</h3>
   <p class="t-caption mb-3">Valid for 30 minutes. The plaintext token won't be shown again. Run on the new VPS as root:</p>
-  <pre class="r-card text-xs font-mono whitespace-pre-wrap break-all p-3" style="background:rgb(var(--bg));border-color:rgb(var(--warning)/0.3)">curl -fsSL {{.AppURL}}/install/node.sh | sudo bash -s -- --manager {{.AppURL}} --token {{.NewJoinToken}}</pre>
+  <pre class="r-card text-xs font-mono whitespace-pre-wrap break-all p-3" style="background:rgb(var(--bg));border-color:rgb(var(--warning)/0.3)">curl -fsSL {{.AppURL}}/install/node.sh | sudo bash -s -- --manager {{.AppURL}}</pre>
+  <p class="t-caption mt-2 mb-1">Paste this token when the script prompts for it (or save it to a root-only file and add <code>--token-file PATH</code>):</p>
+  <pre class="r-card text-xs font-mono whitespace-pre-wrap break-all p-3" style="background:rgb(var(--bg));border-color:rgb(var(--warning)/0.3)">{{.NewJoinToken}}</pre>
   <p class="t-caption mt-2" style="color:rgb(var(--warning))">Token expires at {{.NewJoinTTL}}.</p>
 </div>
 {{end}}

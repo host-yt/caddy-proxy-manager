@@ -84,7 +84,7 @@ func (r *resellerResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"status": schema.StringAttribute{
 				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "`active` (default at creation) or `suspended`. Not settable at create time; applied via a follow-up update.",
+				MarkdownDescription: "`active` (default at creation) or `suspended`. Sent with the create call.",
 				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
 			},
 			"brand_name":    schema.StringAttribute{Optional: true, Computed: true, PlanModifiers: []planmodifier.String{stringplanmodifier.UseStateForUnknown()}},
@@ -92,11 +92,11 @@ func (r *resellerResource) Schema(_ context.Context, _ resource.SchemaRequest, r
 			"reseller_plan_id": schema.Int64Attribute{
 				Optional:            true,
 				Computed:            true,
-				MarkdownDescription: "Aggregate quota package id. Not settable at create time; applied via a follow-up update.",
+				MarkdownDescription: "Aggregate quota package id (0 = none; default at creation: the Unlimited package). Sent with the create call.",
 				PlanModifiers:       []planmodifier.Int64{int64planmodifier.UseStateForUnknown()},
 			},
-			"overselling_allowed": boolAttrOptComputed(),
-			"can_create_plans":    boolAttrOptComputed(),
+			"overselling_allowed": boolAttrOptComputed(""),
+			"can_create_plans":    boolAttrOptComputed(""),
 		},
 	}
 }
@@ -119,6 +119,19 @@ func (r *resellerResource) Create(ctx context.Context, req resource.CreateReques
 		"brand_name":     plan.BrandName.ValueString(),
 		"support_email":  plan.SupportEmail.ValueString(),
 	}
+	// Initial status/policy go in the create call so the API applies them atomically.
+	if !plan.Status.IsUnknown() {
+		body["status"] = plan.Status.ValueString()
+	}
+	if !plan.ResellerPlanID.IsUnknown() {
+		body["reseller_plan_id"] = plan.ResellerPlanID.ValueInt64()
+	}
+	if !plan.Overselling.IsUnknown() {
+		body["overselling_allowed"] = plan.Overselling.ValueBool()
+	}
+	if !plan.CanCreatePlans.IsUnknown() {
+		body["can_create_plans"] = plan.CanCreatePlans.ValueBool()
+	}
 	var created struct {
 		ID          int64 `json:"id"`
 		OwnerUserID int64 `json:"owner_user_id"`
@@ -127,31 +140,16 @@ func (r *resellerResource) Create(ctx context.Context, req resource.CreateReques
 		resp.Diagnostics.AddError("Create reseller failed", err.Error())
 		return
 	}
-	// status/policy fields aren't accepted by create; apply them now if the
-	// user configured them, so the first apply already converges.
-	patch := map[string]any{}
-	if !plan.Status.IsUnknown() {
-		patch["status"] = plan.Status.ValueString()
-	}
-	if !plan.ResellerPlanID.IsUnknown() {
-		patch["reseller_plan_id"] = plan.ResellerPlanID.ValueInt64()
-	}
-	if !plan.Overselling.IsUnknown() {
-		patch["overselling_allowed"] = plan.Overselling.ValueBool()
-	}
-	if !plan.CanCreatePlans.IsUnknown() {
-		patch["can_create_plans"] = plan.CanCreatePlans.ValueBool()
-	}
-	if len(patch) > 0 {
-		if err := r.client.Patch(ctx, "/resellers/"+strconv.FormatInt(created.ID, 10), patch, nil); err != nil {
-			resp.Diagnostics.AddError("Apply initial reseller policy failed", err.Error())
-			return
-		}
-	}
+	// Persist the id first: if the read below fails, Terraform still tracks the
+	// (tainted) reseller and can refresh or destroy it instead of orphaning it.
+	resp.Diagnostics.Append(resp.State.SetAttribute(ctx, pathRoot("id"), created.ID)...)
 	pw := plan.OwnerPassword // preserve write-only value in state
 	if r.read(ctx, created.ID, &plan, &resp.Diagnostics) {
 		resp.Diagnostics.AddError("Create reseller failed", "reseller vanished immediately after create")
 		return
+	}
+	if resp.Diagnostics.HasError() {
+		return // keep the id-only state; plan still holds unknowns
 	}
 	plan.OwnerPassword = pw
 	resp.Diagnostics.Append(resp.State.Set(ctx, &plan)...)

@@ -113,3 +113,42 @@ func isLoopback(remote string) bool {
 	}
 	return ip.IsLoopback()
 }
+
+// InstallTransportGuard refuses the not-yet-installed wizard (pages included,
+// so nothing is typed in) unless the browser reached it over TLS or through
+// its own loopback (SSH port-forward). allowPlaintext is the explicit opt-out.
+func InstallTransportGuard(installed func() bool, allowPlaintext bool) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if allowPlaintext || installed() || installTransportSecure(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			http.Error(w,
+				"the install wizard is not served over plain HTTP to a remote address: the install token and "+
+					"the first admin password would cross the network in cleartext. Open it through an SSH "+
+					"port-forward (ssh -L 8080:127.0.0.1:8080 <server>, then http://127.0.0.1:8080/install) or "+
+					"over HTTPS. To accept the risk anyway set INSTALL_ALLOW_PLAINTEXT=1.",
+				http.StatusForbidden)
+		})
+	}
+}
+
+// installTransportSecure: TLS here or at a fronting proxy, or a loopback Host
+// (the browser talked to its own machine). A spoofed header only affects the
+// spoofer's own request, which is not what this guards.
+func installTransportSecure(r *http.Request) bool {
+	if r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https") {
+		return true
+	}
+	host := r.Host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}

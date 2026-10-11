@@ -70,7 +70,7 @@ func TestCreateWithOwnerAtomic(t *testing.T) {
 	s := New(dbf)
 	ctx := context.Background()
 
-	rid, uid, err := s.CreateWithOwner(ctx, Reseller{Name: "Acme", Slug: "acme"}, "owner@acme.tld", "Acme", "hash")
+	rid, uid, err := s.CreateWithOwner(ctx, Reseller{Name: "Acme", Slug: "acme"}, PolicyPatch{}, "owner@acme.tld", "Acme", "hash")
 	if err != nil {
 		t.Fatalf("create with owner: %v", err)
 	}
@@ -92,7 +92,7 @@ func TestCreateWithOwnerAtomic(t *testing.T) {
 	// Duplicate owner email must roll the whole thing back - no orphan reseller.
 	var before int
 	db.QueryRow(`SELECT COUNT(*) FROM resellers`).Scan(&before)
-	if _, _, err := s.CreateWithOwner(ctx, Reseller{Name: "B", Slug: "b"}, "owner@acme.tld", "B", "hash"); err != ErrDuplicate {
+	if _, _, err := s.CreateWithOwner(ctx, Reseller{Name: "B", Slug: "b"}, PolicyPatch{}, "owner@acme.tld", "B", "hash"); err != ErrDuplicate {
 		t.Fatalf("expected ErrDuplicate, got %v", err)
 	}
 	var after int
@@ -244,5 +244,26 @@ func TestDeleteConfinesBoundUsers(t *testing.T) {
 	// HPG-016: cleared explicitly by Delete, not by a FK this schema doesn't have.
 	if resellerID.Valid {
 		t.Errorf("users.reseller_id left dangling at %d after reseller delete", resellerID.Int64)
+	}
+}
+
+func TestCreateWithOwnerInitialPolicy(t *testing.T) {
+	s := New(openDB(t))
+	ctx := context.Background()
+	none, yes := int64(0), true
+	rid, _, err := s.CreateWithOwner(ctx, Reseller{Name: "P", Slug: "p", Status: StatusSuspended},
+		PolicyPatch{PlanID: &none, CanCreatePlans: &yes}, "p@p.tld", "P", "hash")
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	pol, err := s.PolicyFor(ctx, rid)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pol != (Policy{CanCreatePlans: true}) {
+		t.Fatalf("policy = %+v, want no package, can_create_plans only", pol)
+	}
+	if got, _ := s.Get(ctx, rid); got.Status != StatusSuspended {
+		t.Fatalf("status = %q", got.Status)
 	}
 }
