@@ -375,3 +375,28 @@ func TestRunRotationResumesFromIntentJournal(t *testing.T) {
 		t.Fatalf("re-run after completed file step: %v", err)
 	}
 }
+
+// --apply without DB access must refuse and leave the state file untouched:
+// a file-only rotation orphans every encrypted DB secret.
+func TestRunRotationApplyRequiresDB(t *testing.T) {
+	const oldSecret = "fileonly-old-secret-32-chars-long"
+	const newSecret = "fileonly-new-secret-32-chars-long"
+	oldKey, newKey := deriveStateKey(oldSecret), deriveStateKey(newSecret)
+	sealed, err := encrypt("db-password", oldKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := writeStateFile(t, t.TempDir(), map[string]any{"db": map[string]any{"password_cipher": sealed}})
+	before, _ := os.ReadFile(path)
+
+	if err := runRotation(path, oldSecret, newSecret, oldKey, newKey, nil, false, io.Discard); err != nil {
+		t.Fatalf("dry run without DB should still preview: %v", err)
+	}
+	if err := runRotation(path, oldSecret, newSecret, oldKey, newKey, nil, true, io.Discard); err == nil {
+		t.Fatal("expected --apply without DB to be refused")
+	}
+	after, _ := os.ReadFile(path)
+	if string(before) != string(after) {
+		t.Fatal("state file rewritten by a refused file-only rotation")
+	}
+}

@@ -262,8 +262,11 @@ own streams and cannot clear a quarantine without fixing the destination.
    re-running the same command resumes from it, but a backup is what covers
    the cases the journal cannot.
 3. Run `hpg-rotate-secret --state ./data/install_state.json --old-secret
-   <current> --new-secret <new>` (add `--apply`; without it the run prints a
-   dry-run summary and changes nothing).
+   <current> --new-secret <new> --db-host <host> --db-name <db> --db-user
+   <user> --db-pass <password>` (add `--apply`; without it the run prints a
+   dry-run summary and changes nothing). `--apply` refuses to run without
+   database access: most secrets live in the DB, and rotating only the state
+   file would leave them undecryptable.
 4. Set the new `APP_SECRET` in `.env` (or the orchestrator's secret store) and
    start the panel.
 5. **Re-issue every API key.** `api_keys.key_hmac` is keyed off `APP_SECRET`

@@ -103,7 +103,7 @@ func main() {
 			fail("db ping: " + err.Error())
 		}
 	} else {
-		fmt.Println("[skip] DB rotation: no --db-user supplied; only state file rewritten.")
+		fmt.Println("[warn] no --db-user: database not checked (required with --apply).")
 	}
 
 	if err := runRotation(*statePath, *oldSecret, *newSecret, oldKey, newKey, db, *apply, os.Stdout); err != nil {
@@ -114,8 +114,8 @@ func main() {
 // runRotation performs the full file+DB rotation protocol. It is a hard
 // failure to leave the file and DB under different keys, so nothing is
 // written until every store has been preflighted (decrypted successfully
-// under --old-secret without mutating anything). db may be nil (file-only
-// rotation, no cross-store hazard).
+// under --old-secret without mutating anything). db may be nil only for a
+// dry run; --apply refuses without it.
 //
 // A crash at any point after the intent journal is written is resumable:
 // re-running with --apply and the SAME --old-secret/--new-secret finishes
@@ -171,11 +171,16 @@ func runRotation(statePath, oldSecret, newSecret string, oldKey, newKey []byte, 
 		fmt.Fprintln(out, "DRY RUN — pass --apply to commit.")
 		return nil
 	}
+	// The DB holds most APP_SECRET ciphertext; rotating only the file would
+	// orphan all of it on the next boot.
+	if db == nil {
+		return errors.New("--apply requires database access (--db-user): a file-only rotation orphans every encrypted DB secret")
+	}
 
 	// Staged switchover: intent journal, DB (single atomic transaction),
 	// db_done journal, then the file. Every journal write is durable before
 	// the next step, so a re-run can always tell where the previous one died.
-	if db != nil && stage != stageDBDone {
+	if stage != stageDBDone {
 		if err := writeJournal(jPath, rotateJournal{OldHash: oldHash, NewHash: newHash, Stage: stageIntent}); err != nil {
 			return fmt.Errorf("write rotation journal %s (nothing changed yet): %w", jPath, err)
 		}
@@ -193,20 +198,13 @@ func runRotation(statePath, oldSecret, newSecret string, oldKey, newKey []byte, 
 
 	if !fileDone {
 		if err := rotateStateFile(statePath, oldKey, newKey, true); err != nil {
-			if db != nil {
-				return fmt.Errorf("state file rotate (DB already committed to --new-secret, do NOT retry with --old-secret — fix this error and re-run --apply to resume): %w", err)
-			}
-			return fmt.Errorf("state file rotate: %w", err)
+			return fmt.Errorf("state file rotate (DB already committed to --new-secret, do NOT retry with --old-secret — fix this error and re-run --apply to resume): %w", err)
 		}
 	}
-	if db != nil {
-		_ = os.Remove(jPath) // best-effort: a leftover db_done journal is resumed as a no-op
-	}
+	_ = os.Remove(jPath) // best-effort: a leftover db_done journal is resumed as a no-op
 
 	fmt.Fprintln(out, "DONE. Restart the panel with the NEW APP_SECRET.")
-	if db != nil {
-		fmt.Fprintln(out, "ACTION REQUIRED: re-issue every API key (their hmac was invalidated).")
-	}
+	fmt.Fprintln(out, "ACTION REQUIRED: re-issue every API key (their hmac was invalidated).")
 	return nil
 }
 
