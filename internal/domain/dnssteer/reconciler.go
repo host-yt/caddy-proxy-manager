@@ -300,13 +300,14 @@ func matchOwned(o ownedRecord, live []Record) (Record, bool) {
 	return Record{}, false
 }
 
-func (rc *Reconciler) rememberOwned(ctx context.Context, db *sql.DB, sr steeredRoute, nodeID int64, value, recordID string) {
+// rememberOwned records ownership before the provider call, so a record can't
+// exist remotely without a ledger row; cleanup also matches rows by name+value.
+func (rc *Reconciler) rememberOwned(ctx context.Context, db *sql.DB, sr steeredRoute, nodeID int64, value string) error {
 	rc.forgetOwned(ctx, db, sr.id, nodeID, value)
-	if _, err := db.ExecContext(ctx,
-		`INSERT INTO dns_steering_records (route_id, node_id, dns_provider_id, record_name, record_value, record_id) VALUES (?, ?, ?, ?, ?, ?)`,
-		sr.id, nodeID, sr.dnsProviderID, sr.domain, value, recordID); err != nil {
-		rc.logger().Warn("dnssteer: persist owned record", "route_id", sr.id, "node_id", nodeID, "err", err)
-	}
+	_, err := db.ExecContext(ctx,
+		`INSERT INTO dns_steering_records (route_id, node_id, dns_provider_id, record_name, record_value) VALUES (?, ?, ?, ?, ?)`,
+		sr.id, nodeID, sr.dnsProviderID, sr.domain, value)
+	return err
 }
 
 func (rc *Reconciler) forgetOwned(ctx context.Context, db *sql.DB, routeID, nodeID int64, value string) {
@@ -408,6 +409,12 @@ func (rc *Reconciler) diffAndApply(ctx context.Context, db *sql.DB, provider Pro
 		case "add":
 			rec := a.rec
 			rec.TTL = ttl
+			if err := rc.rememberOwned(ctx, db, sr, a.nodeID, rec.Value); err != nil {
+				rc.recordError(ctx, db, sr.id, a.nodeID, "ownership not persisted: "+err.Error())
+				continue
+			}
+			// On failure the ledger row stays: the call may have applied anyway,
+			// and cleanup drops the row once the record is confirmed absent.
 			created, err := provider.AppendRecords(ctx, zone, []Record{rec})
 			if err != nil || len(created) == 0 {
 				msg := "append failed"
@@ -417,7 +424,11 @@ func (rc *Reconciler) diffAndApply(ctx context.Context, db *sql.DB, provider Pro
 				rc.recordError(ctx, db, sr.id, a.nodeID, msg)
 				continue
 			}
-			rc.rememberOwned(ctx, db, sr, a.nodeID, rec.Value, created[0].ID)
+			if _, err := db.ExecContext(ctx,
+				`UPDATE dns_steering_records SET record_id=? WHERE route_id=? AND node_id=? AND record_value=?`,
+				created[0].ID, sr.id, a.nodeID, rec.Value); err != nil {
+				rc.logger().Warn("dnssteer: store record id", "route_id", sr.id, "node_id", a.nodeID, "err", err)
+			}
 			rc.recordSuccess(ctx, db, sr.id, a.nodeID, rec.Value, true)
 			auditWrite(ctx, db, rc.logger(), "dns.steering.record_added", sr.id, a.nodeID, rec.Value, sr.domain)
 		case "remove":

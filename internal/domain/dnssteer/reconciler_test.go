@@ -474,3 +474,18 @@ func TestReconcile_CleanupKeepsOwnershipOnDeleteFailure(t *testing.T) {
 		t.Fatalf("retry must delete the record, got %+v", fp.records)
 	}
 }
+
+// No provider record may be created unless its ownership row is persisted first.
+func TestReconcile_NoAppendWithoutOwnershipRow(t *testing.T) {
+	db := newTestDB(t)
+	mustExec(t, db,
+		`INSERT INTO caddy_nodes (id, public_ip, is_enabled, health_status) VALUES (1,'10.0.0.1',1,'healthy')`,
+		`INSERT INTO dns_providers (id, name, provider, api_token_enc) VALUES (1,'example.com','cloudflare','{"api_token":"tok"}')`,
+		`INSERT INTO routes (id, domain, caddy_node_id, dns_steering_enabled, dns_provider_id) VALUES (1,'a.example.com',1,1,1)`,
+		`DROP TABLE dns_steering_records`)
+	fp := &fakeProvider{}
+	newTestReconciler(db, fp).Reconcile(context.Background())
+	if fp.appendCalls != 0 || len(fp.records) != 0 {
+		t.Fatalf("append ran without an ownership row: calls=%d records=%+v", fp.appendCalls, fp.records)
+	}
+}
