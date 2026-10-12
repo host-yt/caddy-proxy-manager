@@ -171,6 +171,9 @@ services:
       HPG_AGENT_STATE_DIR: /var/lib/hpg-node-agent
     volumes:
       - caddy_logs:/var/log/caddy:ro
+      # The agent reports whether this node has the GeoIP DB; without the mount it
+      # reports false and geo routes are built as if the module were missing.
+      - geoip_data:/data/geoip:ro
       - node_agent_state:/var/lib/hpg-node-agent
     healthcheck:
       test: ["CMD", "pgrep", "hpg-node-agent"]
