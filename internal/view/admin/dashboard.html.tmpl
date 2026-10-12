@@ -179,7 +179,7 @@
       {{end}}
     </div>
     <div class="flex justify-between t-caption mt-2 font-mono">
-      {{range $i, $l := .Traffic.Labels}}{{if or (eq $i 0) (eq $i 6) (eq $i 12) (eq $i 18) (eq $i 23)}}<span>{{$l}}</span>{{end}}{{end}}
+      {{range $i, $l := .Traffic.Labels}}{{if or (eq $i 0) (eq $i 6) (eq $i 12) (eq $i 18) (eq $i 23)}}<span data-ts="{{$l}}">{{$l}}</span>{{end}}{{end}}
     </div>
     {{else}}
     <div class="h-32 flex items-center justify-center t-small">No traffic data yet.</div>
@@ -259,6 +259,9 @@
 <script nonce="{{.CSPNonce}}">
 // Size sparkline bars from data-v values; max-relative heights keep it theme-agnostic.
 (function(){
+  document.querySelectorAll('[data-ts]').forEach(function(e){
+    e.textContent = String(new Date(+e.dataset.ts * 1000).getHours()).padStart(2,'0') + ':00';
+  });
   var wrap = document.getElementById('dash-spark');
   if (!wrap) return;
   var bars = wrap.querySelectorAll('[data-v]');
