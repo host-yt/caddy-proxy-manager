@@ -1541,7 +1541,15 @@ func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, owne
 		Node         string `json:"node"`
 		Kind         string `json:"kind"`
 		WafEnabled   bool   `json:"waf_enabled"`
-		RateLimitRPM int    `json:"rate_limit_rpm"`
+		WafBlocking  bool   `json:"waf_blocking"`
+		RateEnabled  bool   `json:"rate_limit_enabled"`
+		RateMax      int    `json:"rate_limit_max_events,omitempty"`
+		RateWindow   string `json:"rate_limit_window,omitempty"`
+		GeoMode      string `json:"geo_mode"`
+		GeoCountries string `json:"geo_countries,omitempty"`
+		GeoFailClose bool   `json:"geo_fail_closed"`
+		MTLS         bool   `json:"require_client_cert"`
+		Maintenance  bool   `json:"maintenance_mode"`
 		Service      string `json:"service"`
 		Client       string `json:"client"`
 		Requests24h  int64  `json:"requests_24h"`
@@ -1551,7 +1559,10 @@ func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, owne
 	var ro res
 	q := `SELECT rt.id, rt.domain, COALESCE(rt.path_prefix,''), rt.upstream_port,
 	             rt.status, rt.ssl_enabled, cn.name, rt.kind,
-	             COALESCE(rt.waf_enabled,0), COALESCE(rt.rate_limit_rpm,0),
+	             COALESCE(rt.waf_enabled,0), COALESCE(rt.waf_blocking,0),
+	             COALESCE(rt.rate_enabled,0), COALESCE(rt.rate_max_events,0), COALESCE(rt.rate_window,''),
+	             COALESCE(rt.geo_mode,'off'), COALESCE(rt.geo_countries,''), COALESCE(rt.geo_fail_closed,0),
+	             COALESCE(rt.require_client_cert,0), COALESCE(rt.maintenance_mode,0),
 	             s.name, COALESCE(NULLIF(c.display_name,''), u.email)
 	      FROM routes rt
 	      JOIN caddy_nodes cn ON cn.id = rt.caddy_node_id
@@ -1563,7 +1574,10 @@ func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, owne
 	qArgs := append([]any{numID, "%" + strings.ReplaceAll(id, "%", `\%`) + "%"}, ownershipArgs...)
 	err := db.QueryRowContext(ctx, q, qArgs...).
 		Scan(&ro.ID, &ro.Domain, &ro.Path, &ro.UpstreamPort, &ro.Status, &ro.SSL,
-			&ro.Node, &ro.Kind, &ro.WafEnabled, &ro.RateLimitRPM, &ro.Service, &ro.Client)
+			&ro.Node, &ro.Kind, &ro.WafEnabled, &ro.WafBlocking,
+			&ro.RateEnabled, &ro.RateMax, &ro.RateWindow,
+			&ro.GeoMode, &ro.GeoCountries, &ro.GeoFailClose,
+			&ro.MTLS, &ro.Maintenance, &ro.Service, &ro.Client)
 	if err == sql.ErrNoRows {
 		return `{"error":"route not found"}`, nil
 	}
