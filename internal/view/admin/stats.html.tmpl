@@ -523,6 +523,8 @@
   Chart.defaults.borderColor = grid;
 
   var charts = [];
+  // Labels arrive as epoch seconds; render in the browser's TZ.
+  function hh(a){ return a.map(function(t){ var d = new Date(+t * 1000); return String(d.getHours()).padStart(2,'0') + ':00'; }); }
 
   charts.push(new Chart(document.getElementById('routeStatusChart'), {
     type: 'doughnut',
@@ -536,7 +538,7 @@
   charts.push(new Chart(document.getElementById('trafficChart'), {
     type: 'line',
     data: {
-      labels: {{.TrafficLabels}},
+      labels: hh({{.TrafficLabels}}),
       datasets: [{ label:'req/hour', data: {{.TrafficValues}}, borderColor:'#4f46e5', backgroundColor:'rgba(79,70,229,0.15)', fill:true, tension:0.3, pointRadius:0 }]
     },
     options: { plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }
@@ -545,7 +547,7 @@
   charts.push(new Chart(document.getElementById('activityChart'), {
     type: 'bar',
     data: {
-      labels: {{.ActivityLabels}},
+      labels: hh({{.ActivityLabels}}),
       datasets: [{ label:'audit events', data: {{.ActivityValues}}, backgroundColor:'#6366f1' }]
     },
     options: { plugins:{legend:{display:false}}, scales:{y:{beginAtZero:true}} }

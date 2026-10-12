@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html/template"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
@@ -668,7 +669,7 @@ func (h *AdminHandlers) trafficTimeseries(ctx context.Context, db *sql.DB) ([]st
 	now := time.Now().UTC().Truncate(time.Hour)
 	for i := 23; i >= 0; i-- {
 		t := now.Add(-time.Duration(i) * time.Hour)
-		labels = append(labels, t.Local().Format("15:00"))
+		labels = append(labels, strconv.FormatInt(t.Unix(), 10)) // epoch; browser formats in its TZ
 		values = append(values, buckets[t.Unix()])
 	}
 	return labels, values
@@ -699,7 +700,7 @@ func (h *AdminHandlers) activityTimeseries(ctx context.Context, db *sql.DB) ([]s
 	now := time.Now().UTC().Truncate(time.Hour)
 	for i := 23; i >= 0; i-- {
 		t := now.Add(-time.Duration(i) * time.Hour)
-		labels = append(labels, t.Local().Format("15:00"))
+		labels = append(labels, strconv.FormatInt(t.Unix(), 10)) // epoch; browser formats in its TZ
 		values = append(values, counts[t.Unix()])
 	}
 	return labels, values
@@ -876,18 +877,27 @@ func (h *AdminHandlers) opsSummaryFor(ctx context.Context, db *sql.DB) opsSummar
 	if db == nil {
 		return o
 	}
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='caddy.push.ok' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.CaddyPushes)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='caddy.push.fail' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.CaddyPushFails)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='admin.host.cache.purge' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.CacheFlushes)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='route.create' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.RoutesCreated)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='route.delete' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.RoutesDeleted)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='backup.run.ok' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.BackupsRun)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='backup.run.fail' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.BackupsFailed)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='webhook.delivery.ok' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.WebhookSent)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='webhook.delivery.fail' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.WebhookFailed)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='sso_jump.success' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.SSOJumpSuccess)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action='sso_jump.denied' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.SSOJumpDenied)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action LIKE 'api_key.create%' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.APIKeysCreated)
-	_ = db.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_log WHERE action LIKE 'api_key.revoke%' AND created_at > "+store.DateSub(24, "HOUR")+"").Scan(&o.APIKeysRevoked)
+	since := store.DateSub(24, "HOUR")
+	cnt := func(dst *int, q string) { _ = db.QueryRowContext(ctx, q).Scan(dst) }
+	au := func(where string) string {
+		return "SELECT COUNT(*) FROM audit_log WHERE created_at > " + since + " AND " + where
+	}
+	// caddy.push.* rows come from routes.recordNodeApply (one per node push).
+	cnt(&o.CaddyPushes, au("action='caddy.push.ok'"))
+	cnt(&o.CaddyPushFails, au("action='caddy.push.fail'"))
+	cnt(&o.CacheFlushes, au("action='admin.host.cache.purge'"))
+	cnt(&o.RoutesCreated, au("action IN ('route.create','admin.host.create')"))
+	cnt(&o.RoutesDeleted, au("action IN ('route.delete','admin.host.delete')"))
+	// Scheduled backups write no audit row; backup_jobs is the source.
+	jobs := "SELECT COUNT(*) FROM backup_jobs WHERE kind <> 'verification' AND started_at > " + since + " AND status="
+	cnt(&o.BackupsRun, jobs+"'succeeded'")
+	cnt(&o.BackupsFailed, jobs+"'failed'")
+	wh := "SELECT COUNT(*) FROM webhook_deliveries WHERE created_at > " + since + " AND status="
+	cnt(&o.WebhookSent, wh+"'success'")
+	cnt(&o.WebhookFailed, wh+"'failed'")
+	cnt(&o.SSOJumpSuccess, au("action='sso_jump.success'"))
+	cnt(&o.SSOJumpDenied, au("action='sso_jump.denied'"))
+	cnt(&o.APIKeysCreated, au("action LIKE 'api_key.create%'"))
+	cnt(&o.APIKeysRevoked, au("action LIKE 'api_key.revoke%'"))
 	return o
 }

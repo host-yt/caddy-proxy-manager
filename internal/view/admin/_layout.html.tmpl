@@ -486,10 +486,15 @@ window.hpgToast = function(msg, kind){
   el.textContent = msg;
   wrap.appendChild(el);
   requestAnimationFrame(function(){ el.classList.remove('opacity-0'); });
-  setTimeout(function(){
+  function dismiss(){
     el.classList.add('opacity-0');
     setTimeout(function(){ el.remove(); }, 250);
-  }, 4000);
+  }
+  // Errors stay until clicked: a save that failed validation must not vanish unnoticed.
+  el.style.cursor = 'pointer';
+  el.title = 'Dismiss';
+  el.addEventListener('click', dismiss);
+  if (kind !== 'error') setTimeout(dismiss, 4000);
 };
 window.hpgConfirm = function(msg){
   return new Promise(function(resolve){

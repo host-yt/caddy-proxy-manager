@@ -3,8 +3,11 @@ package routes
 import (
 	"context"
 	"database/sql"
+	"strconv"
 	"strings"
 	"time"
+
+	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 )
 
 // Per-node apply state, as opposed to the compile outcome: what each node
@@ -53,6 +56,13 @@ func (s *Service) recordNodeApply(ctx context.Context, nodeID int64, hash string
 			`UPDATE caddy_nodes SET config_apply_error=?, config_apply_error_at=? WHERE id=?`,
 			msg, now, nodeID)
 	}
+	act := "caddy.push.ok"
+	if loadErr != nil {
+		act = "caddy.push.fail"
+	}
+	audit.Write(ctx, s.DB, s.Logger, nil, audit.Entry{
+		ActorType: audit.ActorSystem, Action: act, Entity: "node", EntityID: strconv.FormatInt(nodeID, 10),
+	})
 	if err != nil && s.Logger != nil {
 		s.Logger.Warn("node apply state not recorded", "node_id", nodeID, "err", err)
 	}

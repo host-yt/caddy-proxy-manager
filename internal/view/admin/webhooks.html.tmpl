@@ -1,5 +1,11 @@
 {{define "webhooks"}}
 <div class="space-y-6">
+  {{if .NewSecret}}
+  <section class="r-card p-5" role="alert">
+    <p class="t-eyebrow">Signing secret - copy it now, it is not shown again</p>
+    <code class="block mt-2 font-mono text-xs break-all select-all">{{.NewSecret}}</code>
+  </section>
+  {{end}}
 
   <section class="r-card p-0 overflow-hidden">
     <div class="p-5" style="border-bottom:1px solid rgb(var(--border))">
@@ -75,7 +81,7 @@
         <input id="f-url" name="url" type="url" required placeholder="https://billing.example.com/hooks/hpg" class="r-input w-full font-mono text-xs">
       </div>
       <div>
-        <label class="block t-small mb-1" style="color:rgb(var(--muted))" for="f-secret">HMAC secret (stored encrypted; receiver verifies <code>X-HPG-Signature</code>)</label>
+        <label class="block t-small mb-1" style="color:rgb(var(--muted))" for="f-secret">HMAC secret (leave empty to generate one; stored encrypted; receiver verifies <code>X-HPG-Signature</code>)</label>
         <input id="f-secret" name="secret" type="password" autocomplete="new-password" class="r-input w-full">
       </div>
       <label class="flex items-center gap-2 t-small cursor-pointer" style="color:rgb(var(--text))">

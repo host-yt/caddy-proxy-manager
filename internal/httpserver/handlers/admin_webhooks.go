@@ -44,11 +44,13 @@ type webhooksData struct {
 	baseAdminData
 	Endpoints  []webhookRow
 	Deliveries []webhookDeliveryRow
+	NewSecret  string // shown once after create/rotate
 }
 
 // WebhooksPage GET /admin/webhooks.
 func (h *AdminHandlers) WebhooksPage(w http.ResponseWriter, r *http.Request) {
 	d := webhooksData{baseAdminData: h.base(r, "Webhooks")}
+	d.NewSecret = takeOnceCookie(w, r, h.Sessions, "hpg_new_webhook_secret", "/admin/webhooks")
 	db := h.DB()
 	if db == nil {
 		h.render(w, "webhooks", d)
@@ -109,6 +111,15 @@ func (h *AdminHandlers) WebhooksCreate(w http.ResponseWriter, r *http.Request) {
 	name := strings.TrimSpace(r.FormValue("name"))
 	url := strings.TrimSpace(r.FormValue("url"))
 	secret := r.FormValue("secret")
+	generated := false
+	if secret == "" {
+		raw := make([]byte, 32)
+		if _, err := rand.Read(raw); err != nil {
+			http.Error(w, "rng failed", http.StatusInternalServerError)
+			return
+		}
+		secret, generated = hex.EncodeToString(raw), true
+	}
 	events := strings.TrimSpace(r.FormValue("events"))
 	enabled := r.FormValue("enabled") != "0"
 	if events == "" {
@@ -124,7 +135,7 @@ func (h *AdminHandlers) WebhooksCreate(w http.ResponseWriter, r *http.Request) {
 	id, err := h.Webhooks.SaveEndpoint(ctx, name, url, secret, events, enabled, uid)
 	if err != nil {
 		h.Logger.Warn("webhook save failed", "err", err)
-		redirectWithFlash(w, r, "/admin/webhooks", "", "save failed")
+		redirectWithFlash(w, r, "/admin/webhooks", "", "save failed: "+sanitizeErr(err))
 		return
 	}
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
@@ -132,6 +143,9 @@ func (h *AdminHandlers) WebhooksCreate(w http.ResponseWriter, r *http.Request) {
 		EntityID: strconv.FormatInt(id, 10),
 		Meta:     map[string]any{"name": name, "url": url},
 	})
+	if generated {
+		setOnceCookie(w, r, h.Sessions, "hpg_new_webhook_secret", "/admin/webhooks", secret)
+	}
 	redirectWithFlash(w, r, "/admin/webhooks", "saved", "")
 }
 
@@ -248,6 +262,7 @@ func (h *AdminHandlers) WebhooksRotateSecret(w http.ResponseWriter, r *http.Requ
 		UserID: actorUserID(sess), Action: "webhook.rotate_secret", Entity: "webhook_endpoint",
 		EntityID: strconv.FormatInt(id, 10),
 	})
-	// Plaintext shown exactly once via flash; never persisted.
-	redirectWithFlash(w, r, "/admin/webhooks", "New signing secret (save now, shown once): "+secret, "")
+	// Plaintext shown exactly once; never persisted in plaintext.
+	setOnceCookie(w, r, h.Sessions, "hpg_new_webhook_secret", "/admin/webhooks", secret)
+	redirectWithFlash(w, r, "/admin/webhooks", "Signing secret rotated", "")
 }

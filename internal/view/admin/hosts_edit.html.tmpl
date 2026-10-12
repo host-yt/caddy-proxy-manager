@@ -159,7 +159,7 @@
             </label>
             <label class="md:col-span-1 block">
               <span class="block t-caption text-muted mb-1">Port</span>
-              <input type="number" name="loc_upstream_port[]" value="{{.UpstreamPort}}" min="1" max="65535" class="r-input w-full text-xs">
+              <input type="number" name="loc_upstream_port[]" value="{{if .UpstreamPort}}{{.UpstreamPort}}{{end}}" min="1" max="65535" class="r-input w-full text-xs">
             </label>
             <div class="md:col-span-1 flex items-end">
               <button type="button" class="hpg-location-del r-btn-ghost text-danger t-small cursor-pointer">remove</button>
@@ -1435,8 +1435,13 @@ X-Authentik-Meta-Version</pre>
 
     var initialTab = 'basics';
     var m = (location.hash || '').match(/tab=([a-z]+)/i);
-    if (m && m[1]) initialTab = m[1];
+    if (m && m[1] && document.querySelector('.hpg-pane[data-pane="' + m[1] + '"]')) initialTab = m[1];
     activate(initialTab);
+    // A field failing browser validation in a hidden tab would block Save silently: show its tab.
+    document.addEventListener('invalid', function(e){
+      var pane = e.target.closest && e.target.closest('.hpg-pane');
+      if (pane && pane.classList.contains('hidden')) activate(pane.dataset.pane);
+    }, true);
 
     // Preserve scroll position across full-page form posts (add/remove basic-auth
     // user, save) so the page doesn't jump back to the top on reload.

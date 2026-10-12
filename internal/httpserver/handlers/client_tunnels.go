@@ -84,7 +84,7 @@ func (h *ClientHandlers) ClientTunnelsList(w http.ResponseWriter, r *http.Reques
 	}
 
 	d.Nodes = loadClientTunnelNodeOptions(ctx, db, clientID)
-	if tok := strings.TrimSpace(r.URL.Query().Get("created")); tok != "" {
+	if tok := strings.TrimSpace(takeOnceCookie(w, r, h.Sessions, "hpg_new_tunnel", "/app/tunnels")); tok != "" {
 		d.NewTunnel = h.lookupClientNewTunnel(ctx, db, r, tok, clientID)
 	}
 	h.render(w, "tunnels", d)
@@ -134,7 +134,8 @@ func (h *ClientHandlers) ClientTunnelsCreate(w http.ResponseWriter, r *http.Requ
 		EntityID: itoa64(peer.ID),
 		Meta:     map[string]any{"client_id": clientID, "node_id": nodeID, "ip": peer.AssignedIP},
 	})
-	http.Redirect(w, r, "/app/tunnels?created="+token, http.StatusSeeOther)
+	setOnceCookie(w, r, h.Sessions, "hpg_new_tunnel", "/app/tunnels", token)
+	http.Redirect(w, r, "/app/tunnels", http.StatusSeeOther)
 }
 
 // ClientTunnelsRevoke handles POST /app/tunnels/{id}/revoke. Ownership
