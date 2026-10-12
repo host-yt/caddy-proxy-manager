@@ -2550,7 +2550,7 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 		token, terr := auth.CreateResetToken(ctx, db, userID, clientIPFromReq(r))
 		if terr == nil {
 			terr = h.Mailer.Send(ctx, email, "Set your Hostyt Proxy password", "password_reset", map[string]any{
-				"Name": displayName, "AppName": "Hostyt Proxy", "ResetURL": h.appURL() + "/auth/reset?token=" + token,
+				"Name": displayName, "AppName": "Hostyt Proxy", "ResetURL": publicBaseURL(r, h.appURL()) + "/auth/reset?token=" + token,
 				"ExpiresMin": int(auth.ResetTokenTTL.Minutes()),
 			})
 		}
