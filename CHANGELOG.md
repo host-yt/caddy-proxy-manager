@@ -35,6 +35,9 @@ is needed, and a few API and Terraform behaviours change.
 
 ### Added
 
+- New clients can be invited by email instead of setting a password (needs SMTP).
+- Issued mTLS client certificates have copy buttons and a `.pem` bundle download.
+- Stream listen ports can be changed on edit.
 - `HPG_DRILL_DSN` points the restore drill at a pre-created empty
   database, for MySQL users that cannot `CREATE DATABASE` (shared hosting).
 - `/api/v1/health` reports the real build version.
@@ -57,6 +60,8 @@ is needed, and a few API and Terraform behaviours change.
 
 ### Security
 
+- Tunnel install tokens, webhook signing secrets and issued mTLS keys are shown
+  once and never placed in redirect URLs.
 - mTLS path rules match the decoded, cleaned request path; the most specific
   rule wins over rule order; unreadable rules block the request.
 - Restricted and reseller admins fail closed when their scope can't be
@@ -138,6 +143,18 @@ is needed, and a few API and Terraform behaviours change.
 
 ### Fixed
 
+- The central node-agent now sees the GeoIP database, so country rules filter
+  traffic instead of failing closed on the panel node.
+- Saving a host after adding a redirect, rewrite or block location works again.
+- Editing a stream keeps all its upstreams.
+- Creating a webhook without a secret generates one instead of failing.
+- The AI assistant's route detail lookup works and includes WAF, rate limit,
+  geo and mTLS settings.
+- Ops summary counts and chart hours (shown in browser local time).
+- Refreshing the page after issuing an mTLS certificate no longer issues another.
+- Error toasts stay until dismissed; success shows one notice, not two.
+- mTLS CA form picks the client from a list; add-host form uses full width;
+  client detail lists every custom field.
 - Alert cooldown now applies to rules with changing measurements (stale WG
   peer, error rate, DB pool, WAF surge); they no longer fire every minute.
 - Browsers no longer autofill the admin login into webhook, DNS provider,
@@ -221,6 +238,9 @@ is needed, and a few API and Terraform behaviours change.
 
 ### Upgrade notes
 
+- Portainer/compose installs: add `- geoip_data:/data/geoip:ro` under
+  `hpg-node-agent` volumes, or GeoIP rules on the panel node keep denying all
+  traffic (fail-closed) or skip filtering (fail-open).
 - Migration 00171 adds a short-lived ledger that makes access-log batch
   retries idempotent.
 - Stream upstream weights are no longer sent to nodes; saving a stream with a
