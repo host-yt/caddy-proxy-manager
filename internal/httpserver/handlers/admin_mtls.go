@@ -3,6 +3,8 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -56,9 +58,29 @@ type mtlsBundle struct {
 
 type mtlsData struct {
 	baseAdminData
-	CAs    []mtlsCARow
-	Total  int
-	Bundle *mtlsBundle // non-nil immediately after a successful issue
+	CAs     []mtlsCARow
+	Total   int
+	Bundle  *mtlsBundle // non-nil immediately after a successful issue
+	Clients []rsClientOpt
+}
+
+const mtlsBundleCookie = "hpg_mtls_bundle"
+
+// redirectMTLSBundle stashes the one-time material in a short-lived cookie (P256 PEMs fit in 4KB) and PRG-redirects.
+func (h *AdminHandlers) redirectMTLSBundle(w http.ResponseWriter, r *http.Request, b mtlsBundle) {
+	raw, _ := json.Marshal(b)
+	setOnceCookie(w, r, h.Sessions, mtlsBundleCookie, "/admin/mtls", base64.RawURLEncoding.EncodeToString(raw))
+	http.Redirect(w, r, "/admin/mtls", http.StatusSeeOther)
+}
+
+func (h *AdminHandlers) takeMTLSBundle(w http.ResponseWriter, r *http.Request) *mtlsBundle {
+	v := takeOnceCookie(w, r, h.Sessions, mtlsBundleCookie, "/admin/mtls")
+	raw, err := base64.RawURLEncoding.DecodeString(v)
+	var b mtlsBundle
+	if v == "" || err != nil || json.Unmarshal(raw, &b) != nil {
+		return nil
+	}
+	return &b
 }
 
 // mtlsScopeDenied reports whether the caller may NOT manage mTLS authorities.
@@ -172,6 +194,11 @@ func (h *AdminHandlers) MTLSList(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	d := mtlsData{baseAdminData: h.base(r, "mTLS Authorities")}
+	if d.Bundle = h.takeMTLSBundle(w, r); d.Bundle != nil {
+		d.Flash = "Client certificate issued. Copy the private key now - it is shown only once."
+		w.Header().Set("Cache-Control", "no-store")
+	}
+	d.Clients = h.listClientOpts(r.Context(), h.DB())
 	svc := h.mtlsSvc()
 	if svc == nil {
 		d.Error = "crypto not configured"
@@ -276,7 +303,7 @@ func (h *AdminHandlers) MTLSDeleteCA(w http.ResponseWriter, r *http.Request) {
 }
 
 // MTLSIssue POST /admin/mtls/ca/{id}/issue - mint a client cert. The private key
-// is shown exactly once on the rendered page and never stored.
+// is shown exactly once after a PRG redirect and never stored.
 func (h *AdminHandlers) MTLSIssue(w http.ResponseWriter, r *http.Request) {
 	if h.mtlsScopeDenied(w, r) {
 		return
@@ -317,22 +344,7 @@ func (h *AdminHandlers) MTLSIssue(w http.ResponseWriter, r *http.Request) {
 		Meta:     map[string]any{"ca_id": caID, "subject": in.Subject, "serial": res.Serial}, // never log the key
 	})
 
-	// Render the page directly with the one-shot bundle (cert + private key).
-	// Redirecting would drop the key, which is never persisted server-side.
-	d := mtlsData{baseAdminData: h.base(r, "mTLS Authorities")}
-	d.Flash = "Client certificate issued. Copy the private key now - it is shown only once."
-	if rows, lerr := h.loadMTLSView(ctx, svc); lerr == nil {
-		d.CAs = rows
-		d.Total = len(rows)
-	}
-	d.Bundle = &mtlsBundle{
-		Subject: in.Subject,
-		Serial:  res.Serial,
-		CertPEM: res.CertPEM,
-		KeyPEM:  res.KeyPEM,
-	}
-	w.Header().Set("Cache-Control", "no-store") // do not cache the one-time key
-	h.render(w, "mtls", d)
+	h.redirectMTLSBundle(w, r, mtlsBundle{Subject: in.Subject, Serial: res.Serial, CertPEM: res.CertPEM, KeyPEM: res.KeyPEM})
 }
 
 // MTLSRevoke POST /admin/mtls/cert/{id}/revoke - revoke an issued client cert.

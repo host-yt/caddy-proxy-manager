@@ -185,13 +185,16 @@
       <p class="t-caption text-[rgb(var(--muted))]">Serial <span class="font-mono">{{.Bundle.Serial}}</span></p>
       <div>
         <label class="t-eyebrow block mb-1">Certificate PEM</label>
-        <textarea readonly rows="7" class="r-input w-full font-mono text-xs resize-y">{{.Bundle.CertPEM}}</textarea>
+        <textarea id="bundle-cert" readonly rows="7" class="r-input w-full font-mono text-xs resize-y">{{.Bundle.CertPEM}}</textarea>
+        <button type="button" data-action="copy" data-target="bundle-cert" class="r-btn-secondary cursor-pointer mt-1">Copy</button>
       </div>
       <div>
         <label class="t-eyebrow block mb-1">Private key PEM <span class="text-[rgb(var(--danger))]">(save now)</span></label>
-        <textarea readonly rows="7" class="r-input w-full font-mono text-xs resize-y ring-[rgb(var(--danger)/.5)]">{{.Bundle.KeyPEM}}</textarea>
+        <textarea id="bundle-key" readonly rows="7" class="r-input w-full font-mono text-xs resize-y ring-[rgb(var(--danger)/.5)]">{{.Bundle.KeyPEM}}</textarea>
+        <button type="button" data-action="copy" data-target="bundle-key" class="r-btn-secondary cursor-pointer mt-1">Copy</button>
       </div>
-      <div class="flex items-center justify-end pt-1">
+      <div class="flex items-center justify-end gap-3 pt-1">
+        <button type="button" data-action="download-pem" class="r-btn-secondary cursor-pointer">Download .pem</button>
         <button type="button" data-action="close-bundle" class="r-btn-primary cursor-pointer">I have saved the key</button>
       </div>
     </div>
@@ -222,8 +225,11 @@
       </div>
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label class="t-eyebrow block mb-1">Client ID (optional)</label>
-          <input name="client_id" type="number" min="1" placeholder="operator-wide if blank" class="r-input w-full">
+          <label class="t-eyebrow block mb-1">Client (optional)</label>
+          <select name="client_id" class="r-input w-full">
+            <option value="">None (operator-wide)</option>
+            {{range .Clients}}<option value="{{.ID}}">{{.Name}}</option>{{end}}
+          </select>
         </div>
         <div>
           <label class="t-eyebrow block mb-1">Valid for (days)</label>
@@ -295,6 +301,11 @@
       case 'open-issue':   openIssueModal(el.getAttribute('data-ca-id'), el.getAttribute('data-ca-name')); break;
       case 'close-issue':  closeIssueModal(); break;
       case 'close-bundle': closeBundleModal(); break;
+      case 'copy': navigator.clipboard.writeText(document.getElementById(el.getAttribute('data-target')).value); el.textContent = 'Copied'; break;
+      case 'download-pem':
+        var a = document.createElement('a');
+        a.href = URL.createObjectURL(new Blob([document.getElementById('bundle-cert').value + '\n' + document.getElementById('bundle-key').value], {type: 'application/x-pem-file'}));
+        a.download = 'client.pem'; a.click(); URL.revokeObjectURL(a.href); break;
     }
   });
 
