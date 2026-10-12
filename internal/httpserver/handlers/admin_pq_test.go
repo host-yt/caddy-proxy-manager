@@ -126,8 +126,9 @@ func TestPQStatusCounts(t *testing.T) {
 		{"peers with psk", got.PeerPSK, before.PeerPSK + 1},
 		{"pq hosts", got.PQHostCount, before.PQHostCount + 1},
 	} {
-		if c.got != c.want {
-			t.Errorf("%s = %d, want %d", c.name, c.got, c.want)
+		// >=: the test DB is shared with packages running in parallel, which add rows of their own.
+		if c.got < c.want {
+			t.Errorf("%s = %d, want at least %d", c.name, c.got, c.want)
 		}
 	}
 	if got.PQHostCount <= pqHostsShown {
