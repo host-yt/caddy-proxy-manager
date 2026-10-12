@@ -3,8 +3,10 @@ package handlers
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"database/sql"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -2167,6 +2169,7 @@ type clientsData struct {
 	QueryValues     string
 	SavedFilters    []savedFilter
 	CustomFieldDefs []customfields.Def // admin-defined fields for the create/edit form
+	SMTPConfigured  bool               // false = password stays required on create
 }
 
 func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
@@ -2312,6 +2315,7 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	if defs, err := customfields.LoadDefs(ctx, db, "client"); err == nil {
 		d.CustomFieldDefs = defs
 	}
+	d.SMTPConfigured = h.Mailer != nil && h.Mailer.Configured(ctx)
 	h.render(w, "clients", d)
 }
 
@@ -2443,11 +2447,21 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 		category = category[:64]
 	}
 
-	if displayName == "" || email == "" || password == "" {
+	if displayName == "" || email == "" {
 		redirectWithFlash(w, r, "/admin/clients", "", "all fields required")
 		return
 	}
-	if len(password) < 12 {
+	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
+	defer cancel()
+	// Empty password = invite: random unusable password + set-password email.
+	invite := password == ""
+	if invite && (h.Mailer == nil || !h.Mailer.Configured(ctx)) {
+		redirectWithFlash(w, r, "/admin/clients", "", "password required (SMTP is not configured)")
+		return
+	}
+	if invite {
+		password = randomInvitePassword()
+	} else if len(password) < 12 {
 		redirectWithFlash(w, r, "/admin/clients", "", "password must be at least 12 characters")
 		return
 	}
@@ -2458,8 +2472,6 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
-	defer cancel()
 	// A new client is owned by the creator's tenant (or the platform). A
 	// client-scoped admin owns neither, so its client would be a persistent
 	// platform-direct account outside its own boundary.
@@ -2485,10 +2497,10 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO users (email, password_hash, password_set, role, full_name, is_active) VALUES (?, ?, 1, 'client', ?, 1)",
-		email, hash, displayName)
+		"INSERT INTO users (email, password_hash, password_set, role, full_name, is_active) VALUES (?, ?, ?, 'client', ?, 1)",
+		email, hash, !invite, displayName)
 	if err != nil {
-		if strings.Contains(err.Error(), "Duplicate entry") {
+		if strings.Contains(err.Error(), "Duplicate entry") || strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			redirectWithFlash(w, r, "/admin/clients", "", "email already exists")
 			return
 		}
@@ -2534,7 +2546,40 @@ func (h *AdminHandlers) ClientsCreate(w http.ResponseWriter, r *http.Request) {
 		Action: "client.create", Entity: "client", EntityID: fmt.Sprintf("%d", userID),
 		Meta: map[string]any{"email": email},
 	})
+	if invite {
+		token, terr := auth.CreateResetToken(ctx, db, userID, clientIPFromReq(r))
+		if terr == nil {
+			terr = h.Mailer.Send(ctx, email, "Set your Hostyt Proxy password", "password_reset", map[string]any{
+				"Name": displayName, "AppName": "Hostyt Proxy", "ResetURL": h.appURL() + "/auth/reset?token=" + token,
+				"ExpiresMin": int(auth.ResetTokenTTL.Minutes()),
+			})
+		}
+		if terr != nil {
+			h.Logger.Warn("client invite email", "err", terr, "user_id", userID)
+			redirectWithFlash(w, r, "/admin/clients", "", "client created but invite email failed; use password reset")
+			return
+		}
+		redirectWithFlash(w, r, "/admin/clients", "Invite sent to "+email, "")
+		return
+	}
 	redirectWithFlash(w, r, "/admin/clients", "Client created", "")
+}
+
+// randomInvitePassword returns a throwaway secret nobody knows.
+func randomInvitePassword() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// appURL returns the configured public panel URL without a trailing slash.
+func (h *AdminHandlers) appURL() string {
+	if h.State != nil {
+		if st := h.State.Get(); st.App != nil {
+			return strings.TrimRight(st.App.URL, "/")
+		}
+	}
+	return ""
 }
 
 func (h *AdminHandlers) ClientsDelete(w http.ResponseWriter, r *http.Request) {
