@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -189,7 +188,7 @@ func (h *AdminHandlers) TunnelsList(w http.ResponseWriter, r *http.Request) {
 	d.Clients = filterClientOptions(loadClientOptions(ctx, db), allowedClients, allClients)
 	d.Nodes = loadTunnelNodeOptions(ctx, db)
 
-	if tok := strings.TrimSpace(r.URL.Query().Get("created")); tok != "" {
+	if tok := strings.TrimSpace(takeOnceCookie(w, r, h.Sessions, "hpg_new_tunnel", "/admin/tunnels")); tok != "" {
 		d.NewTunnel = h.lookupNewTunnel(ctx, db, r, tok)
 	}
 
@@ -263,7 +262,8 @@ func (h *AdminHandlers) TunnelsCreate(w http.ResponseWriter, r *http.Request) {
 			EntityID: itoa64(peers[0].ID),
 			Meta:     map[string]any{"client_id": clientID, "node_ids": nodeIDs, "peers": len(peers)},
 		})
-		http.Redirect(w, r, "/admin/tunnels?created="+url.QueryEscape(token), http.StatusSeeOther)
+		setOnceCookie(w, r, h.Sessions, "hpg_new_tunnel", "/admin/tunnels", token)
+		http.Redirect(w, r, "/admin/tunnels", http.StatusSeeOther)
 		return
 	}
 
@@ -298,7 +298,8 @@ func (h *AdminHandlers) TunnelsCreate(w http.ResponseWriter, r *http.Request) {
 		EntityID: itoa64(peer.ID),
 		Meta:     map[string]any{"client_id": clientID, "node_id": nodeID, "ip": peer.AssignedIP},
 	})
-	http.Redirect(w, r, "/admin/tunnels?created="+url.QueryEscape(token), http.StatusSeeOther)
+	setOnceCookie(w, r, h.Sessions, "hpg_new_tunnel", "/admin/tunnels", token)
+	http.Redirect(w, r, "/admin/tunnels", http.StatusSeeOther)
 }
 
 // TunnelsRevoke handles POST /admin/tunnels/{id}/revoke.
@@ -398,7 +399,8 @@ func (h *AdminHandlers) TunnelsRotate(w http.ResponseWriter, r *http.Request) {
 		EntityID: itoa64(id),
 	})
 	writeRotationLog(ctx, h.DB(), id, "manual", actorUserID(sess))
-	http.Redirect(w, r, "/admin/tunnels?created="+url.QueryEscape(token), http.StatusSeeOther)
+	setOnceCookie(w, r, h.Sessions, "hpg_new_tunnel", "/admin/tunnels", token)
+	http.Redirect(w, r, "/admin/tunnels", http.StatusSeeOther)
 }
 
 // TunnelsReissue handles POST /admin/tunnels/{id}/reissue.
@@ -433,7 +435,8 @@ func (h *AdminHandlers) TunnelsReissue(w http.ResponseWriter, r *http.Request) {
 		EntityID: itoa64(id),
 	})
 	writeRotationLog(ctx, h.DB(), id, "reissue", actorUserID(sess))
-	http.Redirect(w, r, "/admin/tunnels?created="+url.QueryEscape(token), http.StatusSeeOther)
+	setOnceCookie(w, r, h.Sessions, "hpg_new_tunnel", "/admin/tunnels", token)
+	http.Redirect(w, r, "/admin/tunnels", http.StatusSeeOther)
 }
 
 // TunnelsBandwidthJSON handles GET /admin/tunnels/{id}/bandwidth.json?period=24h|7d|30d.
