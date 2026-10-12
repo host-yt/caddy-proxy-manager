@@ -1,9 +1,6 @@
 {{define "client_detail"}}
 <div class="max-w-xl space-y-6">
 
-  {{if .Flash}}
-  <div class="r-card px-4 py-2 ring-[rgb(var(--success)/.4)] t-small" style="background:rgb(var(--success)/.1);color:rgb(var(--success))">{{.Flash}}</div>
-  {{end}}
   {{if .Error}}
   <div class="r-card px-4 py-2 ring-[rgb(var(--danger)/.4)] t-small" style="background:rgb(var(--danger)/.1);color:rgb(var(--danger))">{{.Error}}</div>
   {{end}}
@@ -112,12 +109,10 @@
   <section class="r-card space-y-3">
     <p class="t-eyebrow">Custom fields</p>
     {{range .CustomFields}}
-    {{if .Value}}
     <div class="flex items-start gap-3">
       <span class="t-caption w-36 shrink-0 pt-0.5">{{.Def.Label}}</span>
-      <span class="t-small break-words">{{.Value}}</span>
+      <span class="t-small break-words">{{if .Value}}{{.Value}}{{else}}-{{end}}</span>
     </div>
-    {{end}}
     {{end}}
   </section>
   {{end}}

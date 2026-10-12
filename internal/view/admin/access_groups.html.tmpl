@@ -1,9 +1,6 @@
 {{define "access_groups"}}
 <div class="space-y-6">
 
-  {{if .Flash}}
-  <div class="rounded-xl bg-[rgb(var(--success)/.12)] ring-1 ring-[rgb(var(--success)/.4)] p-3 t-small text-[rgb(var(--success))]">{{.Flash}}</div>
-  {{end}}
   {{if .Error}}
   <div class="rounded-xl bg-[rgb(var(--danger)/.12)] ring-1 ring-[rgb(var(--danger)/.4)] p-3 t-small text-[rgb(var(--danger))]">{{.Error}}</div>
   {{end}}

@@ -41,6 +41,12 @@ func (c Config) IsZero() bool {
 	return c.Host == "" || c.FromEmail == ""
 }
 
+// Configured reports whether SMTP settings are complete enough to send.
+func (m *Mailer) Configured(ctx context.Context) bool {
+	cfg, err := m.loadConfig(ctx)
+	return err == nil && !cfg.IsZero()
+}
+
 // Mailer renders + sends emails using settings stored in DB.
 type Mailer struct {
 	DB     *sql.DB

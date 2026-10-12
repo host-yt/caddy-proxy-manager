@@ -1,9 +1,6 @@
 {{define "manual_certs"}}
 <div class="space-y-6">
 
-  {{if .Flash}}
-  <div class="rounded-xl p-3 t-small" style="background:rgb(var(--success)/.1);border:1px solid rgb(var(--success)/.3);color:rgb(var(--success))">{{.Flash}}</div>
-  {{end}}
   {{if .Error}}
   <div class="rounded-xl p-3 t-small" style="background:rgb(var(--danger)/.1);border:1px solid rgb(var(--danger)/.3);color:rgb(var(--danger))">{{.Error}}</div>
   {{end}}

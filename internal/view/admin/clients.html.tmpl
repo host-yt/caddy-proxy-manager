@@ -197,8 +197,8 @@
         <!-- Create-only: password is set on creation, never touched on edit. -->
         <div id="cli-password-field">
           <label class="t-eyebrow block mb-1.5">Initial password</label>
-          <input name="password" type="password" autocomplete="new-password" minlength="12" class="r-input w-full">
-          <p class="t-caption mt-1">Min 12 chars. Give it to the customer; they'll change it after first login.</p>
+          <input name="password" type="password" autocomplete="new-password" minlength="12"{{if not .SMTPConfigured}} required data-req{{end}} class="r-input w-full">
+          <p class="t-caption mt-1">{{if .SMTPConfigured}}Optional. Leave empty to email the customer a set-password link. Min 12 chars if given.{{else}}Required (SMTP is not configured, so no invite can be sent). Min 12 chars.{{end}}</p>
         </div>
         <div>
           <label class="t-eyebrow block mb-1.5">External reference (FOSSBilling order ID)</label>
@@ -293,7 +293,7 @@
     if (title) title.textContent = "New client";
     if (submit) submit.textContent = "Create client";
     if (pwField) pwField.classList.remove("hidden");
-    if (pwInput) { pwInput.required = true; pwInput.disabled = false; }
+    if (pwInput) { pwInput.required = pwInput.hasAttribute("data-req"); pwInput.disabled = false; }
     open();
   }
 
