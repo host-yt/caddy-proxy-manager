@@ -140,10 +140,11 @@
       </div>
       {{end}}
       <div>
-        <label class="t-eyebrow block mb-1">Replace upstreams (one per line)</label>
+        <label class="t-eyebrow block mb-1">Upstreams (one per line)</label>
         <textarea name="upstreams_raw" rows="5"
                   placeholder="10.0.0.1:3306&#10;10.0.0.2:3306"
-                  class="r-input w-full font-mono text-xs"></textarea>
+                  class="r-input w-full font-mono text-xs">{{range .Upstreams}}{{.Address}}{{if ne .Weight 1}} {{.Weight}}{{end}}
+{{end}}</textarea>
         <p class="t-caption text-[rgb(var(--muted))] mt-1">Saving with an empty textarea removes all additional upstreams (falls back to single-upstream).</p>
       </div>
       <div>
