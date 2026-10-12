@@ -314,6 +314,10 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams", "", "ports must be 1..65535")
 		return
 	}
+	if msg := reservedListenPortMsg(listenPort); msg != "" {
+		redirectWithFlash(w, r, "/admin/streams", "", msg)
+		return
+	}
 	if nodeID == 0 || form.BackendIP == "" {
 		redirectWithFlash(w, r, "/admin/streams", "", "node and backend IP are required")
 		return
@@ -324,12 +328,6 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 	} else if security.IsDangerousProxyBackend(ip) {
 		// SSRF: block loopback/link-local/metadata backends (RFC1918 stays allowed).
 		redirectWithFlash(w, r, "/admin/streams", "", "backend address is not allowed")
-		return
-	}
-	// Block listen ports that would clash with Caddy's HTTPS listeners on
-	// the panel itself.
-	if listenPort == 80 || listenPort == 443 || listenPort == 2019 {
-		redirectWithFlash(w, r, "/admin/streams", "", "listen_port "+itoa64(int64(listenPort))+" is reserved (HTTP/HTTPS/admin)")
 		return
 	}
 
@@ -416,14 +414,8 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// The unique key only covers identical protocols; "both" also binds the
-	// tcp and udp listeners, so check the effective overlap.
-	var clash int
-	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM stream_routes
-		  WHERE caddy_node_id = ? AND listen_port = ? AND (protocol = ? OR protocol = 'both' OR ? = 'both')`,
-		nodeID, listenPort, form.Protocol, form.Protocol).Scan(&clash); err != nil || clash > 0 {
-		redirectWithFlash(w, r, "/admin/streams", "", fmt.Sprintf("port %d/%s already mapped on this node", listenPort, form.Protocol))
+	if msg := listenPortClash(ctx, db, nodeID, form.Protocol, listenPort, 0); msg != "" {
+		redirectWithFlash(w, r, "/admin/streams", "", msg)
 		return
 	}
 
@@ -559,6 +551,28 @@ func (h *AdminHandlers) StreamsEdit(w http.ResponseWriter, r *http.Request) {
 	h.render(w, "streams_edit", d)
 }
 
+// reservedListenPortMsg blocks ports that would clash with Caddy's own listeners.
+func reservedListenPortMsg(port int) string {
+	if port == 80 || port == 443 || port == 2019 {
+		return "listen_port " + itoa64(int64(port)) + " is reserved (HTTP/HTTPS/admin)"
+	}
+	return ""
+}
+
+// listenPortClash returns a flash message when another stream on the node
+// already binds the port. "both" overlaps tcp and udp, so the unique key alone
+// is not enough. excludeID skips the stream being edited.
+func listenPortClash(ctx context.Context, db *sql.DB, nodeID int64, protocol string, port int, excludeID int64) string {
+	var clash int
+	if err := db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM stream_routes
+		  WHERE caddy_node_id = ? AND listen_port = ? AND id <> ? AND (protocol = ? OR protocol = 'both' OR ? = 'both')`,
+		nodeID, port, excludeID, protocol, protocol).Scan(&clash); err != nil || clash > 0 {
+		return fmt.Sprintf("port %d/%s already mapped on this node", port, protocol)
+	}
+	return ""
+}
+
 // StreamsUpdate handles POST /admin/streams/{id}/edit.
 func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 	db := h.DB()
@@ -653,11 +667,31 @@ func (h *AdminHandlers) StreamsUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	dest.Upstreams = extraUpstreams
 
+	listenPort := cur.listenPort
+	if v := strings.TrimSpace(r.FormValue("listen_port")); v != "" {
+		p, convErr := strconv.Atoi(v)
+		if convErr != nil || p <= 0 || p > 65535 {
+			redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", "ports must be 1..65535")
+			return
+		}
+		listenPort = p
+	}
+	if listenPort != cur.listenPort {
+		msg := reservedListenPortMsg(listenPort)
+		if msg == "" {
+			msg = listenPortClash(ctx, db, cur.nodeID, cur.protocol, listenPort, id)
+		}
+		if msg != "" {
+			redirectWithFlash(w, r, "/admin/streams/"+itoa64(id)+"/edit", "", msg)
+			return
+		}
+	}
+
 	upd := streamUpdate{
 		MatchMode: matchMode, MatchValues: joinCSV(matchValues), LBPolicy: lbPolicy,
 		ProxyProtoIn: ppIn, ProxyProtoOut: ppOut, ProxyProtoTrusted: joinCSV(ppTrusted),
 		CIDRAllow: joinCSV(cidrAllow), CIDRDeny: joinCSV(cidrDeny),
-		Dest: dest, ServiceBackendIP: cur.serviceBackendIP,
+		Dest: dest, ServiceBackendIP: cur.serviceBackendIP, ListenPort: listenPort,
 	}
 	// Screening runs inside the save, so a quarantine can only lift together
 	// with a destination that actually passes it.
@@ -814,6 +848,7 @@ type streamUpdate struct {
 	CIDRAllow         string
 	CIDRDeny          string
 	Dest              streamDestination
+	ListenPort        int
 	// ServiceBackendIP is services.backend_ip; the per-stream override is only
 	// stored when the destination differs, so shared services stay untouched.
 	ServiceBackendIP string
@@ -822,6 +857,8 @@ type streamUpdate struct {
 // streamCurrent is the stored state the edit and re-check paths start from.
 type streamCurrent struct {
 	nodeID           int64
+	protocol         string
+	listenPort       int
 	serviceBackendIP string
 	quarantined      bool
 	reason           string
@@ -867,13 +904,13 @@ func loadStreamDestination(ctx context.Context, db *sql.DB, id int64) (streamCur
 	var override string
 	var quarantined int
 	err := db.QueryRowContext(ctx,
-		`SELECT sr.caddy_node_id, sr.upstream_port, sv.backend_ip,
+		`SELECT sr.caddy_node_id, sr.protocol, sr.listen_port, sr.upstream_port, sv.backend_ip,
 		        COALESCE(sr.backend_ip_override,''),
 		        CASE WHEN sr.quarantined_at IS NOT NULL THEN 1 ELSE 0 END,
 		        COALESCE(sr.quarantine_reason,'')
 		   FROM stream_routes sr JOIN services sv ON sv.id = sr.service_id
 		  WHERE sr.id = ?`, id).Scan(
-		&c.nodeID, &c.dest.UpstreamPort, &c.serviceBackendIP, &override, &quarantined, &c.reason)
+		&c.nodeID, &c.protocol, &c.listenPort, &c.dest.UpstreamPort, &c.serviceBackendIP, &override, &quarantined, &c.reason)
 	if err != nil {
 		return c, err
 	}
@@ -924,14 +961,14 @@ func saveStreamUpdate(ctx context.Context, db *sql.DB, logger *slog.Logger, id i
 		 SET match_mode=?, match_values=?, lb_policy=?,
 		     proxy_proto_in=?, proxy_proto_out=?, proxy_proto_trusted=?,
 		     cidr_allow=?, cidr_deny=?,
-		     backend_ip_override=?, upstream_port=?,
+		     backend_ip_override=?, upstream_port=?, listen_port=?,
 		     quarantined_at=NULL, quarantine_reason=NULL,
 		     updated_at=`+store.Now()+`
 		 WHERE id=?`,
 		u.MatchMode, u.MatchValues, u.LBPolicy,
 		u.ProxyProtoIn, u.ProxyProtoOut, u.ProxyProtoTrusted,
 		u.CIDRAllow, u.CIDRDeny,
-		override, u.Dest.UpstreamPort, id); err != nil {
+		override, u.Dest.UpstreamPort, u.ListenPort, id); err != nil {
 		return fmt.Errorf("update failed: %s", sanitizeErr(err))
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM stream_upstreams WHERE stream_route_id = ?", id); err != nil {

@@ -1,9 +1,6 @@
 {{define "node_groups"}}
 <div class="space-y-6">
 
-  {{if .Flash}}
-  <div class="r-card" style="background:rgb(var(--success)/0.08);border-color:rgb(var(--success)/0.3);color:rgb(var(--success))">{{.Flash}}</div>
-  {{end}}
   {{if .Error}}
   <div class="r-card" style="background:rgb(var(--danger)/0.08);border-color:rgb(var(--danger)/0.3);color:rgb(var(--danger))">{{.Error}}</div>
   {{end}}
