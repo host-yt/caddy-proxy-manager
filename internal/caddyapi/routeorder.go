@@ -99,6 +99,11 @@ func EmissionOrder(routes []Route) []int {
 			if sa != sb {
 				return sa > sb
 			}
+			// Exact hosts before wildcards, so "*.zone" never takes a sibling's
+			// x.zone (and its auth/WAF/mTLS gates) on a DB-id tie.
+			if wa, wb := wildcardRank(ra), wildcardRank(rb); wa != wb {
+				return wa < wb
+			}
 			// Equal specificity: a fail-closed deny must win over its twin.
 			return denyRank(ra) < denyRank(rb)
 		})
@@ -108,6 +113,16 @@ func EmissionOrder(routes []Route) []int {
 		}
 	}
 	return order
+}
+
+// wildcardRank is 1 for a route matching any "*." host.
+func wildcardRank(r Route) int {
+	for _, h := range r.Hosts {
+		if strings.Contains(h, "*") {
+			return 1
+		}
+	}
+	return 0
 }
 
 // SortRoutesForEmission returns a copy of routes in EmissionOrder.

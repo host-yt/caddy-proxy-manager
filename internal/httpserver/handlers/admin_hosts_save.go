@@ -267,6 +267,12 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "wildcard: zone must cover the domain (e.g. zone customer.com for app.customer.com)")
 			return
 		}
+		var n int
+		if err := h.DB().QueryRowContext(r.Context(),
+			"SELECT COUNT(*) FROM dns_providers WHERE name = ?", wildcardZone).Scan(&n); err != nil || n == 0 {
+			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "wildcard_zone", "wildcard: no DNS provider is named "+wildcardZone+" (DNS providers page)")
+			return
+		}
 	}
 
 	// Outbound/egress IP. Only proxy routes need it; ignored for redirect/maintenance.
@@ -522,7 +528,7 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "custom config: "+sanitizeErr(err3))
 		return
 	}
-	aliases, errAli := sanitizeAliases(r.FormValue("aliases"), domain)
+	aliases, errAli := sanitizeAliases(r.FormValue("aliases"), domain, wildcardAliasZone(wildcardEnabled, wildcardZone))
 	if errAli != nil {
 		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "aliases", "aliases: "+sanitizeErr(errAli))
 		return
@@ -645,6 +651,15 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	matcherChanged := matcherChangedForUpdate(oldDomain, oldPath, oldAliases, domain, pathPrefix, aliases)
+	// A "*.zone" alias has no TXT proof, so it claims every unrouted name in
+	// the zone on the platform's DNS credential: platform admins only.
+	for _, a := range addedHosts(oldAliases, aliases) {
+		if strings.HasPrefix(a, "*.") && h.verificationResetRequired(mctx, sess, true) {
+			mcancel()
+			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "aliases", "alias "+a+": only a platform admin can add a wildcard alias")
+			return
+		}
+	}
 	if matcherChanged {
 		// The new hostname must not already be another route's domain or alias,
 		// regardless of path: a more specific path would still shadow it.

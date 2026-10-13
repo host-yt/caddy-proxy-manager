@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -186,6 +187,38 @@ type WildcardPolicy struct {
 	Fields   map[string]string // decrypted credentials; never logged
 }
 
+// dnsZones lists the zones whose DNS-01 policy BuildNodeConfig will emit.
+func dnsZones(s NodeSettings) []string {
+	if !s.DNS01ModuleAvailable {
+		return nil
+	}
+	var out []string
+	for _, wp := range s.WildcardPolicies {
+		if providerJSON(wp.Provider, wp.Fields) != nil {
+			out = append(out, wp.Zone)
+		}
+	}
+	return out
+}
+
+// withWildcardHosts adds "*.zone" to the host matcher of routes whose zone
+// has a live DNS-01 policy. Copies, so the caller's routes stay untouched.
+func withWildcardHosts(routes []Route, zones []string) []Route {
+	if len(zones) == 0 {
+		return routes
+	}
+	out := slices.Clone(routes)
+	for i, r := range out {
+		if r.WildcardZone == "" || !slices.Contains(zones, r.WildcardZone) {
+			continue
+		}
+		if h := "*." + r.WildcardZone; !slices.Contains(r.Hosts, h) {
+			out[i].Hosts = append(slices.Clone(r.Hosts), h)
+		}
+	}
+	return out
+}
+
 // providerJSON renders the caddy-dns provider object for an ACME DNS-01
 // issuer from the registry: emits {"name": <CaddyModule>, <field key>: <value>}.
 // An unknown slug yields nil so the caller drops the policy rather than emit a
@@ -260,7 +293,8 @@ func EmptyNodeConfig(adminListen string) map[string]any {
 func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	// Terminal routes match first-wins: a host catch-all must never precede a
 	// narrower sibling on the same host (it would shadow its auth/deny gate).
-	routes = SortRoutesForEmission(routes)
+	zones := dnsZones(s)
+	routes = SortRoutesForEmission(withWildcardHosts(routes, zones))
 	out := make([]any, 0, len(routes)+1)
 	if s.PanelRoute != nil {
 		pr := *s.PanelRoute
@@ -294,9 +328,10 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	}
 
 	// tls.automation.policies is an ordered, first-match array. Wildcard
-	// DNS-01 policies carry explicit subjects (issued eagerly at load) and
-	// MUST come before the subject-less on-demand catch-all, which has to be
-	// last. Gated: stock Caddy lacks the caddy-dns module and fails /load.
+	// DNS-01 policies only pick the issuer for their subjects; the eager order
+	// comes from tls.certificates.automate below. They MUST come before the
+	// subject-less on-demand catch-all, which has to be last. Gated: stock
+	// Caddy lacks the caddy-dns module and fails /load.
 	policies := make([]any, 0, len(s.WildcardPolicies)+1)
 	if s.DNS01ModuleAvailable {
 		for _, wp := range s.WildcardPolicies {
@@ -429,8 +464,21 @@ func BuildNodeConfig(routes []Route, s NodeSettings) map[string]any {
 	// for their SNI without ACME. A pool cert matches before the subject-less
 	// on-demand catch-all fires, so these domains skip issuance entirely. Key
 	// omitted when empty so nodes without manual certs see byte-identical JSON.
+	certs := map[string]any{}
 	if lp := buildLoadPEM(s.ManualCerts); lp != nil {
-		tlsApp["certificates"] = map[string]any{"load_pem": lp}
+		certs["load_pem"] = lp
+	}
+	// Order *.zone + apex up front via DNS-01. Names under a non-on-demand
+	// policy never hit the ask endpoint, so subdomains share this one cert.
+	if len(zones) > 0 {
+		auto := make([]string, 0, 2*len(zones))
+		for _, z := range zones {
+			auto = append(auto, "*."+z, z)
+		}
+		certs["automate"] = auto
+	}
+	if len(certs) > 0 {
+		tlsApp["certificates"] = certs
 	}
 
 	apps := map[string]any{

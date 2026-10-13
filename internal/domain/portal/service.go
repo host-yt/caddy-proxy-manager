@@ -354,6 +354,7 @@ func (s *Service) RouteForRequest(ctx context.Context, host, path string) (route
 		bestID      int64
 		bestProtect bool
 		bestLen     = -1
+		bestExact   bool
 		ambiguous   bool
 	)
 	for rows.Next() {
@@ -376,10 +377,12 @@ func (s *Service) RouteForRequest(ctx context.Context, host, path string) (route
 		if p != "" && !strings.HasPrefix(lowPath, strings.ToLower(p)) {
 			continue
 		}
+		// Same tie-break as caddyapi.EmissionOrder: exact host before "*.zone".
+		exact := !strings.Contains(domain+aliasesVer, "*") || hostExact(host, domain, aliasesVer)
 		switch {
-		case len(p) > bestLen:
-			bestID, bestProtect, bestLen, ambiguous = id, protect, len(p), false
-		case len(p) == bestLen:
+		case len(p) > bestLen, len(p) == bestLen && exact && !bestExact:
+			bestID, bestProtect, bestLen, bestExact, ambiguous = id, protect, len(p), exact, false
+		case len(p) == bestLen && exact == bestExact:
 			ambiguous = true
 		}
 	}
@@ -407,6 +410,19 @@ func hostServedBy(host, domain, aliases, aliasesVerified string) bool {
 	}
 	for _, a := range splitHosts(aliases) {
 		if proven[a] && caddyapi.HostsOverlap(a, host) {
+			return true
+		}
+	}
+	return false
+}
+
+// hostExact: host is the domain or a proven alias verbatim, not via a wildcard.
+func hostExact(host, domain, aliasesVerified string) bool {
+	if strings.EqualFold(domain, host) {
+		return true
+	}
+	for _, a := range splitHosts(aliasesVerified) {
+		if a == host {
 			return true
 		}
 	}

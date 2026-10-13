@@ -36,6 +36,9 @@ func splitHostList(raw string) []string {
 	return out
 }
 
+// isWildcardHost reports a "*.zone" alias.
+func isWildcardHost(h string) bool { return strings.HasPrefix(h, "*.") }
+
 // newVerifyToken returns a 32-hex-char (128-bit) random nonce the domain owner
 // publishes as a TXT record to prove control. Hex so it is DNS-TXT-safe.
 func newVerifyToken() (string, error) {

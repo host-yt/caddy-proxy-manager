@@ -143,6 +143,15 @@ is needed, and a few API and Terraform behaviours change.
 
 ### Fixed
 
+- Wildcard DNS-01 certificates are actually ordered now: the `*.zone` cert is
+  requested as soon as the config loads, and a route can take the alias
+  `*.<zone>` to serve every subdomain on that one cert (no per-subdomain
+  certificates, no TXT proof for the wildcard alias). The SSL tab lists which
+  DNS-01 requirement is missing, and "Renew certificate now" re-pushes the
+  full node config.
+- Host edit shows alias validation errors (invalid or already-used alias)
+  instead of re-rendering the submitted value as if it was saved, and opens
+  the tab that holds the error.
 - The central node-agent now sees the GeoIP database, so country rules filter
   traffic instead of failing closed on the panel node.
 - Saving a host after adding a redirect, rewrite or block location works again.

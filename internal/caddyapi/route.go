@@ -35,10 +35,13 @@ type BasicAuthUser struct {
 //   - "redirect"           - static_response with Location: RedirectURL
 //     and status RedirectCode (defaults to 308).
 type Route struct {
-	ID           string   // app-side route id, used as @id in Caddy config
-	Hosts        []string // e.g. ["app.customer.com"]
-	PathPrefix   string   // optional, e.g. "/api"
-	UpstreamIP   string   // backend IP or hostname
+	ID    string   // app-side route id, used as @id in Caddy config
+	Hosts []string // e.g. ["app.customer.com"]
+	// WildcardZone: route carries a "*.zone" alias. The host is added only
+	// when the node emits that zone's DNS-01 policy (cert exists to serve it).
+	WildcardZone string
+	PathPrefix   string // optional, e.g. "/api"
+	UpstreamIP   string // backend IP or hostname
 	UpstreamPort int
 	// IsPanelSelfRoute marks the panel's own self-bootstrap route (see
 	// routes.Service.panelRoute). HPG-SEC-005: the docker-bridge peer that

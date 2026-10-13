@@ -166,6 +166,9 @@ type hostEditData struct {
 	WildcardEnabled bool
 	WildcardZone    string
 	WildcardZones   []string
+	// WildcardIssues names each unmet DNS-01 condition, so the SSL tab says
+	// why no wildcard cert is ordered instead of staying silent.
+	WildcardIssues []string
 
 	// DNS steering: health-driven A/AAAA sync for active_active route groups
 	// (internal/domain/dnssteer). DNSProviders feeds the provider dropdown.
@@ -263,8 +266,9 @@ type hostEditData struct {
 
 // aliasHostState is one alias plus whether its DNS-TXT ownership proof landed.
 type aliasHostState struct {
-	Host   string
-	Proven bool
+	Host     string
+	Proven   bool
+	Wildcard bool // "*.zone": served via the DNS-01 cert, no TXT proof
 }
 
 // mtlsCAOption is one selectable trust-anchor CA in the host editor dropdown.
@@ -509,6 +513,9 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		zr.Close()
 	}
+	if d.WildcardEnabled {
+		d.WildcardIssues = h.wildcardIssues(ctx, db, id, &d)
+	}
 	// DNS steering: toggle + provider + TTL (additive query, gated feature,
 	// large route SELECT above stays untouched).
 	_ = db.QueryRowContext(ctx,
@@ -587,9 +594,9 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		"SELECT COALESCE(verify_token,'') FROM routes WHERE id = ?", id).Scan(&d.VerifyToken)
 	provenAliases := splitHostCSV(aliasesVerified)
 	for _, a := range splitHostCSV(d.Aliases) {
-		st := aliasHostState{Host: a, Proven: contains(provenAliases, a)}
+		st := aliasHostState{Host: a, Proven: contains(provenAliases, a), Wildcard: strings.HasPrefix(a, "*.")}
 		d.AliasStates = append(d.AliasStates, st)
-		if !st.Proven {
+		if !st.Proven && !st.Wildcard {
 			d.PendingAliases++
 		}
 	}
@@ -930,9 +937,9 @@ func (h *AdminHandlers) renderHostEditValidationError(w http.ResponseWriter, r *
 		_ = db.QueryRowContext(ctx, "SELECT COALESCE(verify_token,'') FROM routes WHERE id = ?", id).Scan(&d.VerifyToken)
 		provenAliases := splitHostCSV(aliasesVerified)
 		for _, a := range splitHostCSV(aliasesDB) {
-			st := aliasHostState{Host: a, Proven: contains(provenAliases, a)}
+			st := aliasHostState{Host: a, Proven: contains(provenAliases, a), Wildcard: strings.HasPrefix(a, "*.")}
 			d.AliasStates = append(d.AliasStates, st)
-			if !st.Proven {
+			if !st.Proven && !st.Wildcard {
 				d.PendingAliases++
 			}
 		}
@@ -979,6 +986,35 @@ func loadClientTunnels(ctx context.Context, db *sql.DB, clientID int64) []tunnel
 		if err := rows.Scan(&t.ID, &t.Name, &t.AssignedIP); err == nil {
 			out = append(out, t)
 		}
+	}
+	return out
+}
+
+// wildcardIssues mirrors the emission gates (buildWildcardPolicies, probedOr,
+// dnsZones). ponytail: anchor node only; fan-out peers are not checked.
+func (h *AdminHandlers) wildcardIssues(ctx context.Context, db *sql.DB, routeID int64, d *hostEditData) []string {
+	var out []string
+	dns01 := h.Routes != nil && h.Routes.DNS01ModuleAvailable
+	if !dns01 {
+		out = append(out, "DNS01_AVAILABLE=1 is not set on the panel, so no node gets a DNS-01 policy.")
+	}
+	var probed sql.NullBool
+	_ = db.QueryRowContext(ctx,
+		`SELECT CASE WHEN n.modules_probed_at IS NOT NULL THEN n.has_dns_module END
+		   FROM routes r JOIN caddy_nodes n ON n.id = r.caddy_node_id WHERE r.id = ?`, routeID).Scan(&probed)
+	if probed.Valid && !probed.Bool { // unprobed nodes follow DNS01_AVAILABLE, reported above
+		out = append(out, "Node "+d.NodeName+" is not marked as built with a caddy-dns module (node page, Module capabilities).")
+	}
+	if !contains(d.WildcardZones, d.WildcardZone) {
+		out = append(out, "No DNS provider is named \""+d.WildcardZone+"\"; the provider name must equal the wildcard zone.")
+	}
+	switch d.Status {
+	case "dns_ok", "active", "pending_ssl":
+	default:
+		out = append(out, "Route status is "+d.Status+"; the wildcard cert is ordered only for dns_ok, active or pending_ssl.")
+	}
+	if !contains(splitHostCSV(d.Aliases), "*."+d.WildcardZone) {
+		out = append(out, "Alias *."+d.WildcardZone+" is not set, so subdomains are not routed here (Basics tab).")
 	}
 	return out
 }

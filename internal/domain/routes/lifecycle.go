@@ -622,6 +622,13 @@ func (s *Service) verifyAliases(ctx context.Context, routeID int64, aliases, tok
 	out := []string{}
 	changed := false
 	for _, a := range list {
+		if isWildcardHost(a) {
+			// Never TXT-provable; keep a platform admin's approval as is.
+			if proven[a] {
+				out = append(out, a)
+			}
+			continue
+		}
 		if !proven[a] {
 			if !aliasTXTContains(ctx, "_hpg-verify."+a, token) {
 				continue
@@ -718,7 +725,7 @@ func unprovenHosts(aliases, verified string) []string {
 	}
 	out := []string{}
 	for _, a := range splitHostList(aliases) {
-		if !ok[a] {
+		if !ok[a] && !isWildcardHost(a) {
 			out = append(out, a)
 		}
 	}
