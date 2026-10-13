@@ -84,3 +84,30 @@ func TestAskDeniesWildcardSubdomain(t *testing.T) {
 		t.Error("verified apex denied")
 	}
 }
+
+// Every unmet DNS-01 gate is named.
+func TestWildcardIssues(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { db.Close() })
+	for _, s := range []string{
+		`CREATE TABLE routes (id INTEGER PRIMARY KEY, caddy_node_id INTEGER, domain_verified INTEGER)`,
+		`CREATE TABLE caddy_nodes (id INTEGER PRIMARY KEY, modules_probed_at TEXT, has_dns_module INTEGER)`,
+		`INSERT INTO caddy_nodes VALUES (1, '2026-01-01', 0)`,
+		`INSERT INTO routes VALUES (44, 1, 0)`,
+	} {
+		if _, err := db.Exec(s); err != nil {
+			t.Fatalf("exec %q: %v", s, err)
+		}
+	}
+	h := &AdminHandlers{}
+	d := &hostEditData{NodeName: "p1", WildcardZone: "shop.example", Status: "pending_dns"}
+	got := strings.Join(h.wildcardIssues(context.Background(), db, 44, d), "\n")
+	for _, want := range []string{"DNS01_AVAILABLE", "caddy-dns", "No DNS provider", "pending_dns", "SSL is off", "not verified"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("issues lack %q:\n%s", want, got)
+		}
+	}
+}

@@ -146,7 +146,9 @@ is needed, and a few API and Terraform behaviours change.
 - Wildcard DNS-01 certificates are actually ordered now: the `*.zone` cert is
   requested as soon as the config loads, and a route can take the alias
   `*.<zone>` to serve every subdomain on that one cert (no per-subdomain
-  certificates, no TXT proof for the wildcard alias). The SSL tab lists which
+  certificates, no TXT proof for the wildcard alias; platform admins only, on
+  a route without a path prefix). Access-log and WAF events for those
+  subdomains are attributed to the route. The SSL tab lists which
   DNS-01 requirement is missing, and "Renew certificate now" re-pushes the
   full node config.
 - Host edit shows alias validation errors (invalid or already-used alias)

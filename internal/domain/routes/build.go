@@ -505,7 +505,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		// HostsUpdate); BuildNodeConfig emits it only with the zone's DNS-01 policy.
 		wildcardHostZone := ""
 		for _, a := range splitHostList(aliases) {
-			if wildcardEnabled && wildcardZone != "" && a == "*."+wildcardZone && proven[a] {
+			if wildcardEnabled && wildcardZone != "" && a == "*."+wildcardZone && proven[a] && (path == "" || path == "/") {
 				wildcardHostZone = wildcardZone
 				continue
 			}

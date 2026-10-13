@@ -378,6 +378,17 @@ func (idx wafRouteIndex) resolve(host, uri string) int64 {
 	if i := strings.IndexByte(path, '?'); i >= 0 {
 		path = path[:i]
 	}
+	if id := idx.match(host, path); id != 0 {
+		return id
+	}
+	// Caddy falls through to a "*.zone" alias when no exact host route matches.
+	if _, parent, ok := strings.Cut(host, "."); ok {
+		return idx.match("*."+parent, path)
+	}
+	return 0
+}
+
+func (idx wafRouteIndex) match(host, path string) int64 {
 	var fallback int64
 	for _, ent := range idx[host] {
 		if ent.prefix == "" || ent.prefix == "/" {

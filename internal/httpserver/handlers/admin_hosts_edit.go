@@ -169,6 +169,9 @@ type hostEditData struct {
 	// WildcardIssues names each unmet DNS-01 condition, so the SSL tab says
 	// why no wildcard cert is ordered instead of staying silent.
 	WildcardIssues []string
+	// WildcardAliasMissing: cert may be ordered, but no approved "*.zone"
+	// alias routes the subdomains here.
+	WildcardAliasMissing bool
 
 	// DNS steering: health-driven A/AAAA sync for active_active route groups
 	// (internal/domain/dnssteer). DNSProviders feeds the provider dropdown.
@@ -513,9 +516,6 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		zr.Close()
 	}
-	if d.WildcardEnabled {
-		d.WildcardIssues = h.wildcardIssues(ctx, db, id, &d)
-	}
 	// DNS steering: toggle + provider + TTL (additive query, gated feature,
 	// large route SELECT above stays untouched).
 	_ = db.QueryRowContext(ctx,
@@ -592,6 +592,10 @@ func (h *AdminHandlers) HostsEdit(w http.ResponseWriter, r *http.Request) {
 		"SELECT COALESCE(aliases_verified,'') FROM routes WHERE id = ?", id).Scan(&aliasesVerified)
 	_ = db.QueryRowContext(ctx,
 		"SELECT COALESCE(verify_token,'') FROM routes WHERE id = ?", id).Scan(&d.VerifyToken)
+	if d.WildcardEnabled {
+		d.WildcardIssues = h.wildcardIssues(ctx, db, id, &d)
+		d.WildcardAliasMissing = !contains(splitHostCSV(aliasesVerified), "*."+d.WildcardZone)
+	}
 	provenAliases := splitHostCSV(aliasesVerified)
 	for _, a := range splitHostCSV(d.Aliases) {
 		st := aliasHostState{Host: a, Proven: contains(provenAliases, a), Wildcard: strings.HasPrefix(a, "*.")}
@@ -1013,8 +1017,13 @@ func (h *AdminHandlers) wildcardIssues(ctx context.Context, db *sql.DB, routeID 
 	default:
 		out = append(out, "Route status is "+d.Status+"; the wildcard cert is ordered only for dns_ok, active or pending_ssl.")
 	}
-	if !contains(splitHostCSV(d.Aliases), "*."+d.WildcardZone) {
-		out = append(out, "Alias *."+d.WildcardZone+" is not set, so subdomains are not routed here (Basics tab).")
+	if !d.SSL {
+		out = append(out, "SSL is off for this route.")
+	}
+	var verified bool
+	_ = db.QueryRowContext(ctx, "SELECT COALESCE(domain_verified,0) FROM routes WHERE id = ?", routeID).Scan(&verified)
+	if !verified {
+		out = append(out, "The route's domain is not verified yet.")
 	}
 	return out
 }

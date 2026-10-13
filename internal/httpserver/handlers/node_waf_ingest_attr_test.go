@@ -146,3 +146,22 @@ func TestWAFRouteIndexResolveBoundary(t *testing.T) {
 		}
 	}
 }
+
+// Subdomains served through a "*.zone" alias belong to that route, but an
+// exact host route still wins, as in Caddy.
+func TestWAFRouteIndexResolveWildcard(t *testing.T) {
+	idx := wafRouteIndex{
+		"*.shop.example":    {{id: 44, prefix: ""}},
+		"demo.shop.example": {{id: 45, prefix: "/api"}},
+	}
+	for host, want := range map[string]int64{
+		"x.shop.example": 44, "demo.shop.example": 44, "a.b.shop.example": 0, "shop.example": 0,
+	} {
+		if got := idx.resolve(host, "/"); got != want {
+			t.Errorf("resolve(%q)=%d want %d", host, got, want)
+		}
+	}
+	if got := idx.resolve("demo.shop.example", "/api/x"); got != 45 {
+		t.Errorf("exact host route lost to wildcard: %d", got)
+	}
+}

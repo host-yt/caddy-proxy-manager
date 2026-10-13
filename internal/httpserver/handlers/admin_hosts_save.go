@@ -267,9 +267,20 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			redirectWithFlash(w, r, "/admin/hosts/"+strconv.FormatInt(id, 10)+"/edit", "", "wildcard: zone must cover the domain (e.g. zone customer.com for app.customer.com)")
 			return
 		}
+		// Only when turning wildcard on or changing the zone: a provider deleted
+		// later must not block unrelated edits (the SSL tab reports it instead).
+		var oldWild bool
+		var oldZone string
+		_ = h.DB().QueryRowContext(r.Context(),
+			"SELECT COALESCE(wildcard_enabled,0), COALESCE(wildcard_zone,'') FROM routes WHERE id = ?", id).Scan(&oldWild, &oldZone)
 		var n int
-		if err := h.DB().QueryRowContext(r.Context(),
-			"SELECT COUNT(*) FROM dns_providers WHERE name = ?", wildcardZone).Scan(&n); err != nil || n == 0 {
+		if oldWild && oldZone == wildcardZone {
+			n = 1
+		} else if err := h.DB().QueryRowContext(r.Context(),
+			"SELECT COUNT(*) FROM dns_providers WHERE name = ?", wildcardZone).Scan(&n); err != nil {
+			n = 0
+		}
+		if n == 0 {
 			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "wildcard_zone", "wildcard: no DNS provider is named "+wildcardZone+" (DNS providers page)")
 			return
 		}
@@ -651,6 +662,13 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	matcherChanged := matcherChangedForUpdate(oldDomain, oldPath, oldAliases, domain, pathPrefix, aliases)
+	// "*.zone" on a path route would outrank a sibling's bare x.zone route
+	// (path specificity sorts first) and take its traffic.
+	if strings.Contains(aliases, "*") && pathPrefix != "" && pathPrefix != "/" {
+		mcancel()
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "aliases", "a wildcard alias needs a route without a path prefix")
+		return
+	}
 	// A "*.zone" alias has no TXT proof, so it claims every unrouted name in
 	// the zone on the platform's DNS credential: platform admins only.
 	for _, a := range addedHosts(oldAliases, aliases) {

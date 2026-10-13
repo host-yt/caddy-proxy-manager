@@ -412,6 +412,9 @@
           <ul class="list-disc ml-5 mt-1 space-y-0.5">{{range .WildcardIssues}}<li>{{.}}</li>{{end}}</ul>
         </div>
         {{end}}
+        {{if and .WildcardEnabled .WildcardAliasMissing}}
+        <p class="t-caption text-muted">No approved alias <code>*.{{.WildcardZone}}</code> yet, so subdomains are not routed here (Basics tab, platform admin).</p>
+        {{end}}
       </div>
       {{if .DNSSteeringEditable}}
       <div class="border-t border-[rgb(var(--border))] pt-4 space-y-3">

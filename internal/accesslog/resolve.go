@@ -87,6 +87,17 @@ func (idx NodeRouteIndex) Resolve(host, uri string) (int64, bool) {
 	if i := strings.IndexByte(path, '?'); i >= 0 {
 		path = path[:i]
 	}
+	if id, ok := idx.match(host, path); ok {
+		return id, true
+	}
+	// Caddy falls through to a "*.zone" alias when no exact host route matches.
+	if _, parent, ok := strings.Cut(host, "."); ok {
+		return idx.match("*."+parent, path)
+	}
+	return 0, false
+}
+
+func (idx NodeRouteIndex) match(host, path string) (int64, bool) {
 	var fallback int64
 	for _, ent := range idx[host] {
 		if ent.prefix == "" || ent.prefix == "/" {
