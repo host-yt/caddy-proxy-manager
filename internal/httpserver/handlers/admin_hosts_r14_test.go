@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
@@ -57,7 +58,9 @@ func hostsR14Handlers(db *sql.DB) *AdminHandlers {
 	return &AdminHandlers{
 		DB:     func() *sql.DB { return db },
 		Logger: slog.Default(),
-		Routes: &routes.Service{DB: db, Logger: slog.Default()},
+		// Long debounce: an immediate push goroutine would still be writing to
+		// the SQLite file while t.TempDir is removed (flaky cleanup failure).
+		Routes: &routes.Service{DB: db, Logger: slog.Default(), PushDebounceMs: int(time.Hour / time.Millisecond)},
 	}
 }
 
