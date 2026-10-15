@@ -104,3 +104,18 @@ func TestCloudflareTokenShape(t *testing.T) {
 		}
 	}
 }
+
+// An SNI "*.zone" mTLS/PQ policy would capture every sibling host's handshake.
+func TestWildcardHostSkippedForMTLSAndPQ(t *testing.T) {
+	for name, mod := range map[string]func(*Route){
+		"mtls": func(r *Route) { r.RequireClientCert = true },
+		"pq":   func(r *Route) { r.TLSPQOnly = true },
+	} {
+		r := wildcardRoute()
+		mod(&r)
+		got := withWildcardHosts([]Route{r}, []string{"shop.example"})
+		if slices.Contains(got[0].Hosts, "*.shop.example") {
+			t.Errorf("%s: wildcard host emitted", name)
+		}
+	}
+}

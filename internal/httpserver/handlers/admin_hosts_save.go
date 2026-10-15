@@ -664,6 +664,11 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 	matcherChanged := matcherChangedForUpdate(oldDomain, oldPath, oldAliases, domain, pathPrefix, aliases)
 	// "*.zone" on a path route would outrank a sibling's bare x.zone route
 	// (path specificity sorts first) and take its traffic.
+	if strings.Contains(aliases, "*") && (requireClientCert || tlsPQOnly) {
+		mcancel()
+		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "aliases", "a wildcard alias cannot be combined with mTLS or post-quantum-only TLS")
+		return
+	}
 	if strings.Contains(aliases, "*") && pathPrefix != "" && pathPrefix != "/" {
 		mcancel()
 		h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "aliases", "a wildcard alias needs a route without a path prefix")

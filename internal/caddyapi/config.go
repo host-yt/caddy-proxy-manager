@@ -209,7 +209,9 @@ func withWildcardHosts(routes []Route, zones []string) []Route {
 	}
 	out := slices.Clone(routes)
 	for i, r := range out {
-		if r.WildcardZone == "" || !slices.Contains(zones, r.WildcardZone) {
+		// mTLS/PQ policies match by SNI: "*.zone" would impose them on every
+		// other host in the zone.
+		if r.WildcardZone == "" || !slices.Contains(zones, r.WildcardZone) || r.RequireClientCert || r.TLSPQOnly {
 			continue
 		}
 		if h := "*." + r.WildcardZone; !slices.Contains(r.Hosts, h) {
