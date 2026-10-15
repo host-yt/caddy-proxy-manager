@@ -225,7 +225,7 @@ func withWildcardHosts(routes []Route, zones []string) []Route {
 // config Caddy would reject. Service-layer validation already gates this.
 func providerJSON(slug string, fields map[string]string) map[string]any {
 	p, ok := DNSProviderBySlug(slug)
-	if !ok {
+	if !ok || !credentialAccepted(slug, fields) {
 		return nil
 	}
 	out := map[string]any{"name": p.CaddyModule}

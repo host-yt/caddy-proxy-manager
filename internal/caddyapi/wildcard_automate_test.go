@@ -14,7 +14,7 @@ func wildcardSettings(dns bool) NodeSettings {
 		DNS01ModuleAvailable: dns,
 		WildcardPolicies: []WildcardPolicy{{
 			Zone: "shop.example", Provider: "cloudflare",
-			Fields: map[string]string{"api_token": "tok"},
+			Fields: map[string]string{"api_token": "Sqqty8-Vn0iOP29rvqYgwKz_xqGQ4y5JhuVL1-qU"},
 		}},
 	}
 }
@@ -78,5 +78,25 @@ func TestWildcardSortsAfterExactHost(t *testing.T) {
 	got := SortRoutesForEmission([]Route{wild, exact})
 	if got[0].ID != "e" {
 		t.Errorf("order = %s,%s; exact host must come first", got[0].ID, got[1].ID)
+	}
+}
+
+// caddy-dns/cloudflare fails Provision (and the node's whole /load) on a
+// malformed token: refuse it on save and never emit it.
+func TestCloudflareTokenShape(t *testing.T) {
+	for _, bad := range []string{"tok", "Bearer Sqqty8-Vn0iOP29rvqYgwKz_xqGQ4y5JhuVL1-qU", `"Sqqty8-Vn0iOP29rvqYgwKz_xqGQ4y5JhuVL1-qU"`} {
+		if _, err := ValidateDNSFields("cloudflare", map[string]string{"api_token": bad}); err != ErrInvalidCredential {
+			t.Errorf("%q: err = %v, want ErrInvalidCredential", bad, err)
+		}
+		s := wildcardSettings(true)
+		s.WildcardPolicies[0].Fields["api_token"] = bad
+		if auto := automateOf(BuildNodeConfig([]Route{wildcardRoute()}, s)); len(auto) != 0 {
+			t.Errorf("%q: zone emitted with a token the module rejects", bad)
+		}
+	}
+	for _, good := range []string{"Sqqty8-Vn0iOP29rvqYgwKz_xqGQ4y5JhuVL1-qU", "cfut_abcdefghijklmnopqrstuvwxyz0123456789"} {
+		if _, err := ValidateDNSFields("cloudflare", map[string]string{"api_token": good}); err != nil {
+			t.Errorf("%q rejected: %v", good, err)
+		}
 	}
 }

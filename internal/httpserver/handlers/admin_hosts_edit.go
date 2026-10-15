@@ -1011,6 +1011,13 @@ func (h *AdminHandlers) wildcardIssues(ctx context.Context, db *sql.DB, routeID 
 	}
 	if !contains(d.WildcardZones, d.WildcardZone) {
 		out = append(out, "No DNS provider is named \""+d.WildcardZone+"\"; the provider name must equal the wildcard zone.")
+	} else if h.Routes != nil && h.Routes.DecryptSecret != nil {
+		var slug, enc string
+		_ = db.QueryRowContext(ctx, "SELECT provider, api_token_enc FROM dns_providers WHERE name = ?", d.WildcardZone).Scan(&slug, &enc)
+		blob, derr := h.Routes.DecryptSecret(enc)
+		if _, verr := caddyapi.ValidateDNSFields(slug, caddyapi.DecodeDNSFields(slug, blob)); derr != nil || verr != nil {
+			out = append(out, "The stored credential for "+d.WildcardZone+" is unusable (cannot decrypt, or the Caddy DNS module rejects its format); re-save it under DNS providers.")
+		}
 	}
 	switch d.Status {
 	case "dns_ok", "active", "pending_ssl":

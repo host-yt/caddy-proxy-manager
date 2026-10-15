@@ -151,6 +151,9 @@ is needed, and a few API and Terraform behaviours change.
   subdomains are attributed to the route. The SSL tab lists which
   DNS-01 requirement is missing, and "Renew certificate now" re-pushes the
   full node config.
+- A Cloudflare token in a format the Caddy DNS module rejects (quotes,
+  spaces, a `Bearer ` prefix) is refused when saved, and a stored one is
+  skipped instead of failing the node's whole config load.
 - Host edit shows alias validation errors (invalid or already-used alias)
   instead of re-rendering the submitted value as if it was saved, and opens
   the tab that holds the error.

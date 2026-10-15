@@ -52,7 +52,7 @@ func TestBuildWildcardPolicies_FanoutPeer(t *testing.T) {
 	}
 	svc := quietService(db)
 	svc.DNS01ModuleAvailable = true
-	svc.DecryptSecret = func(string) (string, error) { return "tok", nil }
+	svc.DecryptSecret = func(string) (string, error) { return "Sqqty8-Vn0iOP29rvqYgwKz_xqGQ4y5JhuVL1-qU", nil }
 
 	for _, node := range []int64{1, 2} {
 		if got := svc.buildWildcardPolicies(context.Background(), node); len(got) != 1 {

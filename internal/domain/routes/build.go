@@ -1131,6 +1131,11 @@ func (s *Service) buildWildcardPolicies(ctx context.Context, nodeID int64) []cad
 			s.Logger.Error("wildcard: credential blob unusable, skipping zone", "zone", zone)
 			continue
 		}
+		if _, verr := caddyapi.ValidateDNSFields(provider, fields); verr != nil {
+			// The module would fail the node's whole /load on this credential.
+			s.Logger.Error("wildcard: credential rejected by DNS module format check, skipping zone", "zone", zone)
+			continue
+		}
 		out = append(out, caddyapi.WildcardPolicy{Zone: zone, Provider: provider, Fields: fields})
 	}
 	if err := rows.Err(); err != nil {
