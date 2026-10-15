@@ -49,6 +49,9 @@ carries **its own** proof; the parent route's proof does not cover it.
 - Only proven aliases pass `/internal/ask`, so an unproven alias is not
   certificate-eligible - on-demand TLS returns 403 for it.
 
+The wildcard alias `*.<zone>` (DNS-01, platform admins only) needs no TXT proof; see
+[DNS_PROVIDERS.md](DNS_PROVIDERS.md#wildcard-alias).
+
 ### What the owner has to publish
 
 The **same token as the primary domain** (`routes.verify_token`), once per

@@ -29,7 +29,7 @@ Comparison of HPG with common alternatives.
 | WebAuthn / passkey | yes | no | no | |
 | OIDC login | yes | no | no | |
 | Multi-node fleet | yes | no | no | Placement heuristics, node groups, drain |
-| DNS-01 wildcard ACME | yes | yes | no | HPG: via caddy-dns providers |
+| DNS-01 wildcard ACME | yes | yes | no | HPG: via caddy-dns providers; route alias `*.<zone>` serves all subdomains on one wildcard cert |
 | On-demand TLS | yes | yes | no | HPG: `/internal/ask` gate with DB check |
 | Backup / restore | yes | no | no | S3/SFTP/FTP; restore drill CLI |
 | Install wizard | yes | yes | no | |

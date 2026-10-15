@@ -813,3 +813,13 @@ Settings:
 ```sql
 DELETE FROM settings WHERE `key` LIKE 'captcha.%';
 ```
+
+---
+
+## 15. After upgrading to 1.9.0
+
+- **DNS records disappeared.** On the first reconcile pass the panel deletes, at the
+  provider, the DNS records it created for routes that are deleted, disabled,
+  unverified or no longer steered. Records created by hand are never touched.
+- **Log field renamed.** Node-token mismatch warnings now log `token_fp` (a
+  fingerprint) instead of `token_prefix`; update any log queries or alerts.

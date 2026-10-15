@@ -37,6 +37,11 @@ From the CA detail page, issue a client cert. The issued cert and its status
 (active / revoked) are stored in `mtls_issued_certs`. Revoking a cert here prevents
 it from being used on any route that references this CA on the next Caddy config push.
 
+After issuing, a one-time dialog shows the certificate PEM and the private key PEM,
+each with a **Copy** button, plus **Download .pem**. The download is `client.pem`:
+the certificate followed by the private key. The key is shown once and is not stored
+on the server.
+
 ## Per-hostname enforcement
 
 On the host edit page, under mTLS:

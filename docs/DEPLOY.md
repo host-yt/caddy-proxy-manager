@@ -61,6 +61,16 @@ services:
 
 After adding ports, restart the Caddy container (`docker compose up -d caddy`) and resync the node from the panel so Caddy picks up the new stream configuration.
 
+The stream listen port can be changed on the edit page; map the new port as above and
+resync the node.
+
+Stream settings:
+
+- **Trusted PROXY senders** (CIDRs): required when inbound PROXY protocol is on. Only
+  connections from these addresses are accepted; others are closed, so an empty list
+  closes every connection.
+- Upstream weights other than 1 are refused (one line per backend, no weight).
+
 ---
 
 ## 2. Docker Compose production deploy

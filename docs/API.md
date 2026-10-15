@@ -139,6 +139,18 @@ expire after 24 hours.
 
 ---
 
+## Webhooks
+
+Outbound webhooks (Admin -> Webhooks) POST events as JSON. Each request carries:
+
+| Header | Value |
+|---|---|
+| `X-HPG-Signature` | `sha256=<hex>`, HMAC-SHA256 of the body with the endpoint secret |
+| `X-HPG-Delivery` | Numeric delivery id, stable across retries |
+
+Delivery is at-least-once. Dedupe on `X-HPG-Delivery` to ignore retried events.
+An endpoint without a signing secret is never called.
+
 ## Roles
 
 | Role | Access |

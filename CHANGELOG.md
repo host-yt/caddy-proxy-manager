@@ -23,7 +23,7 @@ is deliberately left as published.
 
 ## [Unreleased]
 
-## [1.9.0] - 2026-10-11
+## [1.9.0] - 2026-10-16
 
 Security and reliability release from a full internal code review. **Upgrade
 promptly**, especially on shared, reseller or multi-node installs: many fixes
