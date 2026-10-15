@@ -3,6 +3,7 @@ package caddyapi
 import (
 	"encoding/json"
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -10,7 +11,21 @@ import (
 var (
 	errUnknownProvider = errors.New("caddy: unknown DNS provider")
 	errMissingField    = errors.New("caddy: missing required credential field")
+	// ErrInvalidCredential: caddy-dns/cloudflare rejects this token shape in
+	// Provision, which fails the node's whole /load.
+	ErrInvalidCredential = errors.New("caddy: credential format rejected by the Caddy DNS module")
+
+	// Copied from caddy-dns/cloudflare v0.2.4 (validCloudflareToken).
+	cloudflareTokenRe = regexp.MustCompile(`^cf(ut|at)_[A-Za-z0-9_-]{32,256}$|^[A-Za-z0-9_-]{35,50}$`)
 )
+
+// credentialAccepted mirrors module-side Provision checks we know of.
+func credentialAccepted(slug string, fields map[string]string) bool {
+	if slug == "cloudflare" {
+		return cloudflareTokenRe.MatchString(fields["api_token"])
+	}
+	return true
+}
 
 // DNS provider registry: the SINGLE SOURCE OF TRUTH for the supported
 // ACME DNS-01 providers. Consumed by the admin UI (dropdown + dynamic
@@ -230,6 +245,9 @@ func ValidateDNSFields(slug string, fields map[string]string) (map[string]string
 			return nil, errMissingField
 		}
 		clean[f.Key] = v
+	}
+	if !credentialAccepted(slug, clean) {
+		return nil, ErrInvalidCredential
 	}
 	return clean, nil
 }

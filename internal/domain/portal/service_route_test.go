@@ -225,3 +225,22 @@ func TestSetRouteGrantsWithoutDBFails(t *testing.T) {
 		t.Errorf("IdentityStillValid with no DB must error (indeterminate = deny)")
 	}
 }
+
+// A "*.zone" alias and a sibling's exact host at the same prefix: Caddy now
+// emits the exact host first, so the portal must pick it, not report a tie.
+func TestRouteForRequestExactBeatsWildcard(t *testing.T) {
+	db := migratedSQLite(t)
+	baseFixture(t, db)
+	insertRoute(t, db, 44, "shop.example", "", 1)
+	exec(t, db, `UPDATE routes SET aliases = '*.shop.example', aliases_verified = '*.shop.example' WHERE id = 44`)
+	insertRoute(t, db, 45, "demo.shop.example", "", 0)
+
+	svc := New(func() *sql.DB { return db })
+	ctx := context.Background()
+	if id, _, err := svc.RouteForRequest(ctx, "demo.shop.example", "/"); err != nil || id != 45 {
+		t.Errorf("exact host: got route %d, %v; want 45", id, err)
+	}
+	if id, _, err := svc.RouteForRequest(ctx, "other.shop.example", "/"); err != nil || id != 44 {
+		t.Errorf("wildcard host: got route %d, %v; want 44", id, err)
+	}
+}

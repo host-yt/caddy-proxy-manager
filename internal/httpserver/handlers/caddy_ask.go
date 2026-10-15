@@ -132,7 +132,10 @@ func (h *AskHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 // domainAllowed returns true when an issuance-eligible route exists for the
-// domain. Two-step so the common case stays index-backed:
+// domain. Subdomains under a route's "*.zone" alias are deliberately NOT
+// allowed: the zone's DNS-01 policy is not on-demand, so Caddy serves them from
+// the automate cert without asking; allowing them here would mint one HTTP-01
+// cert per random SNI whenever that policy is missing. Two-step so the common case stays index-backed:
 //  1. exact `domain = ?` uses idx_route_domain (fast, no scan).
 //  2. only on miss, fall back to the alias scan (FIND_IN_SET can't use an
 //     index). Aliases are rare, so the scan almost never runs.

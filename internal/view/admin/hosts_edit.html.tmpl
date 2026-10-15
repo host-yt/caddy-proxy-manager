@@ -73,13 +73,14 @@
       <div>
         <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-aliases">Additional domains (aliases, comma-separated)</label>
         <textarea id="f-aliases" aria-describedby="f-aliases-help" name="aliases" rows="2" placeholder="alias1.example.com, alias2.example.com" class="r-input w-full font-mono text-sm">{{.Aliases}}</textarea>
-        <p id="f-aliases-help" class="t-caption text-muted mt-1">Each alias gets its own Let's Encrypt cert on first hit (on-demand). Point DNS for each at this node before adding. Unless you are a platform admin, a newly added alias stays inactive until you publish the route's verification TXT record at <code>_hpg-verify.&lt;alias&gt;</code> and re-run Verify.</p>
+        {{with index .FieldErrors "aliases"}}<p role="alert" class="t-caption text-danger mt-1">{{.}}</p>{{end}}
+        <p id="f-aliases-help" class="t-caption text-muted mt-1">Each alias gets its own Let's Encrypt cert on first hit (on-demand). Point DNS for each at this node before adding. Unless you are a platform admin, a newly added alias stays inactive until you publish the route's verification TXT record at <code>_hpg-verify.&lt;alias&gt;</code> and re-run Verify. A wildcard alias <code>*.&lt;zone&gt;</code> is allowed when wildcard DNS-01 is enabled for that zone (SSL tab); it needs no TXT record, can only be added by a platform admin, and is served by the single wildcard cert.</p>
         {{if .AliasStates}}
         <div class="mt-2 flex flex-wrap gap-1.5">
           {{range .AliasStates}}
           <span class="px-2 py-0.5 rounded-lg font-mono text-xs" style="background:rgb(var(--surface-2))">
             {{.Host}}
-            {{if .Proven}}<span class="ml-1 text-emerald-500">proven</span>{{else}}<span class="ml-1 text-amber-500">pending</span>{{end}}
+            {{if and .Wildcard .Proven}}<span class="ml-1 text-sky-500">DNS-01</span>{{else if .Proven}}<span class="ml-1 text-emerald-500">proven</span>{{else}}<span class="ml-1 text-amber-500">pending</span>{{end}}
           </span>
           {{end}}
         </div>
@@ -402,8 +403,18 @@
           <label class="block t-caption font-medium text-[rgb(var(--text))] mb-1" for="f-wildcard_zone">Wildcard zone (apex, e.g. customer.com)</label>
           <input id="f-wildcard_zone" type="text" name="wildcard_zone" value="{{.WildcardZone}}" list="hpg-wild-zones" placeholder="customer.com" class="r-input w-full">
           <datalist id="hpg-wild-zones">{{range .WildcardZones}}<option value="{{.}}">{{end}}</datalist>
-          <p class="t-caption text-muted mt-1">Zone must cover this domain. Add the provider credential under <a href="/admin/settings/dns-providers" class="text-[rgb(var(--accent))] hover:underline">DNS providers</a>.</p>
+          {{with index .FieldErrors "wildcard_zone"}}<p role="alert" class="t-caption text-danger mt-1">{{.}}</p>{{end}}
+          <p class="t-caption text-muted mt-1">Zone must cover this domain. Add the provider credential under <a href="/admin/settings/dns-providers" class="text-[rgb(var(--accent))] hover:underline">DNS providers</a>, named exactly as the zone. Add alias <code>*.&lt;zone&gt;</code> on the Basics tab to route every subdomain here on one wildcard cert.</p>
         </div>
+        {{if .WildcardIssues}}
+        <div role="status" class="rounded-lg p-3 t-caption" style="background:rgb(var(--surface-2))">
+          <p class="font-medium text-amber-500">Wildcard cert is not being ordered:</p>
+          <ul class="list-disc ml-5 mt-1 space-y-0.5">{{range .WildcardIssues}}<li>{{.}}</li>{{end}}</ul>
+        </div>
+        {{end}}
+        {{if and .WildcardEnabled .WildcardAliasMissing}}
+        <p class="t-caption text-muted">No approved alias <code>*.{{.WildcardZone}}</code> yet, so subdomains are not routed here (Basics tab, platform admin).</p>
+        {{end}}
       </div>
       {{if .DNSSteeringEditable}}
       <div class="border-t border-[rgb(var(--border))] pt-4 space-y-3">
@@ -425,7 +436,7 @@
             <input id="f-dns_steering_ttl" type="number" name="dns_steering_ttl" min="30" max="86400" value="{{.DNSSteeringTTL}}" class="r-input w-full">
           </div>
         </div>
-        <p class="t-caption text-muted">Publishes an A/AAAA record per healthy, enabled node hosting this route and removes it when a node goes unhealthy - never the last remaining record (fail-static beats NXDOMAIN). Only this route's anchor node + its fan-out peers are managed.</p>
+        <p class="t-caption text-muted">Publishes an A/AAAA record per healthy, enabled node hosting this route and removes it when a node goes unhealthy - never the last remaining record (fail-static beats NXDOMAIN). Only this route's anchor node + its fan-out peers are managed. It manages only the A/AAAA record of this route's main domain (not aliases or <code>*.zone</code>), adding node IPs next to records that already exist.</p>
       </div>
       {{end}}
       <p class="t-caption text-muted">WebSocket OFF = Caddy answers 426 Upgrade Required, request never hits upstream. HTTP/2 is always on; HTTP/3 was removed (Caddy v2 protocols are server-wide so a per-route toggle was misleading, and QUIC fragments badly over WG).</p>
@@ -1437,6 +1448,9 @@ X-Authentik-Meta-Version</pre>
     var m = (location.hash || '').match(/tab=([a-z]+)/i);
     if (m && m[1] && document.querySelector('.hpg-pane[data-pane="' + m[1] + '"]')) initialTab = m[1];
     activate(initialTab);
+    // A server-side validation error lives in some pane: open it so it is seen.
+    var fieldErr = document.querySelector('.hpg-pane p[role="alert"]');
+    if (fieldErr) activate(fieldErr.closest('.hpg-pane').dataset.pane);
     // A field failing browser validation in a hidden tab would block Save silently: show its tab.
     document.addEventListener('invalid', function(e){
       var pane = e.target.closest && e.target.closest('.hpg-pane');

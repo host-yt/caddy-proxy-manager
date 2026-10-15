@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"html/template"
 	"net/http"
 	"strconv"
@@ -106,6 +107,10 @@ func (h *AdminHandlers) DNSProvidersCreate(w http.ResponseWriter, r *http.Reques
 		raw[f.Key] = r.FormValue("field_" + f.Key)
 	}
 	fields, err := caddyapi.ValidateDNSFields(provider, raw)
+	if errors.Is(err, caddyapi.ErrInvalidCredential) {
+		redirectWithFlash(w, r, page, "", "token format not accepted by the Caddy DNS module (paste the bare token, no quotes, spaces or \"Bearer\")")
+		return
+	}
 	if err != nil {
 		redirectWithFlash(w, r, page, "", "all required credential fields are needed")
 		return

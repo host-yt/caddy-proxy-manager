@@ -159,8 +159,9 @@ func fieldAt(values []string, i int) string {
 // sanitizeAliases parses the operator-supplied alias textarea (comma /
 // whitespace / semicolon separated), lowercases, dedupes, and validates
 // each as a DNS hostname. Rejects entries equal to the primary domain so
-// /ask lookups stay unambiguous.
-func sanitizeAliases(raw, primary string) (string, error) {
+// /ask lookups stay unambiguous. wildcardZone is the route's DNS-01 zone
+// ("" when wildcard is off); only "*.<wildcardZone>" may carry a star.
+func sanitizeAliases(raw, primary, wildcardZone string) (string, error) {
 	if strings.TrimSpace(raw) == "" {
 		return "", nil
 	}
@@ -174,6 +175,14 @@ func sanitizeAliases(raw, primary string) (string, error) {
 		if d == "" || d == primary || seen[d] {
 			continue
 		}
+		if strings.Contains(d, "*") {
+			if err := checkWildcardAlias(d, wildcardZone); err != nil {
+				return "", err
+			}
+			seen[d] = true
+			out = append(out, d)
+			continue
+		}
 		// Aliases become host matchers too, so they must satisfy the same
 		// shape rules as a primary domain and stay modellable for overlap.
 		if !routes.ValidDomain(d) || !caddyapi.ValidHostMatcher(d) {
@@ -183,6 +192,18 @@ func sanitizeAliases(raw, primary string) (string, error) {
 		out = append(out, d)
 	}
 	return strings.Join(out, ","), nil
+}
+
+// checkWildcardAlias accepts only "*.<zone>": the DNS-01 cert is *.zone, which
+// covers exactly one label, so any other wildcard would be served without TLS.
+func checkWildcardAlias(d, zone string) error {
+	if zone == "" {
+		return fmt.Errorf("wildcard alias %q needs wildcard DNS-01 enabled for its zone (SSL tab)", d)
+	}
+	if d != "*."+zone || !routes.ValidDomain(zone) || !caddyapi.ValidHostMatcher(d) {
+		return fmt.Errorf("wildcard alias %q not allowed: only *.%s matches the wildcard certificate of zone %s", d, zone, zone)
+	}
+	return nil
 }
 
 // splitHostCSV explodes a stored comma/space separated hostname list.
@@ -479,4 +500,12 @@ func parseHeaderMap(raw string) map[string]string {
 		out[name] = value
 	}
 	return out
+}
+
+// wildcardAliasZone is the zone a "*.zone" alias may use, "" when wildcard is off.
+func wildcardAliasZone(enabled bool, zone string) string {
+	if !enabled {
+		return ""
+	}
+	return zone
 }

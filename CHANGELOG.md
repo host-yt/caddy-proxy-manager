@@ -23,8 +23,24 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+## [1.9.0] - 2026-10-11
+
+Security and reliability release from a full internal code review. **Upgrade
+promptly**, especially on shared, reseller or multi-node installs: many fixes
+tighten tenant scoping, authentication and node isolation. Several defaults
+now fail closed (GeoIP policies, WAF on nodes without Coraza, the plain-HTTP
+installer, scoped admins without a resolvable scope). Read the upgrade notes
+before updating: migrations 00166-00171 run on start, a new node-agent image
+is needed, and a few API and Terraform behaviours change.
+
 ### Added
 
+- New clients can be invited by email instead of setting a password (needs SMTP).
+- Issued mTLS client certificates have copy buttons and a `.pem` bundle download.
+- Stream listen ports can be changed on edit.
+- `HPG_DRILL_DSN` points the restore drill at a pre-created empty
+  database, for MySQL users that cannot `CREATE DATABASE` (shared hosting).
+- `/api/v1/health` reports the real build version.
 - Terraform `hpg_reseller.owner_password_wo` (write-only, Terraform 1.11+)
   keeps the reseller owner password out of plan and state;
   `owner_password` is deprecated.
@@ -44,6 +60,8 @@ is deliberately left as published.
 
 ### Security
 
+- Tunnel install tokens, webhook signing secrets and issued mTLS keys are shown
+  once and never placed in redirect URLs.
 - mTLS path rules match the decoded, cleaned request path; the most specific
   rule wins over rule order; unreadable rules block the request.
 - Restricted and reseller admins fail closed when their scope can't be
@@ -125,6 +143,43 @@ is deliberately left as published.
 
 ### Fixed
 
+- Wildcard DNS-01 certificates are actually ordered now: the `*.zone` cert is
+  requested as soon as the config loads, and a route can take the alias
+  `*.<zone>` to serve every subdomain on that one cert (no per-subdomain
+  certificates, no TXT proof for the wildcard alias; platform admins only, on
+  a route without a path prefix). Access-log and WAF events for those
+  subdomains are attributed to the route. The SSL tab lists which
+  DNS-01 requirement is missing, and "Renew certificate now" re-pushes the
+  full node config.
+- A Cloudflare token in a format the Caddy DNS module rejects (quotes,
+  spaces, a `Bearer ` prefix) is refused when saved, and a stored one is
+  skipped instead of failing the node's whole config load.
+- Host edit shows alias validation errors (invalid or already-used alias)
+  instead of re-rendering the submitted value as if it was saved, and opens
+  the tab that holds the error.
+- The central node-agent now sees the GeoIP database, so country rules filter
+  traffic instead of failing closed on the panel node.
+- Saving a host after adding a redirect, rewrite or block location works again.
+- Editing a stream keeps all its upstreams.
+- Creating a webhook without a secret generates one instead of failing.
+- The AI assistant's route detail lookup works and includes WAF, rate limit,
+  geo and mTLS settings.
+- Ops summary counts and chart hours (shown in browser local time).
+- Refreshing the page after issuing an mTLS certificate no longer issues another.
+- Error toasts stay until dismissed; success shows one notice, not two.
+- mTLS CA form picks the client from a list; add-host form uses full width;
+  client detail lists every custom field.
+- Alert cooldown now applies to rules with changing measurements (stale WG
+  peer, error rate, DB pool, WAF surge); they no longer fire every minute.
+- Browsers no longer autofill the admin login into webhook, DNS provider,
+  backup and other secret fields.
+- Dashboard and Stats request counts match and survive node counter resets;
+  the 24h chart no longer piles all traffic into the last hour.
+- Row action menus stay inside the viewport; the Legacy aliases page renders;
+  Settings sections follow the URL hash.
+- Placeholders no longer look like saved values; the command palette is
+  readable in dark mode; backup destination form shows only the fields for
+  the chosen kind and the job list refreshes while a job runs.
 - Editing a stream keeps its CIDR lists; creating a stream with extra
   upstreams is all-or-nothing; reissuing a tunnel keeps its key-rotation age;
   a failed PSK clear keeps the rekey token usable.
@@ -197,6 +252,9 @@ is deliberately left as published.
 
 ### Upgrade notes
 
+- Portainer/compose installs: add `- geoip_data:/data/geoip:ro` under
+  `hpg-node-agent` volumes, or GeoIP rules on the panel node keep denying all
+  traffic (fail-closed) or skip filtering (fail-open).
 - Migration 00171 adds a short-lived ledger that makes access-log batch
   retries idempotent.
 - Stream upstream weights are no longer sent to nodes; saving a stream with a

@@ -317,3 +317,23 @@ func TestIngest_RetryAfterLostAckNotDoubleCounted(t *testing.T) {
 		t.Fatalf("rows=%d requests=%d, want 3/3", rows, reqs)
 	}
 }
+
+func TestResolveWildcardAlias(t *testing.T) {
+	idx := NodeRouteIndex{
+		"*.shop.example":    {{id: 44}},
+		"demo.shop.example": {{id: 45, prefix: "/api"}},
+	}
+	for _, tc := range []struct {
+		host, uri string
+		want      int64
+	}{
+		{"x.shop.example", "/", 44},
+		{"demo.shop.example", "/api/1", 45},
+		{"demo.shop.example", "/other", 44},
+		{"a.b.shop.example", "/", 0},
+	} {
+		if got, _ := idx.Resolve(tc.host, tc.uri); got != tc.want {
+			t.Errorf("Resolve(%q,%q)=%d want %d", tc.host, tc.uri, got, tc.want)
+		}
+	}
+}

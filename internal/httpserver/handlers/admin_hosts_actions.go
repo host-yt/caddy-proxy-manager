@@ -695,6 +695,9 @@ func (h *AdminHandlers) HostsRetry(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/hosts", "", "retry failed: "+sanitizeErr(err))
 		return
 	}
+	// Full node config, not the incremental route patch: the TLS app (DNS-01
+	// policy + certificates.automate) only changes on a full /load.
+	h.Routes.SchedulePushForRoute(ctx, id)
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: actorUserID(sess), Action: "admin.host.retry", Entity: "route", EntityID: itoa64(id),
 	})

@@ -245,7 +245,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		return nil, nil, err
 	}
 	rows, err := s.DB.QueryContext(ctx,
-		`SELECT r.id, r.domain, COALESCE(r.aliases,''), COALESCE(r.aliases_verified,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
+		`SELECT r.id, r.domain, COALESCE(r.aliases,''), COALESCE(r.aliases_verified,''),
+		        COALESCE(r.wildcard_enabled,0), COALESCE(r.wildcard_zone,''), r.path_prefix, r.upstream_port, r.upstream_scheme, r.upstream_skip_tls_verify,
 		        r.websocket, r.force_https,
 		        r.http2_enabled, r.http3_enabled, r.ssl_enabled,
 		        -- Per-route backend_ip_override beats both peer IP and the
@@ -360,6 +361,8 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			id                             int64
 			domain, aliases                string
 			aliasesVerified                string
+			wildcardEnabled                bool
+			wildcardZone                   string
 			path                           string
 			port                           int
 			scheme                         string
@@ -426,7 +429,7 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 		var tlsPQOnly bool
 		var dialTimeoutMs, responseHeaderTimeoutMs int
 		var clGeoAction, clGeoRedirect, clGeoTitle, clGeoMessage, clGeoLogo, clGeoBg string
-		if err := rows.Scan(&id, &domain, &aliases, &aliasesVerified, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
+		if err := rows.Scan(&id, &domain, &aliases, &aliasesVerified, &wildcardEnabled, &wildcardZone, &path, &port, &scheme, &skipTLS, &ws, &fhttps, &h2, &h3, &sslEnabled, &ip,
 			&tunnelResolverIP,
 			&kind, &redirURL, &redirCode, &cacheEnabled, &cacheTTL, &cachePublic, &headersJSON,
 			&maintMode, &maintMsg, &cacheVary, &accessAllow, &accessDeny,
@@ -498,7 +501,14 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			proven[a] = true
 		}
 		hosts := []string{domain}
+		// "*.zone" needs no TXT proof (only a platform admin can verify it, see
+		// HostsUpdate); BuildNodeConfig emits it only with the zone's DNS-01 policy.
+		wildcardHostZone := ""
 		for _, a := range splitHostList(aliases) {
+			if wildcardEnabled && wildcardZone != "" && a == "*."+wildcardZone && proven[a] && (path == "" || path == "/") {
+				wildcardHostZone = wildcardZone
+				continue
+			}
 			if a != domain && proven[a] {
 				hosts = append(hosts, a)
 			}
@@ -608,10 +618,11 @@ func (s *Service) buildRoutesForNode(ctx context.Context, nodeID int64) ([]caddy
 			wafDirectives = appendWAFDirectives(wafDirectives, wafSuppressionDirectives(wafSups, id))
 		}
 		built = append(built, caddyapi.Route{
-			ID:         fmt.Sprintf("%d", id),
-			Hosts:      hosts,
-			PathPrefix: path,
-			UpstreamIP: ip,
+			ID:           fmt.Sprintf("%d", id),
+			Hosts:        hosts,
+			WildcardZone: wildcardHostZone,
+			PathPrefix:   path,
+			UpstreamIP:   ip,
 			// Node-side resolution is the operator's explicit waiver, not
 			// something a tunnel grants: a tunnel name is dialed at the peer.
 			ResolveNodeSide:       resolveNodeSide,
@@ -1091,7 +1102,7 @@ func (s *Service) buildWildcardPolicies(ctx context.Context, nodeID int64) []cad
 		  WHERE (r.caddy_node_id = ?
 		         OR EXISTS (SELECT 1 FROM route_node_assignments rna
 		                     WHERE rna.route_id = r.id AND rna.node_id = ?))
-		    AND r.wildcard_enabled = 1
+		    AND r.wildcard_enabled = 1 AND r.ssl_enabled = 1 AND r.domain_verified = 1
 		    AND r.status IN ('dns_ok','active','pending_ssl')`+serviceActiveSQL+`
 		  ORDER BY dp.name ASC`, nodeID, nodeID)
 	if err != nil {
@@ -1118,6 +1129,11 @@ func (s *Service) buildWildcardPolicies(ctx context.Context, nodeID int64) []cad
 		fields := caddyapi.DecodeDNSFields(provider, blob)
 		if len(fields) == 0 {
 			s.Logger.Error("wildcard: credential blob unusable, skipping zone", "zone", zone)
+			continue
+		}
+		if _, verr := caddyapi.ValidateDNSFields(provider, fields); verr != nil {
+			// The module would fail the node's whole /load on this credential.
+			s.Logger.Error("wildcard: credential rejected by DNS module format check, skipping zone", "zone", zone)
 			continue
 		}
 		out = append(out, caddyapi.WildcardPolicy{Zone: zone, Provider: provider, Fields: fields})
