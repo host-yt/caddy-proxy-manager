@@ -213,6 +213,11 @@ All SMTP variables are optional. They provide bootstrap defaults; the admin UI c
 | `SMTP_FROM_EMAIL` | `no-reply@example.com` | Sender address |
 | `SMTP_FROM_NAME` | `Hostyt Proxy` | Sender display name |
 
+SMTP must be configured (env or admin UI) to invite a new client by email: leave the
+password empty in the Add client form and the customer gets a set-password link, valid
+30 minutes. Without SMTP the password is required.
+
+
 ### Security
 
 | Variable | Default | Description |

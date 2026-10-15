@@ -756,6 +756,15 @@ ledger drops replays), so this only affects efficiency once the offset persists.
 
 ---
 
+### Decommission and Force decommission
+
+**Admin -> Nodes -> row menu.** Decommission moves the node's routes to a peer in the
+same group, clears the node's Caddy config, then deletes the node. If the node cannot
+be cleared (offline), it aborts after the move with an error and the node stays.
+
+**Force decommission** deletes the node even when clearing fails. Use it only for an
+unreachable node; stop Caddy on that server by hand, since it keeps its last config.
+
 ## 11. Colocated Panel + Edge (Single Host)
 
 Running the panel and its Caddy edge on the **same** box, with that Caddy
