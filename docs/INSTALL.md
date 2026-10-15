@@ -217,7 +217,6 @@ SMTP must be configured (env or admin UI) to invite a new client by email: leave
 password empty in the Add client form and the customer gets a set-password link, valid
 30 minutes. Without SMTP the password is required.
 
-
 ### Security
 
 | Variable | Default | Description |
