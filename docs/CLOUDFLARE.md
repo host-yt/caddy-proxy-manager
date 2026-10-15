@@ -7,7 +7,8 @@ Admin → Settings → Infrastructure → Cloudflare configures two independent 
    node resolve the real client IP when traffic is proxied through Cloudflare.
 
 Neither is the same as the per-zone DNS credential used for ACME DNS-01 wildcard
-certificates. Those are configured per-domain under Admin → DNS Providers; see
+certificates. Those are configured per-zone under Admin → DNS Providers (token needs
+`Zone → Zone → Read` + `Zone → DNS → Edit`, bare token without quotes or `Bearer `); see
 [`DNS_PROVIDERS.md`](DNS_PROVIDERS.md).
 
 ## API token
@@ -35,9 +36,9 @@ Saving verifies the token with `GET /client/v4/user/tokens/verify`, which needs
 no particular permission - **any active user token passes today**, including the
 "Read all resources" template.
 
-Planned DNS automation will need `Zone → DNS → Edit` on the zones HPG manages,
-so creating the token with that permission now avoids re-issuing it later. Scope
-it to only the zones you intend HPG to touch.
+DNS steering and wildcard DNS-01 do not use this token: they use the per-zone
+credential under DNS providers (`Zone → Zone → Read` + `Zone → DNS → Edit`), see
+[`DNS_PROVIDERS.md`](DNS_PROVIDERS.md).
 
 The token is stored encrypted at rest (`AES-256-GCM`, `settings` table,
 `cloudflare.api_token`). Leave the field blank on save to keep the existing token.

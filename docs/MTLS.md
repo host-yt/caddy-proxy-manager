@@ -91,7 +91,8 @@ certificate may reach: each rule maps a path pattern to a required role
 must carry that role to reach the path. This is a second, path-level check
 on top of the per-hostname cert requirement above - it does not change
 *whether* a certificate is required, only what a presented one is allowed to
-reach. The check itself runs as a Caddy `forward_auth` subrequest against
+reach. When several rules match a path, the most specific one decides (not rule
+order), and the check uses the decoded, cleaned request path. The check itself runs as a Caddy `forward_auth` subrequest against
 the panel; the request/token mechanics are documented in
 [SECURITY.md](SECURITY.md#mtls) under "Path RBAC checks".
 
