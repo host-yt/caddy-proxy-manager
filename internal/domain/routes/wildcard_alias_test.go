@@ -4,10 +4,15 @@ import (
 	"context"
 	"log/slog"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 )
+
+// testCFToken has the shape caddy-dns/cloudflare accepts (not a literal, so
+// secret scanners do not flag it).
+var testCFToken = strings.Repeat("Ab1_", 10)
 
 // A platform-admin "*.zone" alias on a wildcard route reaches the Caddy
 // config as a host matcher plus an eagerly ordered cert, with no TXT proof.
@@ -30,7 +35,7 @@ func TestWildcardAliasReachesNodeConfig(t *testing.T) {
 		}
 	}
 	svc := &Service{DB: db, Logger: slog.Default(), DNS01ModuleAvailable: true,
-		DecryptSecret: func(string) (string, error) { return "Sqqty8-Vn0iOP29rvqYgwKz_xqGQ4y5JhuVL1-qU", nil }}
+		DecryptSecret: func(string) (string, error) { return testCFToken, nil }}
 	built, _, err := svc.buildRoutesForNode(ctx, 1)
 	if err != nil {
 		t.Fatalf("buildRoutesForNode: %v", err)

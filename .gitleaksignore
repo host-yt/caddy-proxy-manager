@@ -1,0 +1,2 @@
+# False positive: public sample Cloudflare token from caddy-dns/cloudflare tests, replaced in the next commit.
+b611701cade4a34c555b82b385af1bd105e812c4:internal/caddyapi/wildcard_automate_test.go:generic-api-key:17
