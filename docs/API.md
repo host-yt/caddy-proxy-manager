@@ -163,7 +163,7 @@ Returns API version and liveness status. No authentication required.
 ```json
 {
   "status": "ok",
-  "version": "0.1.174"
+  "version": "1.9.0"
 }
 ```
 

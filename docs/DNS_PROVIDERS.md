@@ -56,8 +56,12 @@ that reference it.
 
 - **AWS Route 53**: Access key and secret are optional when the instance has an IAM
   role or AWS credential chain configured; omit them to use ambient credentials.
-- **Cloudflare**: An API token scoped to `Zone → DNS → Edit` on the zones you issue
-  wildcards for. This is a per-zone credential used by Caddy on the nodes, and is
+- **Cloudflare**: An API token with `Zone → Zone → Read` and `Zone → DNS → Edit` on the
+  zone you issue the wildcard for. Paste the bare token: 35-50 characters of
+  `A-Z a-z 0-9 _ -`, or a `cfut_` / `cfat_` prefixed token. Quotes, spaces or a
+  `Bearer ` prefix are refused on save, and a stored token the Caddy DNS module would
+  reject is skipped (the zone gets no DNS-01 policy) instead of failing the node's
+  whole config load. This is a per-zone credential used by Caddy on the nodes, and is
   separate from the account-level token under Settings → Cloudflare - configure both
   if you use both features. See [`CLOUDFLARE.md`](CLOUDFLARE.md).
 - **Azure DNS**: Tenant, Client ID, and Client secret are optional when using a managed
@@ -69,13 +73,39 @@ that reference it.
 
 ## Per-host setup
 
-On the host edit form (Admin → Hosts → Edit), the Wildcard TLS section shows a
-datalist of configured DNS provider names. Select one and enter the wildcard zone
-(e.g. `example.com`). HPG tells Caddy to use DNS-01 for that hostname and all
-`*.example.com` subdomains via that provider.
+On the host edit form (Admin → Hosts → Edit → SSL tab), tick wildcard DNS-01 and enter
+the zone (e.g. `example.com`; it must cover the route's domain). The **name** of the
+DNS provider row must equal the zone exactly (provider named `example.com` for zone
+`example.com`).
 
-This only applies to routes that use a wildcard zone. Non-wildcard routes continue to
-use HTTP-01 unless manually configured otherwise.
+All of these must hold, otherwise no wildcard cert is ordered:
+
+- `DNS01_AVAILABLE=1` on the panel, and the route's node has a `caddy-dns` module
+  (node page → Module capabilities; unprobed nodes follow `DNS01_AVAILABLE`).
+- The Caddy image on the node is built with the provider's `caddy-dns` module.
+- A DNS provider row named exactly as the zone, with a usable credential.
+- SSL on, domain verified, route status `dns_ok`, `active` or `pending_ssl`.
+
+The SSL tab lists every unmet condition. When all hold, the node orders `*.zone` and
+`zone` as soon as the config loads (`tls.certificates.automate`), and **Renew
+certificate now** re-pushes the full node config.
+
+### Wildcard alias
+
+To serve every subdomain from that one certificate, add the alias `*.<zone>` to the
+route:
+
+- Only the exact `*.<zone>` is accepted (one label deep); other wildcards are refused.
+- Platform admins only. The route must have no path prefix.
+- No TXT ownership proof is required for the wildcard alias.
+- Subdomains are served from the single wildcard cert, never via on-demand TLS, so no
+  per-subdomain certificates are issued.
+- A route with an exact hostname for a subdomain wins over the wildcard.
+- Access-log and WAF events for those subdomains are attributed to the route.
+- Create the DNS record `*.<zone>` pointing at the node yourself. DNS steering manages
+  only the route's main domain A/AAAA records (adding node IPs next to existing ones).
+
+Non-wildcard routes keep using HTTP-01 / on-demand TLS.
 
 ## Limitations
 
@@ -85,4 +115,4 @@ use HTTP-01 unless manually configured otherwise.
 - dnspod and namedotcom are not supported (compile-time libdns incompatibility).
 - DNS propagation delays affect how quickly ACME can verify the TXT record; this is
   outside HPG's control.
-- Only one DNS provider can be assigned per wildcard zone per route.
+- One DNS provider row per zone (names are matched to the zone), one zone per route.

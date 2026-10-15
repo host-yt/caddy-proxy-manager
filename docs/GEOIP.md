@@ -67,6 +67,12 @@ The admin UI accepts a comma-separated list. Blank value with `allow` or `deny` 
 is treated as "no countries" which effectively blocks or allows everything - validate
 the list before saving.
 
+## Panel node (compose / Portainer)
+
+The bundled node-agent on the panel host reads the same `geoip_data` volume. Mount it
+under the `hpg-node-agent` service too (`- geoip_data:/data/geoip:ro`, already in the
+shipped composes); without it country rules on the panel node fail closed.
+
 ## Remote nodes
 
 A remote node does not get the mmdb from the panel's volume - the node-agent

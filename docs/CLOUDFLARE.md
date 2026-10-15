@@ -7,7 +7,8 @@ Admin → Settings → Infrastructure → Cloudflare configures two independent 
    node resolve the real client IP when traffic is proxied through Cloudflare.
 
 Neither is the same as the per-zone DNS credential used for ACME DNS-01 wildcard
-certificates. Those are configured per-domain under Admin → DNS Providers; see
+certificates. Those are configured per-zone under Admin → DNS Providers (token needs
+`Zone → Zone → Read` + `Zone → DNS → Edit`, bare token without quotes or `Bearer `); see
 [`DNS_PROVIDERS.md`](DNS_PROVIDERS.md).
 
 ## API token

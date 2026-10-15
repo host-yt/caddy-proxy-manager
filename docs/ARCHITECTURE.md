@@ -502,7 +502,11 @@ When `DNS01_AVAILABLE=1` and a DNS provider is configured for a zone,
 `BuildNodeConfig` prepends per-zone automation policies with a `dns`
 challenge issuer (caddy-dns module). These policies carry explicit `subjects`
 (`["*.zone", "zone"]`) and appear before the on-demand catch-all
-(`on_demand: true`) so Caddy evaluates them first-match.
+(`on_demand: true`) so Caddy evaluates them first-match. The `*.zone` and apex
+certs are also ordered eagerly via `tls.certificates.automate`. A route with the
+alias `*.zone` gets that host added to its matcher and sorts after exact host
+routes, so exact hosts win. A zone whose credential the Caddy DNS module would
+reject is skipped.
 
 ### Module feature gates
 Six boolean flags in `config.CaddyConfig` (and matching `NodeSettings`
