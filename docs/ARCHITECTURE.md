@@ -510,8 +510,8 @@ reject is skipped.
 
 ### Module feature gates
 Six boolean flags in `config.CaddyConfig` (and matching `NodeSettings`
-fields) prevent the config builder from emitting handler blocks that stock
-`caddy:2.8` does not know. Emitting an unknown handler causes Caddy to
+fields) prevent the config builder from emitting handler blocks that a stock
+`caddy` image (no extra modules) does not know. Emitting an unknown handler causes Caddy to
 reject the entire `/load`, taking the node offline. Flags default off; the
 operator enables them only after rebuilding every node's Caddy image.
 
@@ -626,7 +626,7 @@ node in the fleet has been rebuilt and verified healthy.
 
 **Never flip `module_available` early.**
 Specifically for `CacheModuleAvailable`: emitting `apps.cache` on a stock
-`caddy:2.8` image returns `"unknown app"` and takes the node offline. The
+`caddy` image returns `"unknown app"` and takes the node offline. The
 same applies to each of the six module gates. The feature-gate pattern
 is intentionally conservative (default off) so a fresh deployment is
 always safe.
