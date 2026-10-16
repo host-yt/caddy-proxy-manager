@@ -78,6 +78,11 @@ the **why** in the body when it isn't obvious from the diff.
 - Link the related ticket / issue if there is one.
 - Don't introduce new third-party dependencies without flagging it.
 
+## AI tools
+
+How the project uses AI assistants, and what to disclose if you use one, is in
+[AI_USAGE.md](AI_USAGE.md).
+
 ## Security findings
 
 Don't open public issues for security problems. See [SECURITY.md](SECURITY.md).

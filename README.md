@@ -389,6 +389,7 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Common issues + fixes |
 | [`CHANGELOG.md`](CHANGELOG.md) | Notable changes |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | How to develop / submit changes |
+| [`AI_USAGE.md`](AI_USAGE.md) | How AI coding assistants are used and checked |
 | [`SECURITY.md`](SECURITY.md) | Reporting vulnerabilities |
 
 ---

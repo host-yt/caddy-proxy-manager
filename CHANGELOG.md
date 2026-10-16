@@ -57,6 +57,8 @@ is needed, and a few API and Terraform behaviours change.
 - Community health files: `CODE_OF_CONDUCT.md`, `SUPPORT.md`, `CODEOWNERS`, release-note
   categories; `SECURITY.md` now names the private advisory channel, supported
   versions and response targets. Issue forms add `needs-triage`.
+- `AI_USAGE.md` states how AI coding assistants are used and how their output is
+  checked.
 
 ### Security
 
