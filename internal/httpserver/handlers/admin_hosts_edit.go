@@ -858,6 +858,11 @@ func (h *AdminHandlers) renderHostEditValidationError(w http.ResponseWriter, r *
 		d.Groups = loadHostGroups(ctx, db)
 		d.MTLSCAs = loadMTLSCAOptions(ctx, db)
 		d.ClientTunnels = loadClientTunnels(ctx, db, clientID)
+		// Header line: these come from the stored row, not the submitted form.
+		_ = db.QueryRowContext(ctx,
+			`SELECT r.status, COALESCE(n.name,''), COALESCE(n.public_hostname,'')
+			   FROM routes r LEFT JOIN caddy_nodes n ON n.id = r.caddy_node_id WHERE r.id = ?`, id,
+		).Scan(&d.Status, &d.NodeName, &d.NodeHost)
 		d.PortalGroups = h.portalGroupsForRoute(ctx, sess, id, clientID)
 		if tenantScoped, provOK := h.selfProvisionScope(ctx, sess); provOK && !tenantScoped {
 			d.CustomConfigEditable = true
