@@ -22,7 +22,7 @@ require (
 	golang.org/x/net v0.60.0
 	golang.org/x/oauth2 v0.37.0
 	golang.org/x/sync v0.24.0
-	golang.org/x/text v0.42.0
+	golang.org/x/text v0.43.0
 	modernc.org/sqlite v1.60.1
 )
 
