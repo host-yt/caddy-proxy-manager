@@ -12,7 +12,7 @@
 # minified stylesheet shipped under /static/css/tailwind.css. Lets us
 # drop the CDN runtime script (Tailwind's own console nag + extra RTT)
 # without dragging Node into the build.
-FROM alpine:3.24@sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6 AS tailwind
+FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS tailwind
 ARG TW_VERSION=v3.4.17
 ARG TARGETARCH
 # Pinned sha256 of the v3.4.17 release binaries - verified via `shasum -a 256`
