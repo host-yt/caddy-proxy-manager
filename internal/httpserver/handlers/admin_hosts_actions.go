@@ -455,7 +455,7 @@ func (h *AdminHandlers) HostsCheckDNS(w http.ResponseWriter, r *http.Request) {
 	}
 	resp["resolved"] = addrs
 	match := false
-	for _, want := range expectedIPs {
+	for _, want := range expandNodeAddrs(ctx, resolver.LookupHost, expectedIPs, hostname) {
 		for _, a := range addrs {
 			if a == want {
 				match = true
@@ -465,6 +465,23 @@ func (h *AdminHandlers) HostsCheckDNS(w http.ResponseWriter, r *http.Request) {
 	}
 	resp["match"] = match
 	apiJSON(w, http.StatusOK, resp)
+}
+
+// expandNodeAddrs returns literal IPs from addrs plus the resolved IPs of any
+// hostname entries (public_ip may hold a DDNS name) and of the node hostname.
+func expandNodeAddrs(ctx context.Context, lookup func(context.Context, string) ([]string, error), addrs []string, hostname string) []string {
+	var out []string
+	for _, a := range append(append([]string{}, addrs...), hostname) {
+		if a == "" {
+			continue
+		}
+		if net.ParseIP(a) != nil {
+			out = append(out, a)
+		} else if ips, err := lookup(ctx, a); err == nil {
+			out = append(out, ips...)
+		}
+	}
+	return out
 }
 
 // HostsDNSTest performs a real DNS lookup through the resolver configured for

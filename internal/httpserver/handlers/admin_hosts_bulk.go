@@ -285,15 +285,18 @@ func ensureAdminPlan(ctx context.Context, db *sql.DB, nodeGroupID int64) (int64,
 }
 
 // ensureAdminService finds or creates a services row keyed on
-// (client_id, backend_ip). The port range is the full 1..65535 so a
+// (client_id, backend_ip) whose port range contains port (port <= 0 matches
+// any range). A new service's port range is the full 1..65535 so a
 // single service can carry many admin-added routes. New backends get
 // new services on demand; deleting the last route does not GC the
 // service (cheap, lets the admin reuse it later).
-func ensureAdminService(ctx context.Context, db *sql.DB, clientID int64, backendIP string, planID, nodeGroupID int64) (int64, error) {
+func ensureAdminService(ctx context.Context, db *sql.DB, clientID int64, backendIP string, port int, planID, nodeGroupID int64) (int64, error) {
 	var id int64
 	err := db.QueryRowContext(ctx,
-		`SELECT id FROM services WHERE client_id = ? AND backend_ip = ? LIMIT 1`,
-		clientID, backendIP).Scan(&id)
+		`SELECT id FROM services WHERE client_id = ? AND backend_ip = ?
+		   AND (? <= 0 OR (allowed_port_start <= ? AND allowed_port_end >= ?))
+		 ORDER BY id LIMIT 1`,
+		clientID, backendIP, port, port, port).Scan(&id)
 	if err == nil {
 		return id, nil
 	}
