@@ -34,6 +34,8 @@ for all four images. Includes everything listed under 1.10.0.
 - Alpine-based images (edge, node-agent, WireGuard) apply base package updates
   at build time and use a current Alpine 3.24 digest, picking up the zlib fix
   for CVE-2026-85091.
+- The edge (Caddy) binary is built with Go 1.27.3 and go-jose 4.1.6
+  (CVE-2026-111943, CVE-2026-116587).
 
 ## [1.10.0] - 2026-11-07
 
