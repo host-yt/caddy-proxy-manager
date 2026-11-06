@@ -3,6 +3,7 @@
 [![CI](https://github.com/host-yt/caddy-proxy-manager/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/host-yt/caddy-proxy-manager/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/host-yt/caddy-proxy-manager)](https://github.com/host-yt/caddy-proxy-manager/releases/latest)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/host-yt/caddy-proxy-manager/badge)](https://scorecard.dev/viewer/?uri=github.com/host-yt/caddy-proxy-manager)
+[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/16397/badge)](https://www.bestpractices.dev/projects/16397)
 
 **A Caddy proxy manager - the self-hosted, multi-tenant alternative to Nginx Proxy Manager, built on [Caddy](https://caddyserver.com).**
 
