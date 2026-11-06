@@ -23,6 +23,18 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+## [1.10.1] - 2026-11-07
+
+Completes the 1.10.0 release: the edge, node-agent and WireGuard images failed
+the release vulnerability gate and were not published for 1.10.0. Use 1.10.1
+for all four images. Includes everything listed under 1.10.0.
+
+### Security
+
+- Alpine-based images (edge, node-agent, WireGuard) apply base package updates
+  at build time and use a current Alpine 3.24 digest, picking up the zlib fix
+  for CVE-2026-85091.
+
 ## [1.10.0] - 2026-11-07
 
 Feature and bug-fix release driven by user reports. Adds REST API control over

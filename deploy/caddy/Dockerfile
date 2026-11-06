@@ -54,6 +54,8 @@ RUN xcaddy build \
       --with github.com/caddy-dns/powerdns@v1.0.2
 
 FROM caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
+# Pull patched base packages; the pinned upstream digest lags security fixes.
+RUN apk upgrade --no-cache
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
 
 # Bake the Caddyfile into the image so deploys (Portainer, plain compose,
