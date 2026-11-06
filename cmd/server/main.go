@@ -20,6 +20,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata" // TZ=Europe/Warsaw works on images without zoneinfo
 
 	"github.com/redis/go-redis/v9"
 

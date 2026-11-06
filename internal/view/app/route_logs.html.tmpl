@@ -187,7 +187,7 @@
         <tbody class="divide-y" style="border-color:rgb(var(--border))">
           {{range .Entries}}
           <tr class="hover:bg-slate-50 dark:hover:bg-zinc-800/50 transition-colors">
-            <td class="px-4 py-2 text-xs whitespace-nowrap font-mono" style="color:rgb(var(--muted))">{{.TS.Format "2006-01-02 15:04:05"}}</td>
+            <td class="px-4 py-2 text-xs whitespace-nowrap font-mono" style="color:rgb(var(--muted))">{{localTime .TS "2006-01-02 15:04:05"}}</td>
             <td class="px-4 py-2"><span class="hpg-method-badge text-xs font-mono font-semibold">{{.Method}}</span></td>
             <td class="px-4 py-2 text-xs font-mono" style="color:rgb(var(--muted))">{{if .Proto}}{{.Proto}}{{else}}-{{end}}</td>
             <td class="px-4 py-2 font-mono text-xs max-w-xs truncate" style="color:rgb(var(--text))" title="{{.URI}}">{{.URI}}</td>

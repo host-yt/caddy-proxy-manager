@@ -159,7 +159,7 @@
         <tbody>
           {{range .Entries}}
           <tr class="{{if .Suppressed}}opacity-50{{end}}">
-            <td class="font-mono text-xs tabular-nums whitespace-nowrap">{{.TS.Format "2006-01-02 15:04:05"}}</td>
+            <td class="font-mono text-xs tabular-nums whitespace-nowrap">{{localTime .TS "2006-01-02 15:04:05"}}</td>
             <td>
               {{if eq .Severity "critical"}}<span class="r-pill r-pill-danger">{{.Severity}}</span>
               {{else if eq .Severity "high"}}<span class="r-pill r-pill-danger">{{.Severity}}</span>
@@ -247,7 +247,7 @@
             </td>
             <td class="max-w-xs truncate" title="{{.Reason}}">{{if .Reason}}{{.Reason}}{{else}}-{{end}}</td>
             <td class="whitespace-nowrap tabular-nums">{{if .ExpiresAt.Valid}}{{.ExpiresAt.Time.Format "2006-01-02"}}{{else}}permanent{{end}}</td>
-            <td class="font-mono text-xs tabular-nums whitespace-nowrap">{{.CreatedAt.Format "2006-01-02 15:04"}}</td>
+            <td class="font-mono text-xs tabular-nums whitespace-nowrap">{{localTime .CreatedAt "2006-01-02 15:04"}}</td>
             <td>
               <form method="POST" action="/admin/waf/suppressions/{{.ID}}/delete" class="inline" data-confirm="Delete this suppression?">
                 <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
