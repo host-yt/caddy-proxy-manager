@@ -27,8 +27,13 @@ FROM caddy:2.11.7-builder@sha256:b25f47453fa02f7e66c0828b4b1343658808b9000950b68
 # /load, so the two MUST match exactly (DNSProviderModules()).
 # x/net is not a Caddy module: --replace (not --with) forces the fixed version
 # (CVE-2026-78669); Caddy 2.11.7 itself resolves v0.59.0. Drop once it doesn't.
+# Same for go-jose (CVE-2026-116587, Caddy resolves v4.1.5).
+# The builder image ships Go 1.27.2 (CVE-2026-111943); take the pinned 1.27.3
+# toolchain from the panel's build image until a newer builder digest lands.
+COPY --from=golang:1.27-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 /usr/local/go /usr/local/go
 RUN xcaddy build \
       --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
+      --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6 \
       --with github.com/caddyserver/cache-handler@v0.16.0 \
       --with github.com/mholt/caddy-l4@v0.1.1 \
       --with github.com/mholt/caddy-ratelimit@v0.1.0 \
