@@ -53,7 +53,7 @@
         {{range .RulesStatus}}
           <tr>
             <td class="font-mono text-xs">{{.RuleID}}</td>
-            <td class="text-xs tabular-nums">{{if .LastFired}}{{.LastFired.Format "2006-01-02 15:04"}}{{else}}<span class="t-muted">never</span>{{end}}</td>
+            <td class="text-xs tabular-nums">{{if .LastFired}}{{localTime .LastFired "2006-01-02 15:04"}}{{else}}<span class="t-muted">never</span>{{end}}</td>
             <td class="tabular-nums text-xs {{if gt .FireCount 0}}font-medium{{end}}" style="{{if gt .FireCount 0}}color:rgb(var(--warning)){{end}}">{{.FireCount}}</td>
             <td class="t-small">{{.Description}}</td>
           </tr>

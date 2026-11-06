@@ -40,6 +40,7 @@ services:
       - no-new-privileges:true
     environment:
       APP_ENV: ${APP_ENV:-production}
+      HPG_DISPLAY_TZ: ${HPG_DISPLAY_TZ:-UTC}
       APP_URL: ${APP_URL}
       APP_BIND: ${APP_BIND:-0.0.0.0:8080}
       APP_SECRET: ${APP_SECRET:?APP_SECRET must be set (openssl rand -hex 32)}

@@ -447,7 +447,7 @@
         <tbody id="log-body">
           {{range .Entries}}
           <tr>
-            <td class="whitespace-nowrap font-mono tabular-nums t-caption">{{.TS.Format "2006-01-02 15:04:05"}}</td>
+            <td class="whitespace-nowrap font-mono tabular-nums t-caption">{{localTime .TS "2006-01-02 15:04:05"}}</td>
             <td><span class="font-mono t-caption font-semibold">{{.Method}}</span></td>
             <td class="font-mono t-caption tabular-nums">{{if .Proto}}{{.Proto}}{{else}}-{{end}}</td>
             <td class="font-mono t-caption max-w-xs truncate" title="{{.URI}}">{{.URI}}</td>

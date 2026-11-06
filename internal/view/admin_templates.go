@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"os"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/i18n"
 )
@@ -74,6 +77,8 @@ func CommonFuncs() template.FuncMap {
 		"add": func(a, b int) int { return a + b },
 		// hasPrefix reports whether s starts with prefix.
 		"hasPrefix": strings.HasPrefix,
+		// localTime formats t in HPG_DISPLAY_TZ; not TZ, which would shift time.Local for DB/bucket code.
+		"localTime": func(t time.Time, layout string) string { return t.In(displayLoc()).Format(layout) },
 		// formatBytes converts a byte count to a human-readable string.
 		"formatBytes": func(n int64) string {
 			if n == 0 {
@@ -108,3 +113,12 @@ func (at *AdminTemplates) Render(w io.Writer, page string, data any) error {
 		"Data": data,
 	})
 }
+
+// displayLoc is the zone log/event timestamps are shown in; invalid or empty = UTC.
+// Lazy so env loaded from .env after package init still applies.
+var displayLoc = sync.OnceValue(func() *time.Location {
+	if l, err := time.LoadLocation(os.Getenv("HPG_DISPLAY_TZ")); err == nil {
+		return l
+	}
+	return time.UTC
+})
