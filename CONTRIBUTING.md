@@ -12,8 +12,21 @@ and for anyone running a fork.
 
 - Go **1.26+** (matches `go.mod`)
 - Docker + Docker Compose v2
-- Optional: `make`, `templ`, `sqlc`, `goose`, `golangci-lint` -
+- Optional: `make`, `templ`, `goose`, `golangci-lint` -
   installable in one go with `make tools`.
+
+## Building from source
+
+Toolchain: Go 1.26+ (see `go.mod`), `make`, `templ` and the Tailwind CLI
+(`make tools` installs the former; `make build-css` fetches the latter).
+
+```bash
+make build      # templ codegen + Tailwind CSS + server binary
+make check      # fmt, vet, lint, test (race), migration check
+docker build .  # same build in the pinned golang:1.27 image
+```
+
+Node agent: `go build ./cmd/node-agent`. All targets: `make help`.
 
 ## Local development loop
 
@@ -42,7 +55,7 @@ admin user, panel URL, SMTP, first Caddy node.
 - **Handlers** parse + render. No business logic, no SQL.
 - **Domain packages** (`internal/domain/*`) own invariants and call
   repos.
-- **Repos / sqlc** run SQL, return dumb rows.
+- **Repos** run SQL, return dumb rows.
 - **`installstate.Manager`** is the only place that touches at-rest
   crypto (HKDF-derived AES-256-GCM keys); use it for any new secret
   you persist.
@@ -69,6 +82,26 @@ make cover         # writes coverage.txt + summary
 Conventional Commits prefixes: `feat(...)`, `fix(...)`, `chore(...)`,
 `docs(...)`, `refactor(...)`. Keep the subject under 72 chars; explain
 the **why** in the body when it isn't obvious from the diff.
+
+## Sign-off (DCO)
+
+Every commit must carry a `Signed-off-by: Name <email>` trailer, certifying the
+[Developer Certificate of Origin](https://developercertificate.org). Use
+`git commit -s`; to fix existing commits, `git rebase --signoff origin/main`.
+The `DCO` workflow fails a PR with any unsigned commit (bot commits are skipped).
+
+## Dependencies
+
+- **Selection**: prefer the standard library; a new third-party dependency must
+  be flagged in the PR with the reason it is needed.
+- **Obtaining**: Go modules, verified against `go.sum` checksums. Docker base
+  images are pinned by `@sha256` digest. GitHub Actions are pinned by full
+  commit SHA. Release images get an SBOM, provenance and a cosign signature.
+- **Tracking**: Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml))
+  opens weekly PRs for Go modules, Actions and Docker digests, with a 7-day
+  cooldown. CI runs on each; minor/patch updates are auto-merged, runtime
+  majors need a human. Trivy scans the built images in CI and at release, and
+  OpenSSF Scorecard runs on the repo.
 
 ## Pull requests (maintainers)
 

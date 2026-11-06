@@ -2,6 +2,8 @@
 
 ## Threat Model
 
+A fuller, ranked model with assets, actors and trust boundaries is in [THREAT_MODEL.md](THREAT_MODEL.md).
+
 Primary threats considered:
 
 | Threat | Mitigation |

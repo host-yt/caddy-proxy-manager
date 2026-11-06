@@ -374,7 +374,8 @@ Full install wizard walkthrough: [`docs/install_video/install_wizard.webm`](docs
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | How the pieces talk |
 | [`docs/API.md`](docs/API.md) | REST API v1 contract |
 | [`docs/SPEC.md`](docs/SPEC.md) | Functional specification |
-| [`docs/SECURITY.md`](docs/SECURITY.md) | Threat model and security model |
+| [`docs/SECURITY.md`](docs/SECURITY.md) | Security model |
+| [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) | Assets, actors, ranked threats |
 | [`docs/ROUTES.md`](docs/ROUTES.md) | Domain/alias ownership proof, custom Caddy JSON, per-route caching |
 | [`docs/WAF.md`](docs/WAF.md) | Web Application Firewall (Coraza) |
 | [`docs/GEOIP.md`](docs/GEOIP.md) | GeoIP country filtering |
