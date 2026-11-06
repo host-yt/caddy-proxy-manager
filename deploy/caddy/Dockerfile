@@ -32,7 +32,7 @@ FROM caddy:2.11.7-builder@sha256:b25f47453fa02f7e66c0828b4b1343658808b9000950b68
 # toolchain from the panel's build image until a newer builder digest lands.
 COPY --from=golang:1.27-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 /usr/local/go /usr/local/go
 RUN xcaddy build \
-      --replace golang.org/x/net=golang.org/x/net@v0.60.0 \
+      --replace golang.org/x/net=golang.org/x/net@v0.62.0 \
       --replace github.com/go-jose/go-jose/v4=github.com/go-jose/go-jose/v4@v4.1.6 \
       --with github.com/caddyserver/cache-handler@v0.16.0 \
       --with github.com/mholt/caddy-l4@v0.1.1 \

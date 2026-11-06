@@ -70,7 +70,7 @@ the file permissions on your secrets:
 
 ```bash
 docker run --rm -v "$PWD/.env:/app/.env:ro" \
-  ghcr.io/host-yt/caddy-proxy-manager:1.10.1 doctor
+  ghcr.io/host-yt/caddy-proxy-manager:1.10.2 doctor
 ```
 
 ### 2.3 Start the stack
