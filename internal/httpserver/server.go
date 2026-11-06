@@ -880,6 +880,7 @@ func (s *Server) routes() {
 				r.Get("/", s.deps.API.RoutesList)
 				r.Post("/", s.deps.API.RouteCreate)
 				r.Get("/{id}", s.deps.API.RouteGet)
+				r.Get("/{id}/access-logs", s.deps.API.RouteAccessLogs)
 				r.Patch("/{id}", s.deps.API.RouteUpdate)
 				r.Delete("/{id}", s.deps.API.RouteDelete)
 				r.Post("/{id}/verify-dns", s.deps.API.RouteVerifyDNS)

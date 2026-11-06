@@ -23,6 +23,12 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+### Added
+
+- Route API: `upstream_scheme` on create/patch/get (#118); per-route WAF and
+  rate-limit fields (module-gated like the UI) and
+  `GET /api/v1/routes/{id}/access-logs` (#117).
+
 ### Fixed
 
 - Host edit keeps the node name and status in the page header after a

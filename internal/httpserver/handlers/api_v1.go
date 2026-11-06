@@ -15,6 +15,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
 	"github.com/host-yt/caddy-proxy-manager/internal/adminscope"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
@@ -36,6 +37,8 @@ type APIHandlers struct {
 	AdminScope *adminscope.Service
 	// Quota enforces reseller aggregate package limits at create surfaces. nil-safe.
 	Quota *quota.Service
+	// AccessLogs backs GET /routes/{id}/access-logs. nil-safe.
+	AccessLogs *accesslog.Store
 	// Resellers backs the /api/v1/resellers + /reseller-plans endpoints. nil-safe.
 	Resellers *reseller.Store
 	// Sessions is used to revoke reseller users on suspend/delete via API. nil-safe.
@@ -615,9 +618,14 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		UpstreamURL     string `json:"upstream_url"`
 		StripPathPrefix bool   `json:"strip_path_prefix"`
 		TTLSeconds      int    `json:"ttl_seconds"`
+		routePolicyJSON
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		apiErr(w, http.StatusBadRequest, "invalid json")
+		return
+	}
+	if in.UpstreamScheme != nil && *in.UpstreamScheme != "http" && *in.UpstreamScheme != "https" {
+		apiErr(w, http.StatusBadRequest, "upstream_scheme must be http or https")
 		return
 	}
 	var ext *url.URL
@@ -643,6 +651,11 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 	if c.Role == "client" {
 		if ext != nil {
 			apiErr(w, http.StatusForbidden, "upstream_url requires an admin key")
+			return
+		}
+		// Same as PATCH: WAF/rate-limit policy is admin-only.
+		if in.hasPolicy() {
+			apiErr(w, http.StatusForbidden, "waf/rate-limit settings require an admin key")
 			return
 		}
 		cid, lerr := clientIDForUserStrict(ctx, h.DB(), c.UserID)
@@ -678,6 +691,9 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		ForceHTTPS:      boolOr(in.ForceHTTPS, true),
 		StripPathPrefix: in.StripPathPrefix,
 		TTLSeconds:      in.TTLSeconds,
+	}
+	if in.UpstreamScheme != nil {
+		ci.UpstreamScheme = *in.UpstreamScheme
 	}
 	if ext != nil {
 		ci.External = true
@@ -726,6 +742,18 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 			apiErr(w, http.StatusInternalServerError, "create failed")
 		}
 		return
+	}
+	if in.hasPolicy() {
+		// Gating needs the node chosen by Create; undo the route if the node
+		// cannot take the policy so a rejected request leaves nothing behind.
+		if _, uerr := h.Routes.UpdateRoute(ctx, 0, id, routes.UpdateInput{
+			WAFEnabled: in.WAFEnabled, WAFBlocking: in.WAFBlocking, RateEnabled: in.RateLimitEnabled,
+			RateWindow: in.RateLimitWindow, RateMaxEvents: in.RateLimitMaxEvents, RateKey: in.RateLimitKey,
+		}); uerr != nil {
+			_ = h.Routes.Delete(ctx, clientID, id)
+			apiRouteUpdateErr(w, uerr)
+			return
+		}
 	}
 	uid := apiCallerID(r)
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{

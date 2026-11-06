@@ -375,6 +375,8 @@ var (
 	// serves without TLS. The client-auth policy rides on the route's TLS
 	// connection policy, so with SSL off there is nothing to attach it to.
 	ErrMTLSNeedsTLS = errors.New("mTLS requires SSL enabled on the host")
+	// ErrInvalidRouteField wraps a rejected scheme/WAF/rate-limit value.
+	ErrInvalidRouteField = errors.New("invalid route field")
 )
 
 // CheckExternalHost is the single write-time gate for an external upstream

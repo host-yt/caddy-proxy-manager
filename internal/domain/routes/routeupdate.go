@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/store"
@@ -177,6 +178,95 @@ type UpdateInput struct {
 	SSL          *bool
 	WebSocket    *bool
 	ForceHTTPS   *bool
+	// Upstream scheme and per-route policy (nil = unchanged).
+	UpstreamScheme *string
+	WAFEnabled     *bool
+	WAFBlocking    *bool
+	RateEnabled    *bool
+	RateWindow     *string
+	RateMaxEvents  *int
+	RateKey        *string
+}
+
+// routePolicy is the scheme/WAF/rate-limit slice of a route row.
+type routePolicy struct {
+	Scheme              string
+	WAF, WAFBlock, Rate bool
+	RateWindow, RateKey string
+	RateMaxEvents       int
+}
+
+// apply overlays in onto p and validates it with the same rules as the UI
+// save, including the node-module gate for newly enabled features.
+func (s *Service) applyPolicy(ctx context.Context, nodeID int64, external bool, p routePolicy, in UpdateInput) (routePolicy, error) {
+	if in.UpstreamScheme != nil {
+		sc := strings.ToLower(strings.TrimSpace(*in.UpstreamScheme))
+		if sc != "http" && sc != "https" {
+			return p, fmt.Errorf("%w: upstream_scheme must be http or https", ErrInvalidRouteField)
+		}
+		if external && sc != "https" {
+			return p, fmt.Errorf("%w: external routes are always https", ErrInvalidRouteField)
+		}
+		p.Scheme = sc
+	}
+	if in.WAFEnabled != nil {
+		p.WAF = *in.WAFEnabled
+	}
+	if in.WAFBlocking != nil {
+		p.WAFBlock = *in.WAFBlocking
+	}
+	if in.RateEnabled != nil {
+		p.Rate = *in.RateEnabled
+	}
+	if in.RateWindow != nil {
+		p.RateWindow = strings.TrimSpace(*in.RateWindow)
+	}
+	if in.RateMaxEvents != nil {
+		p.RateMaxEvents = *in.RateMaxEvents
+	}
+	if in.RateKey != nil {
+		p.RateKey = strings.TrimSpace(*in.RateKey)
+	}
+	if p.RateWindow == "" {
+		p.RateWindow = "1m"
+	}
+	if p.RateMaxEvents <= 0 {
+		p.RateMaxEvents = 100
+	}
+	if p.RateKey == "" {
+		p.RateKey = "{http.request.remote.host}"
+	}
+	if p.RateMaxEvents > 1000000 {
+		return p, fmt.Errorf("%w: rate_max_events must be 1-1000000", ErrInvalidRouteField)
+	}
+	if _, err := time.ParseDuration(p.RateWindow); err != nil {
+		return p, fmt.Errorf("%w: invalid rate_window (e.g. 1m, 30s)", ErrInvalidRouteField)
+	}
+	if err := caddyapi.ScreenTenantRateKey(p.RateKey); err != nil {
+		return p, fmt.Errorf("%w: rate_key: %v", ErrInvalidRouteField, err)
+	}
+	// Never enable a feature the node's Caddy build lacks (probe wins over env flag).
+	if (in.WAFEnabled != nil && p.WAF) || (in.RateEnabled != nil && p.Rate) {
+		var pWAF, pRate sql.NullBool
+		_ = s.DB.QueryRowContext(ctx,
+			`SELECT CASE WHEN modules_probed_at IS NOT NULL THEN has_waf END,
+			        CASE WHEN modules_probed_at IS NOT NULL THEN has_rate_limit END
+			   FROM caddy_nodes WHERE id = ?`, nodeID).Scan(&pWAF, &pRate)
+		effWAF, effRate := s.WAFModuleAvailable, s.RateLimitModuleAvailable
+		if pWAF.Valid {
+			effWAF = pWAF.Bool
+		}
+		if pRate.Valid {
+			effRate = pRate.Bool
+		}
+		if in.WAFEnabled != nil && p.WAF && !effWAF {
+			return p, fmt.Errorf("%w: WAF needs the coraza-caddy module on the node", ErrInvalidRouteField)
+		}
+		if in.RateEnabled != nil && p.Rate && !effRate {
+			return p, fmt.Errorf("%w: rate limiting needs the caddy-ratelimit module on the node", ErrInvalidRouteField)
+		}
+	}
+	return p, nil
 }
 
 // UpdateRoute applies a partial change after validating the resulting FULL
@@ -194,16 +284,20 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 		curPort                        int
 		curPath                        string
 		curSSL, curWS, curForce        int
+		cur                            routePolicy
 	)
 	switch err := s.DB.QueryRowContext(ctx,
 		`SELECT sv.client_id, r.service_id, COALESCE(r.caddy_node_id,0), r.kind,
 		        COALESCE(r.upstream_external,0), COALESCE(r.require_client_cert,0),
 		        r.upstream_port, COALESCE(r.path_prefix,''), COALESCE(r.ssl_enabled,0),
-		        COALESCE(r.websocket,0), COALESCE(r.force_https,0)
+		        COALESCE(r.websocket,0), COALESCE(r.force_https,0),
+		        r.upstream_scheme, COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0),
+		        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,'')
 		   FROM routes r JOIN services sv ON sv.id = r.service_id WHERE r.id = ?`,
 		routeID,
 	).Scan(&ownerClient, &serviceID, &nodeID, &kind, &external, &enforced,
-		&curPort, &curPath, &curSSL, &curWS, &curForce); {
+		&curPort, &curPath, &curSSL, &curWS, &curForce,
+		&cur.Scheme, &cur.WAF, &cur.WAFBlock, &cur.Rate, &cur.RateWindow, &cur.RateMaxEvents, &cur.RateKey); {
 	case errors.Is(err, sql.ErrNoRows):
 		return false, ErrRouteNotFound
 	case err != nil:
@@ -253,12 +347,25 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 	if err := s.ValidateRouteState(ctx, serviceID, routeID, next); err != nil {
 		return false, err
 	}
+	pol, err := s.applyPolicy(ctx, nodeID, external == 1, cur, in)
+	if err != nil {
+		return false, err
+	}
+	// Compare against stored values, not the defaulted ones, so an untouched
+	// route with empty rate columns stays a no-op.
+	polChanged := pol.Scheme != cur.Scheme || pol.WAF != cur.WAF || pol.WAFBlock != cur.WAFBlock || pol.Rate != cur.Rate ||
+		(in.RateWindow != nil && pol.RateWindow != cur.RateWindow) ||
+		(in.RateMaxEvents != nil && pol.RateMaxEvents != cur.RateMaxEvents) ||
+		(in.RateKey != nil && pol.RateKey != cur.RateKey)
+	if !polChanged {
+		pol.RateWindow, pol.RateMaxEvents, pol.RateKey = cur.RateWindow, cur.RateMaxEvents, cur.RateKey
+	}
 
 	// Nothing new to write: an authorized no-op is a success. Checked before the
 	// UPDATE because MySQL reports 0 affected rows for a write that changes
 	// nothing (no clientFoundRows), which is not "row missing".
 	if next.UpstreamPort == curPort && next.PathPrefix == curPath &&
-		next.SSL == (curSSL == 1) && next.WebSocket == (curWS == 1) && nextForce == (curForce == 1) {
+		next.SSL == (curSSL == 1) && next.WebSocket == (curWS == 1) && nextForce == (curForce == 1) && !polChanged {
 		return false, nil
 	}
 
@@ -276,9 +383,11 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 	}
 	res, err := tx.ExecContext(ctx,
 		`UPDATE routes SET upstream_port=?, path_prefix=?, ssl_enabled=?, websocket=?,
-		        force_https=(? OR COALESCE(require_client_cert,0)), updated_at=NOW()
+		        force_https=(? OR COALESCE(require_client_cert,0)), upstream_scheme=?,
+		        waf_enabled=?, waf_blocking=?, rate_enabled=?, rate_window=?, rate_max_events=?, rate_key=?, updated_at=NOW()
 		  WHERE `+where,
-		next.UpstreamPort, next.PathPrefix, next.SSL, next.WebSocket, nextForce, routeID)
+		next.UpstreamPort, next.PathPrefix, next.SSL, next.WebSocket, nextForce, pol.Scheme,
+		pol.WAF, pol.WAFBlock, pol.Rate, pol.RateWindow, pol.RateMaxEvents, pol.RateKey, routeID)
 	if err != nil {
 		return false, fmt.Errorf("route update: %w", err)
 	}
