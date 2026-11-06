@@ -480,6 +480,10 @@ List routes.
       "ssl": true,
       "websocket": false,
       "force_https": true,
+      "upstream_scheme": "http",
+      "waf_enabled": false,
+      "waf_blocking": false,
+      "rate_limit_enabled": false,
       "status": "active",
       "caddy_node_id": 1,
       "created_at": "2026-01-15T08:30:00Z"
@@ -521,6 +525,10 @@ Create a route.
 | `ssl` | boolean | no | Default `true` - enables automatic HTTPS |
 | `websocket` | boolean | no | Default `false` |
 | `force_https` | boolean | no | Default `true` - redirect HTTP to HTTPS |
+| `upstream_scheme` | string | no | `http` (default) or `https`; scheme used to reach the backend. External routes are always `https` |
+| `waf_enabled` / `waf_blocking` | boolean | no | Admin keys only. Per-route WAF; `waf_blocking=false` is detection only. `400` when the node's Caddy lacks the Coraza module |
+| `rate_limit_enabled` | boolean | no | Admin keys only. `400` when the node's Caddy lacks the rate-limit module |
+| `rate_limit_window` / `rate_limit_max_events` / `rate_limit_key` | string / integer / string | no | Defaults `1m` / `100` / `{http.request.remote.host}` |
 | `upstream_url` | string | no | Admin keys only. External origin `https://host[:port][/path]` (no credentials, query or fragment). Replaces `upstream_port`; see [External and ephemeral routes](#external-and-ephemeral-routes) |
 | `strip_path_prefix` | boolean | no | Default `false`. Strip `path_prefix` before proxying; the route then matches only `path_prefix` and `path_prefix/...`. Requires `path_prefix` |
 | `ttl_seconds` | integer | no | `0` (default) = permanent. `1`-`86400`: the route is deleted automatically once it expires |
@@ -612,6 +620,10 @@ All fields are optional; omit to leave unchanged.
 | `ssl_enabled` | boolean | Requires the plan's SSL feature; cannot be turned off while mTLS (`require_client_cert`) is set on the route |
 | `websocket` | boolean | Requires the plan's websocket feature |
 | `force_https` | boolean | |
+| `upstream_scheme` | string | `http` or `https`; omitted = unchanged |
+| `waf_enabled` / `waf_blocking` | boolean | WAF on/off and blocking vs detection; `400` when the node lacks the Coraza module |
+| `rate_limit_enabled` | boolean | `400` when the node lacks the rate-limit module |
+| `rate_limit_window` / `rate_limit_max_events` / `rate_limit_key` | string / integer / string | Go duration (`1m`), 1-1000000, Caddy placeholder |
 
 ```json
 { "upstream_port": 30006 }
@@ -643,6 +655,15 @@ pushing a resync.
 | 500 | Internal error |
 
 ---
+
+#### `GET /api/v1/routes/{id}/access-logs`
+
+Recent access-log entries of a route, newest first. `?limit=` (default 100, max 500).
+Same tenant boundary as `GET /api/v1/routes/{id}`.
+
+```json
+{ "access_logs": [ { "id": 1, "ts": "2026-01-15T08:30:00Z", "method": "GET", "uri": "/", "status": 200, "latency_ms": 12, "remote_ip": "203.0.113.5", "user_agent": "curl/8" } ] }
+```
 
 #### `DELETE /api/v1/routes/{id}`
 

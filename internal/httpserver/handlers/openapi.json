@@ -144,6 +144,13 @@
           "ssl": { "type": "boolean", "example": true },
           "websocket": { "type": "boolean", "example": false },
           "force_https": { "type": "boolean", "example": true },
+          "upstream_scheme": { "type": "string", "enum": ["http", "https"], "description": "Scheme used to reach the backend. Create default http; omitted on PATCH = unchanged. External routes are always https." },
+          "waf_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the Coraza module." },
+          "waf_blocking": { "type": "boolean", "description": "Admin only. false = detection only." },
+          "rate_limit_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the rate-limit module." },
+          "rate_limit_window": { "type": "string", "example": "1m", "description": "Go duration, default 1m." },
+          "rate_limit_max_events": { "type": "integer", "minimum": 1, "maximum": 1000000, "description": "Default 100." },
+          "rate_limit_key": { "type": "string", "example": "{http.request.remote.host}" },
           "caddy_node_id": { "type": "integer", "format": "int64", "example": 1 },
           "status": {
             "type": "string",
@@ -772,6 +779,13 @@
                   "ssl": { "type": "boolean", "default": true, "description": "Enable automatic HTTPS via Caddy On-Demand TLS" },
                   "websocket": { "type": "boolean", "default": false },
                   "force_https": { "type": "boolean", "default": true },
+                  "upstream_scheme": { "type": "string", "enum": ["http", "https"], "description": "Scheme used to reach the backend. Create default http; omitted on PATCH = unchanged. External routes are always https." },
+                  "waf_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the Coraza module." },
+                  "waf_blocking": { "type": "boolean", "description": "Admin only. false = detection only." },
+                  "rate_limit_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the rate-limit module." },
+                  "rate_limit_window": { "type": "string", "example": "1m", "description": "Go duration, default 1m." },
+                  "rate_limit_max_events": { "type": "integer", "minimum": 1, "maximum": 1000000, "description": "Default 100." },
+                  "rate_limit_key": { "type": "string", "example": "{http.request.remote.host}" },
                   "upstream_url": { "type": "string", "example": "https://console.example.net/base", "description": "Admin only. External https origin (allowlisted host). Overrides upstream_port; its path is prepended upstream; Host and SNI are set to its host." },
                   "strip_path_prefix": { "type": "boolean", "default": false, "description": "Strip path_prefix before proxying. Requires path_prefix." },
                   "ttl_seconds": { "type": "integer", "minimum": 0, "maximum": 86400, "description": "0 = permanent. Otherwise the route is deleted automatically after this many seconds." }
@@ -831,7 +845,14 @@
                   "ssl_enabled": { "type": "boolean" },
                   "websocket": { "type": "boolean" },
                   "force_https": { "type": "boolean" },
-                  "path_prefix": { "type": "string", "example": "/api" }
+                  "path_prefix": { "type": "string", "example": "/api" },
+                  "upstream_scheme": { "type": "string", "enum": ["http", "https"], "description": "Scheme used to reach the backend. Create default http; omitted on PATCH = unchanged. External routes are always https." },
+                  "waf_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the Coraza module." },
+                  "waf_blocking": { "type": "boolean", "description": "Admin only. false = detection only." },
+                  "rate_limit_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the rate-limit module." },
+                  "rate_limit_window": { "type": "string", "example": "1m", "description": "Go duration, default 1m." },
+                  "rate_limit_max_events": { "type": "integer", "minimum": 1, "maximum": 1000000, "description": "Default 100." },
+                  "rate_limit_key": { "type": "string", "example": "{http.request.remote.host}" }
                 }
               }
             }
@@ -877,6 +898,24 @@
           "403": { "description": "Not your route", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "429": { "description": "Rate limit exceeded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "500": { "description": "Internal error", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}/access-logs": {
+      "get": {
+        "tags": ["Routes"],
+        "summary": "Recent access-log entries of a route",
+        "operationId": "routeAccessLogs",
+        "description": "Newest first. Same tenant boundary as GET /routes/{id}.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 100, "maximum": 500 } }
+        ],
+        "responses": {
+          "200": { "description": "Entries", "content": { "application/json": { "schema": { "type": "object", "properties": { "access_logs": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "integer" }, "ts": { "type": "string", "format": "date-time" }, "method": { "type": "string" }, "uri": { "type": "string" }, "status": { "type": "integer" }, "latency_ms": { "type": "integer" }, "remote_ip": { "type": "string" }, "user_agent": { "type": "string" } } } } } } } } },
+          "403": { "description": "Route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },

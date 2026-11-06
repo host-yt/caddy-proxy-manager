@@ -573,6 +573,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Quota:      &quota.Service{DB: wizard.DB},
 		Resellers:  reseller.New(wizard.DB),
 		Sessions:   sessions,
+		AccessLogs: alStore,
 	}
 
 	// Customer-WG bootstrap + node-agent endpoints.

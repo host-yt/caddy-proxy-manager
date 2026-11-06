@@ -190,6 +190,83 @@ func (h *APIHandlers) ServiceDelete(w http.ResponseWriter, r *http.Request) {
 
 // ---- Routes (list, get, update) ----------------------------------------
 
+// routePolicyJSON is the optional scheme/WAF/rate-limit part of the route
+// create and patch bodies (nil = omitted).
+type routePolicyJSON struct {
+	UpstreamScheme     *string `json:"upstream_scheme"`
+	WAFEnabled         *bool   `json:"waf_enabled"`
+	WAFBlocking        *bool   `json:"waf_blocking"`
+	RateLimitEnabled   *bool   `json:"rate_limit_enabled"`
+	RateLimitWindow    *string `json:"rate_limit_window"`
+	RateLimitMaxEvents *int    `json:"rate_limit_max_events"`
+	RateLimitKey       *string `json:"rate_limit_key"`
+}
+
+func (p routePolicyJSON) hasPolicy() bool {
+	return p.WAFEnabled != nil || p.WAFBlocking != nil || p.RateLimitEnabled != nil ||
+		p.RateLimitWindow != nil || p.RateLimitMaxEvents != nil || p.RateLimitKey != nil
+}
+
+// RouteAccessLogs serves GET /api/v1/routes/{id}/access-logs?limit=N, newest first.
+func (h *APIHandlers) RouteAccessLogs(w http.ResponseWriter, r *http.Request) {
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	c := middleware.CallerFromContext(r.Context())
+	if c == nil {
+		apiErr(w, http.StatusUnauthorized, "auth required")
+		return
+	}
+	// Same tenant boundary as RouteGet: owner client only, or an in-scope admin.
+	if c.Role == "client" {
+		clientID, lerr := clientIDForUserStrict(ctx, h.DB(), c.UserID)
+		if lerr != nil {
+			apiErr(w, http.StatusForbidden, "client scope unresolved")
+			return
+		}
+		owner, oerr := h.routeClientID(ctx, id)
+		if oerr != nil {
+			apiErr(w, http.StatusNotFound, "not found")
+			return
+		}
+		if owner != clientID {
+			apiErr(w, http.StatusForbidden, "forbidden")
+			return
+		}
+	} else if !h.routeInScope(ctx, w, r, id) {
+		return
+	}
+	if h.AccessLogs == nil {
+		apiJSON(w, http.StatusOK, map[string]any{"access_logs": []any{}})
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
+	entries, err := h.AccessLogs.Recent(ctx, id, limit)
+	if err != nil {
+		apiErr(w, http.StatusInternalServerError, "query failed")
+		return
+	}
+	type row struct {
+		ID        int64  `json:"id"`
+		TS        string `json:"ts"`
+		Method    string `json:"method"`
+		URI       string `json:"uri"`
+		Status    int    `json:"status"`
+		LatencyMS int    `json:"latency_ms"`
+		RemoteIP  string `json:"remote_ip"`
+		UserAgent string `json:"user_agent"`
+	}
+	out := make([]row, 0, len(entries))
+	for _, e := range entries {
+		out = append(out, row{e.ID, e.TS.UTC().Format(time.RFC3339Nano), e.Method, e.URI, e.Status,
+			e.LatencyMS, e.RemoteIP, e.UserAgent})
+	}
+	apiJSON(w, http.StatusOK, map[string]any{"access_logs": out})
+}
+
 type apiRoute struct {
 	ID           int64     `json:"id"`
 	ServiceID    int64     `json:"service_id"`
@@ -202,17 +279,29 @@ type apiRoute struct {
 	Status       string    `json:"status"`
 	CaddyNodeID  int64     `json:"caddy_node_id"`
 	CreatedAt    time.Time `json:"created_at"`
+
+	UpstreamScheme   string `json:"upstream_scheme"`
+	WAFEnabled       bool   `json:"waf_enabled"`
+	WAFBlocking      bool   `json:"waf_blocking"`
+	RateLimitEnabled bool   `json:"rate_limit_enabled"`
+	RateLimitWindow  string `json:"rate_limit_window"`
+	RateLimitMax     int    `json:"rate_limit_max_events"`
+	RateLimitKey     string `json:"rate_limit_key"`
 }
 
 const routeSelectCols = `r.id, r.service_id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port,
 	COALESCE(r.ssl_enabled,0), COALESCE(r.websocket,0), COALESCE(r.force_https,0),
-	r.status, r.caddy_node_id, r.created_at`
+	r.status, r.caddy_node_id, r.created_at, r.upstream_scheme,
+	COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.rate_enabled,0),
+	COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,'')`
 
 func scanRoute(row interface {
 	Scan(...any) error
 }, rt *apiRoute) error {
 	return row.Scan(&rt.ID, &rt.ServiceID, &rt.Domain, &rt.PathPrefix, &rt.UpstreamPort,
-		&rt.SSL, &rt.WebSocket, &rt.ForceHTTPS, &rt.Status, &rt.CaddyNodeID, &rt.CreatedAt)
+		&rt.SSL, &rt.WebSocket, &rt.ForceHTTPS, &rt.Status, &rt.CaddyNodeID, &rt.CreatedAt,
+		&rt.UpstreamScheme, &rt.WAFEnabled, &rt.WAFBlocking, &rt.RateLimitEnabled,
+		&rt.RateLimitWindow, &rt.RateLimitMax, &rt.RateLimitKey)
 }
 
 func (h *APIHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
@@ -330,10 +419,8 @@ func (h *APIHandlers) RouteGet(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 
 	var rt apiRoute
-	err := h.DB().QueryRowContext(ctx,
-		"SELECT "+routeSelectCols+" FROM routes r WHERE r.id = ?", id,
-	).Scan(&rt.ID, &rt.ServiceID, &rt.Domain, &rt.PathPrefix, &rt.UpstreamPort,
-		&rt.SSL, &rt.WebSocket, &rt.ForceHTTPS, &rt.Status, &rt.CaddyNodeID, &rt.CreatedAt)
+	err := scanRoute(h.DB().QueryRowContext(ctx,
+		"SELECT "+routeSelectCols+" FROM routes r WHERE r.id = ?", id), &rt)
 	if err == sql.ErrNoRows {
 		apiErr(w, http.StatusNotFound, "not found")
 		return
@@ -376,6 +463,7 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		WebSocket    *bool   `json:"websocket"`
 		ForceHTTPS   *bool   `json:"force_https"`
 		PathPrefix   *string `json:"path_prefix"`
+		routePolicyJSON
 	}
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		apiErr(w, http.StatusBadRequest, "invalid json")
@@ -403,6 +491,9 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 	changed, err := h.Routes.UpdateRoute(ctx, 0, id, routes.UpdateInput{
 		UpstreamPort: in.UpstreamPort, PathPrefix: in.PathPrefix,
 		SSL: in.SSLEnabled, WebSocket: in.WebSocket, ForceHTTPS: in.ForceHTTPS,
+		UpstreamScheme: in.UpstreamScheme, WAFEnabled: in.WAFEnabled, WAFBlocking: in.WAFBlocking,
+		RateEnabled: in.RateLimitEnabled, RateWindow: in.RateLimitWindow,
+		RateMaxEvents: in.RateLimitMaxEvents, RateKey: in.RateLimitKey,
 	})
 	if err != nil {
 		apiRouteUpdateErr(w, err)
@@ -435,7 +526,7 @@ func apiRouteUpdateErr(w http.ResponseWriter, err error) {
 	case errors.Is(err, routes.ErrPortOutOfRange), errors.Is(err, routes.ErrPortInUse),
 		errors.Is(err, routes.ErrPathNotInPlan), errors.Is(err, routes.ErrSSLNotInPlan),
 		errors.Is(err, routes.ErrWebSocketNotInPlan), errors.Is(err, routes.ErrUnsafePlaceholder),
-		errors.Is(err, routes.ErrInvalidDomain):
+		errors.Is(err, routes.ErrInvalidDomain), errors.Is(err, routes.ErrInvalidRouteField):
 		apiErr(w, http.StatusBadRequest, err.Error())
 	default:
 		apiErr(w, http.StatusInternalServerError, "update failed")
