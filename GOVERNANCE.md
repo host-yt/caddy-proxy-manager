@@ -35,7 +35,8 @@ Breaking changes and security-relevant changes are called out in the CHANGELOG.
 There is no formal path yet. A contributor with a sustained record of good
 changes and reviews can be invited by the current maintainer. New maintainers
 get access to the minimum needed first (triage, then write); admin and
-publishing credentials come last, and 2FA is mandatory for all of them.
+publishing credentials come last. Anyone granted write access or above must
+have 2FA enabled on their GitHub account before access is granted.
 
 ## Revoking access
 
