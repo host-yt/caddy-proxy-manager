@@ -9,7 +9,7 @@ require (
 	github.com/go-webauthn/webauthn v0.18.2
 	github.com/jlaffaye/ftp v0.2.4
 	github.com/miekg/dns v1.1.73
-	github.com/minio/minio-go/v7 v7.3.0
+	github.com/minio/minio-go/v7 v7.4.1
 	github.com/oschwald/maxminddb-golang v1.13.1
 	github.com/pkg/sftp v1.13.11
 	github.com/pquerna/otp v1.5.0
