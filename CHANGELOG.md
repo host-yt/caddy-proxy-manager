@@ -23,16 +23,36 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+## [1.10.0] - 2026-11-07
+
+Feature and bug-fix release driven by user reports. Adds REST API control over
+upstream scheme, WAF and rate limiting, a per-route access log endpoint and a
+configurable display timezone, and fixes host creation and the DNS check for
+API-imported services and DDNS nodes. Rebuilt on Go 1.27.3 with patched
+dependencies; updating is recommended. No migrations, no manual steps.
+
 ### Added
 
 - Route API: `upstream_scheme` on create/patch/get (#118); per-route WAF and
   rate-limit fields (module-gated like the UI) and
   `GET /api/v1/routes/{id}/access-logs` (#117).
+- `HPG_DISPLAY_TZ` (IANA zone, default UTC) shows access-log, WAF-event and
+  alert timestamps in that zone; storage stays UTC (#116).
 
 ### Fixed
 
+- Adding a host for a backend IP shared by several API-imported services picks
+  the service whose port range contains the port instead of failing with "port
+  not in allowed range" (#120).
+- The host DNS check resolves a node's public address when it is a hostname or
+  DDNS name instead of always reporting a mismatch (#119).
 - Host edit keeps the node name and status in the page header after a
   validation error instead of showing them empty.
+
+### Security
+
+- Images built with Go 1.27.3 (CVE-2026-111943, crypto/x509) and go-jose 4.1.6
+  (CVE-2026-116587).
 
 ## [1.9.0] - 2026-10-16
 
