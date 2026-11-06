@@ -12,8 +12,21 @@ and for anyone running a fork.
 
 - Go **1.26+** (matches `go.mod`)
 - Docker + Docker Compose v2
-- Optional: `make`, `templ`, `sqlc`, `goose`, `golangci-lint` -
+- Optional: `make`, `templ`, `goose`, `golangci-lint` -
   installable in one go with `make tools`.
+
+## Building from source
+
+Toolchain: Go 1.26+ (see `go.mod`), `make`, `templ` and the Tailwind CLI
+(`make tools` installs the former; `make build-css` fetches the latter).
+
+```bash
+make build      # templ codegen + Tailwind CSS + server binary
+make check      # fmt, vet, lint, test (race), migration check
+docker build .  # same build in the pinned golang:1.27 image
+```
+
+Node agent: `go build ./cmd/node-agent`. All targets: `make help`.
 
 ## Local development loop
 
@@ -42,7 +55,7 @@ admin user, panel URL, SMTP, first Caddy node.
 - **Handlers** parse + render. No business logic, no SQL.
 - **Domain packages** (`internal/domain/*`) own invariants and call
   repos.
-- **Repos / sqlc** run SQL, return dumb rows.
+- **Repos** run SQL, return dumb rows.
 - **`installstate.Manager`** is the only place that touches at-rest
   crypto (HKDF-derived AES-256-GCM keys); use it for any new secret
   you persist.
