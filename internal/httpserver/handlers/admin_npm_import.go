@@ -307,7 +307,7 @@ func (h *AdminHandlers) importProxyHosts(ctx context.Context, db *sql.DB, result
 		var serviceID int64
 		if !dryRun {
 			// One service per upstream backend (matches existing admin convention).
-			id, err := ensureAdminService(ctx, db, clientID, ph.ForwardHost, planID, nodeGroupID)
+			id, err := ensureAdminService(ctx, db, clientID, ph.ForwardHost, ph.ForwardPort, planID, nodeGroupID)
 			if err != nil {
 				result.add(kind, name, npmActionSkipped, "service create failed")
 				result.Errors = append(result.Errors, fmt.Sprintf("service for %s: %s", ph.ForwardHost, err))
@@ -392,7 +392,7 @@ func (h *AdminHandlers) importRedirects(ctx context.Context, db *sql.DB, result 
 			// A redirect route never dials an upstream, but every route hangs
 			// off a service; key it on the redirect target so a repeated import
 			// reuses one row.
-			id, err := ensureAdminService(ctx, db, clientID, target, planID, nodeGroupID)
+			id, err := ensureAdminService(ctx, db, clientID, target, 0, planID, nodeGroupID)
 			if err != nil {
 				result.add(kind, name, npmActionSkipped, "service create failed")
 				result.Errors = append(result.Errors, fmt.Sprintf("service for %s: %s", target, err))

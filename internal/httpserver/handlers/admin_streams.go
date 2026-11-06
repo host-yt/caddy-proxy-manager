@@ -408,7 +408,7 @@ func (h *AdminHandlers) StreamsCreate(w http.ResponseWriter, r *http.Request) {
 		redirectWithFlash(w, r, "/admin/streams", "", "could not provision admin plan")
 		return
 	}
-	serviceID, err := ensureAdminService(ctx, db, clientID, form.BackendIP, planID, nodeGroupID)
+	serviceID, err := ensureAdminService(ctx, db, clientID, form.BackendIP, upstreamPort, planID, nodeGroupID)
 	if err != nil {
 		redirectWithFlash(w, r, "/admin/streams", "", "could not provision admin service")
 		return

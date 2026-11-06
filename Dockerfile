@@ -43,7 +43,7 @@ RUN tailwindcss \
       --minify
 
 # ---- Stage 1: codegen + build ------------------------------------------
-FROM golang:1.27-alpine@sha256:738d1cf061836894ff6bb8c33881080ac66de8cf0586615012a0c8f592649cfa AS build
+FROM golang:1.27-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18 AS build
 WORKDIR /src
 
 RUN apk add --no-cache git ca-certificates tzdata

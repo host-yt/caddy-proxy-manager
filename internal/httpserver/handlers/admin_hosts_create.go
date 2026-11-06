@@ -326,7 +326,7 @@ func (h *AdminHandlers) HostsCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		form.BackendIP = peerIP
 	}
-	serviceID, err := ensureAdminService(ctx, db, clientID, form.BackendIP, planID, nodeGroupID)
+	serviceID, err := ensureAdminService(ctx, db, clientID, form.BackendIP, port, planID, nodeGroupID)
 	if err != nil {
 		h.Logger.Error("admin hosts: ensure service", "err", err)
 		h.renderHostsNewErr(w, r, form, "could not provision admin service")
