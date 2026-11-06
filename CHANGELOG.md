@@ -23,11 +23,11 @@ is deliberately left as published.
 
 ## [Unreleased]
 
-## [1.10.1] - 2026-11-07
+## [1.10.2] - 2026-11-07
 
-Completes the 1.10.0 release: the edge, node-agent and WireGuard images failed
-the release vulnerability gate and were not published for 1.10.0. Use 1.10.1
-for all four images. Includes everything listed under 1.10.0.
+Completes the 1.10.0 release. The 1.10.0 and 1.10.1 tags failed the release
+vulnerability gate on newly published CVEs, so not all images shipped under
+them; use 1.10.2 for all four images. Includes everything listed under 1.10.0.
 
 ### Security
 
@@ -36,6 +36,8 @@ for all four images. Includes everything listed under 1.10.0.
   for CVE-2026-85091.
 - The edge (Caddy) binary is built with Go 1.27.3 and go-jose 4.1.6
   (CVE-2026-111943, CVE-2026-116587).
+- golang.org/x/net 0.62.0 in the panel, edge and Terraform provider
+  (CVE-2026-78661).
 
 ## [1.10.0] - 2026-11-07
 
