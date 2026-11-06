@@ -70,6 +70,26 @@ Conventional Commits prefixes: `feat(...)`, `fix(...)`, `chore(...)`,
 `docs(...)`, `refactor(...)`. Keep the subject under 72 chars; explain
 the **why** in the body when it isn't obvious from the diff.
 
+## Sign-off (DCO)
+
+Every commit must carry a `Signed-off-by: Name <email>` trailer, certifying the
+[Developer Certificate of Origin](https://developercertificate.org). Use
+`git commit -s`; to fix existing commits, `git rebase --signoff origin/main`.
+The `DCO` workflow fails a PR with any unsigned commit (bot commits are skipped).
+
+## Dependencies
+
+- **Selection**: prefer the standard library; a new third-party dependency must
+  be flagged in the PR with the reason it is needed.
+- **Obtaining**: Go modules, verified against `go.sum` checksums. Docker base
+  images are pinned by `@sha256` digest. GitHub Actions are pinned by full
+  commit SHA. Release images get an SBOM, provenance and a cosign signature.
+- **Tracking**: Dependabot ([`.github/dependabot.yml`](.github/dependabot.yml))
+  opens weekly PRs for Go modules, Actions and Docker digests, with a 7-day
+  cooldown. CI runs on each; minor/patch updates are auto-merged, runtime
+  majors need a human. Trivy scans the built images in CI and at release, and
+  OpenSSF Scorecard runs on the repo.
+
 ## Pull requests (maintainers)
 
 - Outside contributors can't open PRs here; report through issues instead.
