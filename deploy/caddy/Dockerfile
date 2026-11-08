@@ -11,7 +11,7 @@
 # Also pinned by digest so CI's scan and the shipped image are the same
 # bytes; Dependabot (.github/dependabot.yml) rolls the digest forward.
 # =========================================================================
-FROM caddy:2.11.7-builder@sha256:b25f47453fa02f7e66c0828b4b1343658808b9000950b6825c4a1cb0c988f5f8 AS builder
+FROM caddy:2.11.7-builder@sha256:c4cd20eaa0b69112fd5d4f721ffc9671687e1d5d0b155c8620cf7546dbef94c0 AS builder
 # Souin cache-handler (per-route real cache) + caddy-l4 (TCP/UDP stream
 # proxy used by the Streams admin page) + caddy-ratelimit (per-route
 # rate_limit handler, gated by RATE_LIMIT_AVAILABLE) + coraza WAF (per-route
@@ -58,7 +58,7 @@ RUN xcaddy build \
       --with github.com/caddy-dns/netcup@v1.0.0 \
       --with github.com/caddy-dns/powerdns@v1.0.2
 
-FROM caddy:2.11.7@sha256:f2a1290d0463aad60660d4ec134943f183ee2a5f6c3eb7bf32dd984f2f020772
+FROM caddy:2.11.7@sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e
 # Pull patched base packages; the pinned upstream digest lags security fixes.
 RUN apk upgrade --no-cache
 COPY --from=builder /usr/bin/caddy /usr/bin/caddy
