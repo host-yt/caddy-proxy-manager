@@ -186,6 +186,8 @@ type UpdateInput struct {
 	RateWindow     *string
 	RateMaxEvents  *int
 	RateKey        *string
+	// SkipTLSVerify disables upstream cert verification; callers gate it.
+	SkipTLSVerify *bool
 }
 
 // routePolicy is the scheme/WAF/rate-limit slice of a route row.
@@ -194,6 +196,7 @@ type routePolicy struct {
 	WAF, WAFBlock, Rate bool
 	RateWindow, RateKey string
 	RateMaxEvents       int
+	SkipTLS             bool
 }
 
 // apply overlays in onto p and validates it with the same rules as the UI
@@ -208,6 +211,9 @@ func (s *Service) applyPolicy(ctx context.Context, nodeID int64, external bool, 
 			return p, fmt.Errorf("%w: external routes are always https", ErrInvalidRouteField)
 		}
 		p.Scheme = sc
+	}
+	if in.SkipTLSVerify != nil {
+		p.SkipTLS = *in.SkipTLSVerify
 	}
 	if in.WAFEnabled != nil {
 		p.WAF = *in.WAFEnabled
@@ -292,12 +298,13 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 		        r.upstream_port, COALESCE(r.path_prefix,''), COALESCE(r.ssl_enabled,0),
 		        COALESCE(r.websocket,0), COALESCE(r.force_https,0),
 		        r.upstream_scheme, COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0),
-		        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,'')
+		        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,''),
+		        COALESCE(r.upstream_skip_tls_verify,0)
 		   FROM routes r JOIN services sv ON sv.id = r.service_id WHERE r.id = ?`,
 		routeID,
 	).Scan(&ownerClient, &serviceID, &nodeID, &kind, &external, &enforced,
 		&curPort, &curPath, &curSSL, &curWS, &curForce,
-		&cur.Scheme, &cur.WAF, &cur.WAFBlock, &cur.Rate, &cur.RateWindow, &cur.RateMaxEvents, &cur.RateKey); {
+		&cur.Scheme, &cur.WAF, &cur.WAFBlock, &cur.Rate, &cur.RateWindow, &cur.RateMaxEvents, &cur.RateKey, &cur.SkipTLS); {
 	case errors.Is(err, sql.ErrNoRows):
 		return false, ErrRouteNotFound
 	case err != nil:
@@ -353,7 +360,7 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 	}
 	// Compare against stored values, not the defaulted ones, so an untouched
 	// route with empty rate columns stays a no-op.
-	polChanged := pol.Scheme != cur.Scheme || pol.WAF != cur.WAF || pol.WAFBlock != cur.WAFBlock || pol.Rate != cur.Rate ||
+	polChanged := pol.Scheme != cur.Scheme || pol.WAF != cur.WAF || pol.WAFBlock != cur.WAFBlock || pol.Rate != cur.Rate || pol.SkipTLS != cur.SkipTLS ||
 		(in.RateWindow != nil && pol.RateWindow != cur.RateWindow) ||
 		(in.RateMaxEvents != nil && pol.RateMaxEvents != cur.RateMaxEvents) ||
 		(in.RateKey != nil && pol.RateKey != cur.RateKey)
@@ -384,10 +391,10 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 	res, err := tx.ExecContext(ctx,
 		`UPDATE routes SET upstream_port=?, path_prefix=?, ssl_enabled=?, websocket=?,
 		        force_https=(? OR COALESCE(require_client_cert,0)), upstream_scheme=?,
-		        waf_enabled=?, waf_blocking=?, rate_enabled=?, rate_window=?, rate_max_events=?, rate_key=?, updated_at=NOW()
+		        waf_enabled=?, waf_blocking=?, rate_enabled=?, rate_window=?, rate_max_events=?, rate_key=?, upstream_skip_tls_verify=?, updated_at=NOW()
 		  WHERE `+where,
 		next.UpstreamPort, next.PathPrefix, next.SSL, next.WebSocket, nextForce, pol.Scheme,
-		pol.WAF, pol.WAFBlock, pol.Rate, pol.RateWindow, pol.RateMaxEvents, pol.RateKey, routeID)
+		pol.WAF, pol.WAFBlock, pol.Rate, pol.RateWindow, pol.RateMaxEvents, pol.RateKey, pol.SkipTLS, routeID)
 	if err != nil {
 		return false, fmt.Errorf("route update: %w", err)
 	}

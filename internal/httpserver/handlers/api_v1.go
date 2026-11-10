@@ -24,6 +24,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 )
 
 // APIHandlers groups all /api/v1 endpoints. They share APIKeyAuth middleware.
@@ -39,6 +40,8 @@ type APIHandlers struct {
 	Quota *quota.Service
 	// AccessLogs backs GET /routes/{id}/access-logs. nil-safe.
 	AccessLogs *accesslog.Store
+	// WAFEvents backs the /routes/{id}/waf/* endpoints. nil-safe.
+	WAFEvents *wafevents.Store
 	// Resellers backs the /api/v1/resellers + /reseller-plans endpoints. nil-safe.
 	Resellers *reseller.Store
 	// Sessions is used to revoke reseller users on suspend/delete via API. nil-safe.
@@ -637,6 +640,10 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		ext = u
 	}
+	if !apiMaySkipTLS(r, in.UpstreamSkipTLS) {
+		apiErr(w, http.StatusForbidden, "upstream_skip_tls_verify requires a super_admin or api key")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	// Admin/api role: clientID=0 means "skip ownership check" in domain svc.
@@ -749,6 +756,7 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		if _, uerr := h.Routes.UpdateRoute(ctx, 0, id, routes.UpdateInput{
 			WAFEnabled: in.WAFEnabled, WAFBlocking: in.WAFBlocking, RateEnabled: in.RateLimitEnabled,
 			RateWindow: in.RateLimitWindow, RateMaxEvents: in.RateLimitMaxEvents, RateKey: in.RateLimitKey,
+			SkipTLSVerify: in.UpstreamSkipTLS,
 		}); uerr != nil {
 			_ = h.Routes.Delete(ctx, clientID, id)
 			apiRouteUpdateErr(w, uerr)
