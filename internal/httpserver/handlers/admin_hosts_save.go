@@ -284,6 +284,10 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "wildcard_zone", "wildcard: no DNS provider is named "+wildcardZone+" (DNS providers page)")
 			return
 		}
+		if !oldWild && !h.planAllowsOnEnable(r.Context(), sess, id, "wildcard_enabled") {
+			h.renderHostEditValidationError(w, r, sess, id, ownerClientID, "wildcard_zone", "plan does not permit wildcard certificates")
+			return
+		}
 	}
 
 	// Outbound/egress IP. Only proxy routes need it; ignored for redirect/maintenance.
@@ -730,6 +734,12 @@ func (h *AdminHandlers) HostsUpdate(w http.ResponseWriter, r *http.Request) {
 		// binding one would NULL backend_ip_override (the FQDN) and break it.
 		if viaPeerID > 0 {
 			redirectWithFlash(w, r, editPath, "", "external upstream cannot also use a WG tunnel - clear 'Backend via'")
+			return
+		}
+		var wasExternal bool
+		_ = h.DB().QueryRowContext(r.Context(), "SELECT COALESCE(upstream_external,0) FROM routes WHERE id = ?", id).Scan(&wasExternal)
+		if !wasExternal && !h.planAllowsOnEnable(r.Context(), sess, id, "external_proxy_enabled") {
+			redirectWithFlash(w, r, editPath, "", "plan does not permit external upstreams")
 			return
 		}
 		// Allowlist + public-address check for wildcard hits, same as Create.

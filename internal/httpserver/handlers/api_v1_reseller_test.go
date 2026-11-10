@@ -141,3 +141,28 @@ func TestEnsureAdminClientStampsReseller(t *testing.T) {
 		t.Fatalf("existing self-client not repaired, reseller_id = %v", rid)
 	}
 }
+
+// TestResellerAPIRequiresSuperAdmin: reseller management matches the panel's
+// super_admin gate; an unrestricted plain admin key is refused.
+func TestResellerAPIRequiresSuperAdmin(t *testing.T) {
+	h := &APIHandlers{} // nil Resellers -> 503 once the role gate passes
+	for role, want := range map[string]int{
+		"admin":       http.StatusForbidden,
+		"reseller":    http.StatusForbidden,
+		"super_admin": http.StatusServiceUnavailable,
+		"api":         http.StatusServiceUnavailable,
+	} {
+		for name, fn := range map[string]http.HandlerFunc{
+			"list": h.ResellersList, "create": h.ResellerCreate,
+			"plans": h.ResellerPlansList, "plan-create": h.ResellerPlanCreate,
+		} {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req = req.WithContext(middleware.ContextWithAPICaller(req.Context(), &middleware.APICaller{UserID: 1, Role: role}))
+			rr := httptest.NewRecorder()
+			fn(rr, req)
+			if rr.Code != want {
+				t.Errorf("%s %s: got %d, want %d", role, name, rr.Code, want)
+			}
+		}
+	}
+}
