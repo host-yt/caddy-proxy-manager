@@ -28,13 +28,15 @@ is deliberately left as published.
 - REST API: `upstream_skip_tls_verify` on route create, update and read. Enabling
   needs a super_admin or api key, same as the panel (#132).
 - REST API: route-scoped WAF endpoints - list events, list, add and remove rule
-  suppressions under `/api/v1/routes/{id}/waf/` (#132).
+  suppressions under `/api/v1/routes/{id}/waf/`, for unrestricted admin keys
+  (#132).
 - WAF events page: "Restore rule" in the row menu of an event whose rule is
   suppressed on its route (#132).
 
 ### Fixed
 
 - Access log live tail rows no longer shift columns (#133).
+- Access log live tail shows times in `HPG_DISPLAY_TZ`, like the rest of the table.
 
 ### Security
 
