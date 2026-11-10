@@ -78,7 +78,7 @@ func CommonFuncs() template.FuncMap {
 		// hasPrefix reports whether s starts with prefix.
 		"hasPrefix": strings.HasPrefix,
 		// localTime formats t in HPG_DISPLAY_TZ; not TZ, which would shift time.Local for DB/bucket code.
-		"localTime": func(t time.Time, layout string) string { return t.In(displayLoc()).Format(layout) },
+		"localTime": LocalTime,
 		// formatBytes converts a byte count to a human-readable string.
 		"formatBytes": func(n int64) string {
 			if n == 0 {
@@ -122,3 +122,6 @@ var displayLoc = sync.OnceValue(func() *time.Location {
 	}
 	return time.UTC
 })
+
+// LocalTime formats t in the display zone; shared by templates and JSON feeds.
+func LocalTime(t time.Time, layout string) string { return t.In(displayLoc()).Format(layout) }
