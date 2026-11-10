@@ -2839,6 +2839,11 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	// Same backend screen as the API service create.
+	if err := screenBackendHost(ctx, db, backendIP, 0); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "backend_ip not allowed: "+sanitizeErr(err))
+		return
+	}
 
 	// IDOR guard: a restricted admin may only create services for its own tenants.
 	if !h.scopeCheckClient(ctx, middleware.SessionFromContext(r.Context()), clientID) {
@@ -2851,10 +2856,7 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Reject a port range that overlaps another service on the same backend IP.
-	var overlapCount int
-	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM services WHERE backend_ip = ? AND NOT (allowed_port_end < ? OR allowed_port_start > ?)`,
-		backendIP, portStart, portEnd).Scan(&overlapCount); err == nil && overlapCount > 0 {
+	if overlap, err := servicePortOverlap(ctx, db, backendIP, portStart, portEnd, 0); err != nil || overlap {
 		redirectWithFlash(w, r, "/admin/services", "", "port range overlaps an existing service on this backend IP")
 		return
 	}
@@ -2883,6 +2885,13 @@ func (h *AdminHandlers) ServicesCreate(w http.ResponseWriter, r *http.Request) {
 	if err := tx.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
 		redirectWithFlash(w, r, "/admin/services", "", "plan not found")
 		return
+	}
+	// A reseller admin places only on node groups its package grants, as on host create.
+	if sess := middleware.SessionFromContext(r.Context()); sess != nil && sess.ResellerID > 0 {
+		if ok, gerr := resellerGrantsNodeGroup(ctx, tx, sess.ResellerID, nodeGroupID); gerr != nil || !ok {
+			redirectWithFlash(w, r, "/admin/services", "", errPlacementNotGranted.Error())
+			return
+		}
 	}
 
 	var extRef sql.NullString
@@ -2962,6 +2971,11 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 5_000_000_000)
 	defer cancel()
+	// Same backend screen as the API service create.
+	if err := screenBackendHost(ctx, db, backendIP, 0); err != nil {
+		redirectWithFlash(w, r, "/admin/services", "", "backend_ip not allowed: "+sanitizeErr(err))
+		return
+	}
 
 	// IDOR guard: must own both the existing service and the target client (no
 	// moving a service into or out of another tenant's scope).
@@ -2975,10 +2989,7 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Reject a port range that overlaps another service on the same backend IP.
-	var overlapCount int
-	if err := db.QueryRowContext(ctx,
-		`SELECT COUNT(*) FROM services WHERE backend_ip = ? AND NOT (allowed_port_end < ? OR allowed_port_start > ?) AND id <> ?`,
-		backendIP, portStart, portEnd, id).Scan(&overlapCount); err == nil && overlapCount > 0 {
+	if overlap, err := servicePortOverlap(ctx, db, backendIP, portStart, portEnd, id); err != nil || overlap {
 		redirectWithFlash(w, r, "/admin/services", "", "port range overlaps an existing service on this backend IP")
 		return
 	}
@@ -2999,10 +3010,20 @@ func (h *AdminHandlers) ServicesUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var nodeGroupID int64
+	var nodeGroupID, oldGroupID int64
 	if err := tx.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", planID).Scan(&nodeGroupID); err != nil {
 		redirectWithFlash(w, r, "/admin/services", "", "plan not found")
 		return
+	}
+	// Only a move is gated, so a service the platform placed stays editable.
+	if sess != nil && sess.ResellerID > 0 {
+		_ = tx.QueryRowContext(ctx, "SELECT COALESCE(node_group_id,0) FROM services WHERE id = ?", id).Scan(&oldGroupID)
+		if nodeGroupID != oldGroupID {
+			if ok, gerr := resellerGrantsNodeGroup(ctx, tx, sess.ResellerID, nodeGroupID); gerr != nil || !ok {
+				redirectWithFlash(w, r, "/admin/services", "", errPlacementNotGranted.Error())
+				return
+			}
+		}
 	}
 	var extRef sql.NullString
 	if externalRef != "" {

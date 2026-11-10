@@ -36,6 +36,12 @@ is deliberately left as published.
 
 - Access log live tail rows no longer shift columns (#133).
 
+### Security
+
+- Align REST API and panel validation: reseller management via the API needs a
+  super_admin or api key, host, service, node and node pool writes apply the
+  same checks on every path.
+
 ## [1.10.2] - 2026-11-07
 
 Completes the 1.10.0 release. The 1.10.0 and 1.10.1 tags failed the release

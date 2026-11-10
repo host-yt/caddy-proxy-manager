@@ -1,7 +1,7 @@
 package handlers
 
 // /api/v1/resellers + /api/v1/reseller-plans - platform-admin-only management
-// of the reseller layer (F6). Reseller keys are denied by requireGlobalAPIAdmin;
+// of the reseller layer (F6). Reseller keys are denied by requireSuperAPIAdmin;
 // they manage their tenants through the scoped clients/services endpoints.
 
 import (
@@ -15,6 +15,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 )
@@ -32,6 +33,17 @@ type apiReseller struct {
 	CanCreatePlans bool         `json:"can_create_plans"`
 	OwnerUserID    int64        `json:"owner_user_id,omitempty"`
 	Usage          *quota.Usage `json:"usage,omitempty"`
+}
+
+// requireSuperAPIAdmin matches the panel's guardSuperAdmin: reseller provisioning
+// grants tenant ownership, so a plain admin key is not enough.
+func requireSuperAPIAdmin(w http.ResponseWriter, r *http.Request) bool {
+	c := middleware.CallerFromContext(r.Context())
+	if c == nil || (c.Role != "super_admin" && c.Role != "api") {
+		apiErr(w, http.StatusForbidden, "super_admin role required")
+		return false
+	}
+	return true
 }
 
 func (h *APIHandlers) resellerStoreOK(w http.ResponseWriter) bool {
@@ -64,7 +76,7 @@ func (h *APIHandlers) apiResellerOut(r *http.Request, rs reseller.Reseller, with
 
 // ResellersList handles GET /api/v1/resellers.
 func (h *APIHandlers) ResellersList(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) || !h.resellerStoreOK(w) {
+	if !requireSuperAPIAdmin(w, r) || !h.resellerStoreOK(w) {
 		return
 	}
 	list, err := h.Resellers.List(r.Context())
@@ -81,7 +93,7 @@ func (h *APIHandlers) ResellersList(w http.ResponseWriter, r *http.Request) {
 
 // ResellerGet handles GET /api/v1/resellers/{id} (includes usage).
 func (h *APIHandlers) ResellerGet(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) || !h.resellerStoreOK(w) {
+	if !requireSuperAPIAdmin(w, r) || !h.resellerStoreOK(w) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -99,7 +111,7 @@ func (h *APIHandlers) ResellerGet(w http.ResponseWriter, r *http.Request) {
 
 // ResellerCreate handles POST /api/v1/resellers - atomic reseller + owner login.
 func (h *APIHandlers) ResellerCreate(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) || !h.resellerStoreOK(w) {
+	if !requireSuperAPIAdmin(w, r) || !h.resellerStoreOK(w) {
 		return
 	}
 	var in struct {
@@ -170,7 +182,7 @@ func (h *APIHandlers) ResellerCreate(w http.ResponseWriter, r *http.Request) {
 // ResellerUpdate handles PATCH /api/v1/resellers/{id}: name/status/branding and
 // policy (reseller_plan_id / overselling_allowed / can_create_plans).
 func (h *APIHandlers) ResellerUpdate(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) || !h.resellerStoreOK(w) {
+	if !requireSuperAPIAdmin(w, r) || !h.resellerStoreOK(w) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -275,7 +287,7 @@ func (h *APIHandlers) ResellerUpdate(w http.ResponseWriter, r *http.Request) {
 // ResellerDelete handles DELETE /api/v1/resellers/{id}. FK ON DELETE SET NULL
 // returns owned rows to platform-direct; freed users' sessions are revoked.
 func (h *APIHandlers) ResellerDelete(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) || !h.resellerStoreOK(w) {
+	if !requireSuperAPIAdmin(w, r) || !h.resellerStoreOK(w) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -337,7 +349,7 @@ func planOut(p reseller.Plan) apiResellerPlan {
 
 // ResellerPlansList handles GET /api/v1/reseller-plans.
 func (h *APIHandlers) ResellerPlansList(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) || !h.resellerStoreOK(w) {
+	if !requireSuperAPIAdmin(w, r) || !h.resellerStoreOK(w) {
 		return
 	}
 	list, err := h.Resellers.PlansList(r.Context())
@@ -382,7 +394,7 @@ func resellerPlanIn(w http.ResponseWriter, r *http.Request, id int64) (reseller.
 
 // ResellerPlanCreate handles POST /api/v1/reseller-plans.
 func (h *APIHandlers) ResellerPlanCreate(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) || !h.resellerStoreOK(w) {
+	if !requireSuperAPIAdmin(w, r) || !h.resellerStoreOK(w) {
 		return
 	}
 	p, ok := resellerPlanIn(w, r, 0)
@@ -409,7 +421,7 @@ func (h *APIHandlers) ResellerPlanCreate(w http.ResponseWriter, r *http.Request)
 // ResellerPlanUpdate handles PATCH /api/v1/reseller-plans/{id} (full replace of
 // limits + grant sets - PUT semantics on a small object keeps it simple).
 func (h *APIHandlers) ResellerPlanUpdate(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) || !h.resellerStoreOK(w) {
+	if !requireSuperAPIAdmin(w, r) || !h.resellerStoreOK(w) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -435,7 +447,7 @@ func (h *APIHandlers) ResellerPlanUpdate(w http.ResponseWriter, r *http.Request)
 
 // ResellerPlanDelete handles DELETE /api/v1/reseller-plans/{id}.
 func (h *APIHandlers) ResellerPlanDelete(w http.ResponseWriter, r *http.Request) {
-	if !h.requireGlobalAPIAdmin(w, r) || !h.resellerStoreOK(w) {
+	if !requireSuperAPIAdmin(w, r) || !h.resellerStoreOK(w) {
 		return
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)

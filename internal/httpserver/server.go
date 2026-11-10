@@ -928,7 +928,7 @@ func (s *Server) routes() {
 				r.Delete("/{id}", s.deps.API.ClientDelete)
 			})
 			// Reseller layer management: platform-admin keys only (enforced by
-			// requireGlobalAPIAdmin inside every handler).
+			// requireSuperAPIAdmin inside every handler).
 			r.Route("/resellers", func(r chi.Router) {
 				r.Use(mw.RequireAdminScope())
 				r.Use(mw.RequireUnrestrictedAPIOwner(s.deps.Wizard.DB))

@@ -913,7 +913,7 @@ This endpoint is called by the node bootstrap script (`/install/node.sh`). Do no
 
 ### Resellers
 
-A reseller is a white-label tenant that owns a set of clients (and optionally its own plans + branding). Reseller management is **platform-admin only** - a reseller-admin API key passes the role check but is denied by the global-scope gate (`403 global admin scope required`); it manages its own tenants through the scoped `/clients`, `/services`, and `/routes` endpoints instead.
+A reseller is a white-label tenant that owns a set of clients (and optionally its own plans + branding). Reseller management needs a **super_admin or api key**, same as the panel; any other key, including a plain admin or reseller-admin, gets `403 super_admin role required`. A reseller-admin manages its own tenants through the scoped `/clients`, `/services`, and `/routes` endpoints instead.
 
 ---
 

@@ -13,6 +13,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/host-yt/caddy-proxy-manager/internal/caddyapi"
 	"github.com/host-yt/caddy-proxy-manager/internal/dns"
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
@@ -26,7 +27,7 @@ import (
 func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (int64, error) {
 	domain := strings.ToLower(strings.TrimSpace(in.Domain))
 	pathPrefix := strings.TrimSpace(in.PathPrefix)
-	if domain == "" || !validDomain(domain) {
+	if domain == "" || !validDomain(domain) || !caddyapi.ValidHostMatcher(domain) {
 		return 0, ErrInvalidDomain
 	}
 	if pathPrefix != "" {
@@ -343,6 +344,20 @@ func (s *Service) Create(ctx context.Context, clientID int64, in CreateInput) (i
 	// same domain. If the sole conflicting row is unverified, evict it inside this
 	// tx so the new claim can proceed (both then race to prove ownership via TXT).
 	// A VERIFIED conflicting row is never displaced - that owner proved control.
+	// A verified route of another tenant on this host (any path, primary or
+	// alias) is never shadowed, matching the panel edit check. Unverified rows
+	// are not served and stay subject to the anti-squat eviction below.
+	var foreign int
+	if err := tx.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM routes r JOIN services s ON s.id = r.service_id
+		  WHERE r.status <> 'deleted' AND r.domain_verified = 1 AND s.client_id <> ?
+		    AND (r.domain = ? OR FIND_IN_SET(?, r.aliases) > 0)`,
+		ownerClient, domain, domain).Scan(&foreign); err != nil {
+		return 0, fmt.Errorf("domain collision check: %w", err)
+	}
+	if foreign > 0 {
+		return 0, ErrDomainTaken
+	}
 	var conflictID, conflictVerified int64
 	if e := tx.QueryRowContext(ctx,
 		`SELECT id, domain_verified FROM routes

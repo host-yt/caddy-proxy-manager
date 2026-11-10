@@ -20,6 +20,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // ---- list contract -----------------------------------------------------
@@ -1268,6 +1269,7 @@ func (h *APIHandlers) NodePoolCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" {
 		apiErr(w, http.StatusBadRequest, "name required")
 		return
@@ -1315,8 +1317,13 @@ func (h *APIHandlers) NodePoolUpdate(w http.ResponseWriter, r *http.Request) {
 	parts := []string{}
 	args := []any{}
 	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		if name == "" {
+			apiErr(w, http.StatusBadRequest, "name required")
+			return
+		}
 		parts = append(parts, "name=?")
-		args = append(args, *in.Name)
+		args = append(args, name)
 	}
 	if in.Mode != nil {
 		m := *in.Mode
@@ -1462,6 +1469,10 @@ func (h *APIHandlers) NodeUpdate(w http.ResponseWriter, r *http.Request) {
 	parts := []string{}
 	args := []any{}
 	if in.Name != nil {
+		if !security.ValidNodeName(*in.Name) {
+			apiErr(w, http.StatusBadRequest, "name must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric")
+			return
+		}
 		parts = append(parts, "name=?")
 		args = append(args, *in.Name)
 	}
