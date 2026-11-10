@@ -206,7 +206,7 @@ type routePolicyJSON struct {
 
 func (p routePolicyJSON) hasPolicy() bool {
 	return p.WAFEnabled != nil || p.WAFBlocking != nil || p.RateLimitEnabled != nil ||
-		p.RateLimitWindow != nil || p.RateLimitMaxEvents != nil || p.RateLimitKey != nil || p.UpstreamSkipTLS != nil
+		p.RateLimitWindow != nil || p.RateLimitMaxEvents != nil || p.RateLimitKey != nil || (p.UpstreamSkipTLS != nil && *p.UpstreamSkipTLS)
 }
 
 // RouteAccessLogs serves GET /api/v1/routes/{id}/access-logs?limit=N, newest first.
@@ -514,9 +514,13 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := apiCallerID(r)
+	var meta map[string]any
+	if in.UpstreamSkipTLS != nil {
+		meta = map[string]any{"upstream_skip_tls_verify": *in.UpstreamSkipTLS}
+	}
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &uid, ActorType: audit.ActorAPI, Action: "route.updated", Entity: "route",
-		EntityID: strconv.FormatInt(id, 10),
+		EntityID: strconv.FormatInt(id, 10), Meta: meta,
 	})
 	apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true, "resync_required": true})
 }

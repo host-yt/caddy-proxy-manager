@@ -21,8 +21,8 @@ import (
 // for API callers, same as the route PATCH.
 func (h *APIHandlers) wafRouteGate(w http.ResponseWriter, r *http.Request) (int64, context.Context, context.CancelFunc, bool) {
 	noop := func() {}
-	if !requireAdmin(r) {
-		apiErr(w, http.StatusForbidden, "admin role required")
+	// Panel keeps reseller/client-scoped admins out of /admin/waf; mirror that.
+	if !h.requireGlobalAPIAdmin(w, r) {
 		return 0, nil, noop, false
 	}
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
@@ -169,8 +169,8 @@ func (h *APIHandlers) RouteWAFSuppress(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	reason := strings.TrimSpace(in.Reason)
-	if len(reason) > 255 {
-		reason = reason[:255]
+	if rs := []rune(reason); len(rs) > 255 {
+		reason = string(rs[:255])
 	}
 	var exp sql.NullTime
 	if s := strings.TrimSpace(in.ExpiresAt); s != "" {
@@ -188,6 +188,15 @@ func (h *APIHandlers) RouteWAFSuppress(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		exp = sql.NullTime{Time: t.UTC(), Valid: true}
+	}
+	// Idempotent: a retry returns the existing route-scoped row instead of a duplicate.
+	if existing, lerr := h.WAFEvents.ListSuppressions(ctx, []int64{id}); lerr == nil {
+		for _, s := range existing {
+			if s.RuleID == ruleID && s.RouteID.Valid && s.RouteID.Int64 == id {
+				apiJSON(w, http.StatusOK, map[string]any{"id": s.ID, "rule_id": ruleID, "route_id": id})
+				return
+			}
+		}
 	}
 	c := middleware.CallerFromContext(r.Context())
 	sid, err := h.WAFEvents.SuppressRule(ctx, wafevents.Suppression{
@@ -215,9 +224,10 @@ func (h *APIHandlers) RouteWAFUnsuppress(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	defer cancel()
-	ruleID := chi.URLParam(r, "rule_id")
-	if !validWAFRuleID(ruleID) {
-		apiErr(w, http.StatusBadRequest, "rule_id must be a positive integer")
+	// Panel stores free-form rule ids (<=128), so delete must accept them too.
+	ruleID := strings.TrimSpace(chi.URLParam(r, "rule_id"))
+	if ruleID == "" || len(ruleID) > 128 {
+		apiErr(w, http.StatusBadRequest, "invalid rule_id")
 		return
 	}
 	n, err := h.WAFEvents.DeleteRouteSuppressionsByRule(ctx, id, ruleID)

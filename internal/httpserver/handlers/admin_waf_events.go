@@ -379,6 +379,10 @@ func (h *AdminHandlers) WAFRestoreRule(w http.ResponseWriter, r *http.Request) {
 			h.Routes.SchedulePushAllNodes(h.Routes.BackgroundCtx())
 		}
 	}
+	if n == 0 {
+		redirectWithFlash(w, r, "/admin/waf", "", "no route suppression found for this rule")
+		return
+	}
 	redirectWithFlash(w, r, "/admin/waf", "Rule restored", "")
 }
 
