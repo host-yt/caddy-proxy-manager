@@ -151,6 +151,7 @@
           "rate_limit_window": { "type": "string", "example": "1m", "description": "Go duration, default 1m." },
           "rate_limit_max_events": { "type": "integer", "minimum": 1, "maximum": 1000000, "description": "Default 100." },
           "rate_limit_key": { "type": "string", "example": "{http.request.remote.host}" },
+          "upstream_skip_tls_verify": { "type": "boolean", "default": false, "description": "Skip upstream TLS certificate verification (MITM risk). Enabling needs a super_admin or api key, else 403; disabling is open to any admin." },
           "caddy_node_id": { "type": "integer", "format": "int64", "example": 1 },
           "status": {
             "type": "string",
@@ -786,6 +787,7 @@
                   "rate_limit_window": { "type": "string", "example": "1m", "description": "Go duration, default 1m." },
                   "rate_limit_max_events": { "type": "integer", "minimum": 1, "maximum": 1000000, "description": "Default 100." },
                   "rate_limit_key": { "type": "string", "example": "{http.request.remote.host}" },
+                  "upstream_skip_tls_verify": { "type": "boolean", "default": false, "description": "Skip upstream TLS certificate verification (MITM risk). Enabling needs a super_admin or api key, else 403; disabling is open to any admin." },
                   "upstream_url": { "type": "string", "example": "https://console.example.net/base", "description": "Admin only. External https origin (allowlisted host). Overrides upstream_port; its path is prepended upstream; Host and SNI are set to its host." },
                   "strip_path_prefix": { "type": "boolean", "default": false, "description": "Strip path_prefix before proxying. Requires path_prefix." },
                   "ttl_seconds": { "type": "integer", "minimum": 0, "maximum": 86400, "description": "0 = permanent. Otherwise the route is deleted automatically after this many seconds." }
@@ -852,7 +854,8 @@
                   "rate_limit_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the rate-limit module." },
                   "rate_limit_window": { "type": "string", "example": "1m", "description": "Go duration, default 1m." },
                   "rate_limit_max_events": { "type": "integer", "minimum": 1, "maximum": 1000000, "description": "Default 100." },
-                  "rate_limit_key": { "type": "string", "example": "{http.request.remote.host}" }
+                  "rate_limit_key": { "type": "string", "example": "{http.request.remote.host}" },
+                  "upstream_skip_tls_verify": { "type": "boolean", "default": false, "description": "Skip upstream TLS certificate verification (MITM risk). Enabling needs a super_admin or api key, else 403; disabling is open to any admin." }
                 }
               }
             }
@@ -916,6 +919,87 @@
           "200": { "description": "Entries", "content": { "application/json": { "schema": { "type": "object", "properties": { "access_logs": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "integer" }, "ts": { "type": "string", "format": "date-time" }, "method": { "type": "string" }, "uri": { "type": "string" }, "status": { "type": "integer" }, "latency_ms": { "type": "integer" }, "remote_ip": { "type": "string" }, "user_agent": { "type": "string" } } } } } } } } },
           "403": { "description": "Route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}/waf/events": {
+      "get": {
+        "tags": ["Routes"],
+        "summary": "WAF events of a route",
+        "operationId": "routeWAFEvents",
+        "description": "Admin only. Newest first, paginated. `suppressed` is true when an active suppression (route or global) covers the rule.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 50, "maximum": 500 } },
+          { "in": "query", "name": "offset", "schema": { "type": "integer", "default": 0 } },
+          { "in": "query", "name": "rule_id", "schema": { "type": "string" }, "description": "Substring match on the rule id." },
+          { "in": "query", "name": "status", "schema": { "type": "string", "example": "blocked" }, "description": "Event action, e.g. blocked or detected." }
+        ],
+        "responses": {
+          "200": { "description": "Events", "content": { "application/json": { "schema": { "type": "object", "properties": { "total": { "type": "integer" }, "limit": { "type": "integer" }, "offset": { "type": "integer" }, "events": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "integer" }, "ts": { "type": "string", "format": "date-time" }, "severity": { "type": "string" }, "rule_id": { "type": "string" }, "status": { "type": "string" }, "remote_ip": { "type": "string" }, "host": { "type": "string" }, "uri": { "type": "string" }, "message": { "type": "string" }, "suppressed": { "type": "boolean" }, "acknowledged_at": { "type": "string", "format": "date-time", "nullable": true } } } } } } } } },
+          "403": { "description": "Admin role required or route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}/waf/suppressions": {
+      "get": {
+        "tags": ["Routes"],
+        "summary": "Active WAF rule suppressions of a route",
+        "operationId": "routeWAFSuppressionsList",
+        "description": "Admin only. Route-scoped suppressions only; global ones are not listed.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Suppressions", "content": { "application/json": { "schema": { "type": "object", "properties": { "suppressions": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "integer" }, "rule_id": { "type": "string" }, "route_id": { "type": "integer" }, "reason": { "type": "string" }, "created_at": { "type": "string", "format": "date-time" }, "expires_at": { "type": "string", "format": "date-time", "nullable": true } } } } } } } } },
+          "403": { "description": "Admin role required or route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Routes"],
+        "summary": "Suppress a WAF rule on a route",
+        "operationId": "routeWAFSuppress",
+        "description": "Admin only. Always scoped to this route. Nodes are re-pushed so the rule stops firing.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["rule_id"], "properties": {
+            "rule_id": { "type": "integer", "minimum": 1, "example": 942100 },
+            "reason": { "type": "string", "maxLength": 255 },
+            "expires_at": { "type": "string", "description": "RFC 3339 or YYYY-MM-DD (end of that day), in the future. Omitted = permanent." }
+          } } } }
+        },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "rule_id": { "type": "string" }, "route_id": { "type": "integer" } } } } } },
+          "400": { "description": "Invalid rule_id or expires_at", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required or route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}/waf/suppressions/{rule_id}": {
+      "delete": {
+        "tags": ["Routes"],
+        "summary": "Restore a suppressed WAF rule on a route",
+        "operationId": "routeWAFUnsuppress",
+        "description": "Admin only. Removes the route-scoped suppression; a global suppression is untouched. Nodes are re-pushed.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } },
+          { "in": "path", "name": "rule_id", "required": true, "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "rule_id": { "type": "string" }, "route_id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "400": { "description": "Invalid rule_id", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin role required or route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Route or suppression not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },

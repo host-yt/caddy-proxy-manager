@@ -20,6 +20,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/security"
 )
 
 // ---- list contract -----------------------------------------------------
@@ -200,11 +201,12 @@ type routePolicyJSON struct {
 	RateLimitWindow    *string `json:"rate_limit_window"`
 	RateLimitMaxEvents *int    `json:"rate_limit_max_events"`
 	RateLimitKey       *string `json:"rate_limit_key"`
+	UpstreamSkipTLS    *bool   `json:"upstream_skip_tls_verify"`
 }
 
 func (p routePolicyJSON) hasPolicy() bool {
 	return p.WAFEnabled != nil || p.WAFBlocking != nil || p.RateLimitEnabled != nil ||
-		p.RateLimitWindow != nil || p.RateLimitMaxEvents != nil || p.RateLimitKey != nil
+		p.RateLimitWindow != nil || p.RateLimitMaxEvents != nil || p.RateLimitKey != nil || (p.UpstreamSkipTLS != nil && *p.UpstreamSkipTLS)
 }
 
 // RouteAccessLogs serves GET /api/v1/routes/{id}/access-logs?limit=N, newest first.
@@ -287,13 +289,15 @@ type apiRoute struct {
 	RateLimitWindow  string `json:"rate_limit_window"`
 	RateLimitMax     int    `json:"rate_limit_max_events"`
 	RateLimitKey     string `json:"rate_limit_key"`
+	UpstreamSkipTLS  bool   `json:"upstream_skip_tls_verify"`
 }
 
 const routeSelectCols = `r.id, r.service_id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port,
 	COALESCE(r.ssl_enabled,0), COALESCE(r.websocket,0), COALESCE(r.force_https,0),
 	r.status, r.caddy_node_id, r.created_at, r.upstream_scheme,
 	COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.rate_enabled,0),
-	COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,'')`
+	COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,''),
+	COALESCE(r.upstream_skip_tls_verify,0)`
 
 func scanRoute(row interface {
 	Scan(...any) error
@@ -301,7 +305,7 @@ func scanRoute(row interface {
 	return row.Scan(&rt.ID, &rt.ServiceID, &rt.Domain, &rt.PathPrefix, &rt.UpstreamPort,
 		&rt.SSL, &rt.WebSocket, &rt.ForceHTTPS, &rt.Status, &rt.CaddyNodeID, &rt.CreatedAt,
 		&rt.UpstreamScheme, &rt.WAFEnabled, &rt.WAFBlocking, &rt.RateLimitEnabled,
-		&rt.RateLimitWindow, &rt.RateLimitMax, &rt.RateLimitKey)
+		&rt.RateLimitWindow, &rt.RateLimitMax, &rt.RateLimitKey, &rt.UpstreamSkipTLS)
 }
 
 func (h *APIHandlers) RoutesList(w http.ResponseWriter, r *http.Request) {
@@ -477,6 +481,10 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "path_prefix max 100 chars")
 		return
 	}
+	if !apiMaySkipTLS(r, in.UpstreamSkipTLS) {
+		apiErr(w, http.StatusForbidden, "upstream_skip_tls_verify requires a super_admin or api key")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if !h.routeInScope(ctx, w, r, id) {
@@ -494,6 +502,7 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		UpstreamScheme: in.UpstreamScheme, WAFEnabled: in.WAFEnabled, WAFBlocking: in.WAFBlocking,
 		RateEnabled: in.RateLimitEnabled, RateWindow: in.RateLimitWindow,
 		RateMaxEvents: in.RateLimitMaxEvents, RateKey: in.RateLimitKey,
+		SkipTLSVerify: in.UpstreamSkipTLS,
 	})
 	if err != nil {
 		apiRouteUpdateErr(w, err)
@@ -505,11 +514,25 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	uid := apiCallerID(r)
+	var meta map[string]any
+	if in.UpstreamSkipTLS != nil {
+		meta = map[string]any{"upstream_skip_tls_verify": *in.UpstreamSkipTLS}
+	}
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &uid, ActorType: audit.ActorAPI, Action: "route.updated", Entity: "route",
-		EntityID: strconv.FormatInt(id, 10),
+		EntityID: strconv.FormatInt(id, 10), Meta: meta,
 	})
 	apiJSON(w, http.StatusOK, map[string]any{"id": id, "updated": true, "resync_required": true})
+}
+
+// apiMaySkipTLS mirrors the panel gate: only super_admin (or a platform-wide
+// api key) may enable skipping upstream cert verification; disabling is open.
+func apiMaySkipTLS(r *http.Request, v *bool) bool {
+	if v == nil || !*v {
+		return true
+	}
+	c := middleware.CallerFromContext(r.Context())
+	return c != nil && (c.Role == "super_admin" || c.Role == "api")
 }
 
 // apiRouteUpdateErr keeps the three outcomes apart: the record is missing, a
@@ -1250,6 +1273,7 @@ func (h *APIHandlers) NodePoolCreate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "invalid json")
 		return
 	}
+	in.Name = strings.TrimSpace(in.Name)
 	if in.Name == "" {
 		apiErr(w, http.StatusBadRequest, "name required")
 		return
@@ -1297,8 +1321,13 @@ func (h *APIHandlers) NodePoolUpdate(w http.ResponseWriter, r *http.Request) {
 	parts := []string{}
 	args := []any{}
 	if in.Name != nil {
+		name := strings.TrimSpace(*in.Name)
+		if name == "" {
+			apiErr(w, http.StatusBadRequest, "name required")
+			return
+		}
 		parts = append(parts, "name=?")
-		args = append(args, *in.Name)
+		args = append(args, name)
 	}
 	if in.Mode != nil {
 		m := *in.Mode
@@ -1444,6 +1473,10 @@ func (h *APIHandlers) NodeUpdate(w http.ResponseWriter, r *http.Request) {
 	parts := []string{}
 	args := []any{}
 	if in.Name != nil {
+		if !security.ValidNodeName(*in.Name) {
+			apiErr(w, http.StatusBadRequest, "name must be 1-63 chars of letters, digits, dot, dash or underscore and start alphanumeric")
+			return
+		}
 		parts = append(parts, "name=?")
 		args = append(args, *in.Name)
 	}

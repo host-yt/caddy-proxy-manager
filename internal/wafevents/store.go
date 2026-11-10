@@ -561,6 +561,24 @@ func (s *Store) DeleteSuppression(ctx context.Context, id int64, ownerRouteID in
 	return err
 }
 
+// DeleteRouteSuppressionsByRule removes the route-scoped suppressions of ruleID
+// (never a global one) and returns how many rows went.
+func (s *Store) DeleteRouteSuppressionsByRule(ctx context.Context, routeID int64, ruleID string) (int64, error) {
+	if s.db == nil || routeID <= 0 {
+		return 0, nil
+	}
+	db := s.db()
+	if db == nil {
+		return 0, nil
+	}
+	res, err := db.ExecContext(ctx,
+		`DELETE FROM waf_rule_suppressions WHERE route_id = ? AND rule_id = ?`, routeID, ruleID)
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
+}
+
 // AckEvent marks one event as acknowledged by userID.
 func (s *Store) AckEvent(ctx context.Context, eventID, userID int64) error {
 	if s.db == nil {

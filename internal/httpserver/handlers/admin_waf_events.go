@@ -37,6 +37,8 @@ type wafEventsData struct {
 	Entries      []wafevents.Event
 	Filter       wafevents.Filter
 	Suppressions []wafevents.Suppression
+	// RouteSup holds "ruleID|routeID" for route-scoped suppressions (Restore button).
+	RouteSup map[string]bool
 	// RouteDomain is non-empty when filtered to a specific route.
 	RouteDomain string
 	// ASNS maps remote_ip -> "AS12345 OrgName"; empty when ASN DB absent.
@@ -188,6 +190,12 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("waf suppressions query", "err", serr)
 	}
 	d.Suppressions = sups
+	d.RouteSup = map[string]bool{}
+	for _, sp := range sups {
+		if sp.RouteID.Valid {
+			d.RouteSup[sp.RuleID+"|"+strconv.FormatInt(sp.RouteID.Int64, 10)] = true
+		}
+	}
 
 	h.render(w, "waf_events", d)
 }
@@ -325,6 +333,57 @@ func (h *AdminHandlers) WAFDeleteSuppression(w http.ResponseWriter, r *http.Requ
 		h.Routes.SchedulePushAllNodes(h.Routes.BackgroundCtx())
 	}
 	redirectWithFlash(w, r, "/admin/waf", "Suppression deleted", "")
+}
+
+// WAFRestoreRule handles POST /admin/waf/restore: drops the route-scoped
+// suppression of rule_id on route_id (same scope rule as WAFDeleteSuppression).
+func (h *AdminHandlers) WAFRestoreRule(w http.ResponseWriter, r *http.Request) {
+	if h.WAFEvents == nil {
+		http.Error(w, "not available", http.StatusServiceUnavailable)
+		return
+	}
+	ctx := r.Context()
+	sess := middleware.SessionFromContext(ctx)
+	if sess == nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	_ = r.ParseForm()
+	ruleID := strings.TrimSpace(r.FormValue("rule_id"))
+	routeID, _ := strconv.ParseInt(r.FormValue("route_id"), 10, 64)
+	if ruleID == "" || routeID <= 0 {
+		redirectWithFlash(w, r, "/admin/waf", "", "rule_id and route_id are required")
+		return
+	}
+	if !h.scopeCheckRoute(ctx, sess, routeID) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	n, err := h.WAFEvents.DeleteRouteSuppressionsByRule(ctx, routeID, ruleID)
+	if err != nil {
+		h.Logger.Error("waf restore rule", "err", err)
+		redirectWithFlash(w, r, "/admin/waf", "", "restore failed")
+		return
+	}
+	if n > 0 {
+		if h.DB != nil {
+			audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+				UserID: actorUserID(sess),
+				Action: "waf.suppression_deleted", Entity: "waf_rule_suppressions",
+				EntityID: ruleID,
+				Meta:     map[string]any{"rule_id": ruleID, "route_id": routeID},
+			})
+		}
+		// Suppressions are baked into node config; push so the rule is live again.
+		if h.Routes != nil {
+			h.Routes.SchedulePushAllNodes(h.Routes.BackgroundCtx())
+		}
+	}
+	if n == 0 {
+		redirectWithFlash(w, r, "/admin/waf", "", "no route suppression found for this rule")
+		return
+	}
+	redirectWithFlash(w, r, "/admin/waf", "Rule restored", "")
 }
 
 // WAFAckEvent handles POST /admin/waf/events/{id}/ack.

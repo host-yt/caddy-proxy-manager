@@ -17,6 +17,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/accesslog"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/view"
 )
 
 var logsExportLimiter sync.Map
@@ -526,6 +527,11 @@ func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) 
 				"latency_ms": e.LatencyMS,
 				"remote_ip":  e.RemoteIP,
 				"user_agent": e.UserAgent,
+				"ts_local":   view.LocalTime(e.TS, "2006-01-02 15:04:05"),
+				"proto":      e.Proto,
+				"bytes_resp": e.BytesResp,
+				"bytes_req":  e.BytesReq,
+				"country":    e.Country,
 			})
 			if err != nil {
 				continue
