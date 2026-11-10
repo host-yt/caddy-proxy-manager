@@ -510,7 +510,7 @@
   }
 
   function prependRow(e){
-    var ts = new Date(e.ts).toLocaleString('sv').replace('T',' ');
+    var ts = e.ts_local || '';
     var tr = document.createElement('tr');
 
     tr.appendChild(cell('whitespace-nowrap font-mono tabular-nums t-caption', ts));

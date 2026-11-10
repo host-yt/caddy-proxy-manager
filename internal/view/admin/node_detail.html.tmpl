@@ -412,6 +412,7 @@
 
 <script nonce="{{.CSPNonce}}">
 (function () {
+  function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
   // Open/close failover preview modal.
   document.addEventListener('click', function (e) {
     if (e.target.closest('#btn-failover-preview')) {
@@ -436,7 +437,7 @@
             html += '<p style="color:rgb(var(--danger))" class="mb-3">No healthy sibling nodes available for failover.</p>';
           } else {
             html += '<p class="t-caption mb-2">Eligible target nodes: ';
-            html += d.eligible_targets.map(function (t) { return '<span class="font-medium" style="color:rgb(var(--success))">' + t.name + '</span>'; }).join(', ');
+            html += d.eligible_targets.map(function (t) { return '<span class="font-medium" style="color:rgb(var(--success))">' + esc(t.name) + '</span>'; }).join(', ');
             html += '</p>';
           }
           // Routes table.
@@ -449,9 +450,9 @@
             d.routes_to_move.forEach(function (route) {
               var indicator = route.can_move
                 ? '<span style="color:rgb(var(--success))" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>yes</span>'
-                : '<span style="color:rgb(var(--danger))" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>no' + (route.reason ? ' (' + route.reason + ')' : '') + '</span>';
-              html += '<tr><td class="font-mono">' + route.domain + '</td>';
-              html += '<td>' + route.status + '</td>';
+                : '<span style="color:rgb(var(--danger))" class="flex items-center gap-1"><svg class="w-3.5 h-3.5" viewBox="0 0 20 20" fill="currentColor"><path d="M6.28 5.22a.75.75 0 00-1.06 1.06L8.94 10l-3.72 3.72a.75.75 0 101.06 1.06L10 11.06l3.72 3.72a.75.75 0 101.06-1.06L11.06 10l3.72-3.72a.75.75 0 00-1.06-1.06L10 8.94 6.28 5.22z"/></svg>no' + (route.reason ? ' (' + esc(route.reason) + ')' : '') + '</span>';
+              html += '<tr><td class="font-mono">' + esc(route.domain) + '</td>';
+              html += '<td>' + esc(route.status) + '</td>';
               html += '<td>' + indicator + '</td></tr>';
             });
             html += '</tbody></table></div>';
