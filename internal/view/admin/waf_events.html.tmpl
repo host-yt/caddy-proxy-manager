@@ -196,6 +196,14 @@
                   <button type="submit" class="hpg-act-item" role="menuitem">Acknowledge</button>
                 </form>
                 {{end}}
+                {{if and .Suppressed .RouteID.Valid (index $.RouteSup (printf "%s|%d" .RuleID .RouteID.Int64))}}
+                <form method="POST" action="/admin/waf/restore" class="contents">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  <input type="hidden" name="rule_id" value="{{.RuleID}}">
+                  <input type="hidden" name="route_id" value="{{.RouteID.Int64}}">
+                  <button type="submit" class="hpg-act-item cursor-pointer" role="menuitem">Restore rule</button>
+                </form>
+                {{end}}
                 {{if not .Suppressed}}
                 <button type="button"
                   data-action="waf-show-suppress"

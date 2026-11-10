@@ -554,6 +554,7 @@ func (s *Server) routes() {
 		r.Get("/waf/export", s.deps.Admin.WafEventsExport)
 		r.Post("/waf/suppress", s.deps.Admin.WAFSuppressRule)
 		r.Post("/waf/suppressions/{id}/delete", s.deps.Admin.WAFDeleteSuppression)
+		r.Post("/waf/restore", s.deps.Admin.WAFRestoreRule)
 		r.Post("/waf/events/{id}/ack", s.deps.Admin.WAFAckEvent)
 		r.Post("/waf/events/clear", s.deps.Admin.WAFClearEvents)
 		r.Route("/streams", func(r chi.Router) {
@@ -881,6 +882,10 @@ func (s *Server) routes() {
 				r.Post("/", s.deps.API.RouteCreate)
 				r.Get("/{id}", s.deps.API.RouteGet)
 				r.Get("/{id}/access-logs", s.deps.API.RouteAccessLogs)
+				r.Get("/{id}/waf/events", s.deps.API.RouteWAFEvents)
+				r.Get("/{id}/waf/suppressions", s.deps.API.RouteWAFSuppressionsList)
+				r.Post("/{id}/waf/suppressions", s.deps.API.RouteWAFSuppress)
+				r.Delete("/{id}/waf/suppressions/{rule_id}", s.deps.API.RouteWAFUnsuppress)
 				r.Patch("/{id}", s.deps.API.RouteUpdate)
 				r.Delete("/{id}", s.deps.API.RouteDelete)
 				r.Post("/{id}/verify-dns", s.deps.API.RouteVerifyDNS)

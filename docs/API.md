@@ -529,6 +529,7 @@ Create a route.
 | `waf_enabled` / `waf_blocking` | boolean | no | Admin keys only. Per-route WAF; `waf_blocking=false` is detection only. `400` when the node's Caddy lacks the Coraza module |
 | `rate_limit_enabled` | boolean | no | Admin keys only. `400` when the node's Caddy lacks the rate-limit module |
 | `rate_limit_window` / `rate_limit_max_events` / `rate_limit_key` | string / integer / string | no | Defaults `1m` / `100` / `{http.request.remote.host}` |
+| `upstream_skip_tls_verify` | boolean | no | Default `false`. Skip upstream TLS certificate verification. Enabling needs a `super_admin` or `api` key (`403` otherwise), same as the panel; disabling is open to any admin |
 | `upstream_url` | string | no | Admin keys only. External origin `https://host[:port][/path]` (no credentials, query or fragment). Replaces `upstream_port`; see [External and ephemeral routes](#external-and-ephemeral-routes) |
 | `strip_path_prefix` | boolean | no | Default `false`. Strip `path_prefix` before proxying; the route then matches only `path_prefix` and `path_prefix/...`. Requires `path_prefix` |
 | `ttl_seconds` | integer | no | `0` (default) = permanent. `1`-`86400`: the route is deleted automatically once it expires |
@@ -624,6 +625,7 @@ All fields are optional; omit to leave unchanged.
 | `waf_enabled` / `waf_blocking` | boolean | WAF on/off and blocking vs detection; `400` when the node lacks the Coraza module |
 | `rate_limit_enabled` | boolean | `400` when the node lacks the rate-limit module |
 | `rate_limit_window` / `rate_limit_max_events` / `rate_limit_key` | string / integer / string | Go duration (`1m`), 1-1000000, Caddy placeholder |
+| `upstream_skip_tls_verify` | boolean | Enabling needs a `super_admin` or `api` key (`403` otherwise); omitted = unchanged |
 
 ```json
 { "upstream_port": 30006 }
@@ -664,6 +666,22 @@ Same tenant boundary as `GET /api/v1/routes/{id}`.
 ```json
 { "access_logs": [ { "id": 1, "ts": "2026-01-15T08:30:00Z", "method": "GET", "uri": "/", "status": 200, "latency_ms": 12, "remote_ip": "203.0.113.5", "user_agent": "curl/8" } ] }
 ```
+
+#### Route WAF events and suppressions
+
+Admin keys only; every call is checked against the route's scope (`403` outside
+it, `404` for an unknown route). Suppressions here are always route-scoped, and
+suppress/restore re-push the node configs.
+
+- `GET /api/v1/routes/{id}/waf/events?limit=&offset=&rule_id=&status=` - newest
+  first (`limit` default 50, max 500). `rule_id` is a substring match, `status`
+  is the event action (`blocked`, `detected`). Returns `{ "events": [...], "total", "limit", "offset" }`;
+  each event has `suppressed` and `acknowledged_at`.
+- `GET /api/v1/routes/{id}/waf/suppressions` - active route-scoped suppressions.
+- `POST /api/v1/routes/{id}/waf/suppressions` - body `{ "rule_id": 942100, "reason": "optional", "expires_at": "2026-12-31" }`
+  (`rule_id` a positive integer; `expires_at` RFC 3339 or `YYYY-MM-DD`, future, omitted = permanent). `201` with `{ "id", "rule_id", "route_id" }`.
+- `DELETE /api/v1/routes/{id}/waf/suppressions/{rule_id}` - restore the rule on
+  this route. `404` when no such route-scoped suppression exists.
 
 #### `DELETE /api/v1/routes/{id}`
 

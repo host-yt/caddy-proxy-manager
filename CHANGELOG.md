@@ -23,6 +23,19 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+### Added
+
+- REST API: `upstream_skip_tls_verify` on route create, update and read. Enabling
+  needs a super_admin or api key, same as the panel (#132).
+- REST API: route-scoped WAF endpoints - list events, list, add and remove rule
+  suppressions under `/api/v1/routes/{id}/waf/` (#132).
+- WAF events page: "Restore rule" in the row menu of an event whose rule is
+  suppressed on its route (#132).
+
+### Fixed
+
+- Access log live tail rows no longer shift columns (#133).
+
 ## [1.10.2] - 2026-11-07
 
 Completes the 1.10.0 release. The 1.10.0 and 1.10.1 tags failed the release
