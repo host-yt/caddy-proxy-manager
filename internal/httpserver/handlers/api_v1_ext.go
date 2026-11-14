@@ -209,14 +209,13 @@ func (p routePolicyJSON) hasPolicy() bool {
 }
 
 // skipTLSAllowed mirrors the admin UI rule: disabling backend certificate
-// verification opens the upstream hop to MITM, so only a platform-wide key
-// (super_admin or machine api role) may turn it on. Turning it off, or
-// omitting it, is always allowed.
+// verification opens the upstream hop to MITM, so only a super_admin key may
+// turn it on. Turning it off, or omitting it, is always allowed.
 func (p routePolicyJSON) skipTLSAllowed(c *middleware.APICaller) bool {
 	if p.UpstreamSkipTLS == nil || !*p.UpstreamSkipTLS {
 		return true
 	}
-	return c != nil && (c.Role == "super_admin" || c.Role == "api")
+	return c != nil && c.Role == "super_admin"
 }
 
 // routeReadable applies the read boundary of GET /routes/{id}: the owning

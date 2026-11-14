@@ -527,7 +527,7 @@ Create a route.
 | `websocket` | boolean | no | Default `false` |
 | `force_https` | boolean | no | Default `true` - redirect HTTP to HTTPS |
 | `upstream_scheme` | string | no | `http` (default) or `https`; scheme used to reach the backend. External routes are always `https` |
-| `upstream_skip_tls_verify` | boolean | no | Default `false`. Skip certificate verification on the backend hop ("Ignore invalid SSL on backend"); only takes effect with `upstream_scheme=https`. `true` needs a `super_admin` or `api` key (`403` otherwise) |
+| `upstream_skip_tls_verify` | boolean | no | Default `false`. Skip certificate verification on the backend hop ("Ignore invalid SSL on backend"); only takes effect with `upstream_scheme=https`. `true` needs a `super_admin` key (`403` otherwise) |
 | `waf_enabled` / `waf_blocking` | boolean | no | Admin keys only. Per-route WAF; `waf_blocking=false` is detection only. `400` when the node's Caddy lacks the Coraza module |
 | `rate_limit_enabled` | boolean | no | Admin keys only. `400` when the node's Caddy lacks the rate-limit module |
 | `rate_limit_window` / `rate_limit_max_events` / `rate_limit_key` | string / integer / string | no | Defaults `1m` / `100` / `{http.request.remote.host}` |
@@ -623,7 +623,7 @@ All fields are optional; omit to leave unchanged.
 | `websocket` | boolean | Requires the plan's websocket feature |
 | `force_https` | boolean | |
 | `upstream_scheme` | string | `http` or `https`; omitted = unchanged |
-| `upstream_skip_tls_verify` | boolean | Skip backend certificate verification; omitted = unchanged. Enabling needs a `super_admin` or `api` key, disabling any admin key |
+| `upstream_skip_tls_verify` | boolean | Skip backend certificate verification; omitted = unchanged. Enabling needs a `super_admin` key, disabling any admin key |
 | `waf_enabled` / `waf_blocking` | boolean | WAF on/off and blocking vs detection; `400` when the node lacks the Coraza module |
 | `rate_limit_enabled` | boolean | `400` when the node lacks the rate-limit module |
 | `rate_limit_window` / `rate_limit_max_events` / `rate_limit_key` | string / integer / string | Go duration (`1m`), 1-1000000, Caddy placeholder |

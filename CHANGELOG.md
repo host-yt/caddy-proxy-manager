@@ -27,7 +27,7 @@ is deliberately left as published.
 
 - REST API: `upstream_skip_tls_verify` ("Ignore invalid SSL on backend") on
   `POST /api/v1/routes`, `PATCH /api/v1/routes/{id}` and the route read
-  endpoints. Enabling it needs a `super_admin` or `api` key, like the panel
+  endpoints. Enabling it needs a `super_admin` key, like the panel
   checkbox (#132).
 - REST API: per-route WAF management - `GET /api/v1/routes/{id}/waf-events`
   (filters and pagination), and `GET`/`POST /api/v1/routes/{id}/waf-suppressions`

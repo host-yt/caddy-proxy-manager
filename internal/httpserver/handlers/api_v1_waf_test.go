@@ -96,7 +96,7 @@ func TestRoutePolicyJSON_SkipTLS(t *testing.T) {
 	if !(routePolicyJSON{UpstreamSkipTLS: &off}).hasPolicy() {
 		t.Error("skip tls not counted as policy (clients must be refused)")
 	}
-	for role, want := range map[string]bool{"super_admin": true, "api": true, "admin": false, "reseller": false} {
+	for role, want := range map[string]bool{"super_admin": true, "admin": false, "reseller": false, "client": false} {
 		if got := (routePolicyJSON{UpstreamSkipTLS: &on}).skipTLSAllowed(&middleware.APICaller{Role: role}); got != want {
 			t.Errorf("enable as %s = %v, want %v", role, got, want)
 		}
@@ -306,5 +306,20 @@ func TestWafEventsPage_RestoreRuleAction(t *testing.T) {
 	}
 	if n := strings.Count(body, "Restore rule (delete suppression)"); n != 1 {
 		t.Fatalf("restore actions = %d, want 1 (only the suppressed 942100 event)", n)
+	}
+}
+
+// A suppressed event with no suppression the viewer may delete (scoped admin
+// on the unfiltered view, or a global one) must not get a dead restore button
+// posting to /suppressions/0/delete.
+func TestWafEventsPage_NoRestoreWithoutTarget(t *testing.T) {
+	h := editFormHandlers(t, wafAPIDB(t))
+	d := wafEventsData{baseAdminData: h.base(httptest.NewRequest(http.MethodGet, "/admin/waf", nil), "WAF events")}
+	d.Entries = []wafevents.Event{{ID: 1, RuleID: "942100", Suppressed: true}}
+	d.TotalPgs, d.Page, d.Size = 1, 1, 50
+	rec := httptest.NewRecorder()
+	h.render(rec, "waf_events", d)
+	if strings.Contains(rec.Body.String(), "Restore rule") || strings.Contains(rec.Body.String(), "/suppressions/0/delete") {
+		t.Fatal("restore action rendered without a deletable suppression")
 	}
 }
