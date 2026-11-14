@@ -481,6 +481,7 @@ List routes.
       "websocket": false,
       "force_https": true,
       "upstream_scheme": "http",
+      "upstream_skip_tls_verify": false,
       "waf_enabled": false,
       "waf_blocking": false,
       "rate_limit_enabled": false,
@@ -526,6 +527,7 @@ Create a route.
 | `websocket` | boolean | no | Default `false` |
 | `force_https` | boolean | no | Default `true` - redirect HTTP to HTTPS |
 | `upstream_scheme` | string | no | `http` (default) or `https`; scheme used to reach the backend. External routes are always `https` |
+| `upstream_skip_tls_verify` | boolean | no | Default `false`. Skip certificate verification on the backend hop ("Ignore invalid SSL on backend"); only takes effect with `upstream_scheme=https`. `true` needs a `super_admin` or `api` key (`403` otherwise) |
 | `waf_enabled` / `waf_blocking` | boolean | no | Admin keys only. Per-route WAF; `waf_blocking=false` is detection only. `400` when the node's Caddy lacks the Coraza module |
 | `rate_limit_enabled` | boolean | no | Admin keys only. `400` when the node's Caddy lacks the rate-limit module |
 | `rate_limit_window` / `rate_limit_max_events` / `rate_limit_key` | string / integer / string | no | Defaults `1m` / `100` / `{http.request.remote.host}` |
@@ -621,6 +623,7 @@ All fields are optional; omit to leave unchanged.
 | `websocket` | boolean | Requires the plan's websocket feature |
 | `force_https` | boolean | |
 | `upstream_scheme` | string | `http` or `https`; omitted = unchanged |
+| `upstream_skip_tls_verify` | boolean | Skip backend certificate verification; omitted = unchanged. Enabling needs a `super_admin` or `api` key, disabling any admin key |
 | `waf_enabled` / `waf_blocking` | boolean | WAF on/off and blocking vs detection; `400` when the node lacks the Coraza module |
 | `rate_limit_enabled` | boolean | `400` when the node lacks the rate-limit module |
 | `rate_limit_window` / `rate_limit_max_events` / `rate_limit_key` | string / integer / string | Go duration (`1m`), 1-1000000, Caddy placeholder |
@@ -663,6 +666,57 @@ Same tenant boundary as `GET /api/v1/routes/{id}`.
 
 ```json
 { "access_logs": [ { "id": 1, "ts": "2026-01-15T08:30:00Z", "method": "GET", "uri": "/", "status": 200, "latency_ms": 12, "remote_ip": "203.0.113.5", "user_agent": "curl/8" } ] }
+```
+
+#### `GET /api/v1/routes/{id}/waf-events`
+
+WAF events of a route, newest first. Same tenant boundary as `GET /api/v1/routes/{id}`.
+
+Query: `limit` (1-500, default 50), `offset`, `severity`, `action` (`blocked`/`detected`),
+`rule_id` (substring), `remote_ip`, `from` / `to` (RFC 3339 or `YYYY-MM-DD`, inclusive).
+`total` counts every match, ignoring `limit`/`offset`. `suppressed` is `true` when an
+active suppression (route or global) covers the event's rule.
+
+```json
+{
+  "waf_events": [
+    { "id": 812, "route_id": 201, "ts": "2026-11-08T15:02:11Z", "severity": "critical", "rule_id": "942100",
+      "action": "blocked", "remote_ip": "203.0.113.5", "host": "app.example.com", "uri": "/search?q=1",
+      "message": "SQL Injection Attack Detected", "suppressed": false, "acknowledged": false }
+  ],
+  "total": 1, "limit": 50, "offset": 0
+}
+```
+
+#### `GET /api/v1/routes/{id}/waf-suppressions`
+
+Active (unexpired) suppressions scoped to this route. Global suppressions are not listed.
+
+```json
+{ "waf_suppressions": [ { "id": 14, "route_id": 201, "rule_id": "942100", "reason": "false positive on search", "created_at": "2026-11-08T15:10:00Z", "expires_at": null } ] }
+```
+
+#### `POST /api/v1/routes/{id}/waf-suppressions`
+
+Stop a WAF rule from firing on this route. **Admin keys only**; the key's scope must cover the route.
+The node config is re-pushed automatically.
+
+| Field | Type | Required | Notes |
+|-------|------|----------|-------|
+| `rule_id` | string | yes | Numeric rule ID or range, e.g. `942100` or `942100-942199` |
+| `reason` | string | no | Max 255 chars |
+| `expires_at` | string | no | RFC 3339 or `YYYY-MM-DD` (end of that day); omitted = permanent |
+
+Response `201` is the created suppression. `400` invalid input, `403` client key or route
+outside scope, `404` route not found.
+
+#### `DELETE /api/v1/routes/{id}/waf-suppressions/{sid}`
+
+Delete a suppression so the WAF applies the rule to this route again. **Admin keys only.**
+Only suppressions scoped to this route can be removed; a global suppression returns `404`.
+
+```json
+{ "id": 14, "route_id": 201, "deleted": true }
 ```
 
 #### `DELETE /api/v1/routes/{id}`

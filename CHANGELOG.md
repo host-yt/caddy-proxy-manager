@@ -23,6 +23,26 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+### Added
+
+- REST API: `upstream_skip_tls_verify` ("Ignore invalid SSL on backend") on
+  `POST /api/v1/routes`, `PATCH /api/v1/routes/{id}` and the route read
+  endpoints. Enabling it needs a `super_admin` or `api` key, like the panel
+  checkbox (#132).
+- REST API: per-route WAF management - `GET /api/v1/routes/{id}/waf-events`
+  (filters and pagination), and `GET`/`POST /api/v1/routes/{id}/waf-suppressions`
+  plus `DELETE /api/v1/routes/{id}/waf-suppressions/{sid}` (#132).
+- WAF events page: suppressed events get a "Restore rule" action that deletes
+  the matching suppression (#132).
+
+### Fixed
+
+- Access log live tail added rows with 6 of the table's 10 cells, so streamed
+  entries showed under the wrong columns. The stream now carries protocol,
+  bytes and country, and live rows match the table (#133).
+- WAF events: filtering by rule ID failed on SQLite installs ("ESCAPE
+  expression must be a single character").
+
 ## [1.10.2] - 2026-11-07
 
 Completes the 1.10.0 release. The 1.10.0 and 1.10.1 tags failed the release

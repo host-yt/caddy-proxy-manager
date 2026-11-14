@@ -14,6 +14,10 @@ import (
 // reach seclang, anything else could smuggle directives into the node config.
 var wafRuleIDRe = regexp.MustCompile(`^[0-9]{1,9}(-[0-9]{1,9})?$`)
 
+// ValidWAFRuleID reports whether id is a rule ID or ID range that the node
+// build will render. Write paths use it to refuse what the build would drop.
+func ValidWAFRuleID(id string) bool { return wafRuleIDRe.MatchString(id) }
+
 // loadWAFSuppressions returns the active suppressions once per build. A read
 // error fails the build: pushing without them would re-enable suppressed rules.
 func (s *Service) loadWAFSuppressions(ctx context.Context) ([]wafevents.Suppression, error) {

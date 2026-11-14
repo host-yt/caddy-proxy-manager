@@ -133,6 +133,35 @@
           "created_at": { "type": "string", "format": "date-time" }
         }
       },
+      "WAFEvent": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "route_id": { "type": "integer", "format": "int64" },
+          "ts": { "type": "string", "format": "date-time" },
+          "severity": { "type": "string", "example": "critical" },
+          "rule_id": { "type": "string", "example": "942100" },
+          "action": { "type": "string", "enum": ["blocked", "detected"] },
+          "remote_ip": { "type": "string" },
+          "host": { "type": "string" },
+          "uri": { "type": "string" },
+          "message": { "type": "string" },
+          "suppressed": { "type": "boolean" },
+          "acknowledged": { "type": "boolean" },
+          "acknowledged_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "WAFSuppression": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "integer", "format": "int64" },
+          "route_id": { "type": "integer", "format": "int64" },
+          "rule_id": { "type": "string", "example": "942100" },
+          "reason": { "type": "string" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "expires_at": { "type": "string", "format": "date-time", "nullable": true }
+        }
+      },
       "RouteObject": {
         "type": "object",
         "properties": {
@@ -145,6 +174,7 @@
           "websocket": { "type": "boolean", "example": false },
           "force_https": { "type": "boolean", "example": true },
           "upstream_scheme": { "type": "string", "enum": ["http", "https"], "description": "Scheme used to reach the backend. Create default http; omitted on PATCH = unchanged. External routes are always https." },
+          "upstream_skip_tls_verify": { "type": "boolean", "default": false, "description": "Skip TLS certificate verification on the backend hop (only takes effect with upstream_scheme=https). Setting it to true needs a super_admin or api key; false is allowed for any admin key. Omitted on PATCH = unchanged." },
           "waf_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the Coraza module." },
           "waf_blocking": { "type": "boolean", "description": "Admin only. false = detection only." },
           "rate_limit_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the rate-limit module." },
@@ -780,6 +810,7 @@
                   "websocket": { "type": "boolean", "default": false },
                   "force_https": { "type": "boolean", "default": true },
                   "upstream_scheme": { "type": "string", "enum": ["http", "https"], "description": "Scheme used to reach the backend. Create default http; omitted on PATCH = unchanged. External routes are always https." },
+                  "upstream_skip_tls_verify": { "type": "boolean", "default": false, "description": "Skip TLS certificate verification on the backend hop (only takes effect with upstream_scheme=https). Setting it to true needs a super_admin or api key; false is allowed for any admin key. Omitted on PATCH = unchanged." },
                   "waf_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the Coraza module." },
                   "waf_blocking": { "type": "boolean", "description": "Admin only. false = detection only." },
                   "rate_limit_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the rate-limit module." },
@@ -847,6 +878,7 @@
                   "force_https": { "type": "boolean" },
                   "path_prefix": { "type": "string", "example": "/api" },
                   "upstream_scheme": { "type": "string", "enum": ["http", "https"], "description": "Scheme used to reach the backend. Create default http; omitted on PATCH = unchanged. External routes are always https." },
+                  "upstream_skip_tls_verify": { "type": "boolean", "default": false, "description": "Skip TLS certificate verification on the backend hop (only takes effect with upstream_scheme=https). Setting it to true needs a super_admin or api key; false is allowed for any admin key. Omitted on PATCH = unchanged." },
                   "waf_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the Coraza module." },
                   "waf_blocking": { "type": "boolean", "description": "Admin only. false = detection only." },
                   "rate_limit_enabled": { "type": "boolean", "description": "Admin only. Refused when the node's Caddy lacks the rate-limit module." },
@@ -916,6 +948,91 @@
           "200": { "description": "Entries", "content": { "application/json": { "schema": { "type": "object", "properties": { "access_logs": { "type": "array", "items": { "type": "object", "properties": { "id": { "type": "integer" }, "ts": { "type": "string", "format": "date-time" }, "method": { "type": "string" }, "uri": { "type": "string" }, "status": { "type": "integer" }, "latency_ms": { "type": "integer" }, "remote_ip": { "type": "string" }, "user_agent": { "type": "string" } } } } } } } } },
           "403": { "description": "Route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}/waf-events": {
+      "get": {
+        "tags": ["Routes"],
+        "summary": "WAF events of a route",
+        "operationId": "routeWAFEvents",
+        "description": "Newest first, paginated with limit/offset. Same tenant boundary as GET /routes/{id}. `suppressed` is true when an active suppression (route or global) matches the event's rule.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } },
+          { "in": "query", "name": "limit", "schema": { "type": "integer", "default": 50, "minimum": 1, "maximum": 500 } },
+          { "in": "query", "name": "offset", "schema": { "type": "integer", "default": 0, "minimum": 0 } },
+          { "in": "query", "name": "severity", "schema": { "type": "string", "example": "critical" } },
+          { "in": "query", "name": "action", "schema": { "type": "string", "enum": ["blocked", "detected"] } },
+          { "in": "query", "name": "rule_id", "description": "Substring match", "schema": { "type": "string", "example": "942100" } },
+          { "in": "query", "name": "remote_ip", "schema": { "type": "string" } },
+          { "in": "query", "name": "from", "description": "RFC 3339 or YYYY-MM-DD (inclusive)", "schema": { "type": "string" } },
+          { "in": "query", "name": "to", "description": "RFC 3339 or YYYY-MM-DD (inclusive, whole day)", "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "Events", "content": { "application/json": { "schema": { "type": "object", "properties": {
+            "waf_events": { "type": "array", "items": { "$ref": "#/components/schemas/WAFEvent" } },
+            "total": { "type": "integer", "description": "Matching events, ignoring limit/offset" },
+            "limit": { "type": "integer" },
+            "offset": { "type": "integer" } } } } } },
+          "400": { "description": "Invalid filter", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}/waf-suppressions": {
+      "get": {
+        "tags": ["Routes"],
+        "summary": "Active WAF rule suppressions of a route",
+        "operationId": "routeWAFSuppressions",
+        "description": "Unexpired suppressions scoped to this route. Global suppressions are not listed. Same tenant boundary as GET /routes/{id}.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Suppressions", "content": { "application/json": { "schema": { "type": "object", "properties": { "waf_suppressions": { "type": "array", "items": { "$ref": "#/components/schemas/WAFSuppression" } } } } } } },
+          "403": { "description": "Route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      },
+      "post": {
+        "tags": ["Routes"],
+        "summary": "Suppress a WAF rule on a route",
+        "operationId": "routeWAFSuppressionCreate",
+        "description": "Admin keys only (scope must cover the route). The rule stops firing on this route once the node config is re-pushed (scheduled automatically).",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object", "required": ["rule_id"], "properties": {
+          "rule_id": { "type": "string", "example": "942100", "description": "Numeric rule ID or range (942100-942199)" },
+          "reason": { "type": "string", "maxLength": 255 },
+          "expires_at": { "type": "string", "example": "2026-12-31", "description": "Optional, RFC 3339 or YYYY-MM-DD (end of that day). Omitted = permanent." } } } } } },
+        "responses": {
+          "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WAFSuppression" } } } },
+          "400": { "description": "Invalid rule_id, reason or expires_at", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "Admin key required or route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Route not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+        }
+      }
+    },
+    "/api/v1/routes/{id}/waf-suppressions/{sid}": {
+      "delete": {
+        "tags": ["Routes"],
+        "summary": "Delete a WAF suppression (restore the rule)",
+        "operationId": "routeWAFSuppressionDelete",
+        "description": "Admin keys only. Only a suppression scoped to this route can be removed here; global suppressions return 404.",
+        "security": [{ "bearerAuth": [] }],
+        "parameters": [
+          { "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } },
+          { "in": "path", "name": "sid", "required": true, "schema": { "type": "integer", "format": "int64" } }
+        ],
+        "responses": {
+          "200": { "description": "Deleted", "content": { "application/json": { "schema": { "type": "object", "properties": { "id": { "type": "integer" }, "route_id": { "type": "integer" }, "deleted": { "type": "boolean" } } } } } },
+          "403": { "description": "Admin key required or route outside your scope", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "Suppression not found on this route", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },

@@ -51,6 +51,49 @@ type wafEventsData struct {
 	// CanClear is true when the session may purge events (super_admin, or a
 	// scoped admin viewing a single route they own).
 	CanClear bool
+	// Restore maps a suppressed event's ID to the suppression the viewer can
+	// delete to re-apply that rule (route-scoped first, then global).
+	Restore map[int64]wafevents.Suppression
+}
+
+// restoreTargets picks, for every suppressed event, the suppression that
+// silences it among sups (already narrowed to what the viewer may delete).
+// A route-scoped match wins over a global one: lifting the narrowest
+// suppression is the least surprising "restore" for that route.
+func restoreTargets(events []wafevents.Event, sups []wafevents.Suppression) map[int64]wafevents.Suppression {
+	if len(sups) == 0 {
+		return nil
+	}
+	type key struct {
+		rule  string
+		route int64
+	}
+	byKey := make(map[key]wafevents.Suppression, len(sups))
+	for _, s := range sups {
+		k := key{rule: s.RuleID}
+		if s.RouteID.Valid {
+			k.route = s.RouteID.Int64
+		}
+		if _, dup := byKey[k]; !dup {
+			byKey[k] = s
+		}
+	}
+	out := map[int64]wafevents.Suppression{}
+	for _, e := range events {
+		if !e.Suppressed {
+			continue
+		}
+		if e.RouteID.Valid {
+			if s, ok := byKey[key{e.RuleID, e.RouteID.Int64}]; ok {
+				out[e.ID] = s
+				continue
+			}
+		}
+		if s, ok := byKey[key{e.RuleID, 0}]; ok {
+			out[e.ID] = s
+		}
+	}
+	return out
 }
 
 // parseWAFFilter reads WAF filter query params from r.
@@ -188,6 +231,7 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("waf suppressions query", "err", serr)
 	}
 	d.Suppressions = sups
+	d.Restore = restoreTargets(entries, sups)
 
 	h.render(w, "waf_events", d)
 }

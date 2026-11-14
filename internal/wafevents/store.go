@@ -349,7 +349,7 @@ func wafFilterWhere(f Filter) (string, []any) {
 		if !strings.Contains(rid, "%") {
 			rid = "%" + rid + "%"
 		}
-		conds = append(conds, `rule_id LIKE ? ESCAPE '\\'`)
+		conds = append(conds, "rule_id LIKE ? "+store.LikeEscapeBackslash())
 		args = append(args, rid)
 	}
 	if f.Host != "" {
@@ -559,6 +559,26 @@ func (s *Store) DeleteSuppression(ctx context.Context, id int64, ownerRouteID in
 		)
 	}
 	return err
+}
+
+// DeleteRouteSuppression removes suppression id only when it belongs to
+// routeID, and reports whether a row was removed. Global suppressions
+// (route_id IS NULL) never match, so a per-route caller cannot lift them.
+func (s *Store) DeleteRouteSuppression(ctx context.Context, id, routeID int64) (bool, error) {
+	if s.db == nil || routeID <= 0 {
+		return false, nil
+	}
+	db := s.db()
+	if db == nil {
+		return false, nil
+	}
+	res, err := db.ExecContext(ctx,
+		`DELETE FROM waf_rule_suppressions WHERE id = ? AND route_id = ?`, id, routeID)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n > 0, err
 }
 
 // AckEvent marks one event as acknowledged by userID.

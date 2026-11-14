@@ -33,6 +33,17 @@ func InsertOrIgnore() string {
 	return "INSERT IGNORE"
 }
 
+// LikeEscapeBackslash returns an ESCAPE clause that makes backslash the LIKE
+// escape character. MySQL reads the literal '\\' as one backslash; SQLite has
+// no backslash escapes in string literals, sees two characters and rejects
+// the query ("ESCAPE expression must be a single character").
+func LikeEscapeBackslash() string {
+	if Driver() == "sqlite3" {
+		return `ESCAPE '\'`
+	}
+	return `ESCAPE '\\'`
+}
+
 // UpsertSettingSQL returns a full INSERT...upsert SQL for the settings table.
 // The settings table has PRIMARY KEY on `key`.
 func UpsertSettingSQL() string {

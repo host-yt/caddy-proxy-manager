@@ -526,6 +526,10 @@ func (h *AdminHandlers) HostsLogsStream(w http.ResponseWriter, r *http.Request) 
 				"latency_ms": e.LatencyMS,
 				"remote_ip":  e.RemoteIP,
 				"user_agent": e.UserAgent,
+				"proto":      e.Proto,
+				"bytes_resp": e.BytesResp,
+				"bytes_req":  e.BytesReq,
+				"country":    e.Country,
 			})
 			if err != nil {
 				continue

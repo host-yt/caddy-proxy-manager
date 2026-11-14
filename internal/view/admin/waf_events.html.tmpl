@@ -202,7 +202,14 @@
                   data-rule-id="{{.RuleID}}"
                   data-route-id="{{if .RouteID.Valid}}{{.RouteID.Int64}}{{else}}0{{end}}"
                   class="hpg-act-item" role="menuitem">Suppress</button>
-                {{end}}
+                {{else}}{{with index $.Restore .ID}}
+                <form method="POST" action="/admin/waf/suppressions/{{.ID}}/delete" class="contents"
+                  data-confirm="Restore rule {{.RuleID}}{{if .RouteID.Valid}} on route {{.RouteID.Int64}}{{else}} globally{{end}}? The WAF will apply it again.">
+                  <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
+                  {{if .RouteID.Valid}}<input type="hidden" name="route_id" value="{{.RouteID.Int64}}">{{end}}
+                  <button type="submit" class="hpg-act-item" role="menuitem">Restore rule (delete suppression)</button>
+                </form>
+                {{end}}{{end}}
               </div>
             </td>
           </tr>

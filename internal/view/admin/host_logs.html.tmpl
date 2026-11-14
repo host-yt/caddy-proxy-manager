@@ -501,6 +501,17 @@
     return td;
   }
 
+  // Mirrors the server-side formatBytes template func so live rows match.
+  function formatBytes(n){
+    n = Number(n) || 0;
+    if(n < 1024) return n + ' B';
+    if(n < 1024*1024) return (n/1024).toFixed(1) + ' KB';
+    if(n < 1024*1024*1024) return (n/1024/1024).toFixed(1) + ' MB';
+    return (n/1024/1024/1024).toFixed(1) + ' GB';
+  }
+
+  // Must emit exactly one cell per <th> in #log-table, in the same order as
+  // the server-rendered rows, or live rows shift under the wrong headers.
   function prependRow(e){
     var ts = new Date(e.ts).toLocaleString('sv').replace('T',' ');
     var tr = document.createElement('tr');
@@ -514,6 +525,7 @@
     methodCell.appendChild(method);
     tr.appendChild(methodCell);
 
+    tr.appendChild(cell('font-mono t-caption tabular-nums', e.proto || '-'));
     tr.appendChild(cell('font-mono t-caption max-w-xs truncate', e.uri || '', e.uri || ''));
 
     var statusCell = document.createElement('td');
@@ -524,7 +536,10 @@
     tr.appendChild(statusCell);
 
     tr.appendChild(cell('font-mono t-caption tabular-nums', (e.latency_ms || 0) + 'ms'));
+    tr.appendChild(cell('font-mono t-caption tabular-nums', e.bytes_resp ? formatBytes(e.bytes_resp) : '-'));
+    tr.appendChild(cell('font-mono t-caption tabular-nums', e.bytes_req ? formatBytes(e.bytes_req) : '-'));
     tr.appendChild(cell('font-mono t-caption', e.remote_ip || ''));
+    tr.appendChild(cell('font-mono t-caption', e.country || '-'));
     tbody.insertBefore(tr, tbody.firstChild);
     // Trim to maxRows
     while(tbody.rows.length > maxRows) tbody.deleteRow(tbody.rows.length-1);

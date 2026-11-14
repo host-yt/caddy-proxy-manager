@@ -180,17 +180,21 @@ type UpdateInput struct {
 	ForceHTTPS   *bool
 	// Upstream scheme and per-route policy (nil = unchanged).
 	UpstreamScheme *string
-	WAFEnabled     *bool
-	WAFBlocking    *bool
-	RateEnabled    *bool
-	RateWindow     *string
-	RateMaxEvents  *int
-	RateKey        *string
+	// UpstreamSkipTLSVerify turns off backend certificate verification. The
+	// caller must gate enabling it (super_admin only); disabling is always safe.
+	UpstreamSkipTLSVerify *bool
+	WAFEnabled            *bool
+	WAFBlocking           *bool
+	RateEnabled           *bool
+	RateWindow            *string
+	RateMaxEvents         *int
+	RateKey               *string
 }
 
 // routePolicy is the scheme/WAF/rate-limit slice of a route row.
 type routePolicy struct {
 	Scheme              string
+	SkipTLSVerify       bool
 	WAF, WAFBlock, Rate bool
 	RateWindow, RateKey string
 	RateMaxEvents       int
@@ -208,6 +212,9 @@ func (s *Service) applyPolicy(ctx context.Context, nodeID int64, external bool, 
 			return p, fmt.Errorf("%w: external routes are always https", ErrInvalidRouteField)
 		}
 		p.Scheme = sc
+	}
+	if in.UpstreamSkipTLSVerify != nil {
+		p.SkipTLSVerify = *in.UpstreamSkipTLSVerify
 	}
 	if in.WAFEnabled != nil {
 		p.WAF = *in.WAFEnabled
@@ -291,13 +298,13 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 		        COALESCE(r.upstream_external,0), COALESCE(r.require_client_cert,0),
 		        r.upstream_port, COALESCE(r.path_prefix,''), COALESCE(r.ssl_enabled,0),
 		        COALESCE(r.websocket,0), COALESCE(r.force_https,0),
-		        r.upstream_scheme, COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0),
+		        r.upstream_scheme, COALESCE(r.upstream_skip_tls_verify,0), COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0),
 		        COALESCE(r.rate_enabled,0), COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,'')
 		   FROM routes r JOIN services sv ON sv.id = r.service_id WHERE r.id = ?`,
 		routeID,
 	).Scan(&ownerClient, &serviceID, &nodeID, &kind, &external, &enforced,
 		&curPort, &curPath, &curSSL, &curWS, &curForce,
-		&cur.Scheme, &cur.WAF, &cur.WAFBlock, &cur.Rate, &cur.RateWindow, &cur.RateMaxEvents, &cur.RateKey); {
+		&cur.Scheme, &cur.SkipTLSVerify, &cur.WAF, &cur.WAFBlock, &cur.Rate, &cur.RateWindow, &cur.RateMaxEvents, &cur.RateKey); {
 	case errors.Is(err, sql.ErrNoRows):
 		return false, ErrRouteNotFound
 	case err != nil:
@@ -353,7 +360,7 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 	}
 	// Compare against stored values, not the defaulted ones, so an untouched
 	// route with empty rate columns stays a no-op.
-	polChanged := pol.Scheme != cur.Scheme || pol.WAF != cur.WAF || pol.WAFBlock != cur.WAFBlock || pol.Rate != cur.Rate ||
+	polChanged := pol.Scheme != cur.Scheme || pol.SkipTLSVerify != cur.SkipTLSVerify || pol.WAF != cur.WAF || pol.WAFBlock != cur.WAFBlock || pol.Rate != cur.Rate ||
 		(in.RateWindow != nil && pol.RateWindow != cur.RateWindow) ||
 		(in.RateMaxEvents != nil && pol.RateMaxEvents != cur.RateMaxEvents) ||
 		(in.RateKey != nil && pol.RateKey != cur.RateKey)
@@ -384,10 +391,10 @@ func (s *Service) UpdateRoute(ctx context.Context, clientID, routeID int64, in U
 	res, err := tx.ExecContext(ctx,
 		`UPDATE routes SET upstream_port=?, path_prefix=?, ssl_enabled=?, websocket=?,
 		        force_https=(? OR COALESCE(require_client_cert,0)), upstream_scheme=?,
-		        waf_enabled=?, waf_blocking=?, rate_enabled=?, rate_window=?, rate_max_events=?, rate_key=?, updated_at=NOW()
+		        upstream_skip_tls_verify=?, waf_enabled=?, waf_blocking=?, rate_enabled=?, rate_window=?, rate_max_events=?, rate_key=?, updated_at=NOW()
 		  WHERE `+where,
 		next.UpstreamPort, next.PathPrefix, next.SSL, next.WebSocket, nextForce, pol.Scheme,
-		pol.WAF, pol.WAFBlock, pol.Rate, pol.RateWindow, pol.RateMaxEvents, pol.RateKey, routeID)
+		pol.SkipTLSVerify, pol.WAF, pol.WAFBlock, pol.Rate, pol.RateWindow, pol.RateMaxEvents, pol.RateKey, routeID)
 	if err != nil {
 		return false, fmt.Errorf("route update: %w", err)
 	}
