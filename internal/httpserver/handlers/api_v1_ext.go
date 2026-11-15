@@ -194,6 +194,7 @@ func (h *APIHandlers) ServiceDelete(w http.ResponseWriter, r *http.Request) {
 // create and patch bodies (nil = omitted).
 type routePolicyJSON struct {
 	UpstreamScheme     *string `json:"upstream_scheme"`
+	UpstreamSkipTLS    *bool   `json:"upstream_skip_tls_verify"`
 	WAFEnabled         *bool   `json:"waf_enabled"`
 	WAFBlocking        *bool   `json:"waf_blocking"`
 	RateLimitEnabled   *bool   `json:"rate_limit_enabled"`
@@ -203,8 +204,49 @@ type routePolicyJSON struct {
 }
 
 func (p routePolicyJSON) hasPolicy() bool {
-	return p.WAFEnabled != nil || p.WAFBlocking != nil || p.RateLimitEnabled != nil ||
+	// Only skip-TLS=true is policy: false is the documented default a client
+	// may echo back from GET without asking for anything.
+	return (p.UpstreamSkipTLS != nil && *p.UpstreamSkipTLS) || p.WAFEnabled != nil || p.WAFBlocking != nil || p.RateLimitEnabled != nil ||
 		p.RateLimitWindow != nil || p.RateLimitMaxEvents != nil || p.RateLimitKey != nil
+}
+
+// skipTLSAllowed mirrors the admin UI rule: disabling backend certificate
+// verification opens the upstream hop to MITM, so only a super_admin key may
+// turn it on. Turning it off, or omitting it, is always allowed.
+func (p routePolicyJSON) skipTLSAllowed(c *middleware.APICaller) bool {
+	if p.UpstreamSkipTLS == nil || !*p.UpstreamSkipTLS {
+		return true
+	}
+	return c != nil && c.Role == "super_admin"
+}
+
+// routeReadable applies the read boundary of GET /routes/{id}: the owning
+// client, or an admin whose scope covers the route. It writes the error
+// response itself and returns false when access is denied.
+func (h *APIHandlers) routeReadable(ctx context.Context, w http.ResponseWriter, r *http.Request, id int64) bool {
+	c := middleware.CallerFromContext(r.Context())
+	if c == nil {
+		apiErr(w, http.StatusUnauthorized, "auth required")
+		return false
+	}
+	if c.Role != "client" {
+		return h.routeInScope(ctx, w, r, id)
+	}
+	clientID, lerr := clientIDForUserStrict(ctx, h.DB(), c.UserID)
+	if lerr != nil {
+		apiErr(w, http.StatusForbidden, "client scope unresolved")
+		return false
+	}
+	owner, oerr := h.routeClientID(ctx, id)
+	if oerr != nil {
+		apiErr(w, http.StatusNotFound, "not found")
+		return false
+	}
+	if owner != clientID {
+		apiErr(w, http.StatusForbidden, "forbidden")
+		return false
+	}
+	return true
 }
 
 // RouteAccessLogs serves GET /api/v1/routes/{id}/access-logs?limit=N, newest first.
@@ -212,28 +254,7 @@ func (h *APIHandlers) RouteAccessLogs(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
-	c := middleware.CallerFromContext(r.Context())
-	if c == nil {
-		apiErr(w, http.StatusUnauthorized, "auth required")
-		return
-	}
-	// Same tenant boundary as RouteGet: owner client only, or an in-scope admin.
-	if c.Role == "client" {
-		clientID, lerr := clientIDForUserStrict(ctx, h.DB(), c.UserID)
-		if lerr != nil {
-			apiErr(w, http.StatusForbidden, "client scope unresolved")
-			return
-		}
-		owner, oerr := h.routeClientID(ctx, id)
-		if oerr != nil {
-			apiErr(w, http.StatusNotFound, "not found")
-			return
-		}
-		if owner != clientID {
-			apiErr(w, http.StatusForbidden, "forbidden")
-			return
-		}
-	} else if !h.routeInScope(ctx, w, r, id) {
+	if !h.routeReadable(ctx, w, r, id) {
 		return
 	}
 	if h.AccessLogs == nil {
@@ -281,6 +302,7 @@ type apiRoute struct {
 	CreatedAt    time.Time `json:"created_at"`
 
 	UpstreamScheme   string `json:"upstream_scheme"`
+	UpstreamSkipTLS  bool   `json:"upstream_skip_tls_verify"`
 	WAFEnabled       bool   `json:"waf_enabled"`
 	WAFBlocking      bool   `json:"waf_blocking"`
 	RateLimitEnabled bool   `json:"rate_limit_enabled"`
@@ -291,7 +313,7 @@ type apiRoute struct {
 
 const routeSelectCols = `r.id, r.service_id, r.domain, COALESCE(r.path_prefix,''), r.upstream_port,
 	COALESCE(r.ssl_enabled,0), COALESCE(r.websocket,0), COALESCE(r.force_https,0),
-	r.status, r.caddy_node_id, r.created_at, r.upstream_scheme,
+	r.status, r.caddy_node_id, r.created_at, r.upstream_scheme, COALESCE(r.upstream_skip_tls_verify,0),
 	COALESCE(r.waf_enabled,0), COALESCE(r.waf_blocking,0), COALESCE(r.rate_enabled,0),
 	COALESCE(r.rate_window,''), COALESCE(r.rate_max_events,0), COALESCE(r.rate_key,'')`
 
@@ -300,7 +322,7 @@ func scanRoute(row interface {
 }, rt *apiRoute) error {
 	return row.Scan(&rt.ID, &rt.ServiceID, &rt.Domain, &rt.PathPrefix, &rt.UpstreamPort,
 		&rt.SSL, &rt.WebSocket, &rt.ForceHTTPS, &rt.Status, &rt.CaddyNodeID, &rt.CreatedAt,
-		&rt.UpstreamScheme, &rt.WAFEnabled, &rt.WAFBlocking, &rt.RateLimitEnabled,
+		&rt.UpstreamScheme, &rt.UpstreamSkipTLS, &rt.WAFEnabled, &rt.WAFBlocking, &rt.RateLimitEnabled,
 		&rt.RateLimitWindow, &rt.RateLimitMax, &rt.RateLimitKey)
 }
 
@@ -482,6 +504,16 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 	if !h.routeInScope(ctx, w, r, id) {
 		return
 	}
+	if !in.skipTLSAllowed(middleware.CallerFromContext(r.Context())) {
+		// Echoing back a value a super_admin already set (read-modify-write)
+		// changes nothing and stays allowed; turning it on does not.
+		var cur bool
+		if err := h.DB().QueryRowContext(ctx,
+			"SELECT COALESCE(upstream_skip_tls_verify,0) FROM routes WHERE id = ?", id).Scan(&cur); err != nil || !cur {
+			apiErr(w, http.StatusForbidden, "upstream_skip_tls_verify=true requires a super_admin key")
+			return
+		}
+	}
 	if h.Routes == nil {
 		apiErr(w, http.StatusServiceUnavailable, "route service not ready")
 		return
@@ -491,7 +523,7 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 	changed, err := h.Routes.UpdateRoute(ctx, 0, id, routes.UpdateInput{
 		UpstreamPort: in.UpstreamPort, PathPrefix: in.PathPrefix,
 		SSL: in.SSLEnabled, WebSocket: in.WebSocket, ForceHTTPS: in.ForceHTTPS,
-		UpstreamScheme: in.UpstreamScheme, WAFEnabled: in.WAFEnabled, WAFBlocking: in.WAFBlocking,
+		UpstreamScheme: in.UpstreamScheme, UpstreamSkipTLSVerify: in.UpstreamSkipTLS, WAFEnabled: in.WAFEnabled, WAFBlocking: in.WAFBlocking,
 		RateEnabled: in.RateLimitEnabled, RateWindow: in.RateLimitWindow,
 		RateMaxEvents: in.RateLimitMaxEvents, RateKey: in.RateLimitKey,
 	})

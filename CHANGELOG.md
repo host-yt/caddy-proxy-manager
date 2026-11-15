@@ -23,6 +23,41 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+## [1.11.0] - 2026-11-15
+
+Route TLS and WAF management over the REST API, plus access-log and SQLite
+search fixes. No upgrade action needed beyond pulling the new images.
+
+### Added
+
+- REST API: `upstream_skip_tls_verify` ("Ignore invalid SSL on backend") on
+  `POST /api/v1/routes`, `PATCH /api/v1/routes/{id}` and the route read
+  endpoints. Enabling it needs a `super_admin` key, like the panel
+  checkbox (#132).
+- REST API: per-route WAF management - `GET /api/v1/routes/{id}/waf-events`
+  (filters and pagination), and `GET`/`POST /api/v1/routes/{id}/waf-suppressions`
+  plus `DELETE /api/v1/routes/{id}/waf-suppressions/{sid}` (#132).
+- WAF events page: suppressed events get a "Restore rule" action that deletes
+  the matching suppression (#132).
+
+### Fixed
+
+- Access log live tail added rows with 6 of the table's 10 cells, so streamed
+  entries showed under the wrong columns. The stream now carries protocol,
+  bytes and country, and live rows match the table (#133).
+- Text search that escapes `%` / `_` used an `ESCAPE` literal valid on only
+  one database. On SQLite, filtering WAF events by rule ID, access logs by
+  URI or ASN, searching clients, the audit log and API keys, and the AI
+  assistant's route/host lookups failed with "ESCAPE expression must be a
+  single character"; on MySQL, the AI assistant's audit-log and host
+  filters produced malformed SQL. All of them now use one dialect-aware
+  helper, and a test rejects new hard-coded literals.
+- WAF events covered by a rule-ID range suppression (`942100-942199`) now
+  show as suppressed; before, only exact-ID suppressions were recognised.
+- The panel's WAF suppress form refuses rule IDs the node cannot apply
+  (anything but a number or `lo-hi` range). They used to be saved and listed
+  as active while the rule kept firing.
+
 ## [1.10.2] - 2026-11-07
 
 Completes the 1.10.0 release. The 1.10.0 and 1.10.1 tags failed the release

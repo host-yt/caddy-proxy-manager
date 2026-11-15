@@ -10,7 +10,7 @@ import (
 )
 
 // likeContains builds a "%term%" LIKE pattern with \ % _ escaped so user
-// input is matched literally, not as wildcards. Pair with ESCAPE '\\'.
+// input is matched literally, not as wildcards. Pair with store.LikeEscapeBackslash().
 func likeContains(q string) string {
 	q = strings.ReplaceAll(q, `\`, `\\`)
 	q = strings.ReplaceAll(q, "%", `\%`)

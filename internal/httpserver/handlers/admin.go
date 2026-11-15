@@ -2201,7 +2201,7 @@ func (h *AdminHandlers) ClientsList(w http.ResponseWriter, r *http.Request) {
 	var args []any
 	if lp.Q != "" {
 		like := likeContains(lp.Q)
-		where = append(where, `(u.email LIKE ? ESCAPE '\\' OR c.display_name LIKE ? ESCAPE '\\' OR u.full_name LIKE ? ESCAPE '\\' OR c.external_ref LIKE ? ESCAPE '\\')`)
+		where = append(where, `(u.email LIKE ? `+store.LikeEscapeBackslash()+` OR c.display_name LIKE ? `+store.LikeEscapeBackslash()+` OR u.full_name LIKE ? `+store.LikeEscapeBackslash()+` OR c.external_ref LIKE ? `+store.LikeEscapeBackslash()+`)`)
 		args = append(args, like, like, like, like)
 	}
 	if d.TagFilter != "" {
@@ -3907,7 +3907,7 @@ func (h *AdminHandlers) AuditList(w http.ResponseWriter, r *http.Request) {
 		args = append(args, d.Since)
 	}
 	if d.Q != "" {
-		where = append(where, `(a.action LIKE ? ESCAPE '\\' OR a.entity LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')`)
+		where = append(where, `(a.action LIKE ? `+store.LikeEscapeBackslash()+` OR a.entity LIKE ? `+store.LikeEscapeBackslash()+` OR u.email LIKE ? `+store.LikeEscapeBackslash()+`)`)
 		like := likeContains(d.Q)
 		args = append(args, like, like, like)
 	}
@@ -4916,7 +4916,7 @@ func (h *AdminHandlers) APIKeysList(w http.ResponseWriter, r *http.Request) {
 	}
 	if lp.Q != "" {
 		like := likeContains(lp.Q)
-		where += ` AND (k.name LIKE ? ESCAPE '\\' OR k.key_prefix LIKE ? ESCAPE '\\' OR k.scopes LIKE ? ESCAPE '\\')`
+		where += ` AND (k.name LIKE ? ` + store.LikeEscapeBackslash() + ` OR k.key_prefix LIKE ? ` + store.LikeEscapeBackslash() + ` OR k.scopes LIKE ? ` + store.LikeEscapeBackslash() + `)`
 		args = append(args, like, like, like)
 	}
 

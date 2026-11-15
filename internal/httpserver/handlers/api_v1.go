@@ -24,6 +24,7 @@ import (
 	"github.com/host-yt/caddy-proxy-manager/internal/quota"
 	"github.com/host-yt/caddy-proxy-manager/internal/reseller"
 	"github.com/host-yt/caddy-proxy-manager/internal/security"
+	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
 )
 
 // APIHandlers groups all /api/v1 endpoints. They share APIKeyAuth middleware.
@@ -39,6 +40,8 @@ type APIHandlers struct {
 	Quota *quota.Service
 	// AccessLogs backs GET /routes/{id}/access-logs. nil-safe.
 	AccessLogs *accesslog.Store
+	// WAFEvents backs the /routes/{id}/waf-* endpoints. nil-safe.
+	WAFEvents *wafevents.Store
 	// Resellers backs the /api/v1/resellers + /reseller-plans endpoints. nil-safe.
 	Resellers *reseller.Store
 	// Sessions is used to revoke reseller users on suspend/delete via API. nil-safe.
@@ -655,7 +658,7 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		}
 		// Same as PATCH: WAF/rate-limit policy is admin-only.
 		if in.hasPolicy() {
-			apiErr(w, http.StatusForbidden, "waf/rate-limit settings require an admin key")
+			apiErr(w, http.StatusForbidden, "waf/rate-limit/tls settings require an admin key")
 			return
 		}
 		cid, lerr := clientIDForUserStrict(ctx, h.DB(), c.UserID)
@@ -680,6 +683,10 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		clientID = svcClient
+	}
+	if !in.skipTLSAllowed(c) {
+		apiErr(w, http.StatusForbidden, "upstream_skip_tls_verify=true requires a super_admin key")
+		return
 	}
 	ci := routes.CreateInput{
 		ServiceID:       in.ServiceID,
@@ -747,7 +754,8 @@ func (h *APIHandlers) RouteCreate(w http.ResponseWriter, r *http.Request) {
 		// Gating needs the node chosen by Create; undo the route if the node
 		// cannot take the policy so a rejected request leaves nothing behind.
 		if _, uerr := h.Routes.UpdateRoute(ctx, 0, id, routes.UpdateInput{
-			WAFEnabled: in.WAFEnabled, WAFBlocking: in.WAFBlocking, RateEnabled: in.RateLimitEnabled,
+			UpstreamSkipTLSVerify: in.UpstreamSkipTLS,
+			WAFEnabled:            in.WAFEnabled, WAFBlocking: in.WAFBlocking, RateEnabled: in.RateLimitEnabled,
 			RateWindow: in.RateLimitWindow, RateMaxEvents: in.RateLimitMaxEvents, RateKey: in.RateLimitKey,
 		}); uerr != nil {
 			_ = h.Routes.Delete(ctx, clientID, id)

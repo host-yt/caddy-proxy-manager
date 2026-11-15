@@ -574,6 +574,7 @@ func run(cfg *config.Config, logger *slog.Logger) error {
 		Resellers:  reseller.New(wizard.DB),
 		Sessions:   sessions,
 		AccessLogs: alStore,
+		WAFEvents:  wafStore,
 	}
 
 	// Customer-WG bootstrap + node-agent endpoints.
