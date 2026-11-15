@@ -261,8 +261,8 @@ func (r *Registry) systemSummary(ctx context.Context, _ json.RawMessage) (string
 		{`SELECT COUNT(*) FROM routes`, &s.RoutesTotal},
 		{`SELECT COUNT(*) FROM routes WHERE status='active'`, &s.RoutesActive},
 		{`SELECT COUNT(*) FROM clients`, &s.ClientsTotal},
-		{`SELECT COUNT(*) FROM alert_log WHERE fired_at >= ` + store.DateSub(24, "HOUR") + ``, &s.OpenAlerts},
-		{`SELECT COUNT(*) FROM waf_events WHERE action='blocked' AND ts >= ` + store.DateSub(24, "HOUR") + ``, &s.WAFBlocks24h},
+		{`SELECT COUNT(*) FROM alert_log WHERE fired_at >= ` + store.DateSub(24, "HOUR"), &s.OpenAlerts},
+		{`SELECT COUNT(*) FROM waf_events WHERE action='blocked' AND ts >= ` + store.DateSub(24, "HOUR"), &s.WAFBlocks24h},
 		{`SELECT COALESCE(SUM(size_bytes),0) FROM backup_jobs WHERE status='success'`, &s.BackupBytes},
 	}
 	for _, p := range pairs {
@@ -707,9 +707,9 @@ func (r *Registry) searchRoutes(ctx context.Context, raw json.RawMessage) (strin
 	}
 	limit := clampLimit(a.Limit, 20, 100)
 	pattern := "%" + strings.ReplaceAll(a.Query, "%", `\%`) + "%"
-	const q = `SELECT rt.domain, rt.path_prefix, rt.upstream_port, rt.status, rt.ssl_enabled, cn.name
+	q := `SELECT rt.domain, rt.path_prefix, rt.upstream_port, rt.status, rt.ssl_enabled, cn.name
 	           FROM routes rt JOIN caddy_nodes cn ON cn.id = rt.caddy_node_id
-	           WHERE rt.domain LIKE ? ESCAPE '\\' ORDER BY rt.domain ASC LIMIT ?`
+	           WHERE rt.domain LIKE ? ` + store.LikeEscapeBackslash() + ` ORDER BY rt.domain ASC LIMIT ?`
 	rows, err := r.db.QueryContext(ctx, q, pattern, limit)
 	if err != nil {
 		return "", err
@@ -754,7 +754,7 @@ func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, 
 	} else if a.Domain != "" {
 		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
 		_ = r.db.QueryRowContext(ctx,
-			`SELECT id FROM routes WHERE domain LIKE ? ESCAPE '\\' ORDER BY id LIMIT 1`, pattern,
+			`SELECT id FROM routes WHERE domain LIKE ? `+store.LikeEscapeBackslash()+` ORDER BY id LIMIT 1`, pattern,
 		).Scan(&routeID)
 	}
 	if routeID == 0 {
@@ -820,11 +820,11 @@ func (r *Registry) auditLog(ctx context.Context, raw json.RawMessage) (string, e
 	      WHERE 1=1`
 	args := []any{}
 	if a.Actor != "" {
-		q += " AND u.email LIKE ? ESCAPE '\\'"
+		q += " AND u.email LIKE ? " + store.LikeEscapeBackslash()
 		args = append(args, "%"+strings.ReplaceAll(a.Actor, "%", `\%`)+"%")
 	}
 	if a.Action != "" {
-		q += " AND al.action LIKE ? ESCAPE '\\'"
+		q += " AND al.action LIKE ? " + store.LikeEscapeBackslash()
 		args = append(args, "%"+strings.ReplaceAll(a.Action, "%", `\%`)+"%")
 	}
 	if a.Entity != "" {
@@ -991,7 +991,7 @@ func (r *Registry) wafEvents(ctx context.Context, raw json.RawMessage) (string, 
 	}
 	if a.Domain != "" {
 		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
-		q += " AND host LIKE ? ESCAPE '\\'"
+		q += " AND host LIKE ? " + store.LikeEscapeBackslash()
 		args = append(args, pattern)
 	}
 	q += " ORDER BY ts DESC, id DESC LIMIT ?"
@@ -1321,7 +1321,7 @@ func (r *Registry) listActiveAlerts(ctx context.Context, raw json.RawMessage) (s
 		FiredAt  string          `json:"fired_at"`
 	}
 	var qargs []any
-	q := `SELECT rule_id, severity, title, COALESCE(labels_json,'{}'), DATE_FORMAT(fired_at,'%Y-%m-%dT%H:%i:%sZ') FROM alert_log WHERE fired_at >= ` + store.DateSubParam("HOUR") + ``
+	q := `SELECT rule_id, severity, title, COALESCE(labels_json,'{}'), DATE_FORMAT(fired_at,'%Y-%m-%dT%H:%i:%sZ') FROM alert_log WHERE fired_at >= ` + store.DateSubParam("HOUR")
 	qargs = append(qargs, args.Hours)
 	if args.Severity != "" {
 		q += " AND severity = ?"
@@ -1569,7 +1569,7 @@ func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, owne
 	      JOIN services s ON s.id = rt.service_id
 	      JOIN clients c ON c.id = s.client_id
 	      JOIN users u ON u.id = c.user_id
-	      WHERE (rt.id = ? OR rt.domain LIKE ? ESCAPE '\\')` + ownershipCond + `
+	      WHERE (rt.id = ? OR rt.domain LIKE ? ` + store.LikeEscapeBackslash() + `)` + ownershipCond + `
 	      ORDER BY rt.id ASC LIMIT 1`
 	qArgs := append([]any{numID, "%" + strings.ReplaceAll(id, "%", `\%`) + "%"}, ownershipArgs...)
 	err := db.QueryRowContext(ctx, q, qArgs...).

@@ -308,7 +308,7 @@ func (f Filter) where(routeID int64) ([]string, []any) {
 		if !strings.Contains(pat, "%") {
 			pat = "%" + pat + "%"
 		}
-		conds = append(conds, `uri LIKE ? ESCAPE '\\'`)
+		conds = append(conds, `uri LIKE ? `+store.LikeEscapeBackslash())
 		args = append(args, pat)
 	}
 	if f.Country != "" {
@@ -325,7 +325,7 @@ func (f Filter) where(routeID int64) ([]string, []any) {
 		if !strings.Contains(org, "%") {
 			org = "%" + org + "%"
 		}
-		conds = append(conds, `asn_org LIKE ? ESCAPE '\\'`)
+		conds = append(conds, `asn_org LIKE ? `+store.LikeEscapeBackslash())
 		args = append(args, org)
 	}
 	if !f.From.IsZero() {
