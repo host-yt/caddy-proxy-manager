@@ -49,6 +49,9 @@ An admin key's reach is derived from the owning user, not the token:
 | Client-scoped admin (`users.is_restricted=1` + `admin_client_scope` rows) | only assigned clients | denied | denied |
 | `client` | only its own client | n/a | n/a |
 
+Reseller management (`/resellers`, `/reseller-plans`) is narrower than global infra: it needs a
+`super_admin` or `api` key, as in the panel. An unrestricted `admin` key gets `403 super_admin role required`.
+
 List endpoints return only in-scope rows; single-resource reads and mutations
 return `403` for out-of-scope ids. A reseller-admin key may create and delete
 clients owned by its reseller, but never touches shared node infrastructure.
