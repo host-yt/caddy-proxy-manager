@@ -52,6 +52,11 @@ search fixes. No upgrade action needed beyond pulling the new images.
   single character"; on MySQL, the AI assistant's audit-log and host
   filters produced malformed SQL. All of them now use one dialect-aware
   helper, and a test rejects new hard-coded literals.
+- WAF events covered by a rule-ID range suppression (`942100-942199`) now
+  show as suppressed; before, only exact-ID suppressions were recognised.
+- The panel's WAF suppress form refuses rule IDs the node cannot apply
+  (anything but a number or `lo-hi` range). They used to be saved and listed
+  as active while the rule kept firing.
 
 ## [1.10.2] - 2026-11-07
 

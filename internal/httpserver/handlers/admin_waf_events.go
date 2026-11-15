@@ -16,6 +16,7 @@ import (
 
 	"github.com/host-yt/caddy-proxy-manager/internal/audit"
 	"github.com/host-yt/caddy-proxy-manager/internal/auth"
+	"github.com/host-yt/caddy-proxy-manager/internal/domain/routes"
 	"github.com/host-yt/caddy-proxy-manager/internal/geoip"
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
 	"github.com/host-yt/caddy-proxy-manager/internal/wafevents"
@@ -56,41 +57,34 @@ type wafEventsData struct {
 	Restore map[int64]wafevents.Suppression
 }
 
-// restoreTargets picks, for every suppressed event, the suppression that
-// silences it among sups (already narrowed to what the viewer may delete).
-// A route-scoped match wins over a global one: lifting the narrowest
-// suppression is the least surprising "restore" for that route.
-func restoreTargets(events []wafevents.Event, sups []wafevents.Suppression) map[int64]wafevents.Suppression {
-	if len(sups) == 0 {
+// restoreTargets offers "Restore rule" only where deleting one suppression
+// really re-applies the rule: exactly one active suppression (in all, every
+// active row) covers the event, and the viewer may delete it (deletable).
+// With a global row plus a route row, or duplicates, a single delete would
+// leave the rule suppressed while the button promised otherwise.
+func restoreTargets(events []wafevents.Event, deletable, all []wafevents.Suppression) map[int64]wafevents.Suppression {
+	if len(deletable) == 0 {
 		return nil
 	}
-	type key struct {
-		rule  string
-		route int64
-	}
-	byKey := make(map[key]wafevents.Suppression, len(sups))
-	for _, s := range sups {
-		k := key{rule: s.RuleID}
-		if s.RouteID.Valid {
-			k.route = s.RouteID.Int64
-		}
-		if _, dup := byKey[k]; !dup {
-			byKey[k] = s
-		}
+	canDelete := make(map[int64]bool, len(deletable))
+	for _, s := range deletable {
+		canDelete[s.ID] = true
 	}
 	out := map[int64]wafevents.Suppression{}
 	for _, e := range events {
 		if !e.Suppressed {
 			continue
 		}
-		if e.RouteID.Valid {
-			if s, ok := byKey[key{e.RuleID, e.RouteID.Int64}]; ok {
-				out[e.ID] = s
-				continue
+		var hit wafevents.Suppression
+		n := 0
+		for _, s := range all {
+			if wafevents.Covers(s, e) {
+				hit = s
+				n++
 			}
 		}
-		if s, ok := byKey[key{e.RuleID, 0}]; ok {
-			out[e.ID] = s
+		if n == 1 && canDelete[hit.ID] {
+			out[e.ID] = hit
 		}
 	}
 	return out
@@ -231,7 +225,16 @@ func (h *AdminHandlers) WafEvents(w http.ResponseWriter, r *http.Request) {
 		h.Logger.Warn("waf suppressions query", "err", serr)
 	}
 	d.Suppressions = sups
-	d.Restore = restoreTargets(entries, sups)
+	allSups := sups
+	if scopeRouteIDs != nil && len(entries) > 0 {
+		// Scoped view hides global rows, but they still suppress: count them.
+		if a, aerr := h.WAFEvents.ListSuppressions(ctx, nil); aerr == nil {
+			allSups = a
+		} else {
+			allSups = nil // unknown coverage: offer no restore at all
+		}
+	}
+	d.Restore = restoreTargets(entries, sups, allSups)
 
 	h.render(w, "waf_events", d)
 }
@@ -257,6 +260,12 @@ func (h *AdminHandlers) WAFSuppressRule(w http.ResponseWriter, r *http.Request) 
 	}
 	if ruleID == "" {
 		redirectWithFlash(w, r, "/admin/waf", "", "rule_id is required")
+		return
+	}
+	// The node build only renders numeric IDs/ranges; anything else would be
+	// listed as active while the rule keeps firing.
+	if !routes.ValidWAFRuleID(ruleID) {
+		redirectWithFlash(w, r, "/admin/waf", "", "rule_id must be a numeric id or range (e.g. 942100 or 942100-942199)")
 		return
 	}
 	reason := strings.TrimSpace(r.FormValue("reason"))

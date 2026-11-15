@@ -29,7 +29,7 @@ func TestWAFSuppressRule_ScopedAdminCannotCreateGlobal(t *testing.T) {
 	}
 
 	form := url.Values{}
-	form.Set("rule_id", "sqli-001")
+	form.Set("rule_id", "942100")
 	form.Set("route_id", "0") // global - must be rejected for scoped admin
 	form.Set("reason", "test")
 
@@ -66,7 +66,7 @@ func TestWAFSuppressRule_SuperAdminCanCreateGlobal(t *testing.T) {
 	}
 
 	form := url.Values{}
-	form.Set("rule_id", "sqli-001")
+	form.Set("rule_id", "942100")
 	// No route_id = global suppression.
 	form.Set("reason", "testing")
 

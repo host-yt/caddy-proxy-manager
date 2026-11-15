@@ -66,7 +66,8 @@ func toAPIWAFSuppression(s wafevents.Suppression) apiWAFSuppression {
 // its last second so `to=2026-11-08` includes that whole day.
 func parseAPITime(v string, endOfDay bool) (time.Time, bool) {
 	if t, err := time.Parse(time.RFC3339, v); err == nil {
-		return t, true
+		// Stored and compared as UTC wall time (SQLite compares text).
+		return t.UTC(), true
 	}
 	if t, err := time.Parse("2006-01-02", v); err == nil {
 		if endOfDay {

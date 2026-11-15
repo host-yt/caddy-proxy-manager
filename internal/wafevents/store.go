@@ -8,6 +8,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 
@@ -631,11 +632,44 @@ type suppressKey struct {
 	RouteID int64
 }
 
+// RuleCovers reports whether a suppression's rule_id (a single ID or an
+// inclusive "lo-hi" range, as the node build renders into SecRuleRemoveById)
+// covers an event's rule ID.
+func RuleCovers(supRule, eventRule string) bool {
+	supRule, eventRule = strings.TrimSpace(supRule), strings.TrimSpace(eventRule)
+	if supRule == eventRule {
+		return eventRule != ""
+	}
+	lo, hi, isRange := strings.Cut(supRule, "-")
+	if !isRange {
+		return false
+	}
+	l, err1 := strconv.ParseUint(lo, 10, 64)
+	h, err2 := strconv.ParseUint(hi, 10, 64)
+	id, err3 := strconv.ParseUint(eventRule, 10, 64)
+	return err1 == nil && err2 == nil && err3 == nil && l <= id && id <= h
+}
+
+// Covers reports whether sup applies to ev: same rule (or a range holding it)
+// and either global or scoped to the event's route.
+func Covers(sup Suppression, ev Event) bool {
+	if sup.RouteID.Valid && (!ev.RouteID.Valid || ev.RouteID.Int64 != sup.RouteID.Int64) {
+		return false
+	}
+	return RuleCovers(sup.RuleID, ev.RuleID)
+}
+
 // MarkSuppressed annotates each event with Suppressed=true when an active
-// suppression matches (global or route-specific).
+// suppression matches (global or route-specific, exact ID or ID range).
 func MarkSuppressed(events []Event, keys map[suppressKey]struct{}) {
 	if len(keys) == 0 {
 		return
+	}
+	var ranges []suppressKey
+	for k := range keys {
+		if strings.Contains(k.RuleID, "-") {
+			ranges = append(ranges, k)
+		}
 	}
 	for i := range events {
 		rID := int64(0)
@@ -647,6 +681,13 @@ func MarkSuppressed(events []Event, keys map[suppressKey]struct{}) {
 		_, scoped := keys[suppressKey{RuleID: events[i].RuleID, RouteID: rID}]
 		if global || scoped {
 			events[i].Suppressed = true
+			continue
+		}
+		for _, k := range ranges {
+			if (k.RouteID == 0 || k.RouteID == rID) && RuleCovers(k.RuleID, events[i].RuleID) {
+				events[i].Suppressed = true
+				break
+			}
 		}
 	}
 }

@@ -204,7 +204,9 @@ type routePolicyJSON struct {
 }
 
 func (p routePolicyJSON) hasPolicy() bool {
-	return p.UpstreamSkipTLS != nil || p.WAFEnabled != nil || p.WAFBlocking != nil || p.RateLimitEnabled != nil ||
+	// Only skip-TLS=true is policy: false is the documented default a client
+	// may echo back from GET without asking for anything.
+	return (p.UpstreamSkipTLS != nil && *p.UpstreamSkipTLS) || p.WAFEnabled != nil || p.WAFBlocking != nil || p.RateLimitEnabled != nil ||
 		p.RateLimitWindow != nil || p.RateLimitMaxEvents != nil || p.RateLimitKey != nil
 }
 
@@ -497,14 +499,20 @@ func (h *APIHandlers) RouteUpdate(w http.ResponseWriter, r *http.Request) {
 		apiErr(w, http.StatusBadRequest, "path_prefix max 100 chars")
 		return
 	}
-	if !in.skipTLSAllowed(middleware.CallerFromContext(r.Context())) {
-		apiErr(w, http.StatusForbidden, "upstream_skip_tls_verify=true requires a super_admin key")
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	if !h.routeInScope(ctx, w, r, id) {
 		return
+	}
+	if !in.skipTLSAllowed(middleware.CallerFromContext(r.Context())) {
+		// Echoing back a value a super_admin already set (read-modify-write)
+		// changes nothing and stays allowed; turning it on does not.
+		var cur bool
+		if err := h.DB().QueryRowContext(ctx,
+			"SELECT COALESCE(upstream_skip_tls_verify,0) FROM routes WHERE id = ?", id).Scan(&cur); err != nil || !cur {
+			apiErr(w, http.StatusForbidden, "upstream_skip_tls_verify=true requires a super_admin key")
+			return
+		}
 	}
 	if h.Routes == nil {
 		apiErr(w, http.StatusServiceUnavailable, "route service not ready")

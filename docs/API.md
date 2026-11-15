@@ -623,7 +623,7 @@ All fields are optional; omit to leave unchanged.
 | `websocket` | boolean | Requires the plan's websocket feature |
 | `force_https` | boolean | |
 | `upstream_scheme` | string | `http` or `https`; omitted = unchanged |
-| `upstream_skip_tls_verify` | boolean | Skip backend certificate verification; omitted = unchanged. Enabling needs a `super_admin` key, disabling any admin key |
+| `upstream_skip_tls_verify` | boolean | Skip backend certificate verification; omitted = unchanged. Enabling needs a `super_admin` key, disabling any admin key; sending back `true` on a route that already has it is allowed |
 | `waf_enabled` / `waf_blocking` | boolean | WAF on/off and blocking vs detection; `400` when the node lacks the Coraza module |
 | `rate_limit_enabled` | boolean | `400` when the node lacks the rate-limit module |
 | `rate_limit_window` / `rate_limit_max_events` / `rate_limit_key` | string / integer / string | Go duration (`1m`), 1-1000000, Caddy placeholder |

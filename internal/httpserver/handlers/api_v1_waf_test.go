@@ -82,6 +82,12 @@ func TestAPIRouteUpdate_UpstreamSkipTLSVerify(t *testing.T) {
 		t.Fatalf("GET upstream_skip_tls_verify = %v", got["upstream_skip_tls_verify"])
 	}
 
+	// Read-modify-write: an admin echoing back true that is already stored
+	// changes nothing and is allowed (review #3).
+	if rec := patchRoute7As(t, db, "admin", `{"upstream_skip_tls_verify":true,"websocket":false}`); rec.Code != http.StatusOK {
+		t.Fatalf("admin echo of stored true: %d %s", rec.Code, rec.Body.String())
+	}
+
 	// Turning it off is the safe direction: any admin may.
 	if rec := patchRoute7As(t, db, "admin", `{"upstream_skip_tls_verify":false}`); rec.Code != http.StatusOK {
 		t.Fatalf("admin disable: %d %s", rec.Code, rec.Body.String())
@@ -93,8 +99,11 @@ func TestAPIRouteUpdate_UpstreamSkipTLSVerify(t *testing.T) {
 
 func TestRoutePolicyJSON_SkipTLS(t *testing.T) {
 	on, off := true, false
-	if !(routePolicyJSON{UpstreamSkipTLS: &off}).hasPolicy() {
-		t.Error("skip tls not counted as policy (clients must be refused)")
+	if !(routePolicyJSON{UpstreamSkipTLS: &on}).hasPolicy() {
+		t.Error("skip tls=true not counted as policy (clients must be refused)")
+	}
+	if (routePolicyJSON{UpstreamSkipTLS: &off}).hasPolicy() {
+		t.Error("skip tls=false (the default a client echoes from GET) counted as policy")
 	}
 	for role, want := range map[string]bool{"super_admin": true, "admin": false, "reseller": false, "client": false} {
 		if got := (routePolicyJSON{UpstreamSkipTLS: &on}).skipTLSAllowed(&middleware.APICaller{Role: role}); got != want {
@@ -259,27 +268,80 @@ func jsonID(id int64) string { b, _ := json.Marshal(id); return string(b) }
 func TestRestoreTargets(t *testing.T) {
 	route := func(id int64) sql.NullInt64 { return sql.NullInt64{Int64: id, Valid: true} }
 	events := []wafevents.Event{
-		{ID: 1, RouteID: route(7), RuleID: "942100", Suppressed: true},
-		{ID: 2, RouteID: route(8), RuleID: "942100", Suppressed: true},
+		{ID: 1, RouteID: route(7), RuleID: "942100", Suppressed: true}, // global + route 7 cover it
+		{ID: 2, RouteID: route(8), RuleID: "942100", Suppressed: true}, // only global
 		{ID: 3, RouteID: route(7), RuleID: "920350", Suppressed: false},
-		{ID: 4, RouteID: route(9), RuleID: "111111", Suppressed: true},
+		{ID: 4, RouteID: route(9), RuleID: "941150", Suppressed: true}, // range on route 9
+		{ID: 5, RouteID: route(9), RuleID: "111111", Suppressed: true}, // nothing visible
 	}
-	sups := []wafevents.Suppression{
-		{ID: 50, RuleID: "942100"},                    // global
-		{ID: 51, RuleID: "942100", RouteID: route(7)}, // route 7
+	all := []wafevents.Suppression{
+		{ID: 50, RuleID: "942100"},                           // global
+		{ID: 51, RuleID: "942100", RouteID: route(7)},        // route 7
+		{ID: 52, RuleID: "941100-941199", RouteID: route(9)}, // range, route 9
 	}
-	got := restoreTargets(events, sups)
-	if got[1].ID != 51 {
-		t.Errorf("route-scoped match should win: %+v", got[1])
+	got := restoreTargets(events, all, all)
+	if _, ok := got[1]; ok {
+		t.Error("two suppressions cover event 1: one delete would not restore it")
 	}
 	if got[2].ID != 50 {
-		t.Errorf("global fallback: %+v", got[2])
+		t.Errorf("sole global suppression: %+v", got[2])
 	}
 	if _, ok := got[3]; ok {
 		t.Error("unsuppressed event got a restore target")
 	}
-	if _, ok := got[4]; ok {
-		t.Error("event with no visible suppression got a restore target")
+	if got[4].ID != 52 {
+		t.Errorf("range suppression: %+v", got[4])
+	}
+	if _, ok := got[5]; ok {
+		t.Error("event with no covering suppression got a restore target")
+	}
+	// Scoped viewer: may delete only the route rows; a global row still counts.
+	deletable := []wafevents.Suppression{all[1], all[2]}
+	got = restoreTargets(events, deletable, all)
+	if _, ok := got[2]; ok {
+		t.Error("viewer cannot delete the global row, yet got a target")
+	}
+	if got[4].ID != 52 {
+		t.Errorf("scoped range: %+v", got[4])
+	}
+}
+
+func TestRuleCovers(t *testing.T) {
+	for _, tc := range []struct {
+		sup, ev string
+		want    bool
+	}{
+		{"942100", "942100", true},
+		{"942100", "942101", false},
+		{"942100-942199", "942150", true},
+		{"942100-942199", "942200", false},
+		{"942100-942199", "abc", false},
+		{"", "", false},
+	} {
+		if got := wafevents.RuleCovers(tc.sup, tc.ev); got != tc.want {
+			t.Errorf("RuleCovers(%q,%q) = %v", tc.sup, tc.ev, got)
+		}
+	}
+}
+
+// Range suppressions mark covered events suppressed over the API (review #4).
+func TestAPIRouteWAFEvents_RangeSuppression(t *testing.T) {
+	db := wafAPIDB(t)
+	if _, err := db.Exec(`INSERT INTO waf_rule_suppressions (rule_id, route_id, reason, created_by)
+		VALUES ('942000-942999', 7, 'range', 1)`); err != nil {
+		t.Fatal(err)
+	}
+	rec := wafCall(t, db, func(h *APIHandlers) http.HandlerFunc { return h.RouteWAFEvents },
+		http.MethodGet, "/?rule_id=942100", "", 1, "super_admin", map[string]string{"id": "7"})
+	if !strings.Contains(rec.Body.String(), `"suppressed":true`) {
+		t.Fatalf("range-covered event not suppressed: %s", rec.Body.String())
+	}
+}
+
+func TestParseAPITime_UTC(t *testing.T) {
+	got, ok := parseAPITime("2026-12-01T10:00:00+05:00", false)
+	if !ok || got.Location().String() != "UTC" || got.Hour() != 5 {
+		t.Fatalf("got %v ok=%v, want 05:00 UTC", got, ok)
 	}
 }
 
