@@ -108,6 +108,20 @@ func (h *APIHandlers) apiPlanAccessible(ctx context.Context, c *middleware.APICa
 	return callerReseller.Valid && callerReseller.Int64 == planReseller.Int64
 }
 
+// apiCallerReseller returns the reseller a scoped admin key belongs to, 0 for
+// platform-wide callers and plain client-scoped admins.
+func (h *APIHandlers) apiCallerReseller(ctx context.Context, q rowQuerier, c *middleware.APICaller) (int64, error) {
+	_, all, err := h.apiScope(ctx, c)
+	if err != nil || all {
+		return 0, err
+	}
+	var rid sql.NullInt64
+	if err := q.QueryRowContext(ctx, "SELECT reseller_id FROM users WHERE id = ?", c.UserID).Scan(&rid); err != nil {
+		return 0, err
+	}
+	return rid.Int64, nil
+}
+
 // requireGlobalAPIAdmin gates platform-global resources (plans, nodes, node
 // pools, client provisioning): only an unrestricted admin passes. A reseller- or
 // client-scoped admin key is denied - it must never touch shared infra.
@@ -306,6 +320,11 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 	if h.Quota != nil {
 		rid, _ = h.Quota.ResellerOfClient(ctx, in.ClientID)
 	}
+	callerRID, rerr := h.apiCallerReseller(ctx, db, middleware.CallerFromContext(r.Context()))
+	if rerr != nil {
+		apiErr(w, http.StatusForbidden, "scope unresolved")
+		return
+	}
 	// SQLite has one connection: everything below must go through tx.
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
@@ -325,6 +344,17 @@ func (h *APIHandlers) ServiceCreate(w http.ResponseWriter, r *http.Request) {
 	if err := tx.QueryRowContext(ctx, "SELECT node_group_id FROM plans WHERE id = ?", in.PlanID).Scan(&nodeGroupID); err != nil {
 		apiErr(w, http.StatusBadRequest, "plan not found")
 		return
+	}
+	// Same rules as the panel: no overlap on one backend, reseller package placement.
+	if overlap, oerr := servicePortOverlap(ctx, tx, in.BackendIP, in.AllowedPortStart, in.AllowedPortEnd, 0); oerr != nil || overlap {
+		apiErr(w, http.StatusConflict, "port range overlaps an existing service on this backend IP")
+		return
+	}
+	if callerRID > 0 {
+		if ok, gerr := resellerGrantsNodeGroup(ctx, tx, callerRID, nodeGroupID); gerr != nil || !ok {
+			apiErr(w, http.StatusForbidden, errPlacementNotGranted.Error())
+			return
+		}
 	}
 	var extRef sql.NullString
 	if in.ExternalReference != "" {
@@ -519,6 +549,15 @@ func (h *APIHandlers) ServicePorts(w http.ResponseWriter, r *http.Request) {
 		return
 	} else if n > 0 {
 		apiErr(w, http.StatusConflict, strconv.Itoa(n)+" route(s) use ports outside the new range; move or delete them first")
+		return
+	}
+	var backendIP string
+	if err := tx.QueryRowContext(ctx, "SELECT backend_ip FROM services WHERE id = ?", id).Scan(&backendIP); err != nil {
+		apiErr(w, http.StatusInternalServerError, "update failed")
+		return
+	}
+	if overlap, err := servicePortOverlap(ctx, tx, backendIP, in.AllowedPortStart, in.AllowedPortEnd, id); err != nil || overlap {
+		apiErr(w, http.StatusConflict, "port range overlaps an existing service on this backend IP")
 		return
 	}
 	if _, err := tx.ExecContext(ctx,
@@ -953,6 +992,11 @@ func (h *APIHandlers) NodeCreate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	var pubIP sql.NullString
+	in.PublicIP = strings.TrimSpace(in.PublicIP)
+	if in.PublicIP != "" && net.ParseIP(in.PublicIP) == nil {
+		apiErr(w, http.StatusBadRequest, "public_ip is not a valid IP")
+		return
+	}
 	if in.PublicIP != "" {
 		pubIP = sql.NullString{String: in.PublicIP, Valid: true}
 	}

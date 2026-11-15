@@ -708,7 +708,7 @@ deploy/integration/e2e_multinode.sh
 
 It brings up `deploy/integration/docker-compose.multinode.yml` (panel built
 from the repo `Dockerfile`, mariadb, redis, a fake DNS server, a `whoami`
-upstream, and two `caddy:2.11.7` edge nodes), drives the panel through its
+upstream, and two `caddy:2.11.8` edge nodes), drives the panel through its
 public install wizard + REST API v1, asserts each step, and always tears the
 stack down on exit (`trap ... EXIT`), pass or fail.
 

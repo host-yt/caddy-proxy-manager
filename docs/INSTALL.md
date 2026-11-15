@@ -70,7 +70,7 @@ the file permissions on your secrets:
 
 ```bash
 docker run --rm -v "$PWD/.env:/app/.env:ro" \
-  ghcr.io/host-yt/caddy-proxy-manager:1.11.0 doctor
+  ghcr.io/host-yt/caddy-proxy-manager:1.11.1 doctor
 ```
 
 ### 2.3 Start the stack
@@ -111,7 +111,7 @@ Two compose files ship. Pick by whether you can run the custom Caddy build.
 
 | | `docker-compose.yml` (full) | `docker-compose.lite.yml` (lite) |
 |---|---|---|
-| Caddy image | `caddy-proxy-manager-edge` (xcaddy build) | stock `caddy:2.11.7` |
+| Caddy image | `caddy-proxy-manager-edge` (xcaddy build) | stock `caddy:2.11.8` |
 | Core reverse proxy + ACME | yes | yes |
 | Panel, clients, tunnels, access logs, analytics rollups | yes | yes |
 | WAF (coraza) | yes (flag) | **no** |

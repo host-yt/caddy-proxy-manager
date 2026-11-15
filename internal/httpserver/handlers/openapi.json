@@ -54,11 +54,11 @@
     },
     {
       "name": "Resellers",
-      "description": "Reseller tenant management — platform-admin keys only (ResellerID 0). Creates the reseller + its owner user."
+      "description": "Reseller tenant management — super_admin or api keys only, same as the panel. Creates the reseller + its owner user."
     },
     {
       "name": "Reseller Plans",
-      "description": "Reseller plan (quota bundle) management — platform-admin keys only."
+      "description": "Reseller plan (quota bundle) management — super_admin or api keys only."
     },
     {
       "name": "Provisioning",
@@ -1661,19 +1661,19 @@
         "tags": ["Resellers"],
         "summary": "List resellers",
         "operationId": "resellersList",
-        "description": "Platform-admin keys only (ResellerID 0). Returns every reseller tenant with quota usage.",
+        "description": "super_admin or api keys only. Returns every reseller tenant with quota usage.",
         "security": [{ "bearerAuth": [] }],
         "responses": {
           "200": { "description": "Reseller list", "content": { "application/json": { "schema": { "type": "object", "properties": { "resellers": { "type": "array", "items": { "$ref": "#/components/schemas/ResellerObject" } } } } } } },
           "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "403": { "description": "Platform-admin key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "403": { "description": "super_admin or api key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       },
       "post": {
         "tags": ["Resellers"],
         "summary": "Create a reseller",
         "operationId": "resellerCreate",
-        "description": "Platform-admin only. Creates the reseller row and its owner user in one call.",
+        "description": "super_admin or api keys only. Creates the reseller row and its owner user in one call.",
         "security": [{ "bearerAuth": [] }],
         "requestBody": {
           "required": true,
@@ -1682,7 +1682,7 @@
         "responses": {
           "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerObject" } } } },
           "401": { "description": "Auth required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
-          "403": { "description": "Platform-admin key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "403": { "description": "super_admin or api key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
           "409": { "description": "Slug or email already exists", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
@@ -1718,7 +1718,7 @@
         "tags": ["Resellers"],
         "summary": "Delete a reseller",
         "operationId": "resellerDelete",
-        "description": "Platform-admin only. Fails if the reseller still owns clients.",
+        "description": "super_admin or api keys only. Fails if the reseller still owns clients.",
         "security": [{ "bearerAuth": [] }],
         "parameters": [{ "in": "path", "name": "id", "required": true, "schema": { "type": "integer", "format": "int64" } }],
         "responses": {
@@ -1735,7 +1735,7 @@
         "security": [{ "bearerAuth": [] }],
         "responses": {
           "200": { "description": "Reseller plan list", "content": { "application/json": { "schema": { "type": "object", "properties": { "reseller_plans": { "type": "array", "items": { "$ref": "#/components/schemas/ResellerPlanObject" } } } } } } },
-          "403": { "description": "Platform-admin key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "403": { "description": "super_admin or api key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       },
       "post": {
@@ -1749,7 +1749,7 @@
         },
         "responses": {
           "201": { "description": "Created", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResellerPlanObject" } } } },
-          "403": { "description": "Platform-admin key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
+          "403": { "description": "super_admin or api key required", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } }
         }
       }
     },

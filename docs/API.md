@@ -49,6 +49,9 @@ An admin key's reach is derived from the owning user, not the token:
 | Client-scoped admin (`users.is_restricted=1` + `admin_client_scope` rows) | only assigned clients | denied | denied |
 | `client` | only its own client | n/a | n/a |
 
+Reseller management (`/resellers`, `/reseller-plans`) is narrower than global infra: it needs a
+`super_admin` or `api` key, as in the panel. An unrestricted `admin` key gets `403 super_admin role required`.
+
 List endpoints return only in-scope rows; single-resource reads and mutations
 return `403` for out-of-scope ids. A reseller-admin key may create and delete
 clients owned by its reseller, but never touches shared node infrastructure.
@@ -949,7 +952,7 @@ This endpoint is called by the node bootstrap script (`/install/node.sh`). Do no
 
 ### Resellers
 
-A reseller is a white-label tenant that owns a set of clients (and optionally its own plans + branding). Reseller management is **platform-admin only** - a reseller-admin API key passes the role check but is denied by the global-scope gate (`403 global admin scope required`); it manages its own tenants through the scoped `/clients`, `/services`, and `/routes` endpoints instead.
+A reseller is a white-label tenant that owns a set of clients (and optionally its own plans + branding). Reseller management needs a **super_admin or api key**, same as the panel; any other key, including a plain admin or reseller-admin, gets `403 super_admin role required`. A reseller-admin manages its own tenants through the scoped `/clients`, `/services`, and `/routes` endpoints instead.
 
 ---
 

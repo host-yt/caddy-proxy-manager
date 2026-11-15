@@ -1,7 +1,7 @@
 # =========================================================================
 # Hostyt Proxy Gateway - LITE stack (stock Caddy, no custom modules)
 #
-# Runs on the official `caddy:2.11.7` image instead of the custom edge build.
+# Runs on the official `caddy:2.11.8` image instead of the custom edge build.
 # Every optional Caddy module is OFF (*_AVAILABLE=0): no WAF, origin cache, L4
 # streams, GeoIP matcher, per-route rate-limit, weighted LB, or DNS-01 wildcard.
 # Core reverse-proxy + ACME HTTP/TLS-ALPN + the whole panel work unchanged.
@@ -22,7 +22,7 @@
 
 services:
   app:
-    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:1.11.0}
+    image: ${IMAGE_APP:-ghcr.io/host-yt/caddy-proxy-manager:1.11.1}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     healthcheck:
@@ -130,7 +130,7 @@ services:
   # STOCK Caddy - no custom modules. The panel drives it via the admin API;
   # the mounted Caddyfile only configures the admin listener + on-demand-TLS ask.
   caddy:
-    image: caddy:2.11.7@sha256:0c994536bddb66445885237f1a5dcc1916bccea922661c76b4e9fc24061f9b52
+    image: caddy:2.11.8@sha256:4fcafa98afd1c2e642e353e3c5cf9ddbe892fcee14bc990e7ba2c5b78e51f9cf
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     # Real request against the admin API either way - a leftover socket file
@@ -171,7 +171,7 @@ services:
   # access-log dashboard + analytics rollups) and runs the customer tunnel.
   # No WAF audit log in lite (WAF is off); the access log is enough.
   hpg-node-agent:
-    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.11.0}
+    image: ${IMAGE_NODE_AGENT:-ghcr.io/host-yt/caddy-proxy-manager-node-agent:1.11.1}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     network_mode: host
@@ -203,7 +203,7 @@ services:
       - node
 
   wireguard:
-    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:1.11.0}
+    image: ${IMAGE_WG:-ghcr.io/host-yt/caddy-proxy-manager-wg:1.11.1}
     pull_policy: ${IMAGE_PULL_POLICY:-if_not_present}
     restart: unless-stopped
     cap_add:

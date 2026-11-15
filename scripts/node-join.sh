@@ -173,7 +173,7 @@ log "Writing $INSTALL_DIR/docker-compose.yml"
 cat > "$INSTALL_DIR/docker-compose.yml" <<EOF
 services:
   caddy:
-    image: caddy:2.11.7
+    image: caddy:2.11.8
     restart: unless-stopped
     ports:
       # SEC-002: Caddy's admin API authenticates nothing, so whoever can route

@@ -23,11 +23,39 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+## [1.11.1] - 2026-11-15
+
+Security and consistency fixes on top of 1.11.0, plus Caddy 2.11.8 in the
+edge image.
+
+### Upgrade notes
+
+- `/api/v1/resellers` and `/api/v1/reseller-plans` now need a `super_admin`
+  or `api` key, as `/admin/resellers` always did in the panel. A plain
+  `admin` key that managed resellers gets `403 super_admin role required`;
+  issue that integration a `super_admin` or `api` key. Nothing else changes.
+
+### Security
+
+- REST API writes apply the panel's validation on every path: host name
+  ownership and matcher shape on create, plan gates on host edit, service
+  backend, port and placement checks, node and node pool input checks.
+  Reseller management needs a `super_admin` or `api` key (see Upgrade notes).
+- Node failover preview escapes node names, domains, statuses and reasons
+  before rendering them as HTML.
+
 ### Fixed
 
+- Access log live tail shows times in `HPG_DISPLAY_TZ`, like the
+  server-rendered rows, instead of the browser's local time.
 - AI assistant lookups (routes, hosts, audit log) treated `_` and `\` in a
   search term as wildcards, so `my_app` could resolve to `myXapp`. They now
   share the panel's literal-match pattern helper.
+
+### Changed
+
+- Edge image and every stock Caddy pin (lite profile, integration stacks,
+  remote node, `node-join.sh`, docs) on Caddy 2.11.8.
 
 ## [1.11.0] - 2026-11-15
 

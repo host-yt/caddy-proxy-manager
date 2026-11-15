@@ -349,6 +349,39 @@ func (h *AdminHandlers) placementGrants(ctx context.Context, sess *auth.Session)
 	return granted, rows.Err()
 }
 
+// resellerGrantsNodeGroup reports whether a reseller's package grants the node group.
+func resellerGrantsNodeGroup(ctx context.Context, q rowQuerier, resellerID, nodeGroupID int64) (bool, error) {
+	var n int
+	err := q.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM resellers r
+		   JOIN reseller_plan_node_groups g ON g.reseller_plan_id = r.reseller_plan_id
+		  WHERE r.id = ? AND g.node_group_id = ?`, resellerID, nodeGroupID).Scan(&n)
+	return n > 0, err
+}
+
+// servicePortOverlap reports whether [start,end] overlaps another service on the same backend.
+func servicePortOverlap(ctx context.Context, q rowQuerier, backendIP string, start, end int, excludeID int64) (bool, error) {
+	var n int
+	err := q.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM services WHERE backend_ip = ? AND NOT (allowed_port_end < ? OR allowed_port_start > ?) AND id <> ?`,
+		backendIP, start, end, excludeID).Scan(&n)
+	return n > 0, err
+}
+
+// planAllowsOnEnable applies create's plan gate when an edit turns a feature on:
+// a platform-wide admin is trusted as on create; a scoped editor needs the plan flag.
+func (h *AdminHandlers) planAllowsOnEnable(ctx context.Context, sess *auth.Session, routeID int64, planCol string) bool {
+	if _, all, ok := h.adminClientScope(ctx, sess); ok && all {
+		return true
+	}
+	var allowed bool
+	err := h.DB().QueryRowContext(ctx,
+		`SELECT COALESCE(p.`+planCol+`, 0) FROM routes r
+		   JOIN services s ON s.id = r.service_id JOIN plans p ON p.id = s.plan_id
+		  WHERE r.id = ?`, routeID).Scan(&allowed)
+	return err == nil && allowed
+}
+
 // checkPlacement refuses a node group outside the caller's package pools.
 func (h *AdminHandlers) checkPlacement(ctx context.Context, sess *auth.Session, nodeGroupID int64) error {
 	granted, err := h.placementGrants(ctx, sess)
