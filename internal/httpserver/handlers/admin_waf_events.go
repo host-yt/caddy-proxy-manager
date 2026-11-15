@@ -360,7 +360,7 @@ func (h *AdminHandlers) WAFDeleteSuppression(w http.ResponseWriter, r *http.Requ
 		ownerRouteID = routeID
 	}
 
-	if err := h.WAFEvents.DeleteSuppression(ctx, id, ownerRouteID); err != nil {
+	if _, err := h.WAFEvents.DeleteSuppression(ctx, id, ownerRouteID); err != nil {
 		h.Logger.Error("waf delete suppression", "err", err)
 		redirectWithFlash(w, r, "/admin/waf", "", "delete failed")
 		return

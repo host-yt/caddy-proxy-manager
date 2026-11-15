@@ -23,6 +23,12 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+### Fixed
+
+- AI assistant lookups (routes, hosts, audit log) treated `_` and `\` in a
+  search term as wildcards, so `my_app` could resolve to `myXapp`. They now
+  share the panel's literal-match pattern helper.
+
 ## [1.11.0] - 2026-11-15
 
 Route TLS and WAF management over the REST API, plus access-log and SQLite

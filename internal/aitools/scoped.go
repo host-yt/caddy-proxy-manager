@@ -295,7 +295,7 @@ func (r *Registry) routeLogsScoped(ctx context.Context, scope Scope, raw json.Ra
 			 WHERE rt.id = ? AND s.client_id IN `+in,
 			append([]any{a.RouteID}, idArgs...)...).Scan(&routeID)
 	} else if a.Domain != "" {
-		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
+		pattern := store.LikeContains(a.Domain)
 		args := append([]any{pattern}, idArgs...)
 		_ = r.db.QueryRowContext(ctx,
 			`SELECT rt.id FROM routes rt JOIN services s ON s.id = rt.service_id
@@ -375,7 +375,7 @@ func (r *Registry) wafEventsScoped(ctx context.Context, scope Scope, raw json.Ra
 		args = append(args, a.Action)
 	}
 	if a.Domain != "" {
-		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
+		pattern := store.LikeContains(a.Domain)
 		q += " AND host LIKE ? " + store.LikeEscapeBackslash()
 		args = append(args, pattern)
 	}

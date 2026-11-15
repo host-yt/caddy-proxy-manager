@@ -281,7 +281,11 @@ func (h *APIHandlers) RouteWAFSuppressionDelete(w http.ResponseWriter, r *http.R
 		apiErr(w, http.StatusServiceUnavailable, "waf store not ready")
 		return
 	}
-	ok, err := h.WAFEvents.DeleteRouteSuppression(ctx, sid, id)
+	if id <= 0 { // ownerRouteID 0 would mean "any route": never from here
+		apiErr(w, http.StatusNotFound, "not found")
+		return
+	}
+	ok, err := h.WAFEvents.DeleteSuppression(ctx, sid, id)
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "delete failed")
 		return

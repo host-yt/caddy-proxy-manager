@@ -385,3 +385,21 @@ func TestWafEventsPage_NoRestoreWithoutTarget(t *testing.T) {
 		t.Fatal("restore action rendered without a deletable suppression")
 	}
 }
+
+// GET /routes/{id} shares routeReadable with access-logs and waf-*.
+func TestAPIRouteGet_ReadBoundary(t *testing.T) {
+	db := wafAPIDB(t)
+	get := func(id string, uid int64, role string) int {
+		return wafCall(t, db, func(h *APIHandlers) http.HandlerFunc { return h.RouteGet },
+			http.MethodGet, "/api/v1/routes/"+id, "", uid, role, map[string]string{"id": id}).Code
+	}
+	if c := get("7", 1, "client"); c != http.StatusOK {
+		t.Errorf("owner: %d, want 200", c)
+	}
+	if c := get("7", 2, "client"); c != http.StatusForbidden {
+		t.Errorf("other tenant: %d, want 403", c)
+	}
+	if c := get("404", 1, "super_admin"); c != http.StatusNotFound {
+		t.Errorf("missing route: %d, want 404", c)
+	}
+}
