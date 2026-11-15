@@ -439,35 +439,19 @@ func (h *APIHandlers) RouteGet(w http.ResponseWriter, r *http.Request) {
 	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-
+	// Same read boundary as access-logs and waf-*: owner client or in-scope admin.
+	if !h.routeReadable(ctx, w, r, id) {
+		return
+	}
 	var rt apiRoute
 	err := scanRoute(h.DB().QueryRowContext(ctx,
 		"SELECT "+routeSelectCols+" FROM routes r WHERE r.id = ?", id), &rt)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		apiErr(w, http.StatusNotFound, "not found")
 		return
 	}
 	if err != nil {
 		apiErr(w, http.StatusInternalServerError, "query failed")
-		return
-	}
-	// Clients can only see their own routes via ownership of the service.
-	c := middleware.CallerFromContext(r.Context())
-	if c != nil && c.Role == "client" {
-		clientID, lerr := clientIDForUserStrict(ctx, h.DB(), c.UserID)
-		if lerr != nil {
-			apiErr(w, http.StatusForbidden, "client scope unresolved")
-			return
-		}
-		var svcOwner int64
-		if err2 := h.DB().QueryRowContext(ctx,
-			"SELECT client_id FROM services WHERE id = ?", rt.ServiceID,
-		).Scan(&svcOwner); err2 != nil || svcOwner != clientID {
-			apiErr(w, http.StatusForbidden, "forbidden")
-			return
-		}
-	} else if c != nil && !h.routeInScope(ctx, w, r, id) {
-		// Reseller/scoped admin: route's service must belong to an owned client.
 		return
 	}
 	apiJSON(w, http.StatusOK, rt)

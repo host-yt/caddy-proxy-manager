@@ -44,6 +44,15 @@ func LikeEscapeBackslash() string {
 	return `ESCAPE '\\'`
 }
 
+// LikeContains builds a "%term%" pattern with \, % and _ escaped so user
+// input matches literally. Pair it with LikeEscapeBackslash in the query.
+func LikeContains(q string) string {
+	q = strings.ReplaceAll(q, `\`, `\\`)
+	q = strings.ReplaceAll(q, "%", `\%`)
+	q = strings.ReplaceAll(q, "_", `\_`)
+	return "%" + q + "%"
+}
+
 // UpsertSettingSQL returns a full INSERT...upsert SQL for the settings table.
 // The settings table has PRIMARY KEY on `key`.
 func UpsertSettingSQL() string {

@@ -706,7 +706,7 @@ func (r *Registry) searchRoutes(ctx context.Context, raw json.RawMessage) (strin
 		return toJSON(map[string]any{"routes": []any{}, "count": 0})
 	}
 	limit := clampLimit(a.Limit, 20, 100)
-	pattern := "%" + strings.ReplaceAll(a.Query, "%", `\%`) + "%"
+	pattern := store.LikeContains(a.Query)
 	q := `SELECT rt.domain, rt.path_prefix, rt.upstream_port, rt.status, rt.ssl_enabled, cn.name
 	           FROM routes rt JOIN caddy_nodes cn ON cn.id = rt.caddy_node_id
 	           WHERE rt.domain LIKE ? ` + store.LikeEscapeBackslash() + ` ORDER BY rt.domain ASC LIMIT ?`
@@ -752,7 +752,7 @@ func (r *Registry) routeLogs(ctx context.Context, raw json.RawMessage) (string, 
 	if a.RouteID > 0 {
 		routeID = a.RouteID
 	} else if a.Domain != "" {
-		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
+		pattern := store.LikeContains(a.Domain)
 		_ = r.db.QueryRowContext(ctx,
 			`SELECT id FROM routes WHERE domain LIKE ? `+store.LikeEscapeBackslash()+` ORDER BY id LIMIT 1`, pattern,
 		).Scan(&routeID)
@@ -821,11 +821,11 @@ func (r *Registry) auditLog(ctx context.Context, raw json.RawMessage) (string, e
 	args := []any{}
 	if a.Actor != "" {
 		q += " AND u.email LIKE ? " + store.LikeEscapeBackslash()
-		args = append(args, "%"+strings.ReplaceAll(a.Actor, "%", `\%`)+"%")
+		args = append(args, store.LikeContains(a.Actor))
 	}
 	if a.Action != "" {
 		q += " AND al.action LIKE ? " + store.LikeEscapeBackslash()
-		args = append(args, "%"+strings.ReplaceAll(a.Action, "%", `\%`)+"%")
+		args = append(args, store.LikeContains(a.Action))
 	}
 	if a.Entity != "" {
 		q += " AND al.entity = ?"
@@ -990,7 +990,7 @@ func (r *Registry) wafEvents(ctx context.Context, raw json.RawMessage) (string, 
 		args = append(args, a.Action)
 	}
 	if a.Domain != "" {
-		pattern := "%" + strings.ReplaceAll(a.Domain, "%", `\%`) + "%"
+		pattern := store.LikeContains(a.Domain)
 		q += " AND host LIKE ? " + store.LikeEscapeBackslash()
 		args = append(args, pattern)
 	}
@@ -1571,7 +1571,7 @@ func routeDetailQuery(ctx context.Context, db *sql.DB, raw json.RawMessage, owne
 	      JOIN users u ON u.id = c.user_id
 	      WHERE (rt.id = ? OR rt.domain LIKE ? ` + store.LikeEscapeBackslash() + `)` + ownershipCond + `
 	      ORDER BY rt.id ASC LIMIT 1`
-	qArgs := append([]any{numID, "%" + strings.ReplaceAll(id, "%", `\%`) + "%"}, ownershipArgs...)
+	qArgs := append([]any{numID, store.LikeContains(id)}, ownershipArgs...)
 	err := db.QueryRowContext(ctx, q, qArgs...).
 		Scan(&ro.ID, &ro.Domain, &ro.Path, &ro.UpstreamPort, &ro.Status, &ro.SSL,
 			&ro.Node, &ro.Kind, &ro.WafEnabled, &ro.WafBlocking,

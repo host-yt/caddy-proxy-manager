@@ -129,7 +129,7 @@ func TestSuppressRuleAndFilteredMarking(t *testing.T) {
 	}
 
 	// Delete suppression; event must stop being marked.
-	if err := store.DeleteSuppression(ctx, supID, 0); err != nil {
+	if _, err := store.DeleteSuppression(ctx, supID, 0); err != nil {
 		t.Fatalf("DeleteSuppression: %v", err)
 	}
 	events, _, err = store.FilteredWithSuppressions(ctx, Filter{RuleID: ruleID, Limit: 10})
@@ -212,7 +212,7 @@ func TestScopedSuppressBlocksGlobal(t *testing.T) {
 	})
 
 	// Scoped delete with ownerRouteID=999 must not remove the global row.
-	if err := store.DeleteSuppression(ctx, supID, 999); err != nil {
+	if _, err := store.DeleteSuppression(ctx, supID, 999); err != nil {
 		t.Fatalf("DeleteSuppression scoped: %v", err)
 	}
 	var count int

@@ -538,43 +538,28 @@ func (s *Store) ListSuppressions(ctx context.Context, routeIDs []int64) ([]Suppr
 	return out, rows.Err()
 }
 
-// DeleteSuppression removes a suppression by ID. ownerRouteID, if non-zero,
-// additionally constrains the delete to a specific route (scoped admin safety).
-func (s *Store) DeleteSuppression(ctx context.Context, id int64, ownerRouteID int64) error {
+// DeleteSuppression removes a suppression by ID and reports whether a row
+// was removed. ownerRouteID > 0 constrains the delete to that route (scoped
+// admin and per-route API safety): a global suppression (route_id IS NULL)
+// or another route's row then never matches.
+func (s *Store) DeleteSuppression(ctx context.Context, id int64, ownerRouteID int64) (bool, error) {
 	if s.db == nil {
-		return nil
+		return false, nil
 	}
 	db := s.db()
 	if db == nil {
-		return nil
+		return false, nil
 	}
-	var err error
+	var (
+		res sql.Result
+		err error
+	)
 	if ownerRouteID > 0 {
-		_, err = db.ExecContext(ctx,
-			`DELETE FROM waf_rule_suppressions WHERE id = ? AND route_id = ?`,
-			id, ownerRouteID,
-		)
+		res, err = db.ExecContext(ctx,
+			`DELETE FROM waf_rule_suppressions WHERE id = ? AND route_id = ?`, id, ownerRouteID)
 	} else {
-		_, err = db.ExecContext(ctx,
-			`DELETE FROM waf_rule_suppressions WHERE id = ?`, id,
-		)
+		res, err = db.ExecContext(ctx, `DELETE FROM waf_rule_suppressions WHERE id = ?`, id)
 	}
-	return err
-}
-
-// DeleteRouteSuppression removes suppression id only when it belongs to
-// routeID, and reports whether a row was removed. Global suppressions
-// (route_id IS NULL) never match, so a per-route caller cannot lift them.
-func (s *Store) DeleteRouteSuppression(ctx context.Context, id, routeID int64) (bool, error) {
-	if s.db == nil || routeID <= 0 {
-		return false, nil
-	}
-	db := s.db()
-	if db == nil {
-		return false, nil
-	}
-	res, err := db.ExecContext(ctx,
-		`DELETE FROM waf_rule_suppressions WHERE id = ? AND route_id = ?`, id, routeID)
 	if err != nil {
 		return false, err
 	}
