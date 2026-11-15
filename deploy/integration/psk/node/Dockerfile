@@ -5,7 +5,7 @@
 # stand-in is `docker` (see docker-shim) - node-join.sh's last step starts
 # Caddy in a container, which would mean docker-in-docker for no extra
 # coverage of the WireGuard paths this harness exists to test.
-FROM caddy:2.11.7@sha256:36c24ad91a7ff7bc4c87fe22bfa8df3c4b18da0773d73fc12ee2c52b98c0bb7e AS caddybin
+FROM caddy:2.11.8@sha256:4fcafa98afd1c2e642e353e3c5cf9ddbe892fcee14bc990e7ba2c5b78e51f9cf AS caddybin
 
 FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587
 RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends \
