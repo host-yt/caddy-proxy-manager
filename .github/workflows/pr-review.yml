@@ -1,10 +1,12 @@
-# Requests the org's automated PR review. Nothing from the PR runs here; fork
-# PRs get no secrets and are skipped.
+# Requests the org's automated PR review, on demand only: it runs when the
+# `codex-review` label is added to a PR (the PR template asks whether you want
+# it). Re-add the label to review again after new pushes. Nothing from the PR
+# runs here; fork PRs get no secrets and are skipped.
 name: PR review
 
 on:
   pull_request:
-    types: [opened, ready_for_review, labeled]
+    types: [labeled]
 
 concurrency:
   group: pr-review-${{ github.workflow }}-${{ github.ref }}
@@ -17,7 +19,7 @@ jobs:
   codex-dispatch:  # job name is referenced by the review gate
     if: >-
       !github.event.pull_request.draft &&
-      (github.event.action != 'labeled' || github.event.label.name == 'codex-review') &&
+      github.event.label.name == 'codex-review' &&
       github.event.pull_request.user.login != 'dependabot[bot]' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest

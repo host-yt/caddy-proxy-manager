@@ -95,6 +95,10 @@ pin-version: ## Rewrite every deploy/ and docs/ image pin + README status to V=x
 	@perl -pi -e 's|^\*\*Status:\*\* v\d+\.\d+\.\d+|**Status:** v$(V)|' README.md
 	@echo "pinned $(V); CI fails if anything still disagrees"
 
+.PHONY: caddy-pins
+caddy-pins: ## Sync every stock Caddy pin to deploy/caddy/Dockerfile's runtime stage (CI needs one version).
+	@scripts/sync-caddy-pins.sh
+
 .PHONY: dev
 dev: build-css ## Hot-reload dev (air + templ watcher).
 	air
