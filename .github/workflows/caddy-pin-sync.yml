@@ -3,7 +3,9 @@
 # compose files, remote-node stack, node-join.sh and docs, so every such PR
 # went red (#139). After CI runs on a Dependabot branch for deploy/caddy, this
 # applies scripts/sync-caddy-pins.sh and pushes the result with the host-yt
-# GitHub App token, so CI runs again and automerge.yml can take it from there.
+# GitHub App token, so CI runs again; automerge.yml then treats the synced PR
+# like any other Dependabot PR (it reads the update type from Dependabot's own
+# commit, not from the sync commit on top).
 #
 # Safety: the script is taken from main, never from the PR branch, and only
 # rewrites version strings in tracked files; nothing from the PR is executed.
@@ -45,10 +47,10 @@ jobs:
           path: base
           persist-credentials: false
 
-      - name: Checkout Dependabot branch
+      - name: Checkout the commit CI ran on
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.workflow_run.head_branch }}
+          ref: ${{ github.event.workflow_run.head_sha }}
           path: pr
           persist-credentials: false
 
@@ -57,14 +59,13 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
-          # A newer push already superseded the commit CI ran on: let that run decide.
-          [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "branch moved past $SHA, skipping"; exit 0; }
           ../base/scripts/sync-caddy-pins.sh
           if git diff --quiet; then echo "nothing to sync"; exit 0; fi
           git config user.name "host-yt-bot[bot]"
           git config user.email "339995997+host-yt-bot[bot]@users.noreply.github.com"
           git commit -qas -m "build(deps): sync every stock Caddy pin to the edge image" \
             -m "Applied by .github/workflows/caddy-pin-sync.yml (scripts/sync-caddy-pins.sh)."
-          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:${BRANCH}"
+          # Not a force push: if the branch moved past this commit meanwhile, this is
+          # rejected and the CI run on the newer commit triggers a fresh sync.
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"

@@ -188,3 +188,34 @@ func TestRouteCreateSendsUpstreamTLS(t *testing.T) {
 		t.Fatalf("state = scheme %v skip %v", m.Scheme, m.SkipTLS)
 	}
 }
+
+// After import state has no expires_at; Read fills it from the API, while a
+// configured value (e.g. a bare date) is kept as written.
+func TestWAFSuppressionReadExpiresAt(t *testing.T) {
+	ctx := context.Background()
+	api := &fakeWAFAPI{sups: map[int64]map[string]any{11: {"id": 11, "route_id": 7, "rule_id": "942100",
+		"reason": "", "created_at": "2026-11-16T10:00:00Z", "expires_at": "2026-12-31T23:59:59Z"}}}
+	srv := httptest.NewServer(http.HandlerFunc(api.handler))
+	defer srv.Close()
+	res := &wafSuppressionResource{client: NewClient(srv.URL, "k")}
+	sr, typ := wafSchema(t)
+	for configured, want := range map[string]string{"": "2026-12-31T23:59:59Z", "2026-12-31": "2026-12-31"} {
+		vals := map[string]tftypes.Value{}
+		for name, at := range typ.AttributeTypes {
+			vals[name] = tftypes.NewValue(at, nil)
+		}
+		vals["id"] = tftypes.NewValue(tftypes.Number, 11)
+		vals["route_id"] = tftypes.NewValue(tftypes.Number, 7)
+		if configured != "" {
+			vals["expires_at"] = tftypes.NewValue(tftypes.String, configured)
+		}
+		st := tfsdk.State{Schema: sr.Schema, Raw: tftypes.NewValue(typ, vals)}
+		resp := resource.ReadResponse{State: st}
+		res.Read(ctx, resource.ReadRequest{State: st}, &resp)
+		var m wafSuppressionModel
+		resp.State.Get(ctx, &m)
+		if m.ExpiresAt.ValueString() != want {
+			t.Errorf("configured %q: expires_at = %q, want %q", configured, m.ExpiresAt.ValueString(), want)
+		}
+	}
+}

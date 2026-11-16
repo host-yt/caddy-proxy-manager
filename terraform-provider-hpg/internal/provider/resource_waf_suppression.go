@@ -135,8 +135,13 @@ func (r *wafSuppressionResource) Read(ctx context.Context, req resource.ReadRequ
 		state.RuleID = types.StringValue(s.RuleID)
 		state.Reason = types.StringValue(s.Reason)
 		state.CreatedAt = types.StringValue(s.CreatedAt.UTC().Format(time.RFC3339))
-		if s.ExpiresAt == nil {
+		// Keep a configured value as written (the server turns a bare date into
+		// end-of-day); fill it only when state has none, e.g. after import.
+		switch {
+		case s.ExpiresAt == nil:
 			state.ExpiresAt = types.StringNull()
+		case state.ExpiresAt.IsNull() || state.ExpiresAt.IsUnknown():
+			state.ExpiresAt = types.StringValue(s.ExpiresAt.UTC().Format(time.RFC3339))
 		}
 		resp.Diagnostics.Append(resp.State.Set(ctx, &state)...)
 		return

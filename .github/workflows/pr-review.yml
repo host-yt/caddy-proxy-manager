@@ -10,7 +10,7 @@ on:
 
 concurrency:
   group: pr-review-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false  # another label added mid-run must not cancel a requested review
 
 permissions:
   contents: read

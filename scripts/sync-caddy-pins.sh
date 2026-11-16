@@ -44,7 +44,7 @@ for f in "${existing[@]}"; do
   # The bare rule skips "-builder" so the builder stage keeps its own pin.
   VER="$ver" DIGEST="$digest" perl -pi -e '
     s{caddy:\d+\.\d+\.\d+\@sha256:[0-9a-f]{64}}{caddy:$ENV{VER}\@$ENV{DIGEST}}g;
-    s{caddy:\d+\.\d+\.\d+(?![\d.]|-builder|\@)}{caddy:$ENV{VER}}g;
+    s{caddy:\d+\.\d+\.\d+(?!\d|\.\d|-builder|\@)}{caddy:$ENV{VER}}g;
   ' "$f"
 done
 

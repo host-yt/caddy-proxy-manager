@@ -23,7 +23,10 @@ jobs:
       github.event_name == 'workflow_run' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.event == 'pull_request' &&
-      github.event.workflow_run.actor.login == 'dependabot[bot]'
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/') &&
+      (github.event.workflow_run.actor.login == 'dependabot[bot]' ||
+       github.event.workflow_run.actor.login == 'host-yt-bot[bot]')
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -58,7 +61,13 @@ jobs:
             [ "$pending" = 0 ] && [ "$st" = success ] && break
             sleep 20
           done
-          msg=$(gh api "repos/$GITHUB_REPOSITORY/commits/$SHA" --jq .commit.message)
+          # Dependabot's own commit carries the update metadata; caddy-pin-sync.yml
+          # may have pushed a sync commit on top, so read every commit's message.
+          msg=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/commits?per_page=100" --jq '.[].commit.message')
+          # Only Dependabot and the pin-sync bot may have commits on the branch.
+          others=$(gh api "repos/$GITHUB_REPOSITORY/pulls/$pr/commits?per_page=100" \
+            --jq '[.[] | select(.author.login != "dependabot[bot]" and .author.login != "host-yt-bot[bot]")] | length')
+          [ "$others" = 0 ] || { echo "PR #$pr has commits from others, leaving it for a human"; exit 0; }
           # merge minor/patch; majors only for GitHub Actions or dev-only deps (CI covers them).
           # Unknown update-type counts as major. Runtime majors wait for a human.
           auto=false
