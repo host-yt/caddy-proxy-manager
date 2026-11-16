@@ -48,3 +48,10 @@ func setKnownBool(body map[string]any, key string, v types.Bool) {
 		body[key] = v.ValueBool()
 	}
 }
+
+// setKnownString is setKnownBool for strings.
+func setKnownString(body map[string]any, key string, v types.String) {
+	if !v.IsUnknown() && !v.IsNull() {
+		body[key] = v.ValueString()
+	}
+}

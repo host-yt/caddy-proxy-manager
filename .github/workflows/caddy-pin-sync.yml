@@ -1,0 +1,71 @@
+# Finishes Dependabot's Caddy bumps. Dependabot moves only the edge image's
+# Dockerfile (deploy/caddy), but CI requires one stock Caddy pin across the
+# compose files, remote-node stack, node-join.sh and docs, so every such PR
+# went red (#139). After CI runs on a Dependabot branch for deploy/caddy, this
+# applies scripts/sync-caddy-pins.sh and pushes the result with the host-yt
+# GitHub App token, so CI runs again; automerge.yml then treats the synced PR
+# like any other Dependabot PR (it reads the update type from Dependabot's own
+# commit, not from the sync commit on top).
+#
+# Safety: the script is taken from main, never from the PR branch, and only
+# rewrites version strings in tracked files; nothing from the PR is executed.
+name: Caddy pin sync
+
+on:
+  workflow_run:  # zizmor: ignore[dangerous-triggers] runs main's script on a Dependabot branch; never executes PR code
+    workflows: [CI]
+    types: [completed]
+
+concurrency:
+  group: caddy-pin-sync-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    if: >-
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.actor.login == 'dependabot[bot]' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      startsWith(github.event.workflow_run.head_branch, 'dependabot/docker/deploy/caddy/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ secrets.BOT_APP_ID }}
+          private-key: ${{ secrets.BOT_PRIVATE_KEY }}
+          permission-contents: write
+
+      - name: Checkout main (script source)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: base
+          persist-credentials: false
+
+      - name: Checkout the commit CI ran on
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          path: pr
+          persist-credentials: false
+
+      - name: Sync pins and push
+        working-directory: pr
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          ../base/scripts/sync-caddy-pins.sh
+          if git diff --quiet; then echo "nothing to sync"; exit 0; fi
+          git config user.name "host-yt-bot[bot]"
+          git config user.email "339995997+host-yt-bot[bot]@users.noreply.github.com"
+          git commit -qas -m "build(deps): sync every stock Caddy pin to the edge image" \
+            -m "Applied by .github/workflows/caddy-pin-sync.yml (scripts/sync-caddy-pins.sh)."
+          # Not a force push: if the branch moved past this commit meanwhile, this is
+          # rejected and the CI run on the newer commit triggers a fresh sync.
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "HEAD:refs/heads/${BRANCH}"

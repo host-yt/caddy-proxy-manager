@@ -87,6 +87,14 @@ resource "hpg_route" "acme_www" {
   # status + caddy_node_id are computed; SSL provisioning is asynchronous.
 }
 
+# Silence one Coraza/CRS rule on this route only (false positive on search).
+resource "hpg_waf_suppression" "acme_www_search" {
+  route_id   = hpg_route.acme_www.id
+  rule_id    = "942100"
+  reason     = "false positive on /search"
+  expires_at = "2026-12-31"
+}
+
 variable "acme_initial_password" {
   type      = string
   sensitive = true

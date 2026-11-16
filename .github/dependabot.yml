@@ -2,7 +2,8 @@
 # no groups; automerge.yml merges minor/patch and Actions/dev-only majors,
 # runtime majors are left for a human.
 # docker-compose files are not tracked here: CI requires one caddy/hpg pin
-# across them, bump those with `make pin-version`.
+# across them. Own images: `make pin-version`. Stock Caddy: Dependabot bumps
+# deploy/caddy, then caddy-pin-sync.yml (or `make caddy-pins`) syncs the rest.
 version: 2
 updates:
   - package-ecosystem: github-actions
