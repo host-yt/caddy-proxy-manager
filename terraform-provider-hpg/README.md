@@ -25,7 +25,8 @@ go build -o terraform-provider-hpg .
 | `hpg_client` | create returns `user_id`; the provider resolves the client `id`. `password_wo` is write-only and create-only (never stored in state; rotate in-panel); legacy `password` is deprecated |
 | `hpg_reseller` | platform-admin key only; `owner_password_wo` is write-only and create-only (never stored in state; rotate in-panel); legacy `owner_password` is deprecated |
 | `hpg_service` | `name`/`backend_ip`/`plan_id`/`client_id` are immutable (force replace); ports patched via the dedicated endpoint |
-| `hpg_route` | `service_id`/`domain` force replace; SSL is asynchronous (`status` converges to `active`) |
+| `hpg_route` | `service_id`/`domain` force replace; SSL is asynchronous (`status` converges to `active`); `upstream_scheme`, `upstream_skip_tls_verify` (enabling needs a `super_admin` key) |
+| `hpg_waf_suppression` | route-scoped WAF rule suppression; every attribute forces replace; import as `<route_id>/<id>`; an expired suppression is recreated on the next apply |
 | `hpg_node` | platform-admin key only; only `name`/`is_enabled` mutable in place, other fields force replace; delete refuses a node with active routes (409) |
 
 ## Configuration

@@ -28,6 +28,8 @@ type routeModel struct {
 	SSL          types.Bool   `tfsdk:"ssl"`
 	WebSocket    types.Bool   `tfsdk:"websocket"`
 	ForceHTTPS   types.Bool   `tfsdk:"force_https"`
+	Scheme       types.String `tfsdk:"upstream_scheme"`
+	SkipTLS      types.Bool   `tfsdk:"upstream_skip_tls_verify"`
 	Status       types.String `tfsdk:"status"`
 	CaddyNodeID  types.Int64  `tfsdk:"caddy_node_id"`
 }
@@ -41,6 +43,8 @@ type apiRoute struct {
 	SSL          bool   `json:"ssl"`
 	WebSocket    bool   `json:"websocket"`
 	ForceHTTPS   bool   `json:"force_https"`
+	Scheme       string `json:"upstream_scheme"`
+	SkipTLS      bool   `json:"upstream_skip_tls_verify"`
 	Status       string `json:"status"`
 	CaddyNodeID  int64  `json:"caddy_node_id"`
 }
@@ -64,6 +68,14 @@ func (r *routeResource) Schema(_ context.Context, _ resource.SchemaRequest, resp
 			"ssl":           boolAttrOptComputed("Default `true` (subject to the plan)."),
 			"websocket":     boolAttrOptComputed("Default `false`."),
 			"force_https":   boolAttrOptComputed("Default `true`."),
+			"upstream_scheme": schema.StringAttribute{
+				Optional: true, Computed: true,
+				MarkdownDescription: "`http` (default) or `https`: scheme used to reach the backend.",
+				PlanModifiers:       []planmodifier.String{stringplanmodifier.UseStateForUnknown()},
+			},
+			"upstream_skip_tls_verify": boolAttrOptComputed("Default `false`. Skip certificate verification on the backend hop " +
+				"(\"Ignore invalid SSL on backend\"); only takes effect with `upstream_scheme = \"https\"`. " +
+				"Setting it to `true` needs a `super_admin` API key."),
 			"status":        schema.StringAttribute{Computed: true},
 			"caddy_node_id": schema.Int64Attribute{Computed: true},
 		},
@@ -89,6 +101,8 @@ func (r *routeResource) Create(ctx context.Context, req resource.CreateRequest, 
 	setKnownBool(body, "ssl", plan.SSL)
 	setKnownBool(body, "websocket", plan.WebSocket)
 	setKnownBool(body, "force_https", plan.ForceHTTPS)
+	setKnownString(body, "upstream_scheme", plan.Scheme)
+	setKnownBool(body, "upstream_skip_tls_verify", plan.SkipTLS)
 	var created struct {
 		ID int64 `json:"id"`
 	}
@@ -136,6 +150,8 @@ func (r *routeResource) Update(ctx context.Context, req resource.UpdateRequest, 
 	setKnownBool(body, "ssl_enabled", plan.SSL)
 	setKnownBool(body, "websocket", plan.WebSocket)
 	setKnownBool(body, "force_https", plan.ForceHTTPS)
+	setKnownString(body, "upstream_scheme", plan.Scheme)
+	setKnownBool(body, "upstream_skip_tls_verify", plan.SkipTLS)
 	if err := r.client.Patch(ctx, "/routes/"+strconv.FormatInt(id, 10), body, nil); err != nil {
 		resp.Diagnostics.AddError("Update route failed", err.Error())
 		return
@@ -176,6 +192,8 @@ func (r *routeResource) read(ctx context.Context, id int64, m *routeModel, diags
 	m.SSL = types.BoolValue(rt.SSL)
 	m.WebSocket = types.BoolValue(rt.WebSocket)
 	m.ForceHTTPS = types.BoolValue(rt.ForceHTTPS)
+	m.Scheme = types.StringValue(rt.Scheme)
+	m.SkipTLS = types.BoolValue(rt.SkipTLS)
 	m.Status = types.StringValue(rt.Status)
 	m.CaddyNodeID = types.Int64Value(rt.CaddyNodeID)
 	return false

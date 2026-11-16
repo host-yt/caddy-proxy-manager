@@ -15,7 +15,7 @@ GET /api-docs/openapi.json
 ```
 
 Implemented resources: `hpg_node_pool`, `hpg_node`, `hpg_plan`, `hpg_client`,
-`hpg_service`, `hpg_route`. Ships with a GoReleaser config + release workflow so
+`hpg_service`, `hpg_route`, `hpg_reseller`, `hpg_reseller_plan`, `hpg_waf_suppression`. Ships with a GoReleaser config + release workflow so
 publishing is just a repo-split + tag (see the provider README).
 
 ## Provider configuration
@@ -46,6 +46,7 @@ returned by the API and is used verbatim for `terraform import`.
 | `hpg_client` | `POST /clients` | `GET /clients/{id}` | `PATCH /clients/{id}` | `DELETE /clients/{id}` | reseller keys stamp `reseller_id` on create and may delete only their own clients |
 | `hpg_service` | `POST /services` | `GET /services/{id}` | `PATCH /services/{id}` + `POST /services/{id}/ports` | `DELETE /services/{id}` | `client_id`/`name`/`backend_ip`/`plan_id` force-replace; ports patched via the dedicated endpoint; must be in key scope |
 | `hpg_route` | `POST /routes` | `GET /routes/{id}` | `PATCH /routes/{id}` | `DELETE /routes/{id}` | `service_id` -> `hpg_service.id`; SSL is async |
+| `hpg_waf_suppression` | `POST /routes/{id}/waf-suppressions` | `GET /routes/{id}/waf-suppressions` (list, filtered by id) | none (all attributes force replace) | `DELETE /routes/{id}/waf-suppressions/{sid}` | admin key whose scope covers the route; route-scoped only (global suppressions stay in the panel) |
 | `hpg_reseller` | `POST /resellers` | `GET /resellers/{id}` | `PATCH /resellers/{id}` | `DELETE /resellers/{id}` | platform-admin key only (a reseller-admin key is denied); not yet implemented in the Go provider code, API surface documented above |
 | `hpg_reseller_plan` | `POST /reseller-plans` | `GET /reseller-plans` (list only, no single-resource GET; provider reads via list + filter by id) | `PATCH /reseller-plans/{id}` | `DELETE /reseller-plans/{id}` | platform-admin key only; update is a full replace of `node_group_ids`/`features`; not yet implemented in the Go provider code |
 
@@ -59,7 +60,8 @@ attributes a provider must expose.
 - **hpg_plan**: `name`, `max_domains`, `max_ports`, `node_group_id` (required); `kind` (`restricted` default | `npm`); feature flags `ssl_enabled`, `path_routing_enabled`, `wildcard_enabled`, `websocket_enabled`, `external_proxy_enabled`, `allow_egress_ip`; `rate_limit_rpm`, `wg_key_rotation_days` (0 = unset).
 - **hpg_client**: `email`, `name` (required); `password_wo` (>= 12 chars, write-only, Terraform >= 1.11) is sent once at create and never stored in plan or state - a later change is ignored, rotate in-panel, and it may be removed from config after the first apply. The legacy `password` attribute still works but is deprecated: its value stays in config and state in cleartext. `external_ref` for idempotent external mapping; `user_id` is computed.
 - **hpg_service**: `client_id`, `name`, `backend_ip`, `allowed_port_start`, `allowed_port_end`, `plan_id` (required); `external_reference`. `client_id`/`name`/`backend_ip`/`plan_id` force replacement when changed; `status` is computed.
-- **hpg_route**: `service_id`, `upstream_port`, `domain` (required; `service_id`/`domain` force-replace); `path_prefix`, `ssl`, `websocket`, `force_https`. Note the create/read payload uses `ssl` while update uses `ssl_enabled` for the same field. `status` and `caddy_node_id` are computed; SSL provisioning is asynchronous (poll `status`).
+- **hpg_route**: `service_id`, `upstream_port`, `domain` (required; `service_id`/`domain` force-replace); `path_prefix`, `ssl`, `websocket`, `force_https`. Note the create/read payload uses `ssl` while update uses `ssl_enabled` for the same field. `upstream_scheme` (`http` default | `https`) and `upstream_skip_tls_verify` (default `false`; skips backend certificate verification, only with `https`; enabling it needs a `super_admin` key, disabling any admin key). `status` and `caddy_node_id` are computed; SSL provisioning is asynchronous (poll `status`).
+- **hpg_waf_suppression**: `route_id`, `rule_id` (required; a number or `lo-hi` range); `reason`, `expires_at` (RFC 3339 or `YYYY-MM-DD`, end of that day UTC; omit for permanent). No in-place update: any change replaces it. `created_at` is computed. The API lists only active suppressions, so an expired one leaves state and is recreated on the next apply - move `expires_at` or drop the resource.
 - **hpg_reseller**: `name`, `slug` (required, lowercase alphanumeric/dashes, unique), `owner_email` (required); `owner_password_wo` (>= 12 chars, write-only, Terraform >= 1.11) is sent once at create to provision the owner login and never stored in plan or state - a later change is ignored, rotate in-panel, and it may be removed from config after the first apply. The legacy `owner_password` still works but is deprecated: its value stays in config and state in cleartext. Exactly one of the two is required at create; `brand_name`, `support_email` optional; `status` (`active`|`suspended`), `reseller_plan_id`, `overselling_allowed`, `can_create_plans` are mutable in place. `owner_user_id` is **computed** (the id of the owner account created atomically with the reseller). Setting `status = "suspended"` revokes all sessions of that reseller's users.
 - **hpg_reseller_plan**: `name` (required, unique); `max_clients`, `max_domains_total`, `max_services_total`, `rate_limit_rpm_cap` (`0` = unlimited/uncapped); `node_group_ids`, `features` (grantable set: `ssl`, `wildcard`, `websocket`, `path`, `external`, `waf`, `geo`, `l4`, `cache`, `rate_limit`, `dns01`, `weighted_lb`) - both are wholesale-replaced on update, not merged. Deleting a package still referenced by a `hpg_reseller.reseller_plan_id` returns `409`.
 
@@ -69,7 +71,9 @@ attributes a provider must expose.
 terraform import hpg_service.web 42
 ```
 
-All resources import by numeric id. `hpg_client` imports by the **client id**
+All resources import by numeric id, except `hpg_waf_suppression`, which
+imports as `<route_id>/<suppression_id>` (`terraform import hpg_waf_suppression.x 201/14`).
+`hpg_client` imports by the **client id**
 (not the user id); the create call returns `user_id`, so capture the client id
 from a follow-up `GET /clients` if you provision outside Terraform.
 

@@ -23,6 +23,28 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+## [1.12.0] - 2026-11-16
+
+Terraform catches up with the 1.11 route API, and Dependabot's Caddy bumps
+no longer need finishing by hand. No upgrade action needed beyond pulling
+the new images.
+
+### Added
+
+- Terraform `hpg_route`: `upstream_scheme` and `upstream_skip_tls_verify`
+  ("Ignore invalid SSL on backend"; enabling it needs a `super_admin` key).
+- Terraform `hpg_waf_suppression`: a route-scoped WAF rule suppression
+  (`rule_id` or `lo-hi` range, optional `reason` and `expires_at`). Import
+  as `<route_id>/<suppression_id>`.
+- `make caddy-pins` (`scripts/sync-caddy-pins.sh`) moves every stock Caddy
+  pin to the edge Dockerfile's version and digest. CI runs it on Dependabot's
+  Caddy PRs and pushes the result, so they pass the one-version gate.
+
+### Changed
+
+- Automated PR review runs on demand only, when the `codex-review` label is
+  added. The new pull request template asks whether you want it.
+
 ## [1.11.1] - 2026-11-15
 
 Security and consistency fixes on top of 1.11.0, plus Caddy 2.11.8 in the
