@@ -87,11 +87,52 @@ func TestPinnedAddrRejectsPrivateTargets(t *testing.T) {
 	for _, addr := range []string{
 		"127.0.0.1:21", "10.0.0.5:2121", "169.254.169.254:80", "192.168.1.1:21",
 	} {
-		if _, err := pinnedAddr(ctx, addr); err == nil {
+		if _, err := pinnedAddr(ctx, addr, false); err == nil {
 			t.Errorf("pinnedAddr(%q) must be refused", addr)
 		}
 	}
-	if _, err := pinnedAddr(ctx, "8.8.8.8:21"); err != nil {
+	if _, err := pinnedAddr(ctx, "8.8.8.8:21", false); err != nil {
 		t.Errorf("public address must be allowed, got %v", err)
+	}
+}
+
+// #148: a destination marked allow_private may reach a NAS on the LAN, but the
+// opt-in never opens loopback, link-local (cloud metadata) or multicast - not
+// for the configured host and not for a PASV address a server hands back.
+func TestAllowPrivateDestinations(t *testing.T) {
+	ctx := context.Background()
+	for _, addr := range []string{"192.168.0.12:22", "10.0.0.5:21", "172.16.4.2:9000", "100.64.1.1:22", "[fd00::12]:22"} {
+		if _, err := pinnedAddr(ctx, addr, true); err != nil {
+			t.Errorf("LAN pinnedAddr(%q) refused: %v", addr, err)
+		}
+		if _, err := pinnedAddr(ctx, addr, false); err == nil {
+			t.Errorf("pinnedAddr(%q) without opt-in must be refused", addr)
+		}
+	}
+	for _, addr := range []string{"127.0.0.1:22", "[::1]:22", "169.254.169.254:80", "0.0.0.0:22", "224.0.0.1:22", "[fe80::1]:22"} {
+		if _, err := pinnedAddr(ctx, addr, true); err == nil {
+			t.Errorf("LAN pinnedAddr(%q) must still be refused", addr)
+		}
+	}
+
+	base := map[string]string{"host": "192.168.0.12", "user": "u", "password": "p",
+		"host_key": "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOMqqnkVzrm0SdG6UOoqKLsabgH5C9okWi0dh2l9GKJl"}
+	if _, err := newSFTPDest(base); err == nil {
+		t.Error("sftp to 192.168.0.12 without allow_private must be refused")
+	}
+	lan := map[string]string{"allow_private": "1"}
+	for k, v := range base {
+		lan[k] = v
+	}
+	d, err := newSFTPDest(lan)
+	if err != nil {
+		t.Fatalf("sftp to 192.168.0.12 with allow_private: %v", err)
+	}
+	if !d.lan {
+		t.Error("allow_private not carried to the dialer")
+	}
+	lan["host"] = "127.0.0.1"
+	if _, err := newSFTPDest(lan); err == nil {
+		t.Error("allow_private must not open loopback")
 	}
 }

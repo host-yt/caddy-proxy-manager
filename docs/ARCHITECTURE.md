@@ -243,6 +243,12 @@ component (`dump.sql`, `install_state.json`, `wg/*`) as required or optional
 and ok/skipped - a required component that can't be read, or an archive that
 fails to close, fails the job instead of reporting success. Scheduler is
 leader-gated and sweeps orphaned temp files on every tick.
+Destination hosts are SSRF-checked at save time and again on every dial
+(addresses pinned, FTP PASV included): public addresses only, unless the
+destination is marked "on a private network" (`allow_private`), which admits
+RFC1918, CGNAT and ULA but never loopback, link-local or cloud metadata.
+Destinations are editable; stored secrets are never sent back to the browser
+and an empty secret field keeps the stored value.
 
 ### `internal/oidc/`
 Wraps `coreos/go-oidc/v3` for OIDC login (Authentik, Microsoft, generic

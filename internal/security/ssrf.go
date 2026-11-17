@@ -98,6 +98,19 @@ func ValidateOutboundURL(u *url.URL) error {
 // check is insufficient: a hostname resolving to 127.0.0.1 / 10.x / ::1 would
 // otherwise be accepted. host may include a port.
 func ValidateOutboundHost(ctx context.Context, host string) error {
+	return validateHost(ctx, host, isAllowedIP)
+}
+
+// ValidateOutboundHostLAN is ValidateOutboundHost for a destination the admin
+// explicitly marked as living on a private network (a NAS on the LAN, a box
+// on the WireGuard mesh). RFC1918, CGNAT and IPv6 ULA are allowed; loopback,
+// link-local (cloud metadata at 169.254.169.254), multicast and unspecified
+// stay blocked - the same line IsDangerousProxyBackend draws for backends.
+func ValidateOutboundHostLAN(ctx context.Context, host string) error {
+	return validateHost(ctx, host, func(ip net.IP) bool { return !IsDangerousProxyBackend(ip) })
+}
+
+func validateHost(ctx context.Context, host string, allowed func(net.IP) bool) error {
 	if host == "" {
 		return fmt.Errorf("%w: empty host", ErrSSRFBlocked)
 	}
@@ -106,7 +119,7 @@ func ValidateOutboundHost(ctx context.Context, host string) error {
 		host = h
 	}
 	if ip := net.ParseIP(host); ip != nil {
-		if !isAllowedIP(ip) {
+		if !allowed(ip) {
 			return fmt.Errorf("%w: host %s in forbidden range", ErrSSRFBlocked, ip)
 		}
 		return nil
@@ -119,7 +132,7 @@ func ValidateOutboundHost(ctx context.Context, host string) error {
 		return fmt.Errorf("%w: %s did not resolve", ErrSSRFBlocked, host)
 	}
 	for _, ip := range ips {
-		if !isAllowedIP(ip.IP) {
+		if !allowed(ip.IP) {
 			return fmt.Errorf("%w: %s resolved to %s", ErrSSRFBlocked, host, ip.IP)
 		}
 	}

@@ -23,6 +23,34 @@ is deliberately left as published.
 
 ## [Unreleased]
 
+## [1.13.0] - 2026-11-17
+
+Backups to a NAS on the local network, editable backup destinations, and a
+go-mail security update. No upgrade action needed beyond pulling the new
+images.
+
+### Added
+
+- Backup destinations (SFTP, FTP, S3) can be marked "Destination on a private
+  network" to reach a NAS or server on the LAN or VPN (10.x, 172.16-31.x,
+  192.168.x, 100.64/10, fd00::/8). Loopback, link-local and cloud metadata
+  addresses stay blocked, for the configured host and for FTP PASV
+  addresses alike. Without the option private addresses are still refused
+  (#148).
+- Backup destinations can be edited from `/admin/backups`. Stored passwords
+  and keys are never sent back to the browser; leaving a secret field empty
+  keeps the stored value (#148).
+
+### Changed
+
+- A backup destination is checked when it is saved (host, blocked address,
+  required fields), so a mistake shows up at once instead of at the next
+  scheduled run.
+
+### Security
+
+- go-mail 0.8.2 (GHSA-f82v-42xw-72cj, GHSA-w8w6-94hg-2qpm).
+
 ## [1.12.0] - 2026-11-16
 
 Terraform catches up with the 1.11 route API, and Dependabot's Caddy bumps

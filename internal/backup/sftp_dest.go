@@ -50,6 +50,7 @@ type sftpDest struct {
 	hostKey        ssh.PublicKey
 	insecure       bool
 	basePath       string
+	lan            bool // allow_private: private-network address permitted
 }
 
 func newSFTPDest(cfg map[string]string) (*sftpDest, error) {
@@ -57,7 +58,7 @@ func newSFTPDest(cfg map[string]string) (*sftpDest, error) {
 	if host == "" {
 		return nil, errors.New("sftp: host required")
 	}
-	if err := validateDestHost(host); err != nil {
+	if err := validateDestHost(host, allowPrivate(cfg)); err != nil {
 		return nil, fmt.Errorf("sftp: %w", err)
 	}
 	port := strings.TrimSpace(cfg["port"])
@@ -84,6 +85,7 @@ func newSFTPDest(cfg map[string]string) (*sftpDest, error) {
 		privateKeyPass: cfg["private_key_pass"],
 		basePath:       strings.TrimSpace(cfg["path"]),
 		insecure:       cfg["insecure_host_key"] == "1",
+		lan:            allowPrivate(cfg),
 	}
 	if d.basePath == "" {
 		d.basePath = "."
@@ -130,7 +132,7 @@ func (d *sftpDest) dial(ctx context.Context) (*ssh.Client, *sftp.Client, error) 
 
 	// Pinned: revalidates the resolved IP against the SSRF check at connect
 	// time instead of trusting the hostname re-resolves the same way.
-	conn, err := pinnedDialContext(ctx, "tcp", d.addr)
+	conn, err := pinnedDialer(d.lan)(ctx, "tcp", d.addr)
 	if err != nil {
 		return nil, nil, fmt.Errorf("sftp: dial: %w", err)
 	}

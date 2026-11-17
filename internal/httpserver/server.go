@@ -685,6 +685,7 @@ func (s *Server) routes() {
 		r.Route("/backups", func(r chi.Router) {
 			r.Get("/", s.deps.Admin.BackupsPage)
 			r.Post("/destinations", s.deps.Admin.BackupsCreateDestination)
+			r.Post("/destinations/{id}", s.deps.Admin.BackupsUpdateDestination)
 			r.Post("/destinations/{id}/delete", s.deps.Admin.BackupsDeleteDestination)
 			r.Post("/destinations/{id}/test", s.deps.Admin.BackupsTestDestination)
 			r.Post("/destinations/{id}/verify", s.deps.Admin.BackupsVerify)

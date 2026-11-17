@@ -48,7 +48,7 @@ func newS3Dest(cfg map[string]string) (*s3Dest, error) {
 	if i := strings.IndexByte(hostOnly, ':'); i > 0 {
 		hostOnly = hostOnly[:i]
 	}
-	if err := validateDestHost(hostOnly); err != nil {
+	if err := validateDestHost(hostOnly, allowPrivate(cfg)); err != nil {
 		return nil, fmt.Errorf("s3: %w", err)
 	}
 	bucket := strings.TrimSpace(cfg["bucket"])
@@ -76,7 +76,7 @@ func newS3Dest(cfg map[string]string) (*s3Dest, error) {
 	// Pin the dial to the address we just SSRF-checked - the endpoint host
 	// could re-resolve elsewhere between here and every later PutObject.
 	tr := http.DefaultTransport.(*http.Transport).Clone()
-	tr.DialContext = pinnedDialContext
+	tr.DialContext = pinnedDialer(allowPrivate(cfg))
 	opts.Transport = tr
 	cli, err := minio.New(endpoint, opts)
 	if err != nil {

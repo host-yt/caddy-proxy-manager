@@ -159,8 +159,7 @@ func (s *Service) GetDestination(ctx context.Context, id int64) (Destination, er
 	return d, nil
 }
 
-// SaveDestination inserts a new destination row (no update path — admin
-// deletes and re-creates to rotate credentials).
+// SaveDestination inserts a new destination row; UpdateDestination edits one.
 func (s *Service) SaveDestination(ctx context.Context, d Destination, createdBy int64) (int64, error) {
 	db := s.DB()
 	if db == nil {
@@ -169,8 +168,8 @@ func (s *Service) SaveDestination(ctx context.Context, d Destination, createdBy 
 	if d.Name == "" {
 		return 0, errors.New("name required")
 	}
-	if !validKind(d.Kind) {
-		return 0, fmt.Errorf("invalid kind: %s", d.Kind)
+	if err := ValidateDestination(d); err != nil {
+		return 0, err
 	}
 	enc, err := s.encodeConfig(d.Config)
 	if err != nil {
@@ -193,6 +192,76 @@ func (s *Service) SaveDestination(ctx context.Context, d Destination, createdBy 
 	}
 	id, _ := res.LastInsertId()
 	return id, nil
+}
+
+// SecretConfigKeys are destination config fields that never go back to the
+// browser. On update an empty value means "keep the stored one".
+var SecretConfigKeys = []string{"password", "private_key", "private_key_pass", "secret_key"}
+
+// IsSecretConfigKey reports whether k is one of SecretConfigKeys.
+func IsSecretConfigKey(k string) bool {
+	for _, s := range SecretConfigKeys {
+		if s == k {
+			return true
+		}
+	}
+	return false
+}
+
+// ValidateDestination builds the destination's client without connecting, so
+// a bad host, a blocked address or a missing field fails at save time
+// instead of at the next scheduled run.
+func ValidateDestination(d Destination) error {
+	if !validKind(d.Kind) {
+		return fmt.Errorf("invalid kind: %s", d.Kind)
+	}
+	_, err := newDestination(d)
+	return err
+}
+
+// UpdateDestination replaces a destination's name, enabled flag and config.
+// The kind is fixed (a different kind is a different destination). cfg
+// replaces the stored config except for secret keys left empty, which keep
+// their stored value, so editing a host never forces re-typing a password.
+func (s *Service) UpdateDestination(ctx context.Context, id int64, name string, enabled bool, cfg map[string]string) error {
+	db := s.DB()
+	if db == nil {
+		return errors.New("db not ready")
+	}
+	if name == "" {
+		return errors.New("name required")
+	}
+	cur, err := s.GetDestination(ctx, id)
+	if err != nil {
+		return err
+	}
+	merged := make(map[string]string, len(cfg))
+	for k, v := range cfg {
+		merged[k] = v
+	}
+	for _, k := range SecretConfigKeys {
+		if merged[k] == "" && cur.Config[k] != "" {
+			merged[k] = cur.Config[k]
+		}
+	}
+	next := Destination{ID: id, Name: name, Kind: cur.Kind, Enabled: enabled, Config: merged}
+	if err := ValidateDestination(next); err != nil {
+		return err
+	}
+	enc, err := s.encodeConfig(merged)
+	if err != nil {
+		return err
+	}
+	res, err := db.ExecContext(ctx,
+		`UPDATE backup_destinations SET name = ?, config_enc = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		name, enc, boolToInt(enabled), id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 // DeleteDestination removes a destination. Existing job rows cascade.

@@ -34,6 +34,7 @@ type ftpDest struct {
 	tlsMode    string
 	skipVerify bool
 	basePath   string
+	lan        bool // allow_private: private-network address permitted
 }
 
 func newFTPDest(cfg map[string]string) (*ftpDest, error) {
@@ -41,7 +42,7 @@ func newFTPDest(cfg map[string]string) (*ftpDest, error) {
 	if host == "" {
 		return nil, errors.New("ftp: host required")
 	}
-	if err := validateDestHost(host); err != nil {
+	if err := validateDestHost(host, allowPrivate(cfg)); err != nil {
 		return nil, fmt.Errorf("ftp: %w", err)
 	}
 	port := strings.TrimSpace(cfg["port"])
@@ -63,6 +64,7 @@ func newFTPDest(cfg map[string]string) (*ftpDest, error) {
 		tlsMode:    strings.ToLower(strings.TrimSpace(cfg["tls"])),
 		skipVerify: cfg["skip_verify"] == "1",
 		basePath:   strings.TrimSpace(cfg["path"]),
+		lan:        allowPrivate(cfg),
 	}
 	if d.basePath == "" {
 		d.basePath = "."
@@ -99,7 +101,7 @@ func (d *ftpDest) dial(ctx context.Context) (*ftp.ServerConn, error) {
 	// channel starts plain and is upgraded by AUTH TLS).
 	var controlDialed atomic.Bool
 	dialFn := func(network, address string) (net.Conn, error) {
-		pinned, perr := pinnedAddr(ctx, address)
+		pinned, perr := pinnedAddr(ctx, address, d.lan)
 		if perr != nil {
 			return nil, perr
 		}
