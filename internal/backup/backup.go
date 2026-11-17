@@ -215,6 +215,12 @@ func ValidateDestination(d Destination) error {
 	if !validKind(d.Kind) {
 		return fmt.Errorf("invalid kind: %s", d.Kind)
 	}
+	// Saving must not touch the disk: a local destination's directory is
+	// created on the first upload, not when the form is submitted.
+	if d.Kind == KindLocal {
+		_, err := localRoot(d.Config)
+		return err
+	}
 	_, err := newDestination(d)
 	return err
 }

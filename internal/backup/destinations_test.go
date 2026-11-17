@@ -3,6 +3,7 @@ package backup
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -135,5 +136,22 @@ func TestAllowPrivateDestinations(t *testing.T) {
 	lan["host"] = "127.0.0.1"
 	if _, err := newSFTPDest(lan); err == nil {
 		t.Error("allow_private must not open loopback")
+	}
+}
+
+// Saving a local destination validates the path but never creates it: the
+// directory appears on the first upload, not when an admin submits the form.
+func TestValidateDestinationLocalDoesNotTouchDisk(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "not", "yet")
+	if err := ValidateDestination(Destination{Kind: KindLocal, Config: map[string]string{"path": dir}}); err != nil {
+		t.Fatalf("valid local path refused: %v", err)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("validation created %s (stat err %v)", dir, err)
+	}
+	for _, p := range []string{"", "relative/dir"} {
+		if err := ValidateDestination(Destination{Kind: KindLocal, Config: map[string]string{"path": p}}); err == nil {
+			t.Errorf("local path %q accepted", p)
+		}
 	}
 }
