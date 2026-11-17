@@ -212,16 +212,22 @@ func IsSecretConfigKey(k string) bool {
 // a bad host, a blocked address or a missing field fails at save time
 // instead of at the next scheduled run.
 func ValidateDestination(d Destination) error {
-	if !validKind(d.Kind) {
-		return fmt.Errorf("invalid kind: %s", d.Kind)
+	// Deliberately not newDestination: saving must not touch the disk, so a
+	// local destination only has its path checked (the directory is created
+	// on the first upload), and form input never reaches an os.MkdirAll.
+	var err error
+	switch d.Kind {
+	case KindSFTP:
+		_, err = newSFTPDest(d.Config)
+	case KindFTP:
+		_, err = newFTPDest(d.Config)
+	case KindS3:
+		_, err = newS3Dest(d.Config)
+	case KindLocal:
+		_, err = localRoot(d.Config)
+	default:
+		err = fmt.Errorf("invalid kind: %s", d.Kind)
 	}
-	// Saving must not touch the disk: a local destination's directory is
-	// created on the first upload, not when the form is submitted.
-	if d.Kind == KindLocal {
-		_, err := localRoot(d.Config)
-		return err
-	}
-	_, err := newDestination(d)
 	return err
 }
 
