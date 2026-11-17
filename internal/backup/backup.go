@@ -252,16 +252,12 @@ func (s *Service) UpdateDestination(ctx context.Context, id int64, name string, 
 	if err != nil {
 		return err
 	}
-	res, err := db.ExecContext(ctx,
+	// Existence was checked by GetDestination above. No RowsAffected check:
+	// MySQL reports 0 for a re-save of identical values, which is not "missing".
+	_, err = db.ExecContext(ctx,
 		`UPDATE backup_destinations SET name = ?, config_enc = ?, is_enabled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
 		name, enc, boolToInt(enabled), id)
-	if err != nil {
-		return err
-	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
+	return err
 }
 
 // DeleteDestination removes a destination. Existing job rows cascade.
