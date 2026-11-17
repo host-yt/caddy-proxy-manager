@@ -107,7 +107,26 @@ func ValidateOutboundHost(ctx context.Context, host string) error {
 // link-local (cloud metadata at 169.254.169.254), multicast and unspecified
 // stay blocked - the same line IsDangerousProxyBackend draws for backends.
 func ValidateOutboundHostLAN(ctx context.Context, host string) error {
-	return validateHost(ctx, host, func(ip net.IP) bool { return !IsDangerousProxyBackend(ip) })
+	return validateHost(ctx, host, func(ip net.IP) bool {
+		return !IsDangerousProxyBackend(ip) && !isCloudMetadataIP(ip)
+	})
+}
+
+// cloudMetadataIPs are instance-metadata endpoints that sit inside ranges the
+// LAN opt-in admits (169.254.169.254 is already link-local): AWS's IPv6
+// endpoint is in fd00::/8 (ULA), Alibaba Cloud's in 100.64/10 (CGNAT).
+var cloudMetadataIPs = []net.IP{
+	net.ParseIP("fd00:ec2::254"),
+	net.ParseIP("100.100.100.200"),
+}
+
+func isCloudMetadataIP(ip net.IP) bool {
+	for _, m := range cloudMetadataIPs {
+		if m.Equal(ip) {
+			return true
+		}
+	}
+	return false
 }
 
 func validateHost(ctx context.Context, host string, allowed func(net.IP) bool) error {

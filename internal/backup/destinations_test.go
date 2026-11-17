@@ -109,7 +109,8 @@ func TestAllowPrivateDestinations(t *testing.T) {
 			t.Errorf("pinnedAddr(%q) without opt-in must be refused", addr)
 		}
 	}
-	for _, addr := range []string{"127.0.0.1:22", "[::1]:22", "169.254.169.254:80", "0.0.0.0:22", "224.0.0.1:22", "[fe80::1]:22"} {
+	for _, addr := range []string{"127.0.0.1:22", "[::1]:22", "[::ffff:127.0.0.1]:22", "169.254.169.254:80",
+		"[fd00:ec2::254]:80", "100.100.100.200:80", "0.0.0.0:22", "224.0.0.1:22", "[fe80::1]:22"} {
 		if _, err := pinnedAddr(ctx, addr, true); err == nil {
 			t.Errorf("LAN pinnedAddr(%q) must still be refused", addr)
 		}
