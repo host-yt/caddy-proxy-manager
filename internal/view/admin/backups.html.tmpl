@@ -44,6 +44,7 @@
               <td class="t-small" style="color:rgb(var(--muted))">{{.Summary}}</td>
               <td>{{if .Enabled}}<span class="r-pill r-pill-success">enabled</span>{{else}}<span class="r-pill r-pill-neutral">disabled</span>{{end}}</td>
               <td class="text-right space-x-3">
+                <a href="/admin/backups?edit={{.ID}}" class="t-small hover:underline" style="color:rgb(var(--text))">edit</a>
                 <form method="POST" action="/admin/backups/destinations/{{.ID}}/test" class="inline">
                   <input type="hidden" name="csrf_token" value="{{$.CSRF}}">
                   <button class="t-small cursor-pointer hover:underline" style="color:rgb(var(--accent))">test</button>
@@ -72,48 +73,69 @@
       </table>
     </div>
 
-    <details class="p-5" style="border-top:1px solid rgb(var(--border))">
-      <summary class="cursor-pointer t-small font-medium" style="color:rgb(var(--text))">Add destination</summary>
-      <form id="dest-form" autocomplete="off" method="POST" action="/admin/backups/destinations" class="mt-4 space-y-3 text-sm max-w-2xl">
+    <details class="p-5" style="border-top:1px solid rgb(var(--border))" {{if .Edit}}open{{end}}>
+      <summary class="cursor-pointer t-small font-medium" style="color:rgb(var(--text))">{{if .Edit}}Edit destination {{.Edit.Name}}{{else}}Add destination{{end}}</summary>
+      <form id="dest-form" autocomplete="off" method="POST" action="{{if .Edit}}/admin/backups/destinations/{{.Edit.ID}}{{else}}/admin/backups/destinations{{end}}" class="mt-4 space-y-3 text-sm max-w-2xl">
         <input type="hidden" name="csrf_token" value="{{.CSRF}}">
         <div class="grid grid-cols-2 gap-3">
           <div>
             <label class="block t-small mb-1" style="color:rgb(var(--muted))">Name</label>
-            <input name="name" required class="r-input w-full">
+            <input name="name" required class="r-input w-full" value="{{if .Edit}}{{.Edit.Name}}{{end}}">
           </div>
           <div>
             <label class="block t-small mb-1" style="color:rgb(var(--muted))">Kind</label>
+            {{if .Edit}}
+            <select name="kind" class="r-select w-full" title="The kind cannot change; add a new destination instead.">
+              <option value="{{.Edit.Kind}}">{{.Edit.Kind}}</option>
+            </select>
+            {{else}}
             <select name="kind" class="r-select w-full">
               {{range .NewKindOpts}}<option value="{{.}}">{{.}}</option>{{end}}
             </select>
+            {{end}}
           </div>
         </div>
 
-        {{$k := .}}
         <div class="grid grid-cols-2 gap-3">
-          <div data-kind="sftp ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">host</label><input name="cfg_host" class="r-input w-full"></div>
-          <div data-kind="sftp ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">port</label><input name="cfg_port" class="r-input w-full tabular-nums"></div>
-          <div data-kind="sftp ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">user</label><input name="cfg_user" class="r-input w-full"></div>
-          <div data-kind="sftp ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">password</label><input name="cfg_password" type="password" autocomplete="new-password" class="r-input w-full"></div>
-          <div class="col-span-2" data-kind="sftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">private_key (SFTP, PEM)</label><textarea name="cfg_private_key" rows="3" class="r-input w-full font-mono text-xs"></textarea></div>
-          <div data-kind="sftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">private_key_pass</label><input name="cfg_private_key_pass" type="password" autocomplete="new-password" class="r-input w-full"></div>
-          <div data-kind="sftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">host_key (SFTP, "ssh-ed25519 …")</label><input name="cfg_host_key" class="r-input w-full"></div>
-          <div data-kind="sftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">insecure_host_key (0/1)</label><input name="cfg_insecure_host_key" value="0" class="r-input w-full tabular-nums"></div>
-          <div data-kind="ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">tls (FTP) explicit|implicit</label><input name="cfg_tls" class="r-input w-full"></div>
-          <div data-kind="ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">skip_verify (0/1)</label><input name="cfg_skip_verify" value="0" class="r-input w-full tabular-nums"></div>
-          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">endpoint (S3)</label><input name="cfg_endpoint" class="r-input w-full"></div>
-          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">region (S3)</label><input name="cfg_region" class="r-input w-full"></div>
-          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">bucket (S3)</label><input name="cfg_bucket" class="r-input w-full"></div>
-          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">access_key (S3)</label><input name="cfg_access_key" class="r-input w-full"></div>
-          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">secret_key (S3)</label><input name="cfg_secret_key" type="password" autocomplete="new-password" class="r-input w-full"></div>
-          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">prefix (S3)</label><input name="cfg_prefix" class="r-input w-full"></div>
-          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">use_ssl (S3) 0/1</label><input name="cfg_use_ssl" value="1" class="r-input w-full tabular-nums"></div>
-          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">path_style (S3) 0/1</label><input name="cfg_path_style" value="0" class="r-input w-full tabular-nums"></div>
-          <div class="col-span-2" data-kind="sftp ftp local"><label class="block t-small mb-1" style="color:rgb(var(--muted))">path / base directory</label><input name="cfg_path" class="r-input w-full"></div>
+          <div data-kind="sftp ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">host</label><input name="cfg_host" value="{{index $.Form "host"}}" class="r-input w-full"></div>
+          <div data-kind="sftp ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">port</label><input name="cfg_port" value="{{index $.Form "port"}}" class="r-input w-full tabular-nums"></div>
+          <div data-kind="sftp ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">user</label><input name="cfg_user" value="{{index $.Form "user"}}" class="r-input w-full"></div>
+          <div data-kind="sftp ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">password</label><input name="cfg_password" type="password" autocomplete="new-password" class="r-input w-full" placeholder="{{if index $.SecretSet "password"}}unchanged - leave empty to keep{{end}}"></div>
+          <div class="col-span-2" data-kind="sftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">private_key (SFTP, PEM)</label><textarea name="cfg_private_key" rows="3" class="r-input w-full font-mono text-xs" placeholder="{{if index $.SecretSet "private_key"}}unchanged - leave empty to keep{{end}}"></textarea></div>
+          <div data-kind="sftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">private_key_pass</label><input name="cfg_private_key_pass" type="password" autocomplete="new-password" class="r-input w-full" placeholder="{{if index $.SecretSet "private_key_pass"}}unchanged - leave empty to keep{{end}}"></div>
+          <div data-kind="sftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">host_key (SFTP, "ssh-ed25519 …")</label><input name="cfg_host_key" value="{{index $.Form "host_key"}}" class="r-input w-full"></div>
+          <div data-kind="sftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">insecure_host_key (0/1)</label><input name="cfg_insecure_host_key" value="{{index $.Form "insecure_host_key"}}" class="r-input w-full tabular-nums"></div>
+          <div data-kind="ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">tls (FTP) explicit|implicit</label><input name="cfg_tls" value="{{index $.Form "tls"}}" class="r-input w-full"></div>
+          <div data-kind="ftp"><label class="block t-small mb-1" style="color:rgb(var(--muted))">skip_verify (0/1)</label><input name="cfg_skip_verify" value="{{index $.Form "skip_verify"}}" class="r-input w-full tabular-nums"></div>
+          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">endpoint (S3)</label><input name="cfg_endpoint" value="{{index $.Form "endpoint"}}" class="r-input w-full"></div>
+          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">region (S3)</label><input name="cfg_region" value="{{index $.Form "region"}}" class="r-input w-full"></div>
+          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">bucket (S3)</label><input name="cfg_bucket" value="{{index $.Form "bucket"}}" class="r-input w-full"></div>
+          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">access_key (S3)</label><input name="cfg_access_key" value="{{index $.Form "access_key"}}" class="r-input w-full"></div>
+          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">secret_key (S3)</label><input name="cfg_secret_key" type="password" autocomplete="new-password" class="r-input w-full" placeholder="{{if index $.SecretSet "secret_key"}}unchanged - leave empty to keep{{end}}"></div>
+          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">prefix (S3)</label><input name="cfg_prefix" value="{{index $.Form "prefix"}}" class="r-input w-full"></div>
+          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">use_ssl (S3) 0/1</label><input name="cfg_use_ssl" value="{{index $.Form "use_ssl"}}" class="r-input w-full tabular-nums"></div>
+          <div data-kind="s3"><label class="block t-small mb-1" style="color:rgb(var(--muted))">path_style (S3) 0/1</label><input name="cfg_path_style" value="{{index $.Form "path_style"}}" class="r-input w-full tabular-nums"></div>
+          <div class="col-span-2" data-kind="sftp ftp local"><label class="block t-small mb-1" style="color:rgb(var(--muted))">path / base directory</label><input name="cfg_path" value="{{index $.Form "path"}}" class="r-input w-full"></div>
+          <div class="col-span-2" data-kind="sftp ftp s3">
+            <label class="flex items-start gap-2 t-small cursor-pointer">
+              <input type="checkbox" name="cfg_allow_private" value="1" class="mt-0.5" {{if eq (index $.Form "allow_private") "1"}}checked{{end}}>
+              <span><span class="font-medium" style="color:rgb(var(--text))">Destination on a private network</span><br>
+              <span style="color:rgb(var(--muted))">Allow a LAN or VPN address (10.x, 172.16-31.x, 192.168.x, 100.64/10, fd00::/8), e.g. a NAS next to this server. Loopback, link-local and cloud metadata addresses stay blocked.</span></span>
+            </label>
+          </div>
         </div>
-        {{$_ := $k}}
 
+        {{if .Edit}}
+        <label class="flex items-center gap-2 t-small cursor-pointer">
+          <input type="checkbox" name="enabled" value="1" {{if .Edit.Enabled}}checked{{end}}> Enabled (used by scheduled and manual runs)
+        </label>
+        <div class="flex items-center gap-3">
+          <button class="r-btn-primary">Save changes</button>
+          <a href="/admin/backups" class="t-small hover:underline" style="color:rgb(var(--muted))">Cancel</a>
+        </div>
+        {{else}}
         <button class="r-btn-primary">Save destination</button>
+        {{end}}
       </form>
     </details>
   </section>

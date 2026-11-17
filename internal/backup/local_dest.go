@@ -18,13 +18,22 @@ type localDest struct {
 	root string
 }
 
-func newLocalDest(cfg map[string]string) (*localDest, error) {
+// localRoot validates the configured directory without touching the disk.
+func localRoot(cfg map[string]string) (string, error) {
 	root := strings.TrimSpace(cfg["path"])
 	if root == "" {
-		return nil, errors.New("local: path required")
+		return "", errors.New("local: path required")
 	}
 	if !filepath.IsAbs(root) {
-		return nil, errors.New("local: path must be absolute")
+		return "", errors.New("local: path must be absolute")
+	}
+	return filepath.Clean(root), nil
+}
+
+func newLocalDest(cfg map[string]string) (*localDest, error) {
+	root, err := localRoot(cfg)
+	if err != nil {
+		return nil, err
 	}
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err

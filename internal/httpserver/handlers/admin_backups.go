@@ -37,6 +37,12 @@ type backupsViewData struct {
 	Schedule     backupScheduleRow
 	NewKindOpts  []string
 	Drill        drillStatusRow
+	// Form prefills the destination form: defaults when adding, the stored
+	// non-secret config when editing (Edit != nil). Secrets never go out;
+	// SecretSet marks which ones are stored so the form can say "unchanged".
+	Form      map[string]string
+	SecretSet map[string]bool
+	Edit      *backupDestRow
 }
 
 type backupDestRow struct {
@@ -118,9 +124,41 @@ func (h *AdminHandlers) BackupsPage(w http.ResponseWriter, r *http.Request) {
 			d.Jobs = append(d.Jobs, row)
 		}
 	}
+	d.Form = map[string]string{"insecure_host_key": "0", "skip_verify": "0", "use_ssl": "1", "path_style": "0"}
+	if editID, _ := strconv.ParseInt(r.URL.Query().Get("edit"), 10, 64); editID > 0 {
+		ds, err := h.Backups.GetDestination(ctx, editID)
+		if err != nil {
+			redirectWithFlash(w, r, "/admin/backups", "", "destination not found")
+			return
+		}
+		d.Edit = &backupDestRow{ID: ds.ID, Name: ds.Name, Kind: ds.Kind, Enabled: ds.Enabled}
+		d.Form = map[string]string{}
+		d.SecretSet = map[string]bool{}
+		for k, v := range ds.Config {
+			if backup.IsSecretConfigKey(k) {
+				d.SecretSet[k] = v != ""
+				continue
+			}
+			d.Form[k] = v
+		}
+	}
 	d.Schedule = h.loadBackupSchedule(ctx)
 	d.Drill = h.loadDrillStatus(ctx)
 	h.render(w, "backups", d)
+}
+
+// destinationFormConfig collects the cfg_* fields of the destination form.
+// Fields hidden for the chosen kind are disabled in the browser and so never
+// posted; an unchecked checkbox (allow_private) is simply absent.
+func destinationFormConfig(r *http.Request) map[string]string {
+	cfg := map[string]string{}
+	for k, vs := range r.PostForm {
+		if !strings.HasPrefix(k, "cfg_") || len(vs) == 0 {
+			continue
+		}
+		cfg[strings.TrimPrefix(k, "cfg_")] = vs[0]
+	}
+	return cfg
 }
 
 func backupDestSummary(d backup.Destination) string {
@@ -173,14 +211,7 @@ func (h *AdminHandlers) BackupsCreateDestination(w http.ResponseWriter, r *http.
 		redirectWithFlash(w, r, "/admin/backups", "", "name + kind required")
 		return
 	}
-	cfg := map[string]string{}
-	// Copy all "cfg_*" form fields into the config map (UI controls naming).
-	for k, vs := range r.PostForm {
-		if !strings.HasPrefix(k, "cfg_") || len(vs) == 0 {
-			continue
-		}
-		cfg[strings.TrimPrefix(k, "cfg_")] = vs[0]
-	}
+	cfg := destinationFormConfig(r)
 	d := backup.Destination{Name: name, Kind: kind, Enabled: true, Config: cfg}
 	sess := middleware.SessionFromContext(r.Context())
 	var uid int64
@@ -197,9 +228,50 @@ func (h *AdminHandlers) BackupsCreateDestination(w http.ResponseWriter, r *http.
 	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
 		UserID: &uid, Action: "backup.destination.create", Entity: "backup_destination",
 		EntityID: strconv.FormatInt(id, 10),
-		Meta:     map[string]any{"name": name, "kind": kind},
+		Meta:     map[string]any{"name": name, "kind": kind, "allow_private": cfg["allow_private"] == "1"},
 	})
 	redirectWithFlash(w, r, "/admin/backups", "destination saved", "")
+}
+
+// BackupsUpdateDestination POST /admin/backups/destinations/{id}.
+// Replaces name, enabled flag and config; an empty secret field keeps the
+// stored secret, so editing never needs the old password re-typed.
+func (h *AdminHandlers) BackupsUpdateDestination(w http.ResponseWriter, r *http.Request) {
+	if h.Backups == nil {
+		http.Error(w, "backup service not wired", http.StatusServiceUnavailable)
+		return
+	}
+	id, _ := strconv.ParseInt(chi.URLParam(r, "id"), 10, 64)
+	if id == 0 {
+		redirectWithFlash(w, r, "/admin/backups", "", "bad id")
+		return
+	}
+	_ = r.ParseForm()
+	editPath := "/admin/backups?edit=" + strconv.FormatInt(id, 10)
+	name := strings.TrimSpace(r.FormValue("name"))
+	if name == "" {
+		redirectWithFlash(w, r, editPath, "", "name required")
+		return
+	}
+	enabled := r.FormValue("enabled") == "1"
+	cfg := destinationFormConfig(r)
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	if err := h.Backups.UpdateDestination(ctx, id, name, enabled, cfg); err != nil {
+		redirectWithFlash(w, r, editPath, "", "save failed: "+sanitizeErr(err))
+		return
+	}
+	sess := middleware.SessionFromContext(r.Context())
+	var uid int64
+	if sess != nil {
+		uid = sess.UserID
+	}
+	audit.Write(ctx, h.DB(), h.Logger, r, audit.Entry{
+		UserID: &uid, Action: "backup.destination.update", Entity: "backup_destination",
+		EntityID: strconv.FormatInt(id, 10),
+		Meta:     map[string]any{"name": name, "enabled": enabled, "allow_private": cfg["allow_private"] == "1"},
+	})
+	redirectWithFlash(w, r, "/admin/backups", "destination updated", "")
 }
 
 // BackupsDeleteDestination POST /admin/backups/destinations/{id}/delete.
