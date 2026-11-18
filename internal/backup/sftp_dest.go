@@ -107,11 +107,31 @@ func newSFTPDest(cfg map[string]string) (*sftpDest, error) {
 	return d, nil
 }
 
-func (d *sftpDest) dial(ctx context.Context) (*ssh.Client, *sftp.Client, error) {
+// hostKeyAlgorithms limits the handshake to the algorithms that can present
+// the pinned key. Without it the library negotiates by its own preference
+// (ECDSA before RSA before Ed25519), so a server offering several host keys
+// shows one the pin cannot match and the check fails although the pinned key
+// is valid (#151). RSA keys ("ssh-rsa") are offered as rsa-sha2-512/256 only;
+// the SHA-1 "ssh-rsa" signature stays disabled.
+func hostKeyAlgorithms(pinned ssh.PublicKey) []string {
+	if pinned == nil {
+		return nil
+	}
+	if pinned.Type() == ssh.KeyAlgoRSA {
+		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}
+	}
+	return []string{pinned.Type()}
+}
+
+// clientConfig is the SSH client configuration for this destination.
+func (d *sftpDest) clientConfig() (*ssh.ClientConfig, error) {
 	cfg := &ssh.ClientConfig{
 		User:            d.user,
 		HostKeyCallback: d.hostKeyCallback(),
 		Timeout:         15 * time.Second,
+	}
+	if !d.insecure {
+		cfg.HostKeyAlgorithms = hostKeyAlgorithms(d.hostKey)
 	}
 	if d.password != "" {
 		cfg.Auth = append(cfg.Auth, ssh.Password(d.password))
@@ -125,9 +145,27 @@ func (d *sftpDest) dial(ctx context.Context) (*ssh.Client, *sftp.Client, error) 
 			signer, err = ssh.ParsePrivateKey(d.privateKey)
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("sftp: parse private_key: %w", err)
+			return nil, fmt.Errorf("sftp: parse private_key: %w", err)
 		}
 		cfg.Auth = append(cfg.Auth, ssh.PublicKeys(signer))
+	}
+	return cfg, nil
+}
+
+// handshakeError explains a failed handshake when the pinned key type is the
+// cause; other errors pass through unchanged.
+func (d *sftpDest) handshakeError(err error) error {
+	if d.hostKey != nil && strings.Contains(err.Error(), "no common algorithm for host key") {
+		return fmt.Errorf("sftp: the server does not offer a %s host key (the pinned type); pin a key type it offers: %w",
+			d.hostKey.Type(), err)
+	}
+	return fmt.Errorf("sftp: handshake: %w", err)
+}
+
+func (d *sftpDest) dial(ctx context.Context) (*ssh.Client, *sftp.Client, error) {
+	cfg, err := d.clientConfig()
+	if err != nil {
+		return nil, nil, err
 	}
 
 	// Pinned: revalidates the resolved IP against the SSRF check at connect
@@ -139,7 +177,7 @@ func (d *sftpDest) dial(ctx context.Context) (*ssh.Client, *sftp.Client, error) 
 	sshConn, chans, reqs, err := ssh.NewClientConn(conn, d.addr, cfg)
 	if err != nil {
 		_ = conn.Close()
-		return nil, nil, fmt.Errorf("sftp: handshake: %w", err)
+		return nil, nil, d.handshakeError(err)
 	}
 	client := ssh.NewClient(sshConn, chans, reqs)
 	sc, err := sftp.NewClient(client)
@@ -157,7 +195,10 @@ func (d *sftpDest) hostKeyCallback() ssh.HostKeyCallback {
 	expected := d.hostKey
 	return func(_ string, _ net.Addr, key ssh.PublicKey) error {
 		if !keysEqual(expected, key) {
-			return errors.New("sftp: host key mismatch")
+			// Never accepted, never re-pinned: report what differs so the
+			// admin can compare fingerprints out of band.
+			return fmt.Errorf("sftp: host key mismatch: pinned %s %s, server presented %s %s (the key changed or the pin is wrong)",
+				expected.Type(), ssh.FingerprintSHA256(expected), key.Type(), ssh.FingerprintSHA256(key))
 		}
 		return nil
 	}
