@@ -33,12 +33,14 @@ needed beyond pulling the new images.
 - SFTP backup destinations failed with "host key mismatch" when the server
   offers several host key types (a Synology NAS offers ECDSA, RSA and
   Ed25519) and the pinned key was not the type the SSH library prefers. The
-  handshake now negotiates only the pinned key's type (RSA as
-  rsa-sha2-512/256, never SHA-1), so the pinned key is the one checked. A
+  handshake now negotiates only the pinned key's type (an RSA key prefers
+  rsa-sha2-512/256 and falls back to SHA-1 ssh-rsa only for servers that
+  offer nothing else, as before), so the pinned key is the one checked. A
   server that does not offer that type is reported as such, and a key that
   differs is still refused, now with the pinned and presented SHA-256
   fingerprints in the error (#151).
- - 2026-11-17
+
+## [1.13.0] - 2026-11-17
 
 Backups to a NAS on the local network, editable backup destinations, and a
 go-mail security update. No upgrade action needed beyond pulling the new

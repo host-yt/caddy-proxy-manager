@@ -111,14 +111,19 @@ func newSFTPDest(cfg map[string]string) (*sftpDest, error) {
 // the pinned key. Without it the library negotiates by its own preference
 // (ECDSA before RSA before Ed25519), so a server offering several host keys
 // shows one the pin cannot match and the check fails although the pinned key
-// is valid (#151). RSA keys ("ssh-rsa") are offered as rsa-sha2-512/256 only;
-// the SHA-1 "ssh-rsa" signature stays disabled.
+// is valid (#151). An RSA key (or RSA host certificate) prefers the SHA-2
+// signatures and keeps SHA-1 "ssh-rsa" last, only for servers that offer
+// nothing else - the same set the library allowed before, so legacy servers
+// keep working.
 func hostKeyAlgorithms(pinned ssh.PublicKey) []string {
 	if pinned == nil {
 		return nil
 	}
-	if pinned.Type() == ssh.KeyAlgoRSA {
-		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256}
+	switch pinned.Type() {
+	case ssh.KeyAlgoRSA:
+		return []string{ssh.KeyAlgoRSASHA512, ssh.KeyAlgoRSASHA256, ssh.KeyAlgoRSA}
+	case ssh.CertAlgoRSAv01:
+		return []string{ssh.CertAlgoRSASHA512v01, ssh.CertAlgoRSASHA256v01, ssh.CertAlgoRSAv01}
 	}
 	return []string{pinned.Type()}
 }
@@ -155,9 +160,10 @@ func (d *sftpDest) clientConfig() (*ssh.ClientConfig, error) {
 // handshakeError explains a failed handshake when the pinned key type is the
 // cause; other errors pass through unchanged.
 func (d *sftpDest) handshakeError(err error) error {
-	if d.hostKey != nil && strings.Contains(err.Error(), "no common algorithm for host key") {
-		return fmt.Errorf("sftp: the server does not offer a %s host key (the pinned type); pin a key type it offers: %w",
-			d.hostKey.Type(), err)
+	var ne *ssh.AlgorithmNegotiationError
+	if d.hostKey != nil && !d.insecure && errors.As(err, &ne) && ne.What == "host key" {
+		return fmt.Errorf("sftp: the server does not offer a %s host key (the pinned type; it offers %s); pin a key type it offers: %w",
+			d.hostKey.Type(), strings.Join(ne.RequestedAlgorithms, ", "), err)
 	}
 	return fmt.Errorf("sftp: handshake: %w", err)
 }

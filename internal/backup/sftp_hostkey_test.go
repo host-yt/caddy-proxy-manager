@@ -106,8 +106,8 @@ func TestSFTPPinnedHostKeyAmongSeveral(t *testing.T) {
 func TestSFTPHostKeyAlgorithms(t *testing.T) {
 	rs := testSigner(t, "rsa").PublicKey()
 	got := hostKeyAlgorithms(rs)
-	if len(got) != 2 || got[0] != ssh.KeyAlgoRSASHA512 || got[1] != ssh.KeyAlgoRSASHA256 {
-		t.Errorf("rsa pin offers %v, want SHA-2 only (no SHA-1 ssh-rsa)", got)
+	if len(got) != 3 || got[0] != ssh.KeyAlgoRSASHA512 || got[1] != ssh.KeyAlgoRSASHA256 || got[2] != ssh.KeyAlgoRSA {
+		t.Errorf("rsa pin offers %v, want SHA-2 first and SHA-1 ssh-rsa last", got)
 	}
 	ed := testSigner(t, "ed25519").PublicKey()
 	if got := hostKeyAlgorithms(ed); len(got) != 1 || got[0] != ssh.KeyAlgoED25519 {
@@ -142,5 +142,29 @@ func TestSFTPPinnedTypeNotOffered(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "does not offer a ssh-ed25519 host key") {
 		t.Errorf("unclear error: %v", err)
+	}
+}
+
+// An RSA-pinned legacy server that signs only with SHA-1 ssh-rsa kept working
+// before #151 (library default); restricting to the pinned type must not
+// break it.
+func TestSFTPRSAPinLegacySHA1Server(t *testing.T) {
+	rs := testSigner(t, "rsa")
+	sha1Only, err := ssh.NewSignerWithAlgorithms(rs.(ssh.AlgorithmSigner), []string{ssh.KeyAlgoRSA})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := handshake(t, pinnedDest(rs.PublicKey()), sha1Only); err != nil {
+		t.Fatalf("RSA pin against a SHA-1-only server: %v", err)
+	}
+}
+
+// insecure_host_key never claims the pin was the reason for a failure.
+func TestSFTPHandshakeErrorInsecure(t *testing.T) {
+	d := pinnedDest(testSigner(t, "ed25519").PublicKey())
+	d.insecure = true
+	err := d.handshakeError(&ssh.AlgorithmNegotiationError{What: "host key"})
+	if strings.Contains(err.Error(), "does not offer") {
+		t.Errorf("insecure mode blamed the pin: %v", err)
 	}
 }
