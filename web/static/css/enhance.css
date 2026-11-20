@@ -337,6 +337,13 @@
 .hpg-topology-lane.is-filtered-out {
   display: none;
 }
+/* #153: lanes and inventory rows off screen skip layout and paint until they
+   scroll near the viewport, so a map with many clients scrolls smoothly. */
+.hpg-topology-lane,
+.hpg-map-inventory-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 240px;
+}
 .hpg-topology-lane::before {
   content: "";
   position: absolute;
