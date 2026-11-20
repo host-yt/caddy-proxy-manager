@@ -57,11 +57,13 @@
         <p>Each lane shows how a client reaches services, public hosts, edge nodes, and private WG peers.</p>
       </div>
       <div class="hpg-topology-tools">
+        <form method="GET" action="/admin/map" class="contents" role="search">
         <label class="hpg-topology-search">
           <span class="sr-only">Search topology</span>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z"/></svg>
-          <input id="hpg-topology-search" type="search" class="r-input" placeholder="Search clients, hosts, nodes, WG IPs">
+          <input id="hpg-topology-search" name="q" value="{{.Query}}" type="search" class="r-input" placeholder="Search clients, hosts, nodes, WG IPs (Enter: all pages)">
         </label>
+        </form>
         <div class="r-segment" aria-label="Topology filters">
           <button type="button" data-topology-filter="all" class="r-segment-item is-active cursor-pointer"><i class="hpg-dot"></i>all</button>
           <button type="button" data-topology-filter="ok" class="r-segment-item cursor-pointer"><i class="hpg-dot hpg-dot-ok"></i>active</button>
@@ -97,7 +99,7 @@
 
           <div class="hpg-map-stack">
             {{range .Services}}
-            <div class="hpg-map-node hpg-map-node-service" tabindex="0" data-map-card data-map-type="Service" data-map-title="{{.Name}}" data-map-status="{{.Status}}" data-map-meta="{{.BackendIP}} · ports {{.PortStart}}-{{.PortEnd}}">
+            <div class="hpg-map-node hpg-map-node-service" data-service-id="{{.ID}}" tabindex="0" data-map-card data-map-type="Service" data-map-title="{{.Name}}" data-map-status="{{.Status}}" data-map-meta="{{.BackendIP}} · ports {{.PortStart}}-{{.PortEnd}}">
               <div class="min-w-0">
                 <div class="hpg-map-row">
                   <strong>{{.Name}}</strong>
@@ -114,7 +116,7 @@
           <div class="hpg-map-stack">
             {{range .Services}}
               {{range .Routes}}
-              <a href="/admin/hosts/{{.ID}}/edit" class="hpg-map-node hpg-map-node-route" data-map-card data-map-type="Route" data-map-title="{{.Domain}}" data-map-status="{{.Status}}" data-map-meta="{{if .PathPrefix}}{{.PathPrefix}}{{else}}root path{{end}} -> :{{.UpstreamPort}}" data-map-href="/admin/hosts/{{.ID}}/edit">
+              <a href="/admin/hosts/{{.ID}}/edit" class="hpg-map-node hpg-map-node-route" data-service-id="{{.ServiceID}}" data-map-card data-map-type="Route" data-map-title="{{.Domain}}" data-map-status="{{.Status}}" data-map-meta="{{if .PathPrefix}}{{.PathPrefix}}{{else}}root path{{end}} -> :{{.UpstreamPort}}" data-map-href="/admin/hosts/{{.ID}}/edit">
                 <div class="hpg-map-row">
                   <strong>{{.Domain}}</strong>
                   <span class="hpg-state {{if eq .Status "active"}}is-ok{{else if or (eq .Status "pending_dns") (eq .Status "pending_ssl") (eq .Status "dns_ok")}}is-warn{{else}}is-err{{end}}">{{.Status}}</span>
@@ -156,6 +158,11 @@
         {{end}}
       </div>
     </div>
+    {{if gt .TotalPages 1}}
+    <div class="px-5 pb-3">
+      {{template "pagination" (dict "Total" .Matching "TotalPgs" .TotalPages "Page" .Page "PrevURL" .PrevURL "NextURL" .NextURL "Size" .Limits.Clients)}}
+    </div>
+    {{end}}
     <div class="hpg-topology-inspector" id="hpg-topology-inspector">
       <div>
         <p class="t-eyebrow">Inspector</p>
@@ -164,13 +171,19 @@
       </div>
       <div class="hpg-inspector-actions">
         <span id="hpg-visible-count">{{len .Clients}} clients visible</span>
+        {{if .Query}}<a href="/admin/map" class="t-small hover:underline">clear search</a>{{end}}
         <a id="hpg-inspector-link" href="#" class="hidden">Open</a>
       </div>
     </div>
     {{else}}
     <div class="hpg-topology-empty">
+      {{if .Query}}
+      <p>No client matches "{{.Query}}".</p>
+      <span><a href="/admin/map" class="hover:underline">Clear the search</a> to see every client.</span>
+      {{else}}
       <p>No visible topology yet.</p>
       <span>Create clients, services, hosts, or WG tunnels to populate this map.</span>
+      {{end}}
     </div>
     {{end}}
   </section>
@@ -184,8 +197,7 @@
             <h2 class="mt-1 t-h3">Clients, services, routes, nodes, and WG peers</h2>
           </div>
           <div class="flex flex-wrap gap-2">
-            <span class="r-pill r-pill-neutral">showing {{.Limits.Clients}} newest clients</span>
-            {{if gt .Counts.Clients .Limits.Clients}}<span class="r-pill r-pill-warning">list clipped</span>{{end}}
+            <span class="r-pill r-pill-neutral">{{if gt .TotalPages 1}}page {{.Page}} of {{.TotalPages}} &middot; {{end}}{{.Matching}} {{if .Query}}matching {{end}}clients</span>
           </div>
         </div>
         <div class="mt-4 flex flex-wrap gap-2">
@@ -198,7 +210,7 @@
 
       <div style="divide-y:1px solid rgb(var(--border))">
         {{range .Clients}}
-        <article class="p-4 sm:p-5" style="border-bottom:1px solid rgb(var(--border))">
+        <article class="p-4 sm:p-5 hpg-map-inventory-row" style="border-bottom:1px solid rgb(var(--border))">
           <div class="flex flex-wrap items-start justify-between gap-3">
             <div class="flex min-w-0 items-center gap-3">
               <div class="icon-chip shrink-0">{{firstRune .Name}}</div>
@@ -454,9 +466,10 @@
     var params = new URLSearchParams(window.location.search);
     var stored = {};
     try { stored = JSON.parse(localStorage.getItem(LS_KEY) || '{}'); } catch(e) {}
-    var q = params.has('q') ? params.get('q') : (stored.q || '');
+    // The search term comes from the server (?q=, applied across all pages);
+    // only the status filter is remembered between visits.
     var f = params.has('filter') ? params.get('filter') : (stored.filter || 'all');
-    return { q: q || '', filter: f || 'all' };
+    return { filter: f || 'all' };
   }
 
   function persistState(q, filter) {
@@ -466,7 +479,7 @@
     if (filter && filter !== 'all') { params.set('filter', filter); } else { params.delete('filter'); }
     var newURL = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     history.replaceState(null, '', newURL);
-    try { localStorage.setItem(LS_KEY, JSON.stringify({ q: q, filter: filter })); } catch(e) {}
+    try { localStorage.setItem(LS_KEY, JSON.stringify({ filter: filter })); } catch(e) {}
   }
 
   function cardTone(card) {
@@ -482,10 +495,21 @@
     return 'ok';
   }
 
+  // Touch only the previous and the new selection: hovering cards while
+  // scrolling used to toggle a class on every card and lane of the page,
+  // restyling the whole map on each mouseenter (#153).
+  var selectedCard = null, selectedLane = null;
   function selectCard(card) {
-    cards.forEach(function(c){ c.classList.toggle('is-selected', c === card); });
+    if (card === selectedCard) return;
+    if (selectedCard) selectedCard.classList.remove('is-selected');
+    card.classList.add('is-selected');
+    selectedCard = card;
     var lane = card.closest('[data-topology-lane]');
-    lanes.forEach(function(l){ l.classList.toggle('is-selected', l === lane); });
+    if (lane !== selectedLane) {
+      if (selectedLane) selectedLane.classList.remove('is-selected');
+      if (lane) lane.classList.add('is-selected');
+      selectedLane = lane;
+    }
     if (title) title.textContent = (card.dataset.mapType || 'Object') + ': ' + (card.dataset.mapTitle || '');
     if (meta) meta.textContent = (card.dataset.mapStatus ? card.dataset.mapStatus + ' - ' : '') + (card.dataset.mapMeta || '');
     if (link) {
@@ -511,7 +535,6 @@
 
   // Restore saved state.
   var saved = readSaved();
-  if (saved.q && search) { search.value = saved.q; }
   if (saved.filter) {
     activeFilter = saved.filter;
     filterButtons.forEach(function(b) {
@@ -644,18 +667,14 @@
     var stacks = Array.prototype.slice.call(lane.querySelectorAll('.hpg-map-stack'));
     /* stacks[0] = services, stacks[1] = routes+tunnels, stacks[2] = edge nodes. */
 
-    if (stacks.length >= 2) {
-      /* service -> route: pair same-index service to all routes in the routes stack. */
-      serviceCards.forEach(function(svc, si) {
-        routeCards.forEach(function(rt, ri) {
-          /* Only draw if this route belongs to this service: check DOM ancestry. */
-          /* Routes are nested inside stacks[1] directly. Without per-service grouping
-             in the DOM we pair each service to every route (fan-out) - acceptable. */
-          var p = edgePath(svc, rt, lane);
-          if (p) paths.push({ d: p, type: 'service-route' });
-        });
-      });
-    }
+    /* service -> route: each route links to its own service (data-service-id),
+       one curve per route instead of a services x routes fan-out (#153). */
+    var svcById = {};
+    serviceCards.forEach(function(svc) { svcById[svc.dataset.serviceId] = svc; });
+    routeCards.forEach(function(rt) {
+      var p = edgePath(svcById[rt.dataset.serviceId], rt, lane);
+      if (p) paths.push({ d: p, type: 'service-route' });
+    });
 
     /* route -> edge node: match by DOM position index (1:1 mapping in template). */
     routeCards.forEach(function(rt, i) {
@@ -671,35 +690,46 @@
     }).join('');
   }
 
-  function renderEdges() {
-    /* Skip if grid is single-column (mobile): CSS hides the SVG anyway, but
-       avoid work and avoid zero-width SVG noise. */
-    var laneEl = shell.querySelector('[data-topology-lane]');
-    if (!laneEl) return;
-    var laneW = laneEl.getBoundingClientRect().width;
-    /* Rough single-column check: lane narrower than ~500px means stacked layout. */
-    var singleCol = laneW < 500;
+  function clearLane(lane) {
+    var old = lane.querySelector('.hpg-topology-edges');
+    if (old) old.remove();
+    lane._edgesDrawn = false;
+  }
 
-    shell.querySelectorAll('[data-topology-lane]').forEach(function(lane) {
-      /* Remove any prior SVG. */
-      var old = lane.querySelector('.hpg-topology-edges');
-      if (old) old.remove();
-      if (singleCol) return;
+  function drawLane(lane) {
+    if (lane._edgesDrawn || lane.classList.contains('is-filtered-out')) return;
+    lane._edgesDrawn = true;
+    /* Single-column (mobile) layout: CSS hides the SVG; skip the work. */
+    var laneRect = lane.getBoundingClientRect();
+    if (laneRect.width < 500) return;
+    var svgContent = buildEdgesForLane(lane);
+    if (!svgContent) return;
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'hpg-topology-edges');
+    svg.setAttribute('aria-hidden', 'true');
+    svg.setAttribute('width', laneRect.width);
+    svg.setAttribute('height', laneRect.height);
+    svg.setAttribute('viewBox', '0 0 ' + laneRect.width + ' ' + laneRect.height);
+    svg.innerHTML = svgContent;
+    /* Insert as first child so it sits behind node cards. */
+    lane.insertBefore(svg, lane.firstChild);
+  }
 
-      var svgContent = buildEdgesForLane(lane);
-      if (!svgContent) return;
-
-      var laneRect = lane.getBoundingClientRect();
-      var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-      svg.setAttribute('class', 'hpg-topology-edges');
-      svg.setAttribute('aria-hidden', 'true');
-      svg.setAttribute('width', laneRect.width);
-      svg.setAttribute('height', laneRect.height);
-      svg.setAttribute('viewBox', '0 0 ' + laneRect.width + ' ' + laneRect.height);
-      svg.innerHTML = svgContent;
-      /* Insert as first child so it sits behind node cards. */
-      lane.insertBefore(svg, lane.firstChild);
+  /* Lanes near the viewport get their curves; the rest are drawn when they
+     scroll into view, so a long map never measures every card up front. */
+  var lanesInView = new Set();
+  var io = ('IntersectionObserver' in window) ? new IntersectionObserver(function(entries) {
+    entries.forEach(function(e) {
+      if (e.isIntersecting) { lanesInView.add(e.target); drawLane(e.target); }
+      else { lanesInView.delete(e.target); }
     });
+  }, { rootMargin: '300px 0px' }) : null;
+
+  function renderEdges() {
+    var all = shell.querySelectorAll('[data-topology-lane]');
+    all.forEach(clearLane);
+    if (!io) { all.forEach(drawLane); return; }
+    lanesInView.forEach(drawLane);
   }
 
   /* Debounced resize to avoid thrash. */
@@ -717,10 +747,14 @@
   }
 
   /* Initial render after layout is stable. */
+  function start() {
+    if (io) shell.querySelectorAll('[data-topology-lane]').forEach(function(l) { io.observe(l); });
+    else renderEdges();
+  }
   if (document.readyState === 'complete') {
-    renderEdges();
+    start();
   } else {
-    window.addEventListener('load', renderEdges);
+    window.addEventListener('load', start);
   }
   window.addEventListener('resize', onResize);
 

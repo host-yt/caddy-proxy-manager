@@ -5,17 +5,21 @@ import (
 	"database/sql"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/host-yt/caddy-proxy-manager/internal/httpserver/middleware"
+	"github.com/host-yt/caddy-proxy-manager/internal/store"
 )
 
 // mapStaleAfter mirrors wgStaleAfter from admin_tunnels for map health badges.
 const mapStaleAfter = 180 * time.Second
 
 const (
-	adminMapClientLimit  = 40
+	// adminMapClientLimit is the page size: clients (with their services,
+	// routes and tunnels) drawn per page of /admin/map (#153).
+	adminMapClientLimit  = 25
 	adminMapServiceLimit = 160
 	adminMapRouteLimit   = 400
 	adminMapNodeLimit    = 80
@@ -30,6 +34,13 @@ type adminMapData struct {
 	ScopeLimited  bool
 	DBUnavailable bool
 	Limits        adminMapLimits
+	// Paging and server-side search over every client, not just this page.
+	Query      string
+	Page       int
+	TotalPages int
+	Matching   int // clients matching Query (all clients when Query is empty)
+	PrevURL    string
+	NextURL    string
 }
 
 type adminMapLimits struct {
@@ -166,8 +177,32 @@ func (h *AdminHandlers) AdminMap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	q := r.URL.Query()
+	d.Query = strings.TrimSpace(q.Get("q"))
+	if len(d.Query) > 200 {
+		d.Query = d.Query[:200]
+	}
+	d.Matching = h.countAdminMapClients(ctx, db, allClients, scopeIDs, d.Query)
+	d.TotalPages = (d.Matching + adminMapClientLimit - 1) / adminMapClientLimit
+	if d.TotalPages < 1 {
+		d.TotalPages = 1
+	}
+	d.Page, _ = strconv.Atoi(q.Get("page"))
+	if d.Page < 1 {
+		d.Page = 1
+	}
+	if d.Page > d.TotalPages {
+		d.Page = d.TotalPages
+	}
+	if d.Page > 1 {
+		d.PrevURL = buildPageURL(q, d.Page-1)
+	}
+	if d.Page < d.TotalPages {
+		d.NextURL = buildPageURL(q, d.Page+1)
+	}
+
 	clientByID := map[int64]*adminMapClient{}
-	for _, c := range h.loadAdminMapClients(ctx, db, allClients, scopeIDs) {
+	for _, c := range h.loadAdminMapClients(ctx, db, allClients, scopeIDs, d.Query, (d.Page-1)*adminMapClientLimit) {
 		d.Clients = append(d.Clients, c)
 		clientByID[c.ID] = c
 	}
@@ -241,16 +276,46 @@ func (h *AdminHandlers) loadAdminMapCounts(ctx context.Context, db *sql.DB, allC
 	return c
 }
 
-func (h *AdminHandlers) loadAdminMapClients(ctx context.Context, db *sql.DB, allClients bool, scopeIDs []int64) []*adminMapClient {
+// adminMapSearchWhere matches a client when the term appears in its name or
+// email, or in one of its services, hosts, edge nodes or WG peers, so search
+// finds a client on any page, not only on the one being viewed.
+func adminMapSearchWhere(term string) (string, []any) {
+	if term == "" {
+		return "", nil
+	}
+	esc := store.LikeEscapeBackslash()
+	pat := store.LikeContains(term)
+	where := ` AND (u.email LIKE ? ` + esc + ` OR c.display_name LIKE ? ` + esc + ` OR u.full_name LIKE ? ` + esc + `
+		OR EXISTS (SELECT 1 FROM services sx WHERE sx.client_id = c.id AND (sx.name LIKE ? ` + esc + ` OR sx.backend_ip LIKE ? ` + esc + `))
+		OR EXISTS (SELECT 1 FROM routes rx JOIN services sx ON sx.id = rx.service_id JOIN caddy_nodes nx ON nx.id = rx.caddy_node_id
+		           WHERE sx.client_id = c.id AND (rx.domain LIKE ? ` + esc + ` OR nx.name LIKE ? ` + esc + `))
+		OR EXISTS (SELECT 1 FROM customer_wg_peer px WHERE px.client_id = c.id AND (px.name LIKE ? ` + esc + ` OR px.assigned_ip LIKE ? ` + esc + `)))`
+	args := make([]any, 9)
+	for i := range args {
+		args[i] = pat
+	}
+	return where, args
+}
+
+func (h *AdminHandlers) countAdminMapClients(ctx context.Context, db *sql.DB, allClients bool, scopeIDs []int64, term string) int {
+	sw, sargs := adminMapSearchWhere(term)
+	return adminMapCount(ctx, db, `SELECT COUNT(*) FROM clients c JOIN users u ON u.id = c.user_id WHERE 1=1`+
+		adminMapScopedWhere("c.id", allClients, scopeIDs)+sw,
+		append(adminMapArgs(scopeIDs, !allClients), sargs...)...)
+}
+
+func (h *AdminHandlers) loadAdminMapClients(ctx context.Context, db *sql.DB, allClients bool, scopeIDs []int64, term string, offset int) []*adminMapClient {
+	sw, sargs := adminMapSearchWhere(term)
 	q := `SELECT c.id, COALESCE(NULLIF(c.display_name,''), NULLIF(u.full_name,''), u.email), u.email,
 		        (SELECT COUNT(*) FROM services s WHERE s.client_id = c.id),
 		        (SELECT COUNT(*) FROM routes r JOIN services s ON s.id = r.service_id WHERE s.client_id = c.id),
 		        (SELECT COUNT(*) FROM customer_wg_peer p WHERE p.client_id = c.id AND p.status = 'active')
 		 FROM clients c
 		 JOIN users u ON u.id = c.user_id
-		 WHERE 1=1` + adminMapScopedWhere("c.id", allClients, scopeIDs) + `
-		 ORDER BY c.id DESC LIMIT ?`
-	args := append(adminMapArgs(scopeIDs, !allClients), adminMapClientLimit)
+		 WHERE 1=1` + adminMapScopedWhere("c.id", allClients, scopeIDs) + sw + `
+		 ORDER BY c.id DESC LIMIT ? OFFSET ?`
+	args := append(adminMapArgs(scopeIDs, !allClients), sargs...)
+	args = append(args, adminMapClientLimit, offset)
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil
