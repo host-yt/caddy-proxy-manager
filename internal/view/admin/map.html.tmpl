@@ -177,7 +177,10 @@
     </div>
     {{else}}
     <div class="hpg-topology-empty">
-      {{if .Query}}
+      {{if .ListError}}
+      <p>The client list could not be loaded{{if .Query}} for "{{.Query}}"{{end}}.</p>
+      <span>The query failed or timed out; try a more specific search, or <a href="/admin/map" class="hover:underline">clear it</a>. Details are in the server log.</span>
+      {{else if .Query}}
       <p>No client matches "{{.Query}}".</p>
       <span><a href="/admin/map" class="hover:underline">Clear the search</a> to see every client.</span>
       {{else}}
@@ -475,7 +478,6 @@
   function persistState(q, filter) {
     // Write to both URL and localStorage so bookmarks and reloads both work.
     var params = new URLSearchParams(window.location.search);
-    if (q) { params.set('q', q); } else { params.delete('q'); }
     if (filter && filter !== 'all') { params.set('filter', filter); } else { params.delete('filter'); }
     var newURL = window.location.pathname + (params.toString() ? '?' + params.toString() : '');
     history.replaceState(null, '', newURL);
@@ -519,8 +521,13 @@
     }
   }
 
+  // The server already applied its ?q= search (on fields a lane may not show,
+  // e.g. a contact's full name), so the box only narrows the page further
+  // once its text differs from that term.
+  var serverQ = search ? search.value.trim().toLowerCase() : '';
   function applyFilters() {
     var q = search ? search.value.trim().toLowerCase() : '';
+    if (q === serverQ) q = '';
     var visible = 0;
     lanes.forEach(function(lane) {
       var textMatch = !q || lane.textContent.toLowerCase().indexOf(q) !== -1;

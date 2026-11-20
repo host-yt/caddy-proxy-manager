@@ -23,24 +23,28 @@ is deliberately left as published.
 
 ## [Unreleased]
 
-## [1.13.2] - 2026-11-20
+## [1.14.0] - 2026-11-20
 
-A faster infrastructure map for larger installs. No upgrade action needed
-beyond pulling the new images.
+A faster, paged infrastructure map for larger installs. No upgrade action
+needed beyond pulling the new images.
+
+### Added
+
+- `/admin/map` pages through clients, 25 per page, and its search runs on
+  the server across every client: names, emails, contacts, services,
+  backend IPs, hosts, edge nodes and WG peers. Enter searches all pages;
+  typing still narrows the page on screen (#153).
 
 ### Fixed
 
 - `/admin/map` lagged while scrolling with a few dozen clients and showed
   only the 40 newest (#153):
-  - Clients are paged, 25 per page. Search runs on the server across every
-    client, matching names, emails, services, backend IPs, hosts, edge
-    nodes and WG peers; Enter searches all pages, typing still filters the
-    current one.
   - Connection curves are drawn only for lanes near the viewport, and each
     host links to its own service. Before, every service was linked to
     every host of the client, which was both wrong and the bulk of the work.
   - Lanes and inventory rows off screen skip layout and paint, and hovering
     a card restyles only the old and new selection instead of the whole map.
+  - A search that fails or times out says so instead of "no client matches".
 
 ## [1.13.1] - 2026-11-18
 

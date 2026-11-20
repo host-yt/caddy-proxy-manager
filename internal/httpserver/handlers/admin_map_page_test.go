@@ -86,3 +86,44 @@ func TestAdminMapPagingAndSearch(t *testing.T) {
 		t.Error("route card does not carry its service id")
 	}
 }
+
+// Review of #153: a search can match fields the lane does not show (a
+// contact's full name); a failing query is reported, not shown as "no match";
+// a long term is cut on a rune.
+func TestAdminMapSearchEdges(t *testing.T) {
+	db := mtlsTLSEditDB(t)
+	if _, err := db.Exec(`UPDATE users SET full_name = 'John Smith' WHERE id = 1`); err != nil {
+		t.Fatal(err)
+	}
+	h := editFormHandlers(t, db)
+
+	page := mapPage(t, h, "q=smith")
+	if strings.Count(page, "data-topology-lane>") != 1 || !strings.Contains(page, "1 matching clients") {
+		t.Fatal("search by full name did not return the client")
+	}
+	if !strings.Contains(page, `value="smith"`) {
+		t.Error("server term not kept in the search box")
+	}
+
+	// 250 runes of "é" (2 bytes each): kept to 200 whole runes.
+	long := strings.Repeat("é", 250)
+	page = mapPage(t, h, "q="+long)
+	if !strings.Contains(page, strings.Repeat("é", 200)) || strings.Contains(page, strings.Repeat("é", 201)) {
+		t.Error("long term not cut to 200 runes")
+	}
+	if strings.Contains(page, "�") {
+		t.Error("term cut mid-character")
+	}
+
+	// A query that fails is an error state, not "no client matches".
+	if _, err := db.Exec(`DROP TABLE customer_wg_peer_usage_sample`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`DROP TABLE customer_wg_peer`); err != nil {
+		t.Skipf("cannot drop customer_wg_peer here: %v", err)
+	}
+	page = mapPage(t, h, "q=acme")
+	if !strings.Contains(page, "could not be loaded") || strings.Contains(page, "No client matches") {
+		t.Error("failed search shown as no match")
+	}
+}

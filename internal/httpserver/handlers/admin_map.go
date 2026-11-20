@@ -39,8 +39,11 @@ type adminMapData struct {
 	Page       int
 	TotalPages int
 	Matching   int // clients matching Query (all clients when Query is empty)
-	PrevURL    string
-	NextURL    string
+	// ListError is set when the client list could not be read (e.g. a
+	// search that timed out), so the page says so instead of "no match".
+	ListError bool
+	PrevURL   string
+	NextURL   string
 }
 
 type adminMapLimits struct {
@@ -179,10 +182,17 @@ func (h *AdminHandlers) AdminMap(w http.ResponseWriter, r *http.Request) {
 
 	q := r.URL.Query()
 	d.Query = strings.TrimSpace(q.Get("q"))
-	if len(d.Query) > 200 {
-		d.Query = d.Query[:200]
+	if r := []rune(d.Query); len(r) > 200 { // cut on a rune, never mid-character
+		d.Query = string(r[:200])
 	}
-	d.Matching = h.countAdminMapClients(ctx, db, allClients, scopeIDs, d.Query)
+	matching, cerr := h.countAdminMapClients(ctx, db, allClients, scopeIDs, d.Query)
+	if cerr != nil {
+		h.Logger.Warn("admin map: count clients", "q", d.Query, "err", cerr)
+		d.ListError = true
+		h.render(w, "map", d)
+		return
+	}
+	d.Matching = matching
 	d.TotalPages = (d.Matching + adminMapClientLimit - 1) / adminMapClientLimit
 	if d.TotalPages < 1 {
 		d.TotalPages = 1
@@ -201,8 +211,15 @@ func (h *AdminHandlers) AdminMap(w http.ResponseWriter, r *http.Request) {
 		d.NextURL = buildPageURL(q, d.Page+1)
 	}
 
+	clients, lerr := h.loadAdminMapClients(ctx, db, allClients, scopeIDs, d.Query, (d.Page-1)*adminMapClientLimit)
+	if lerr != nil {
+		h.Logger.Warn("admin map: load clients", "q", d.Query, "page", d.Page, "err", lerr)
+		d.ListError = true
+		h.render(w, "map", d)
+		return
+	}
 	clientByID := map[int64]*adminMapClient{}
-	for _, c := range h.loadAdminMapClients(ctx, db, allClients, scopeIDs, d.Query, (d.Page-1)*adminMapClientLimit) {
+	for _, c := range clients {
 		d.Clients = append(d.Clients, c)
 		clientByID[c.ID] = c
 	}
@@ -297,14 +314,16 @@ func adminMapSearchWhere(term string) (string, []any) {
 	return where, args
 }
 
-func (h *AdminHandlers) countAdminMapClients(ctx context.Context, db *sql.DB, allClients bool, scopeIDs []int64, term string) int {
+func (h *AdminHandlers) countAdminMapClients(ctx context.Context, db *sql.DB, allClients bool, scopeIDs []int64, term string) (int, error) {
 	sw, sargs := adminMapSearchWhere(term)
-	return adminMapCount(ctx, db, `SELECT COUNT(*) FROM clients c JOIN users u ON u.id = c.user_id WHERE 1=1`+
+	var n int
+	err := db.QueryRowContext(ctx, `SELECT COUNT(*) FROM clients c JOIN users u ON u.id = c.user_id WHERE 1=1`+
 		adminMapScopedWhere("c.id", allClients, scopeIDs)+sw,
-		append(adminMapArgs(scopeIDs, !allClients), sargs...)...)
+		append(adminMapArgs(scopeIDs, !allClients), sargs...)...).Scan(&n)
+	return n, err
 }
 
-func (h *AdminHandlers) loadAdminMapClients(ctx context.Context, db *sql.DB, allClients bool, scopeIDs []int64, term string, offset int) []*adminMapClient {
+func (h *AdminHandlers) loadAdminMapClients(ctx context.Context, db *sql.DB, allClients bool, scopeIDs []int64, term string, offset int) ([]*adminMapClient, error) {
 	sw, sargs := adminMapSearchWhere(term)
 	q := `SELECT c.id, COALESCE(NULLIF(c.display_name,''), NULLIF(u.full_name,''), u.email), u.email,
 		        (SELECT COUNT(*) FROM services s WHERE s.client_id = c.id),
@@ -318,7 +337,7 @@ func (h *AdminHandlers) loadAdminMapClients(ctx context.Context, db *sql.DB, all
 	args = append(args, adminMapClientLimit, offset)
 	rows, err := db.QueryContext(ctx, q, args...)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer rows.Close()
 	var out []*adminMapClient
@@ -328,7 +347,7 @@ func (h *AdminHandlers) loadAdminMapClients(ctx context.Context, db *sql.DB, all
 			out = append(out, &c)
 		}
 	}
-	return out
+	return out, rows.Err()
 }
 
 func (h *AdminHandlers) loadAdminMapServices(ctx context.Context, db *sql.DB, clientIDs []int64) []*adminMapService {
