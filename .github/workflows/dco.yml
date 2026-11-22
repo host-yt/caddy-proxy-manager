@@ -2,6 +2,7 @@ name: DCO
 
 on:
   pull_request:
+    types: [opened, synchronize, reopened, edited]
 
 concurrency:
   group: dco-${{ github.workflow }}-${{ github.ref }}
@@ -31,4 +32,21 @@ jobs:
             git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>$' || {
               echo "::error::$c lacks Signed-off-by (use git commit -s)"; fail=1; }
           done
+          exit $fail
+      - name: Check no tool attribution
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+          BODY: ${{ github.event.pull_request.body }}
+        run: |
+          fail=0
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            info=$(git log -1 --format='%an <%ae>%n%cn <%ce>%n%B' "$c")
+            if grep -qiE 'noreply@anthropic\.com|^co-authored-by:.*claude|^claude-session:|generated (by|with) .*claude' <<<"$info"; then
+              echo "::error::$c carries tool attribution (author, trailer or footer)"; fail=1
+            fi
+          done
+          if grep -qiE 'generated (by|with) .*claude|claude\.ai/code' <<<"$BODY"; then
+            echo "::error::PR description carries a tool footer"; fail=1
+          fi
           exit $fail
