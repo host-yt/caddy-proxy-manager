@@ -44,7 +44,8 @@ data/
 caddy_data/
 caddy_config/
 
-.claude/
+.claude/*
+!.claude/settings.json
 
 # compiled binaries
 /node-agent
